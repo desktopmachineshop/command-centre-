@@ -47,6 +47,38 @@ journal entry saying the command centre is live.`
 The task should show brain tool calls in its transcript, and a `brain.journal` proposal should
 appear under Approvals. If the run fails, its error is on the task page.
 
+## Triage
+
+Every event goes through a chain of triagers, cheapest first. The first answer at or above
+`TRIAGE_MIN_CONFIDENCE` (default 0.7) wins. If none is that confident, the most confident one is
+used, and with no answer at all the event goes to the agent in the `personal` vertical.
+
+1. **Rules** (always on, free): chat, cron, and events whose ingress already set a vertical.
+2. **Jev** (set `JEV_API_KEY`): TypeSafe's decision model. One `POST /v1/systemone` call asks
+   for the vertical (a Choice), the intent (a Choice over `vertical/intent` pairs), urgency
+   (a Score) and three yes/no Nouls (noise, FYI-only, simple). Those pick the route: `drop`,
+   `file`, `cheap-agent` or `agent`. To go through a LiteLLM proxy, set
+   `JEV_BASE_URL=http://<proxy>/typesafe` and use the LiteLLM key as `JEV_API_KEY`.
+3. **Claude Haiku** (set `ANTHROPIC_TRIAGE_API_KEY`): the fallback when Jev is down or unsure.
+   It costs about $0.10 per million input tokens and uses its own key, separate from the agent's
+   `ANTHROPIC_FALLBACK_API_KEY`.
+
+Model triagers fail soft. On an error or timeout they return nothing, the chain moves on, and
+the server logs a `[triage]` warning.
+
+**Measure accuracy before trusting `auto` policies.** The target is ≥90% intent accuracy:
+
+```bash
+JEV_API_KEY=... pnpm --filter @cc/triage eval fixtures/dms-sample.jsonl --triager jev
+# --triager chain|rules|jev|haiku   --json   --fail-under 0.9
+```
+
+It prints vertical, intent and route accuracy, the mistakes (expected → got), latency, and
+estimated cost. Each event is a real, billed call. A fixture is one JSON line:
+`{"event": {"source": "email", "kind": "message", "title": "...", "payload": {"from": "...", "text": "..."}}, "expected": {"vertical": "dms", "intent": "order-status", "route": "cheap-agent"}}`.
+`fixtures/dms-sample.jsonl` holds synthetic examples. For a real measure, export a few hundred
+past shop emails into the same format.
+
 ## Phone (PWA)
 
 Open the Railway URL on your phone, sign in with the admin token, then **Add to Home Screen**.

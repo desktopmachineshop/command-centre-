@@ -36,6 +36,18 @@ const Env = z.object({
 
   SCHEDULES_ENABLED: bool.default(true),
 
+  // --- Triage (model triagers are added to the chain only when their key is set) ---
+  /** TypeSafe Jev API key. */
+  JEV_API_KEY: z.string().optional(),
+  /** Default https://api.typesafe.ai; or a LiteLLM proxy's /typesafe path. */
+  JEV_BASE_URL: z.string().optional(),
+  /** Default jev-latest. */
+  JEV_MODEL: z.string().optional(),
+  /** Anthropic API key for the Haiku fallback classifier (separate from the agent fallback key). */
+  ANTHROPIC_TRIAGE_API_KEY: z.string().optional(),
+  /** The chain takes the first triager at or above this confidence. */
+  TRIAGE_MIN_CONFIDENCE: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().min(0).max(1).default(0.7)),
+
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().default("mailto:admin@example.com"),
@@ -72,6 +84,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       concurrency: e.AGENT_CONCURRENCY,
     },
     schedulesEnabled: e.SCHEDULES_ENABLED,
+    triage: {
+      jevApiKey: e.JEV_API_KEY || undefined,
+      jevBaseUrl: e.JEV_BASE_URL || undefined,
+      jevModel: e.JEV_MODEL || undefined,
+      anthropicApiKey: e.ANTHROPIC_TRIAGE_API_KEY || undefined,
+      minConfidence: e.TRIAGE_MIN_CONFIDENCE,
+    },
     vapid:
       e.VAPID_PUBLIC_KEY && e.VAPID_PRIVATE_KEY
         ? { publicKey: e.VAPID_PUBLIC_KEY, privateKey: e.VAPID_PRIVATE_KEY, subject: e.VAPID_SUBJECT }
