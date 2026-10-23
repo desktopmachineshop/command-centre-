@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Api } from "../api";
 import { ago, usd } from "../format";
 import { type LiveFeed, useLive, useLoad } from "../live";
+import { go } from "../router";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
 
@@ -15,6 +16,8 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   );
   // Messages streamed while the run is in progress, before they are in the loaded detail.
   const [live, setLive] = useState<Record<string, AgentMessage[]>>({});
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   useLive(feed, (m) => {
     if (m.type === "run.message" && m.taskId === id) setLive((s) => ({ ...s, [m.runId]: [...(s[m.runId] ?? []), m.message] }));
   });
@@ -23,6 +26,18 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   if (!data) return <p className="muted">Loading…</p>;
   const { task, runs, proposals } = data;
   const liveOnly = Object.keys(live).filter((runId) => !runs.some((r) => r.id === runId));
+  const canRetry = task.status === "failed" || task.status === "deferred";
+  const retry = async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await api.retry(task.id);
+    } catch (e) {
+      setRetryError((e as Error).message);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <section>
@@ -34,6 +49,21 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
       <p className="muted small">
         {task.intent} · {task.route} · urgency {task.urgency.toFixed(1)} · {ago(task.createdAt)}
       </p>
+      {task.note && <p className={`small note status ${task.status}`}>{task.note}</p>}
+      {task.duplicateOf && (
+        <p className="small">
+          <a onClick={() => go(`task/${task.duplicateOf}`)}>Open the original task</a>
+        </p>
+      )}
+      {canRetry && (
+        <div className="row">
+          <button className="primary" disabled={retrying} onClick={retry}>
+            {task.status === "deferred" ? "Run now" : "Retry"}
+          </button>
+          {task.status === "deferred" && <span className="muted small">Ignores the daily budget for this one run.</span>}
+        </div>
+      )}
+      {retryError && <p className="error">{retryError}</p>}
 
       {proposals.length > 0 && (
         <>

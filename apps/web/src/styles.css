@@ -85,6 +85,10 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .status.awaiting_approval, .status.pending { color: var(--warn); }
 .status.done, .status.succeeded, .status.executed { color: var(--ok); }
 .status.failed, .status.rejected { color: var(--bad); }
+.status.deferred { color: var(--warn); }
+.note { text-transform: none; font-weight: 400; margin: 6px 0; }
+.row.wrap { flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.today .list li { padding: 3px 0; }
 
 .transcript .msg { margin: 6px 0; }
 .transcript .msg.text { white-space: pre-wrap; }

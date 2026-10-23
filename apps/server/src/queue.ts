@@ -1,7 +1,12 @@
 import { PgBoss } from "pg-boss";
 
+export interface EnqueueOptions {
+  /** Wait this long before the task becomes runnable. */
+  delaySeconds?: number;
+}
+
 export interface TaskQueue {
-  enqueue(taskId: string): Promise<void>;
+  enqueue(taskId: string, options?: EnqueueOptions): Promise<void>;
   /** Starts consuming; `handler` runs one task. */
   work(handler: (taskId: string) => Promise<void>): Promise<void>;
   stop(): Promise<void>;
@@ -30,8 +35,9 @@ export class PgBossTaskQueue implements TaskQueue {
     this.started = true;
   }
 
-  async enqueue(taskId: string): Promise<void> {
-    await this.boss.send(QUEUE, { taskId });
+  async enqueue(taskId: string, options: EnqueueOptions = {}): Promise<void> {
+    const startAfter = options.delaySeconds ? Math.ceil(options.delaySeconds) : undefined;
+    await this.boss.send(QUEUE, { taskId }, startAfter ? { startAfter } : {});
   }
 
   async work(handler: (taskId: string) => Promise<void>): Promise<void> {
@@ -50,9 +56,11 @@ export class InlineTaskQueue implements TaskQueue {
   private handler?: (taskId: string) => Promise<void>;
   readonly pending: Promise<void>[] = [];
 
-  async enqueue(taskId: string): Promise<void> {
-    if (!this.handler) throw new Error("No worker registered");
-    this.pending.push(this.handler(taskId));
+  async enqueue(taskId: string, options: EnqueueOptions = {}): Promise<void> {
+    const handler = this.handler;
+    if (!handler) throw new Error("No worker registered");
+    const ms = (options.delaySeconds ?? 0) * 1000;
+    this.pending.push(ms ? new Promise((r) => setTimeout(r, ms)).then(() => handler(taskId)) : handler(taskId));
   }
 
   async work(handler: (taskId: string) => Promise<void>): Promise<void> {

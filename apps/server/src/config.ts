@@ -33,8 +33,20 @@ const Env = z.object({
   AGENT_MAX_TURNS: z.coerce.number().int().positive().default(30),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15 * 60_000),
   AGENT_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  /** Global cap on agent spend per day (see DAY_TIMEZONE); unset means no cap. */
+  AGENT_DAILY_BUDGET_USD: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().positive().optional()),
+  /** Runs per vertical at once, so one noisy vertical can't take every worker slot. */
+  AGENT_MAX_CONCURRENT_PER_VERTICAL: z.coerce.number().int().positive().default(1),
+  /** How long a task waits before trying again when its vertical is at its run limit. */
+  AGENT_BUSY_RETRY_SECONDS: z.coerce.number().positive().default(20),
+  /** An identical prompt for the same vertical within this window is linked, not re-run. 0 turns it off. */
+  AGENT_DEDUPE_WINDOW_MINUTES: z.coerce.number().min(0).default(10),
 
   SCHEDULES_ENABLED: bool.default(true),
+  /** Timezone that defines "today" for budgets and digests. */
+  DAY_TIMEZONE: z.string().default("Europe/London"),
+  /** When the daily digest is written, in DAY_TIMEZONE. "off" disables it. */
+  DIGEST_CRON: z.string().default("30 18 * * *"),
 
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
@@ -70,8 +82,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       maxTurns: e.AGENT_MAX_TURNS,
       timeoutMs: e.AGENT_TIMEOUT_MS,
       concurrency: e.AGENT_CONCURRENCY,
+      dailyBudgetUsd: e.AGENT_DAILY_BUDGET_USD,
+      maxConcurrentPerVertical: e.AGENT_MAX_CONCURRENT_PER_VERTICAL,
+      busyRetrySeconds: e.AGENT_BUSY_RETRY_SECONDS,
+      dedupeWindowMinutes: e.AGENT_DEDUPE_WINDOW_MINUTES,
     },
     schedulesEnabled: e.SCHEDULES_ENABLED,
+    timezone: e.DAY_TIMEZONE,
+    digestCron: e.DIGEST_CRON === "off" || !e.DIGEST_CRON ? undefined : e.DIGEST_CRON,
     vapid:
       e.VAPID_PUBLIC_KEY && e.VAPID_PRIVATE_KEY
         ? { publicKey: e.VAPID_PUBLIC_KEY, privateKey: e.VAPID_PRIVATE_KEY, subject: e.VAPID_SUBJECT }

@@ -8,9 +8,12 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { ActionService } from "./actions";
+import { BudgetService } from "./budget";
 import type { Config } from "./config";
+import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
+import { DigestService } from "./digest";
 import { apiRoutes } from "./http/api";
 import { wsHandler } from "./http/ws";
 import { Hub } from "./hub";
@@ -19,7 +22,7 @@ import { Pipeline } from "./pipeline";
 import { type Notifier, WebPushNotifier } from "./push";
 import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
-import { startSchedules } from "./scheduler";
+import { startSchedules, startSystemJobs } from "./scheduler";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -64,6 +67,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
   const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency);
+  const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
+  const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone);
   const pipeline = new Pipeline({
     store,
     hub,
@@ -78,6 +83,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     skillsDir: config.skillsDir,
     internalBaseUrl: config.internalBaseUrl,
     maxTurns: config.agent.maxTurns,
+    budget,
+    guards: {
+      maxConcurrentPerVertical: config.agent.maxConcurrentPerVertical,
+      busyRetrySeconds: config.agent.busyRetrySeconds,
+      staleRunSeconds: Math.ceil(config.agent.timeoutMs / 1000) + 300,
+      dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
+    },
   });
 
   const app = new Hono();
@@ -88,7 +100,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     return c.json({ ok: true });
   });
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken }));
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
   app.route("/mcp", mcpRoutes({ brain, actions, runTokens, adminToken: config.adminToken }));
 
   if (config.webDistDir) {
@@ -100,6 +112,12 @@ export function createServer(config: Config, overrides: Overrides = {}) {
 
   let crons: ReturnType<typeof startSchedules> = [];
 
+  /** Just after midnight: finish yesterday's digest notes (no push) and release deferred tasks. */
+  const rollover = async () => {
+    await digests.deliver(addDays(digests.today(), -1), { push: false });
+    await pipeline.releaseDeferred();
+  };
+
   return {
     app,
     injectWebSocket,
@@ -110,13 +128,28 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     actions,
     workers,
     queue,
+    budget,
+    digests,
+    rollover,
     async start() {
       await migrate(pool);
       await store.markAllNodesOffline();
       await brain.init();
       if (queue instanceof PgBossTaskQueue) await queue.start();
       await queue.work((taskId) => pipeline.runTask(taskId));
-      if (config.schedulesEnabled) crons = startSchedules(verticals.all(), (e) => pipeline.ingest(e));
+      // Deferred tasks from a day the server slept through; any still over budget re-defer.
+      await pipeline.releaseDeferred();
+      if (config.schedulesEnabled) {
+        crons = startSchedules(verticals.all(), (e) => pipeline.ingest(e));
+        crons.push(
+          ...startSystemJobs({
+            timezone: config.timezone,
+            digestCron: config.digestCron,
+            digest: () => digests.deliver(),
+            rollover,
+          }),
+        );
+      }
     },
     async stop() {
       for (const c of crons) c.stop();

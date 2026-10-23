@@ -42,6 +42,35 @@ export type TaskDetail = {
   proposals: Proposal[];
 };
 
+export type Stats = {
+  day: string;
+  costTodayUsd: number;
+  costTodayByVertical: Record<string, number>;
+  budgets: { globalUsd: number | null; verticals: Record<string, number> };
+  pendingApprovals: number;
+};
+
+export type DigestCounts = { done: number; failed: number; deferred: number; autoActions: number; pendingApprovals: number; jobs: number };
+
+/** One vertical's deterministic daily digest (GET /api/digest). */
+export type Digest = {
+  vertical: string;
+  name: string;
+  date: string;
+  costUsd: number;
+  budgetUsd: number | null;
+  counts: DigestCounts;
+  headline: string;
+  markdown: string;
+};
+
+export type DigestDay = {
+  date: string;
+  timezone: string;
+  totals: DigestCounts & { costUsd: number; budgetUsd: number | null };
+  digests: Digest[];
+};
+
 export function createApi(conn: Connection) {
   const base = conn.baseUrl.replace(/\/$/, "");
   const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
@@ -63,6 +92,9 @@ export function createApi(conn: Connection) {
     chat: (text: string, vertical?: string) => post<{ event: Event; task: Task }>("/chat", { text, vertical }),
     tasks: (status?: string) => call<Task[]>(`/tasks${status ? `?status=${status}` : ""}`),
     task: (id: string) => call<TaskDetail>(`/tasks/${id}`),
+    retry: (id: string) => post<Task>(`/tasks/${id}/retry`),
+    digest: (options: { vertical?: string; date?: string } = {}) =>
+      call<DigestDay>(`/digest?${new URLSearchParams(Object.entries(options).filter(([, v]) => v) as [string, string][])}`),
     proposals: (status?: string) => call<Proposal[]>(`/proposals${status ? `?status=${status}` : ""}`),
     approve: (id: string) => post<Proposal>(`/proposals/${id}/approve`),
     reject: (id: string) => post<Proposal>(`/proposals/${id}/reject`),
@@ -72,7 +104,7 @@ export function createApi(conn: Connection) {
     brainList: (folder = "") => call<string[]>(`/brain/list?folder=${encodeURIComponent(folder)}`),
     brainNote: (path: string) =>
       call<{ path: string; frontmatter: Record<string, unknown>; body: string }>(`/brain/note?path=${encodeURIComponent(path)}`),
-    stats: () => call<{ costTodayUsd: number; pendingApprovals: number }>("/stats"),
+    stats: () => call<Stats>("/stats"),
     pushKey: () => call<{ publicKey: string | null }>("/push/key"),
     pushSubscribe: (sub: PushSubscriptionJSON) => post("/push/subscribe", sub),
   };
