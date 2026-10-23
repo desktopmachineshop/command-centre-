@@ -99,6 +99,26 @@ const toJob = (r: Row): Job => ({
 export class Store {
   constructor(readonly pool: Pool) {}
 
+  /**
+   * Runs `fn` in one transaction, handing it a Store bound to the transaction's
+   * connection. Only single-query methods may be used on it (not `claimTaskRun`
+   * or `transaction`, which take their own connection).
+   */
+  async transaction<T>(fn: (tx: Store) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const result = await fn(new Store(client as unknown as Pool));
+      await client.query("commit");
+      return result;
+    } catch (err) {
+      await client.query("rollback").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   // Events
 
   /** Inserts an event; returns null when its dedupe key was already seen. */
@@ -120,6 +140,12 @@ export class Store {
 
   async getEvent(id: string): Promise<Event | null> {
     const { rows } = await this.pool.query("select * from events where id = $1", [id]);
+    return rows[0] ? toEvent(rows[0]) : null;
+  }
+
+  /** The event with this dedupe key, row-locked until the end of the transaction (use inside `transaction`). */
+  async lockEventByDedupeKey(dedupeKey: string): Promise<Event | null> {
+    const { rows } = await this.pool.query("select * from events where dedupe_key = $1 for update", [dedupeKey]);
     return rows[0] ? toEvent(rows[0]) : null;
   }
 
@@ -153,6 +179,18 @@ export class Store {
     return toTask(rows[0]!);
   }
 
+  /** The task created for an event, if any. */
+  async getTaskForEvent(eventId: string): Promise<Task | null> {
+    const { rows } = await this.pool.query("select * from tasks where event_id = $1 order by created_at limit 1", [eventId]);
+    return rows[0] ? toTask(rows[0]) : null;
+  }
+
+  /** Every queued task, oldest first. */
+  async listQueuedTasks(): Promise<Task[]> {
+    const { rows } = await this.pool.query("select * from tasks where status = 'queued' order by created_at");
+    return rows.map(toTask);
+  }
+
   /** Changes a task's status. The note describes the status, so it is replaced (cleared by default). */
   async setTaskStatus(id: string, status: TaskStatus, note: string | null = null): Promise<Task> {
     const { rows } = await this.pool.query(
@@ -167,7 +205,8 @@ export class Store {
    * Takes a run slot for a task, allowing at most `max` running tasks per vertical.
    * A per-vertical advisory lock makes the count-then-update atomic across workers
    * and replicas. Running tasks untouched for `staleSeconds` (a crashed run) don't
-   * count. Consumes the task's one-off budget override and reports whether it was set.
+   * count, and only such a stale run may be claimed again: a fresh one is "gone", so
+   * a redelivered job never starts a second concurrent run. Consumes the task's one-off budget override and reports whether it was set.
    */
   async claimTaskRun(
     id: string,
@@ -182,8 +221,13 @@ export class Store {
         return { state: "gone" };
       }
       await client.query("select pg_advisory_xact_lock(hashtext('cc:vertical-runs:' || $1))", [current.vertical]);
-      const task = (await client.query("select * from tasks where id = $1 for update", [id])).rows[0];
-      if (!task || (task.status !== "queued" && task.status !== "running")) {
+      const task = (
+        await client.query(
+          "select *, updated_at <= now() - make_interval(secs => $2) as stale from tasks where id = $1 for update",
+          [id, options.staleSeconds],
+        )
+      ).rows[0];
+      if (!task || !(task.status === "queued" || (task.status === "running" && task.stale))) {
         await client.query("rollback");
         return { state: "gone" };
       }
