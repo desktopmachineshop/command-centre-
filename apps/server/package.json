@@ -17,6 +17,7 @@
     "@cc/agent-runtime": "workspace:*",
     "@cc/brain": "workspace:*",
     "@cc/core": "workspace:*",
+    "@cc/odoo": "workspace:*",
     "@cc/triage": "workspace:*",
     "@cc/verticals": "workspace:*",
     "@hono/node-server": "^2.1.5",

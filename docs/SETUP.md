@@ -77,14 +77,56 @@ claude mcp add --transport http brain https://<your-domain>/mcp/brain \
 
 Or run it locally over stdio against a clone: `BRAIN_DIR=~/brain pnpm --filter @cc/brain mcp`.
 
+## Odoo
+
+The server talks to Odoo Online through its external API. No custom modules are needed. When
+Odoo is configured, the DMS and 3dpandme agents get the read-only `odoo` MCP server (products,
+stock, orders, customers, chatter, websites and blogs). They also get three actions, all `draft`
+(approve each one):
+
+- `odoo.message.post`: a chatter message to the customer, or an internal note;
+- `odoo.blog.draft`: an unpublished blog post;
+- `odoo.product.update_price`: a price change.
+
+Without the Odoo variables, all of this is simply left out.
+
+1. **Use a dedicated user** if your plan allows one, e.g. "Command Centre bot". Give it only the
+   access it needs: Sales and Inventory read, Website/Blog editor, and Contacts. Every action it
+   takes is logged in Odoo under that user. Odoo notes that the external API needs a **Custom**
+   plan on Odoo Online; it isn't available on One App Free or Standard.
+2. **Create an API key** while logged in as that user: click your avatar (top right) → **My
+   Preferences** (or **Preferences**) → **Account Security** tab → **New API Key**. Confirm your
+   password, name the key "command centre", pick a duration if asked, and copy the key. Odoo
+   only shows it once.
+3. **Set the variables** (all four, or Odoo stays off):
+   - `ODOO_URL`: e.g. `https://yourcompany.odoo.com`
+   - `ODOO_DB`: the database name. On Odoo Online, this is usually the subdomain (`yourcompany`).
+     You can confirm it in Settings, at the bottom of the page, with developer mode on.
+   - `ODOO_USERNAME`: the user's login (its email address)
+   - `ODOO_API_KEY`: the key from step 2
+   - `ODOO_API` (optional): `jsonrpc` (the default) works on Odoo 14 and later. Set `json2` on
+     Odoo 19+ to use the newer `/json/2` API. Odoo has deprecated `/jsonrpc`, with removal
+     planned for Odoo 22 (Odoo Online 21.1), so switch once your instance is on 19.
+
+To check the setup from your PC:
+
+```bash
+claude mcp add --transport http odoo https://<your-domain>/mcp/odoo \
+  --header "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+Then ask Claude to `list_websites`. You should see both the Desktop Machine Shop and 3dpandme
+sites, with their blogs.
+
 ## Extending
 
 - **New vertical:** add `packages/verticals/src/<id>.ts` (copy an existing one) and list it in
   `packages/verticals/src/index.ts`. The brain folder is created on the next boot.
 - **New skill:** add `skills/<name>/SKILL.md` and list `<name>` in the verticals that should use it.
 - **Schedules:** add to a vertical's `schedules` (cron in its timezone, plus the prompt to run).
-- **New outward action** (email, Odoo, social): add an executor to `builtinExecutors` in
-  `apps/server/src/actions.ts`. It defaults to `draft` (needs approval) unless a vertical's
+- **New outward action** (email, social): add an executor to `builtinExecutors` in
+  `apps/server/src/actions.ts`, or export them from a package, as `packages/odoo` does with
+  `createOdooExecutors`. It defaults to `draft` (needs approval) unless a vertical's
   `policies` says otherwise.
 - **New ingress** (an email inbox, Odoo polling): call `pipeline.ingest({...})` with a `source`,
   `kind`, `title` and `payload`. Set `dedupeKey` so repeats are ignored.

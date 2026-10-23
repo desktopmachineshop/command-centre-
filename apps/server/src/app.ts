@@ -2,12 +2,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
+import { createOdooExecutors, createOdooMcpServer, OdooClient } from "@cc/odoo";
 import { ChainTriager, RulesTriager, type Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
 import { createNodeWebSocket } from "@hono/node-ws";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { ActionService } from "./actions";
+import { ActionService, builtinExecutors } from "./actions";
 import type { Config } from "./config";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
@@ -60,7 +62,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     folders: verticals.all().map((v) => v.brainFolder),
   });
   const notifier = overrides.notifier ?? new WebPushNotifier(store, config.vapid);
-  const actions = new ActionService(store, hub, verticals, { brain, notifier });
+  // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
+  const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
+  const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
+  const executors = odoo ? { ...builtinExecutors, ...createOdooExecutors(odoo) } : builtinExecutors;
+  const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
   const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency);
@@ -78,6 +84,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     skillsDir: config.skillsDir,
     internalBaseUrl: config.internalBaseUrl,
     maxTurns: config.agent.maxTurns,
+    mcpServers: ["brain", ...Object.keys(extraMcpServers)],
   });
 
   const app = new Hono();
@@ -89,7 +96,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken }));
   app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
-  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, adminToken: config.adminToken }));
+  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, adminToken: config.adminToken, servers: extraMcpServers }));
 
   if (config.webDistDir) {
     const root = config.webDistDir;

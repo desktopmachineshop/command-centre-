@@ -58,7 +58,14 @@ function actionsServer(actions: ActionService, caller: Caller): McpServer {
   return server;
 }
 
-export function mcpRoutes(deps: { brain: Brain; actions: ActionService; runTokens: RunTokens; adminToken: string }) {
+export function mcpRoutes(deps: {
+  brain: Brain;
+  actions: ActionService;
+  runTokens: RunTokens;
+  adminToken: string;
+  /** Extra servers mounted at /<name> with the same auth, e.g. odoo. A fresh server per request. */
+  servers?: Record<string, () => McpServer>;
+}) {
   const app = new Hono<{ Variables: { caller: Caller } }>();
 
   app.use("*", async (c, next) => {
@@ -70,5 +77,6 @@ export function mcpRoutes(deps: { brain: Brain; actions: ActionService; runToken
 
   app.all("/brain", (c) => handle(createBrainMcpServer(deps.brain), c.req.raw));
   app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller")), c.req.raw));
+  for (const [name, create] of Object.entries(deps.servers ?? {})) app.all(`/${name}`, (c) => handle(create(), c.req.raw));
   return app;
 }

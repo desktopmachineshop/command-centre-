@@ -36,16 +36,23 @@ ${actions}
 Finish with a short summary of what you found and what you proposed.`;
 }
 
+/**
+ * `actions` always, plus each server the manifest lists that is actually
+ * mounted at `/mcp/<name>` (e.g. `odoo` only when Odoo is configured).
+ */
 export function mcpServersFor(
   vertical: VerticalManifest,
   baseUrl: string,
   token: string,
+  mounted: readonly string[] = ["brain"],
 ): Record<string, McpServerConfig> {
   const headers = { Authorization: `Bearer ${token}` };
   const servers: Record<string, McpServerConfig> = {
     actions: { type: "http", url: `${baseUrl}/mcp/actions`, headers },
   };
-  if (vertical.mcpServers.includes("brain")) servers.brain = { type: "http", url: `${baseUrl}/mcp/brain`, headers };
+  for (const name of vertical.mcpServers) {
+    if (mounted.includes(name)) servers[name] = { type: "http", url: `${baseUrl}/mcp/${name}`, headers };
+  }
   return servers;
 }
 

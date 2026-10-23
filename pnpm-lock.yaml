@@ -35,6 +35,9 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cc/odoo':
+        specifier: workspace:*
+        version: link:../../packages/odoo
       '@cc/triage':
         specifier: workspace:*
         version: link:../../packages/triage
@@ -127,6 +130,15 @@ importers:
 
   packages/core:
     dependencies:
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/odoo:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.6.7)
       zod:
         specifier: ^4.6.7
         version: 4.6.7

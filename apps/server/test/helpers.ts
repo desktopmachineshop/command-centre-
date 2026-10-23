@@ -30,7 +30,8 @@ export class RecordingNotifier implements Notifier {
   }
 }
 
-export async function makeServer(options: { runner?: AgentRunner } = {}) {
+/** `env` adds or overrides config variables, e.g. ODOO_* pointing at a fake Odoo. */
+export async function makeServer(options: { runner?: AgentRunner; env?: Record<string, string> } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), "cc-server-"));
   const skillsDir = join(dataDir, "skills");
   mkdirSync(join(skillsDir, "brain-notes"), { recursive: true });
@@ -45,6 +46,7 @@ export async function makeServer(options: { runner?: AgentRunner } = {}) {
     AGENT_RUNNER: "echo",
     SCHEDULES_ENABLED: "false",
     INTERNAL_BASE_URL: "http://cc.test",
+    ...options.env,
   });
   const queue = new InlineTaskQueue();
   const notifier = new RecordingNotifier();
