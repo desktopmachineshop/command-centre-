@@ -29,3 +29,4 @@ skills/                shared skills bank (Agent Skills format)
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and phased plan
 - [docs/SETUP.md](docs/SETUP.md): running locally and deploying to Railway
+- [docs/ORG.md](docs/ORG.md): the org chart of agent roles (Chief of Staff, leads, specialists), routing and handoffs

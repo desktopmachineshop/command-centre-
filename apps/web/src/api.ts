@@ -1,4 +1,4 @@
-import type { Event, Job, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun } from "@cc/core";
+import type { Event, Job, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun } from "@cc/core";
 
 /** Connection settings. The desktop app can point at a remote server; the PWA defaults to its own origin. */
 export interface Connection {
@@ -135,7 +135,11 @@ export function createApi(conn: Connection) {
     token: conn.token,
     verticals: () => call<VerticalManifest[]>("/verticals"),
     chat: (text: string, vertical?: string) => post<{ event: Event; task: Task }>("/chat", { text, vertical }),
-    tasks: (status?: string) => call<Task[]>(`/tasks${status ? `?status=${status}` : ""}`),
+    tasks: (status?: string, filter: { vertical?: string; role?: string } = {}) => {
+      const q = new URLSearchParams(Object.entries({ status, ...filter }).filter(([, v]) => v) as [string, string][]).toString();
+      return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);
+    },
+    org: () => call<OrgTree>("/org"),
     task: (id: string) => call<TaskDetail>(`/tasks/${id}`),
     retry: (id: string) => post<Task>(`/tasks/${id}/retry`),
     digest: (options: { vertical?: string; date?: string } = {}) =>

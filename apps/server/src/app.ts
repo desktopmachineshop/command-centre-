@@ -171,7 +171,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     media: { dir: mediaDir, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
   };
   app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social }));
-  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, verticals, adminToken: config.adminToken, servers: extraMcpServers }));
+  app.route(
+    "/mcp",
+    mcpRoutes({
+      brain,
+      actions,
+      runTokens,
+      verticals,
+      adminToken: config.adminToken,
+      servers: extraMcpServers,
+      handoff: (taskId, target, note) => pipeline.handoff(taskId, target, note), // org roles
+    }),
+  );
   // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.
   app.route("/media", mediaRoutes(mediaDir));
 
@@ -222,7 +233,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         rollover,
         socialPublish: socialAccounts.length ? publishScheduledPosts : undefined,
       });
-      if (config.schedulesEnabled) crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e)));
+      if (config.schedulesEnabled) {
+        // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
+        const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
+        crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e), root));
+      }
       if (emailAccounts.length) {
         emailPoller = new EmailPoller({
           accounts: emailAccounts,

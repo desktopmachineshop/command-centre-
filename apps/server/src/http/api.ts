@@ -1,5 +1,5 @@
 import type { Brain } from "@cc/brain";
-import { Capability, ProposalStatus, TaskStatus } from "@cc/core";
+import { Capability, leadOf, ProposalStatus, ROOT_ROLE_ID, TaskStatus } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import type { BudgetService } from "../budget";
 import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
 import type { DigestService } from "../digest";
+import { buildOrgTree } from "../org";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
@@ -71,23 +72,42 @@ export function apiRoutes(deps: ApiDeps) {
   app.get("/verticals", (c) => c.json(verticals.all()));
 
   app.post("/chat", async (c) => {
-    const body = z.object({ text: z.string().min(1), vertical: z.string().optional() }).parse(await c.req.json());
+    const body = z
+      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional() })
+      .parse(await c.req.json());
     const result = await pipeline.ingest({
       source: "chat",
       vertical: body.vertical ?? null,
       kind: "message",
       title: body.text.slice(0, 120),
-      payload: { text: body.text },
+      // `role` (optional) asks a specific org role, as a "role: ..." prefix would.
+      payload: body.role ? { text: body.text, role: body.role } : { text: body.text },
     });
     return c.json(result, 201);
   });
 
   app.get("/events", async (c) => c.json(await store.listEvents(limit.parse(c.req.query("limit")))));
 
+  /** `?status=`, plus `?vertical=` and `?role=` (an org role id) to narrow to one role's tasks. */
   app.get("/tasks", async (c) => {
     const status = c.req.query("status") ? TaskStatus.parse(c.req.query("status")) : undefined;
-    return c.json(await store.listTasks({ status, limit: limit.parse(c.req.query("limit")) }));
+    const role = c.req.query("role") || undefined;
+    let vertical = c.req.query("vertical") || undefined;
+    if (vertical && !verticals.get(vertical)) return c.json({ error: `unknown vertical ${vertical}` }, 404);
+    if (role === ROOT_ROLE_ID) vertical = verticals.rootVertical;
+    // Tasks from before roles existed belong to their vertical's lead.
+    const includeUnassigned = !!(vertical && role && role !== ROOT_ROLE_ID && leadOf(verticals.require(vertical)).id === role);
+    return c.json(await store.listTasks({ status, vertical, role, includeUnassigned, limit: limit.parse(c.req.query("limit")) }));
   });
+
+  // --- org roles (docs/ORG.md) ---
+  /** The org chart with live numbers per role over the last 7 days. */
+  app.get("/org", async (c) => {
+    const windowDays = 7;
+    const since = new Date(Date.now() - windowDays * 86_400_000);
+    return c.json(buildOrgTree(verticals, await store.roleStats(since), windowDays));
+  });
+  // --- end org roles ---
 
   app.get("/tasks/:id", async (c) => {
     const task = await store.getTask(c.req.param("id"));

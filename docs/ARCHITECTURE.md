@@ -115,7 +115,7 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 - The brain and actions MCP servers are served by the server itself over HTTP (`/mcp/brain`,
   `/mcp/actions`). Each agent run gets a short-lived token scoped to its task. This means one
   brain writer, no git contention, and the same brain is reachable from agents on the PCs.
-- Agent workspaces are per vertical, and only that vertical's skills are symlinked into
+- Agent workspaces are per vertical and role (see `docs/ORG.md`), and only that role's skills are symlinked into
   `.claude/skills`.
 - Triage is rules-only for now. Jev slots in as another `Triager` in Phase 1.
 - Still open: a smoke test of real Claude Code against the deployed MCP endpoints (see

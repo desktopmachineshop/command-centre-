@@ -3,18 +3,36 @@ import { useState } from "react";
 import type { Api } from "../api";
 import { ago, usd } from "../format";
 import { type LiveFeed, useLoad } from "../live";
-import { go } from "../router";
+import { go, useRouteQuery } from "../router";
 
 const FILTERS = ["", "queued", "running", "awaiting_approval", "deferred", "done", "failed"] as const;
 
 export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [status, setStatus] = useState<string>("");
-  const { data, error } = useLoad(() => api.tasks(status || undefined), feed, (m) => m.type === "task.updated", [status]);
+  // `#/inbox?vertical=&role=` (from the Org page) narrows the list to one role.
+  const query = useRouteQuery();
+  const vertical = query.get("vertical") ?? undefined;
+  const role = query.get("role") ?? undefined;
+  const { data, error } = useLoad(
+    () => api.tasks(status || undefined, { vertical, role }),
+    feed,
+    (m) => m.type === "task.updated",
+    [status, vertical, role],
+  );
 
   return (
     <section>
       <div className="row between">
         <h2>Inbox</h2>
+        {role && (
+          <span className="small">
+            <span className="tag">
+              {vertical ? `${vertical} / ` : ""}
+              {role}
+            </span>{" "}
+            <a href="#/inbox">all</a>
+          </span>
+        )}
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
           {FILTERS.map((f) => (
             <option key={f} value={f}>
@@ -93,6 +111,7 @@ export function TaskRow({ task }: { task: Task }) {
       </div>
       <div className="title">{task.prompt.split("\n")[0]}</div>
       <div className="muted small">
+        {task.role ? `${task.role} · ` : ""}
         {task.intent} · {task.route} · {ago(task.createdAt)}
       </div>
     </li>

@@ -8,6 +8,7 @@ import { Chat } from "./pages/Chat";
 import { Devices } from "./pages/Devices";
 import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
+import { Org } from "./pages/Org";
 import { Settings } from "./pages/Settings";
 import { Social } from "./pages/Social";
 import { TaskView } from "./pages/TaskView";
@@ -41,6 +42,7 @@ const NAV = [
   ["approvals", "Approvals"],
   ["chat", "Chat"],
   ["social", "Social"],
+  ["org", "Org"],
   ["brain", "Brain"],
   ["devices", "Devices"],
   ["settings", "Settings"],
@@ -76,6 +78,9 @@ function Shell({ conn, onSignOut }: { conn: Connection; onSignOut: () => void })
       break;
     case "brain":
       body = <Brain api={api} path={id ? decodeURIComponent(id) : undefined} />;
+      break;
+    case "org":
+      body = <Org api={api} feed={feed} />;
       break;
     case "devices":
       body = <Devices api={api} feed={feed} />;

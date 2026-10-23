@@ -112,6 +112,11 @@ export class ActionService {
     const task = await this.store.getTask(taskId);
     const event = task ? await this.store.getEvent(task.eventId) : null;
     if (!event) return "unknown";
+    // A handoff between roles carries the trust of the event that started its chain (docs/ORG.md).
+    if (event.source === "system" && event.kind === "handoff") {
+      const origin = typeof event.payload.originSource === "string" ? event.payload.originSource : "unknown";
+      return TRUSTED_SOURCES.has(origin as EventSource) ? null : origin;
+    }
     return TRUSTED_SOURCES.has(event.source) ? null : event.source;
   }
 
