@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
+import { Cron } from "croner";
 import { z } from "zod";
 
 const bool = z
@@ -55,7 +56,10 @@ const Env = z.object({
   /** Timezone that defines "today" for budgets and digests. */
   DAY_TIMEZONE: z.string().refine(isTimeZone, "not a known IANA timezone").default("Europe/London"),
   /** When the daily digest is written, in DAY_TIMEZONE. "off" disables it. */
-  DIGEST_CRON: z.string().default("30 18 * * *"),
+  DIGEST_CRON: z
+    .string()
+    .default("30 18 * * *")
+    .refine((v) => v === "off" || isCron(v), "must be a 5-field cron expression or \"off\""),
 
   // --- Triage (model triagers are added to the chain only when their key is set) ---
   /** TypeSafe Jev API key. */
@@ -152,4 +156,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     email: { accounts: emailAccounts, pollIntervalMs: e.EMAIL_POLL_INTERVAL_SECONDS * 1000 },
     odoo: odooConfig(e),
   };
+}
+
+/** True when croner accepts the pattern (catches e.g. quotes left in from an env file). */
+function isCron(pattern: string): boolean {
+  try {
+    new Cron(pattern, { paused: true }).stop();
+    return true;
+  } catch {
+    return false;
+  }
 }

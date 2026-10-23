@@ -62,3 +62,10 @@ describe("config", () => {
     expect(loadConfig({ ...base, DIGEST_CRON: "off" }).digestCron).toBeUndefined();
   });
 });
+
+describe("DIGEST_CRON", () => {
+  it("rejects an invalid cron (e.g. quotes kept by docker --env-file) at load", () => {
+    expect(() => loadConfig({ ...base, DIGEST_CRON: '"30 18 * * *"' })).toThrow(/DIGEST_CRON/);
+    expect(loadConfig({ ...base, DIGEST_CRON: "30 18 * * *" }).digestCron).toBe("30 18 * * *");
+  });
+});
