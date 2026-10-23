@@ -1,4 +1,5 @@
 import type { Event, TriageResult } from "@cc/core";
+import { triageOdooEvent } from "./odoo";
 import type { TriageContext, Triager } from "./triager";
 
 /**
@@ -34,6 +35,13 @@ export class RulesTriager implements Triager {
         triager: this.name,
       };
     }
+
+    // --- Odoo events: route and intent from the kind (./odoo.ts) ---
+    if (event.source === "odoo") {
+      const odoo = triageOdooEvent(event, context, this.name);
+      if (odoo) return odoo;
+    }
+    // --- end odoo ---
 
     if (known) {
       return {

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
 import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
-import { createOdooExecutors, createOdooMcpServer, OdooClient } from "@cc/odoo";
+import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
 import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
@@ -116,6 +116,22 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
   const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
 
+  // --- Odoo events: polls Odoo for orders, messages, stock, deliveries, reviews; starts in start() ---
+  const odooEventsConfig = odoo && config.odoo ? config.odooEvents : undefined;
+  if (odooEventsConfig) for (const v of [odooEventsConfig.defaultVertical, ...Object.values(odooEventsConfig.websites)]) verticals.require(v);
+  const odooEvents =
+    odoo && config.odoo && odooEventsConfig?.sources.length
+      ? new OdooEventPoller({
+          client: odoo,
+          store,
+          config: odooEventsConfig,
+          instance: config.odoo.db,
+          baseUrl: config.odoo.url,
+          ingest: (e) => pipeline.ingest(e),
+        })
+      : undefined;
+  // --- end odoo events ---
+
   const executors = {
     ...builtinExecutors,
     ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
@@ -204,6 +220,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     digests,
     rollover,
     publishScheduledPosts,
+    odooEvents,
     async start() {
       await migrate(pool);
       await store.markAllNodesOffline();
@@ -243,11 +260,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         });
         socialInbound.start();
       }
+      odooEvents?.start();
     },
     async stop() {
       for (const c of crons) c.stop();
       await emailPoller?.stop();
       await socialInbound?.stop();
+      await odooEvents?.stop();
       await queue.stop();
       await pool.end();
     },

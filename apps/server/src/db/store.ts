@@ -16,6 +16,7 @@ import type {
   TriageResult,
   WorkerNode,
 } from "@cc/core";
+import type { OdooCheckpoint } from "@cc/odoo";
 import type { NewScheduledPost, ScheduledPost, ScheduledPostStatus } from "@cc/social";
 import type { Pool } from "./pool";
 
@@ -699,4 +700,29 @@ export class Store {
     );
     return rows[0] ? toScheduledPost(rows[0]) : null;
   }
+
+  // --- Odoo events (implements OdooCheckpointStore from @cc/odoo) ---
+
+  async getOdooCheckpoint(key: string): Promise<OdooCheckpoint | null> {
+    const { rows } = await this.pool.query("select cursor, seen_ids, state from odoo_event_checkpoints where source = $1", [key]);
+    return rows[0] ? { cursor: rows[0].cursor ?? null, seenIds: rows[0].seen_ids ?? [], state: rows[0].state ?? {} } : null;
+  }
+
+  async saveOdooCheckpoint(key: string, c: OdooCheckpoint): Promise<void> {
+    await this.pool.query(
+      `insert into odoo_event_checkpoints (source, cursor, seen_ids, state) values ($1, $2, $3, $4)
+       on conflict (source) do update set cursor = excluded.cursor, seen_ids = excluded.seen_ids, state = excluded.state, updated_at = now()`,
+      [key, c.cursor, c.seenIds, JSON.stringify(c.state)],
+    );
+  }
+
+  /** Odoo events of a vertical received within `[start, end)`, oldest first (for the digest). */
+  async listOdooEventsBetween(vertical: string, start: Date, end: Date): Promise<Event[]> {
+    const { rows } = await this.pool.query(
+      `select * from events where source = 'odoo' and vertical = $1 and received_at >= $2 and received_at < $3 order by received_at`,
+      [vertical, start, end],
+    );
+    return rows.map(toEvent);
+  }
+  // --- end odoo events ---
 }

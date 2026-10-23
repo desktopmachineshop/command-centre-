@@ -90,6 +90,27 @@ export class FakeOdoo {
     return this.calls.filter((c) => c.method === method);
   }
 
+  /** Adds a record (as a test's "something happened in Odoo") and returns its id. */
+  add(modelName: string, record: Record<string, unknown> & { id?: number }): number {
+    const model = this.models[modelName];
+    if (!model) throw new Error(`FakeOdoo has no model ${modelName}`);
+    const id = record.id ?? Math.max(0, ...model.records.map((r) => r.id)) + 1;
+    model.records.push({ ...record, id });
+    return id;
+  }
+
+  /** Changes fields of an existing record. */
+  update(modelName: string, id: number, values: Record<string, unknown>): void {
+    const record = this.models[modelName]?.records.find((r) => r.id === id);
+    if (!record) throw new Error(`FakeOdoo has no ${modelName} ${id}`);
+    Object.assign(record, values);
+  }
+
+  /** Removes a model, as if its app were uninstalled. */
+  uninstall(modelName: string): void {
+    delete this.models[modelName];
+  }
+
   private async route(req: IncomingMessage, res: ServerResponse) {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
@@ -307,6 +328,46 @@ export function demoModels(): Record<string, FakeModel> {
       ],
     },
   };
+}
+
+/**
+ * `demoModels` plus what the event poller reads: create/write dates, internal
+ * users, delivery carriers, and the Helpdesk, Rating and reordering-rule
+ * models (absent from `demoModels`, which stands for an instance without them).
+ */
+export function eventModels(): Record<string, FakeModel> {
+  const m = demoModels();
+  const extend = (name: string, fields: string[]) => (m[name] = { ...m[name]!, fields: [...m[name]!.fields, ...fields] });
+  m["res.users"] = {
+    fields: ["login", "name", "share", "partner_id"],
+    records: [
+      { id: 7, login: "bot@example.com", name: "Command Centre", share: false, partner_id: [3, "Dave"] },
+      { id: 1, login: "__system__", name: "OdooBot", share: false, partner_id: [2, "OdooBot"] },
+      { id: 20, login: "jane@example.com", name: "Jane Doe", share: true, partner_id: [10, "Jane Doe"] },
+    ],
+  };
+  extend("sale.order", ["carrier_id", "amount_untaxed", "create_date", "write_date"]);
+  extend("sale.order.line", ["is_delivery", "order_id"]);
+  extend("mail.message", ["create_date", "is_internal", "record_name"]);
+  extend("stock.picking", ["origin", "partner_id", "date_deadline"]);
+  m["product.template"] = {
+    fields: ["name", "website_id"],
+    records: [
+      { id: 11, name: "ER11 collet set (7 pcs)", website_id: [1, "Desktop Machine Shop"] },
+      { id: 12, name: "300W spindle", website_id: [1, "Desktop Machine Shop"] },
+      { id: 13, name: "Milo v2 CNC kit", website_id: false },
+    ],
+  };
+  m["stock.warehouse.orderpoint"] = { fields: ["product_id", "product_min_qty", "product_max_qty"], records: [] };
+  m["helpdesk.ticket"] = {
+    fields: ["name", "ticket_ref", "partner_id", "partner_name", "partner_email", "description", "team_id", "stage_id", "priority", "create_date"],
+    records: [],
+  };
+  m["rating.rating"] = {
+    fields: ["rating", "feedback", "res_model", "res_id", "res_name", "partner_id", "message_id", "consumed", "publisher_comment", "create_date", "write_date"],
+    records: [],
+  };
+  return m;
 }
 
 function sortRows(rows: Rec[], order: string | undefined): Rec[] {

@@ -163,4 +163,22 @@ export const migrations: { id: string; sql: string }[] = [
       create index scheduled_posts_created_idx on scheduled_posts (created_at desc);
     `,
   },
+  // --- Odoo events ---
+  {
+    id: "0009_odoo_events",
+    sql: `
+      -- One row per Odoo event source (key "<odoo db>:<source>"): a date cursor and the ids
+      -- seen in its overlap window, or for stock/deliveries the ids currently low/late.
+      create table odoo_event_checkpoints (
+        source text primary key,
+        cursor text,
+        seen_ids integer[] not null default '{}',
+        state jsonb not null default '{}',
+        updated_at timestamptz not null default now()
+      );
+      -- The daily digest reads the day's Odoo events per vertical.
+      create index events_source_vertical_received_idx on events (source, vertical, received_at);
+    `,
+  },
+  // --- end odoo events ---
 ];

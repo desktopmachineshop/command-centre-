@@ -517,6 +517,69 @@ claude mcp add --transport http odoo https://<your-domain>/mcp/odoo \
 Then ask Claude to `list_websites`. You should see both the Desktop Machine Shop and 3dpandme
 sites, with their blogs.
 
+### Odoo events
+
+When Odoo is configured, the server also **polls** Odoo (every 5 minutes by default) and turns
+what happened into events. Odoo Online can't run custom modules, so nothing is pushed to the
+server.
+
+| Source | What it watches | Event | Default handling |
+| --- | --- | --- | --- |
+| `orders` | confirmed sales and website orders (`sale.order` in state sale/done) | `order.created` | filed: a journal line and the digest, no agent |
+| `messages` | customer chatter messages (`mail.message` of type comment, not by an internal user) on orders, contacts and tickets | `message.received` | agent drafts a reply (`dms-customer-reply`) |
+| `tickets` | new Helpdesk tickets (if Helpdesk is installed) | `message.received` | agent drafts a reply |
+| `stock` | a storable product's on-hand quantity dropping below its threshold, once per crossing | `stock.low` | agent proposes a reorder note (`dms-ops`) |
+| `deliveries` | an outgoing delivery still not done `lateAfterHours` after its scheduled date, once | `delivery.late` | agent drafts an apology (`dms-ops`) |
+| `reviews` | submitted ratings and product reviews (`rating.rating`, if installed) | `review.received` | agent drafts a reply (`dms-ops`) |
+
+- **First run:** each source starts from "now" and doesn't replay old records. Progress is kept
+  per source in the `odoo_event_checkpoints` table, so restarts carry on where they stopped.
+- **Missing apps:** if an app or field a source needs isn't there (no Helpdesk, for example), that
+  source logs `odoo-events: <source>: disabled: ...` once and stops. The others keep running.
+  Restart the server after installing the app.
+- **Untrusted:** Odoo content can come from customers. Tasks from Odoo events never auto-execute
+  outward actions: every proposal waits for your approval, whatever the vertical's policy.
+- **Digest:** the daily digest of each vertical gets an **Odoo** section, with the order count
+  and revenue, customer messages, low-stock items, late deliveries and reviews.
+
+Set `ODOO_EVENTS` to choose what runs. Leave it unset (or `on`) for every source with the
+defaults, or set:
+
+- `off` to disable polling;
+- a list such as `orders,stock,deliveries`;
+- JSON options:
+
+```json
+{
+  "sources": ["orders", "messages", "tickets", "stock", "deliveries", "reviews"],
+  "pollSeconds": 300,
+  "lowStockThreshold": 3,
+  "useReorderRules": true,
+  "websites": { "1": "dms", "3dpandme": "3dpandme" },
+  "defaultVertical": "dms",
+  "bigOrderThreshold": 500,
+  "lateAfterHours": 24,
+  "messageTypes": ["comment"],
+  "overlapSeconds": 600
+}
+```
+
+- `pollSeconds`: how often each source is checked (minimum 30).
+- `lowStockThreshold`: a product is low when `qty_available` is **below** this. With
+  `useReorderRules`, a product's reordering rule (Inventory → Configuration → Reordering Rules)
+  with a min quantity above 0 sets its threshold instead. Services and consumables are never low.
+- `websites`: maps an Odoo website, by id or by name, to a vertical. Find the ids with the
+  `list_websites` tool. Anything else (and records with no website, such as stock) goes to
+  `defaultVertical`.
+- `bigOrderThreshold`: an order at or above this total (in its own currency) goes to an agent for
+  a check, instead of just being filed.
+- `lateAfterHours`: grace period after a delivery's scheduled date. Many orders are scheduled for
+  the moment they're placed, so `0` would flag nearly every order.
+- `messageTypes`: add `"email"` to also catch customers' email replies to Odoo's own mails
+  (quotations, order confirmations), if those don't already reach a polled inbox.
+- `overlapSeconds`: how far back each poll looks again, for records committed late. Already-seen
+  ids are skipped.
+
 ## Social: platform setup
 
 Each social account is one entry in the `SOCIAL_ACCOUNTS` JSON array, with
