@@ -80,7 +80,17 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 
 ## Phases
 
-**Phase 0: Foundations**
+**Phase 0: Foundations** (built). Deviations from the original plan:
+- The brain and actions MCP servers are served by the server itself over HTTP (`/mcp/brain`,
+  `/mcp/actions`). Each agent run gets a short-lived token scoped to its task. This means one
+  brain writer, no git contention, and the same brain is reachable from agents on the PCs.
+- Agent workspaces are per vertical, and only that vertical's skills are symlinked into
+  `.claude/skills`.
+- Triage is rules-only for now. Jev slots in as another `Triager` in Phase 1.
+- Still open: a smoke test of real Claude Code against the deployed MCP endpoints (see
+  `docs/SETUP.md`, "First check after deploying"), and passkey auth. Phase 0 uses one admin token.
+
+Original Phase 0 steps:
 1. Monorepo scaffold, CI (typecheck, lint, test), Dockerfile, Railway config.
 2. `packages/core` types and the WebSocket protocol.
 3. Server: the event ingress interface, a cron ingress, and a PWA chat ingress.
