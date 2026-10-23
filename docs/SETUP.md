@@ -277,8 +277,8 @@ Set `EMAIL_ACCOUNTS` to a one-line JSON array (an example is in `.env.example`):
 
 ## Social
 
-The command centre watches and posts to social accounts on Discord, Instagram, Threads, X and
-Reddit (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
+The command centre watches and posts to social accounts on Discord, Instagram, Threads, X,
+Reddit and YouTube (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
 pipeline treats them all the same.
 
 - **In:** every account with `inbound: true`, on a platform whose adapter can read (and whose API
@@ -302,8 +302,9 @@ Agents never post directly. They propose one of these, all `draft` policy (appro
 - `social.reply` `{accountId, target, text}`: answer a comment, mention or DM. The task prompt
   includes this payload ready to fill in; `target` must stay as given.
 - `social.post` `{accountId, content}`: one post on one account. `content` is
-  `{text, media?: [{url, type: "image"|"video", alt?}], link?, title?, target?}`. Reddit needs a
-  `title` and a subreddit `target`; Instagram needs at least one image or video.
+  `{text, media?: [{url, type: "image"|"video", alt?}], link?, title?, target?, options?}`. Reddit
+  needs a `title` and a subreddit `target`; Instagram needs at least one image or video; YouTube
+  needs a `title` and exactly one video (and takes `options` such as `privacyStatus`).
 - `social.dm` `{accountId, userId, text}`: only on platforms that allow DMs.
 - `social.campaign` `{title, posts: [{accountId, content}], publishAt?}`: the same news on several
   accounts with **one approval**, e.g. a new YouTube video announced on Instagram, Threads, X,
@@ -364,7 +365,7 @@ Set `SOCIAL_ACCOUNTS` to a one-line JSON array. Each account:
 
 - `id`: short and stable. It appears in dedupe keys, checkpoints and action payloads, so don't
   rename it once the account is live.
-- `platform`: `discord`, `instagram`, `threads`, `x` or `reddit`.
+- `platform`: `discord`, `instagram`, `threads`, `x`, `reddit` or `youtube`.
 - `vertical`: where its events go and which agents may post as it (`dms`, `3dpandme`, ...).
 - `handle`, `displayName` (optional): shown to agents and in the app; `handle` also identifies the
   account's own posts.
@@ -391,7 +392,10 @@ under "Social: platform setup" below.
     "credentials": { "apiKey": "<key>", "apiSecret": "<secret>", "accessToken": "<token>", "accessTokenSecret": "<secret>" } },
   { "id": "3dp-reddit", "platform": "reddit", "vertical": "3dpandme", "handle": "u/3dpandme",
     "credentials": { "clientId": "<id>", "clientSecret": "<secret>", "username": "<user>", "password": "<password>",
-      "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/your_username)" } }
+      "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/your_username)" } },
+  { "id": "3dp-youtube", "platform": "youtube", "vertical": "3dpandme", "handle": "@3dpandme",
+    "credentials": { "clientId": "<id>.apps.googleusercontent.com", "clientSecret": "<secret>",
+      "refreshToken": "<refresh token>", "channelId": "UC<22 characters>" } }
 ]
 ```
 
@@ -889,6 +893,146 @@ What it does:
      `threads_publishing_limit` before each post.
    - **Other API calls:** up to 4800 × impressions per 24 hours per app and user. Impressions
      count as at least 10.
+
+### YouTube
+
+The adapter uses the **YouTube Data API v3** for one channel (e.g. 3dpandme, or a channel for
+OpenV / OpenD videos), with OAuth 2.0 and a refresh token.
+
+What it does:
+
+- **Publish:** uploads one video per post with the resumable upload protocol. The file is
+  streamed from its `MediaRef` URL in 8 MiB chunks, so large videos aren't held in memory, and
+  a dropped chunk or a 5xx is resumed rather than restarted.
+  - `content.title` is the video title (required, at most 100 characters, no `<` or `>`).
+  - `content.text` is the description, with `content.link` added on its own line. The limit is
+    5000 **bytes** (UTF-8), so emoji and accented letters count for more than one.
+  - `content.options`:
+    - `privacyStatus`: `private` (the default), `unlisted` or `public`. Nothing goes public
+      unless the post says so.
+    - `publishAt`: an ISO time for YouTube's own scheduling. It needs `privacyStatus: "private"`
+      (or no `privacyStatus`); YouTube makes the video public at that time. This is different from
+      a campaign's `publishAt`, which decides when Command Centre uploads.
+    - `tags` (500 characters in all, counting commas, and quotes around tags with spaces),
+      `categoryId` (e.g. `"28"` Science & Technology, `"26"` Howto & Style; the account's
+      `options.defaultCategoryId` is used when it's missing), `madeForKids` (default `false`),
+      `notifySubscribers` (default `true`), `containsSyntheticMedia`, `defaultLanguage`.
+    - `thumbnailUrl`: a JPEG or PNG at a public URL, set with `thumbnails.set` after the upload.
+      Custom thumbnails need a verified channel. If setting the thumbnail fails, the upload still
+      counts as published and the server logs why; set the thumbnail in YouTube Studio.
+  - It returns `https://youtu.be/<id>`.
+  - **Shorts:** there's no separate API. A square or vertical video up to 3 minutes long is a
+    Short. Adding `#Shorts` to the title or description is optional.
+- **Reply:** answers a comment or a reply with `comments.insert`. YouTube threads are one level
+  deep, so a reply to a reply goes on the thread and starts with the author's `@handle`.
+- **Inbound:** polls `commentThreads.list` with `allThreadsRelatedToChannelId` every 15 minutes
+  (set `SOCIAL_YOUTUBE_POLL_SECONDS` to change it, minimum 60) for new top-level comments and
+  replies on the channel's videos. Each item has the video link and title. The channel's own
+  comments are skipped. The first poll only notes what's there. Each poll scans the newest
+  `options.pollPages` pages of threads (default 2, 100 threads each, 1 quota unit a page), plus
+  one `comments.list` call for a thread whose reply count went up but whose new replies YouTube
+  left out of the listing. A new reply on a very old thread that is further down than those pages
+  isn't seen. Comments held for review appear once you approve them, if that is within 15 minutes;
+  otherwise answer them from YouTube Studio.
+- **DMs:** YouTube has none.
+- **Errors:**
+  - `quotaExceeded` says the project's daily quota is used up and resets at midnight Pacific
+    Time.
+  - `uploadLimitExceeded` is the channel's own upload limit, not API quota.
+  - Disabled comments, an invalid `publishAt`, a missing scope or a revoked refresh token each
+    get their own message.
+  - The client secret, refresh token, access tokens and upload session ids never appear in
+    errors or logs.
+
+**Quota.** Checked in October 2026 against Google's quota pages (updated 2026-10-15):
+
+- Since 1 June 2026, `videos.insert` and `search.list` each have **their own quota bucket**, by
+  default **100 calls a day**, at 1 unit per call. So an upload no longer eats about 1,600 of the
+  10,000 general units (that was the old cost; it fell to about 100 in December 2025 before the
+  separate bucket).
+- Everything else shares **10,000 units a day** per Google Cloud project:
+  - `thumbnails.set`: 50;
+  - `comments.insert` (a reply): 50;
+  - `commentThreads.list`, `comments.list` and `videos.list`: 1 each.
+- Quotas reset at midnight Pacific Time. Polling every 15 minutes costs roughly 200–300 units a
+  day, which leaves plenty for replies.
+- Usage is under **APIs & Services → YouTube Data API v3 → Quotas** in the Cloud console. More
+  quota needs the YouTube API Services audit and quota extension form.
+
+**The private-lock audit caveat.** In July 2020 YouTube said videos uploaded through an
+unverified API project created after 28 July 2020 would be locked **private** until the project
+passed an API compliance audit, and the creator would get an email about it. Since then:
+
+- In October 2026, the `videos.insert` and `videos` reference pages (updated 2026-10-15) say
+  instead: "Videos uploaded from unverified API projects are not restricted to private viewing
+  mode."
+- The revision history has no entry recording that change, and third-party guides from mid-2026
+  still describe the lock.
+
+So test it once. Upload a short video with `privacyStatus: "unlisted"`. If YouTube still makes it
+private, the adapter logs "uploaded as unlisted but YouTube made it private ... compliance audit",
+and you need to apply for the audit (YouTube API Services → Audit and Quota Extension Form). Until
+then, publish videos by hand in YouTube Studio. Because the default is `private` and Dave publishes
+or schedules deliberately, the lock doesn't affect the default flow.
+
+1. **Create the Google Cloud project.**
+   - Go to <https://console.cloud.google.com/> and create a project, e.g. `command-centre-youtube`.
+     Use one project for all your channels, or one per brand if you want separate quotas.
+   - Open **APIs & Services → Library**, search for **YouTube Data API v3**, and **Enable** it.
+2. **Set up the OAuth consent screen** (**Google Auth Platform → Branding / Audience / Data
+   access**):
+   - **User type: External** (a personal Google account can't use Internal). Fill in the app name
+     (e.g. "Command Centre") and the support email.
+   - **Data access → Add or remove scopes**:
+     - `https://www.googleapis.com/auth/youtube.upload` for uploads and thumbnails;
+     - `https://www.googleapis.com/auth/youtube.force-ssl` for reading comments and replying.
+   - **Audience:** add the Google account that owns the channel as a **test user**, then click
+     **Publish app** to move it to **In production**. While the app is in **Testing**, Google
+     expires refresh tokens after **7 days**, and the adapter starts failing with `invalid_grant`.
+     An unverified app in production works for your own account: you click through a "Google
+     hasn't verified this app" warning once, during step 4. Verification by Google is only needed
+     to serve other people.
+3. **Create the OAuth client.** **Google Auth Platform → Clients → Create client**, type **Desktop
+   app**, named e.g. `youtube-auth`. Copy the **Client ID** and **Client secret**. These become
+   `clientId` and `clientSecret`.
+4. **Get the refresh token.** On a computer with a browser (not the server), in the repo:
+
+   ```bash
+   YT_CLIENT_ID=<client id> YT_CLIENT_SECRET=<client secret> pnpm --filter @cc/social youtube:auth
+   ```
+
+   - It prints a Google sign-in URL and waits on `http://127.0.0.1:<random port>`.
+   - Open the URL and sign in as the account that owns the channel. For a Brand Account channel,
+     pick the channel when Google asks. Tick **both** permissions.
+   - It prints the **refresh token**, the **channel id** (`UC...`, from `channels.list?mine=true`)
+     and a ready-made `SOCIAL_ACCOUNTS` entry.
+   - The flow uses PKCE, `access_type=offline` and `prompt=consent`, so Google always returns a
+     refresh token. `YT_LOGIN_HINT=<email>` pre-selects the account.
+   - Each run makes a new refresh token. Google keeps at most 100 per account and client, and drops
+     the oldest beyond that.
+5. **Add the account** to `SOCIAL_ACCOUNTS`. Set `handle` to the channel's `@handle`; it is shown
+   to agents and used to skip the channel's own comments, along with `channelId`.
+
+   ```json
+   {
+     "id": "3dp-youtube",
+     "platform": "youtube",
+     "vertical": "3dpandme",
+     "handle": "@3dpandme",
+     "credentials": {
+       "clientId": "<id>.apps.googleusercontent.com",
+       "clientSecret": "<client secret>",
+       "refreshToken": "<refresh token from youtube:auth>",
+       "channelId": "UC<22 characters>"
+     },
+     "options": { "defaultCategoryId": "28", "pollPages": 2 }
+   }
+   ```
+
+   For the OpenV and OpenD channels, add one entry each with their own `refreshToken` and
+   `channelId`, in their verticals. They can share the client id and secret.
+6. **Revoking:** remove access at <https://myaccount.google.com/permissions>, or delete the OAuth
+   client. Then run step 4 again.
 
 ### Media hosting (Instagram and Threads)
 

@@ -79,7 +79,7 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 - Secrets stay in Railway env vars, the dashboard sits behind auth (passkey or Cloudflare Access), and every agent run is logged with a transcript and cost.
 
 ### Social pipeline
-`packages/social` publishes to and listens on Discord, Instagram, Threads, X and Reddit.
+`packages/social` publishes to and listens on Discord, Instagram, Threads, X, Reddit and YouTube.
 - **One contract, many adapters.** Each platform has one `PlatformAdapter` (`packages/social/src/types.ts`):
   - capabilities (publish, reply, DM, inbound, media types, text limit, required fields);
   - a zod schema for its credentials;
@@ -103,7 +103,8 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
   adapter's `validate`, so a post that breaks a platform rule fails early rather than mid-campaign.
 - **Media hosting.** Adapters take media as a public URL (`MediaRef`). Uploads are stored by the
   server and served at an unguessable URL, so the Instagram and Threads APIs can fetch them.
-  Adapters that upload bytes themselves (X's v2 media upload) download from that same URL.
+  Adapters that upload bytes themselves (X's v2 media upload, YouTube's resumable upload)
+  download from that same URL; YouTube streams it in chunks rather than holding the file in memory.
 - **Untrusted input always needs approval.** Anything a task got from social input is
   third-party text. Every outward action from such a task is held as `draft` whatever the
   vertical's policy says, just like email. Agents are told to treat that text as information,

@@ -156,7 +156,7 @@ function Composer({ api, accounts }: { api: Api; accounts: SocialAccount[] }) {
     <form className="card composer-card" onSubmit={submit}>
       <h3>New post</h3>
       <label className="field">
-        <span className="small muted">Title (for Approvals, and the Reddit title)</span>
+        <span className="small muted">Title (for Approvals, and the Reddit and YouTube title)</span>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New video: ER11 collet guide" />
       </label>
       <label className="field">

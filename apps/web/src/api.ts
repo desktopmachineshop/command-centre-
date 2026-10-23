@@ -95,7 +95,14 @@ export type SocialAccount = {
 
 export type MediaRef = { url: string; type: "image" | "video"; alt?: string };
 
-export type PostContent = { text: string; media?: MediaRef[]; link?: string; title?: string; target?: string };
+export type PostContent = {
+  text: string;
+  media?: MediaRef[];
+  link?: string;
+  title?: string;
+  target?: string;
+  options?: Record<string, unknown>;
+};
 
 export type ScheduledPost = {
   id: string;

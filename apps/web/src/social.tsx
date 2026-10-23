@@ -8,6 +8,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   threads: "Threads",
   x: "X",
   reddit: "Reddit",
+  youtube: "YouTube",
 };
 export const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p;
 
@@ -70,6 +71,14 @@ export function MediaThumbs({ media, onRemove }: { media?: MediaRef[]; onRemove?
   );
 }
 
+/** "Private", "Public" or "Private until <time>": what a YouTube upload will be once approved. */
+function youtubeVisibility(options: Record<string, unknown> | undefined): string {
+  const privacy = typeof options?.privacyStatus === "string" ? options.privacyStatus : "private";
+  const at = typeof options?.publishAt === "string" ? options.publishAt : "";
+  const label = privacy.charAt(0).toUpperCase() + privacy.slice(1);
+  return at ? `${label}, YouTube publishes it at ${new Date(at).toLocaleString()}` : `${label} on YouTube`;
+}
+
 /** One platform's post: account, text with its count, media, and where it goes. */
 export function PostPreview({
   accountId,
@@ -85,6 +94,7 @@ export function PostPreview({
   const account = accounts.find((a) => a.id === accountId);
   const platform = account?.platform ?? "";
   const text = content.text ?? "";
+  const yt = platform === "youtube" ? youtubeVisibility(content.options) : null;
   return (
     <div className={`social-post p-${platform || "unknown"}`}>
       <div className="row between small">
@@ -96,6 +106,7 @@ export function PostPreview({
       {content.title && <div className="title">{content.title}</div>}
       <div className="prewrap">{text || <span className="muted">(no text)</span>}</div>
       <MediaThumbs media={content.media} />
+      {yt && <div className="muted small">{yt}</div>}
       {(content.link || content.target || extra) && (
         <div className="muted small">
           {content.target && <span>→ {platform === "reddit" ? `r/${content.target.replace(/^r\//, "")}` : content.target} </span>}

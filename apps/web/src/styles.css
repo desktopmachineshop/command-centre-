@@ -126,6 +126,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .social-post.p-threads { border-left-color: var(--text); }
 .social-post.p-x { border-left-color: var(--muted); }
 .social-post.p-reddit { border-left-color: #ff4500; }
+.social-post.p-youtube { border-left-color: #ff0033; }
 .social-post.p-discord { border-left-color: #5865f2; }
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
 .thumb { position: relative; width: 72px; height: 72px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
