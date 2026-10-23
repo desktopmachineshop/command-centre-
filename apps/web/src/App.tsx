@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { type Connection, createApi, loadConnection, saveConnection } from "./api";
+import { ApiError, COOKIE_SESSION, type Connection, createApi, loadConnection, saveConnection } from "./api";
 import { usd } from "./format";
 import { LiveFeed, useLoad } from "./live";
 import { Approvals } from "./pages/Approvals";
@@ -12,28 +12,75 @@ import { Settings } from "./pages/Settings";
 import { TaskView } from "./pages/TaskView";
 import { go, useRoute } from "./router";
 
+// --- auth: cookie session (or a stored admin token), first-run setup, sign-in ---
+type AuthState =
+  | { kind: "checking" }
+  | { kind: "signedOut"; setupRequired: boolean; error?: string }
+  | { kind: "signedIn"; conn: Connection };
+
+/** Asks the server whether this browser has a session, and if not whether first-run setup is needed. */
+async function checkSession(): Promise<AuthState> {
+  const api = createApi(COOKIE_SESSION);
+  try {
+    await api.me();
+    return { kind: "signedIn", conn: COOKIE_SESSION };
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 401) return { kind: "signedOut", setupRequired: false, error: "Can't reach the server. Check your connection." };
+  }
+  try {
+    return { kind: "signedOut", setupRequired: (await api.authStatus()).setupRequired };
+  } catch {
+    return { kind: "signedOut", setupRequired: false };
+  }
+}
+
 export function App() {
-  const [conn, setConn] = useState<Connection | null>(loadConnection);
-  if (!conn) {
+  const [auth, setAuth] = useState<AuthState>(() => {
+    const stored = loadConnection();
+    return stored ? { kind: "signedIn", conn: stored } : { kind: "checking" };
+  });
+
+  useEffect(() => {
+    if (auth.kind === "checking") void checkSession().then(setAuth);
+  }, [auth.kind]);
+
+  if (auth.kind === "checking") {
+    return (
+      <div className="login">
+        <p className="muted">Loading…</p>
+      </div>
+    );
+  }
+  if (auth.kind === "signedOut") {
     return (
       <Login
-        onConnect={(c) => {
-          saveConnection(c);
-          setConn(c);
+        notice={auth.error}
+        setupRequired={auth.setupRequired}
+        onSignedIn={(c) => {
+          // Only the admin-token flow stores anything; a cookie session keeps no secret in the browser.
+          saveConnection(c.token ? c : null);
+          setAuth({ kind: "signedIn", conn: c });
         }}
       />
     );
   }
+  const { conn } = auth;
   return (
     <Shell
       conn={conn}
-      onSignOut={() => {
-        saveConnection(null);
-        setConn(null);
+      onUnauthorized={() => {
+        // The session expired or was signed out from another device.
+        if (!conn.token) setAuth({ kind: "checking" });
+      }}
+      onSignOut={async () => {
+        if (conn.token) saveConnection(null);
+        else await createApi(conn).logout().catch(() => {});
+        setAuth({ kind: "checking" });
       }}
     />
   );
 }
+// --- end auth ---
 
 const NAV = [
   ["inbox", "Inbox"],
@@ -44,8 +91,8 @@ const NAV = [
   ["settings", "Settings"],
 ] as const;
 
-function Shell({ conn, onSignOut }: { conn: Connection; onSignOut: () => void }) {
-  const api = useMemo(() => createApi(conn), [conn]);
+function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOut: () => void; onUnauthorized: () => void }) {
+  const api = useMemo(() => createApi(conn, onUnauthorized), [conn]);
   const feed = useMemo(() => new LiveFeed(api), [api]);
   const [online, setOnline] = useState(false);
   const [page, id] = useRoute();

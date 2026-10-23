@@ -11,7 +11,10 @@
     "start": "node dist/main.js",
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "user:create": "tsx --env-file-if-exists=../../.env src/cli.ts create",
+    "user:reset-password": "tsx --env-file-if-exists=../../.env src/cli.ts reset-password",
+    "user:list": "tsx --env-file-if-exists=../../.env src/cli.ts list"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",
@@ -39,6 +42,7 @@
   "devDependencies": {
     "@types/pg": "^8.23.1",
     "@types/web-push": "^3.6.4",
+    "playwright-core": "1.63.0",
     "smtp-server": "^3.21.1",
     "tsup": "^9.0.0"
   }

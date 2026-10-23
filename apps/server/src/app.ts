@@ -9,7 +9,10 @@ import { VerticalRegistry } from "@cc/verticals";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
+import { sessionFromUpgrade } from "./accounts/http";
+import type { ScryptParams } from "./accounts/password";
+import { AuthService } from "./accounts/service";
 import { ActionService, builtinExecutors } from "./actions";
 import { BudgetService } from "./budget";
 import type { Config } from "./config";
@@ -37,6 +40,8 @@ export interface Overrides {
   verticals?: VerticalRegistry;
   /** IMAP connector for email ingress and Sent copies (tests use a MemoryMailbox). */
   imap?: ImapConnector;
+  /** Cheaper password hashing for tests. */
+  scrypt?: ScryptParams;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -124,8 +129,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     await pool.query("select 1");
     return c.json({ ok: true });
   });
-  app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken }));
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
+  // --- auth: email + password sessions (src/accounts); the admin token keeps working alongside ---
+  const auth = new AuthService(pool, { scrypt: overrides.scrypt });
+  const authHttp = { adminToken: config.adminToken, trustedProxyHops: config.trustedProxyHops };
+  const wsSessions = { fromUpgrade: (c: Context) => sessionFromUpgrade(c, auth, authHttp), onRevoke: auth.onRevoke.bind(auth) };
+  // --- end auth ---
+
+  app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken, sessions: wsSessions }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, auth: { service: auth, options: authHttp } }));
   app.route("/mcp", mcpRoutes({ brain, actions, runTokens, verticals, adminToken: config.adminToken, servers: extraMcpServers }));
 
   if (config.webDistDir) {
@@ -156,8 +167,10 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     budget,
     digests,
     rollover,
+    auth,
     async start() {
       await migrate(pool);
+      await auth.warm();
       await store.markAllNodesOffline();
       await brain.init();
       if (queue instanceof PgBossTaskQueue) await queue.start();

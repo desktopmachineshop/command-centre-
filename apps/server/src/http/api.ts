@@ -3,8 +3,10 @@ import { Capability, ProposalStatus, TaskStatus } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import { Hono } from "hono";
 import { z } from "zod";
+import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
+import type { AuthService } from "../accounts/service";
 import { type ActionService, ProposalStateError } from "../actions";
-import { bearer, tokenMatches } from "../auth";
+import { tokenMatches } from "../auth";
 import type { BudgetService } from "../budget";
 import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
@@ -25,11 +27,13 @@ export interface ApiDeps {
   digests: DigestService;
   adminToken: string;
   webhookSecret?: string;
+  /** Email + password sign-in (src/accounts). */
+  auth: { service: AuthService; options: AuthHttpOptions };
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
 
-/** JSON API for the PWA and desktop app. Everything except webhooks needs the admin token. */
+/** JSON API for the PWA and desktop app. Everything except webhooks and sign-in needs a session cookie or the admin token. */
 export function apiRoutes(deps: ApiDeps) {
   const { store, pipeline, actions, workers, brain, verticals } = deps;
   const app = new Hono();
@@ -60,10 +64,10 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json(result ?? { duplicate: true }, result ? 201 : 200);
   });
 
-  app.use("*", async (c, next) => {
-    if (!tokenMatches(bearer(c.req.header("authorization")), deps.adminToken)) return c.json({ error: "unauthorized" }, 401);
-    await next();
-  });
+  // --- auth: /api/auth/* (sign-in, sessions, 2FA), then everything else needs a session cookie OR the admin Bearer token ---
+  app.route("/auth", authRoutes(deps.auth.service, deps.auth.options));
+  app.use("*", requireApiAuth(deps.auth.service, deps.auth.options));
+  // --- end auth ---
 
   app.get("/verticals", (c) => c.json(verticals.all()));
 
