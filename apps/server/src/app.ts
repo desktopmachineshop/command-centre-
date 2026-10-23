@@ -88,7 +88,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
-  const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency);
+  // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
+  const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;
+  const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency, staleRunSeconds + 300);
   const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
   const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone);
   const pipeline = new Pipeline({
@@ -109,7 +111,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     guards: {
       maxConcurrentPerVertical: config.agent.maxConcurrentPerVertical,
       busyRetrySeconds: config.agent.busyRetrySeconds,
-      staleRunSeconds: Math.ceil(config.agent.timeoutMs / 1000) + 300,
+      staleRunSeconds,
       dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
     },
     mcpServers: ["brain", ...Object.keys(extraMcpServers)],
@@ -160,6 +162,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await brain.init();
       if (queue instanceof PgBossTaskQueue) await queue.start();
       await queue.work((taskId) => pipeline.runTask(taskId));
+      // Tasks committed just before a crash but never enqueued.
+      await pipeline.enqueueQueued();
       // Deferred tasks from a day the server slept through; any still over budget re-defer.
       await pipeline.releaseDeferred();
       if (config.schedulesEnabled) {

@@ -59,15 +59,55 @@ const UNTRIAGED: Omit<TriageResult, "vertical"> = {
 export class Pipeline {
   constructor(private readonly deps: PipelineDeps) {}
 
+  /**
+   * Records an event and its task. Returns null for a duplicate dedupe key.
+   * The event, its task and any journal entry commit together, so a failure
+   * leaves nothing behind and the caller's retry (same dedupe key) starts over.
+   * A retry after a failed enqueue finds the committed task and enqueues it again.
+   */
   async ingest(input: NewEvent): Promise<{ event: Event; task: Task } | null> {
-    const { store, hub, triager, verticals } = this.deps;
+    const { store, hub, verticals } = this.deps;
     const parsed = NewEvent.parse(input);
     if (parsed.vertical && !verticals.get(parsed.vertical)) throw new Error(`Unknown vertical: ${parsed.vertical}`);
 
-    const event = await store.insertEvent(parsed);
-    if (!event) return null; // duplicate
-    hub.broadcast({ type: "event.created", event });
+    const created = await store.transaction(async (tx) => {
+      const event = await tx.insertEvent(parsed);
+      return event ? { event, task: await this.createTask(tx, event) } : null;
+    });
+    if (!created) return parsed.dedupeKey ? this.resume(parsed.dedupeKey) : null;
+    hub.broadcast({ type: "event.created", event: created.event });
+    hub.broadcast({ type: "task.updated", task: created.task });
+    if (created.task.status === "queued") await this.deps.queue.enqueue(created.task.id);
+    return created;
+  }
 
+  /**
+   * A dedupe key seen before. If an earlier ingest of it stopped part-way, finish
+   * the job: create the task if the event has none (rows from before ingest was
+   * transactional), and enqueue a still-queued task again, since its enqueue may
+   * never have happened (an extra job is harmless: `runTask` only runs a task it
+   * can claim). Returns the event and task only when the task was created here.
+   */
+  private async resume(dedupeKey: string): Promise<{ event: Event; task: Task } | null> {
+    const { store, hub } = this.deps;
+    const found = await store.transaction(async (tx) => {
+      const event = await tx.lockEventByDedupeKey(dedupeKey);
+      if (!event) return null;
+      const existing = await tx.getTaskForEvent(event.id);
+      return existing ? { event, task: existing, created: false } : { event, task: await this.createTask(tx, event), created: true };
+    });
+    if (!found) return null;
+    if (found.created) {
+      hub.broadcast({ type: "event.created", event: found.event });
+      hub.broadcast({ type: "task.updated", task: found.task });
+    }
+    if (found.task.status === "queued") await this.deps.queue.enqueue(found.task.id);
+    return found.created ? { event: found.event, task: found.task } : null;
+  }
+
+  /** Triages an event and inserts its task (and journal entry, for "file") inside the transaction `tx`. */
+  private async createTask(tx: Store, event: Event): Promise<Task> {
+    const { triager, verticals } = this.deps;
     const context = { verticals: verticals.all(), defaultVertical: DEFAULT_VERTICAL };
     let triage = (await triager.triage(event, context)) ?? {
       ...UNTRIAGED,
@@ -77,8 +117,8 @@ export class Pipeline {
 
     const status: TaskStatus = triage.route === "agent" || triage.route === "cheap-agent" ? "queued" : "done";
     const prompt = taskPrompt(event);
-    const duplicate = status === "queued" ? await this.inFlightDuplicate(triage.vertical, prompt, event) : null;
-    let task = await store.insertTask({
+    const duplicate = status === "queued" ? await this.inFlightDuplicate(tx, triage.vertical, prompt, event) : null;
+    const task = await tx.insertTask({
       eventId: event.id,
       triage,
       status: triage.route === "drop" || duplicate ? "dropped" : status,
@@ -86,25 +126,19 @@ export class Pipeline {
       duplicateOf: duplicate?.id ?? null,
       note: duplicate ? `Same request as a task that is already ${duplicate.status}; linked to it instead of running again.` : null,
     });
-    hub.broadcast({ type: "task.updated", task });
-
-    if (triage.route === "file") {
-      await this.deps.brain.appendJournal(event.title, { vertical: triage.vertical });
-    } else if (task.status === "queued") {
-      await this.deps.queue.enqueue(task.id);
-    }
-    return { event, task };
+    if (triage.route === "file") await this.deps.brain.appendJournal(event.title, { vertical: triage.vertical });
+    return task;
   }
 
   /**
    * Work already queued, running or deferred in the same vertical with the
    * identical prompt. Chat skips deferred matches, since chat would run now.
    */
-  private async inFlightDuplicate(vertical: string, prompt: string, event: Event): Promise<Task | null> {
+  private async inFlightDuplicate(tx: Store, vertical: string, prompt: string, event: Event): Promise<Task | null> {
     const minutes = this.deps.guards.dedupeWindowMinutes;
     if (minutes <= 0) return null;
     const statuses: TaskStatus[] = bypassesBudget(event) ? ["queued", "running"] : ["queued", "running", "deferred"];
-    return this.deps.store.findInFlightDuplicate(vertical, prompt, statuses, minutes);
+    return tx.findInFlightDuplicate(vertical, prompt, statuses, minutes);
   }
 
   /**
@@ -124,20 +158,24 @@ export class Pipeline {
       await this.deps.queue.enqueue(taskId, { delaySeconds: guards.busyRetrySeconds });
       return;
     }
-    if (!claim.budgetOverride && !bypassesBudget(await store.getEvent(queued.eventId))) {
-      const breach = await budget.check(vertical);
-      if (breach) {
-        hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "deferred", budget.note(vertical, breach)) });
-        await budget.alert(vertical, breach).catch((err) => console.error("[budget]", err));
-        return;
-      }
-    }
     const task = claim.task;
     hub.broadcast({ type: "task.updated", task });
 
-    const run = await store.insertRun(taskId, runner.name);
-    const token = runTokens.issue({ taskId, runId: run.id, vertical: vertical.id });
+    // From here the task is "running": any failure must leave it "failed" (retryable), never stuck.
+    let runId: string | null = null;
+    let token: string | null = null;
     try {
+      if (!claim.budgetOverride && !bypassesBudget(await store.getEvent(queued.eventId))) {
+        const breach = await budget.check(vertical);
+        if (breach) {
+          hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "deferred", budget.note(vertical, breach)) });
+          await budget.alert(vertical, breach).catch((err) => console.error("[budget]", err));
+          return;
+        }
+      }
+      const run = await store.insertRun(taskId, runner.name);
+      runId = run.id;
+      token = runTokens.issue({ taskId, runId: run.id, vertical: vertical.id });
       const cwd = await prepareWorkspace(this.deps.dataDir, this.deps.skillsDir, vertical);
       const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token, this.deps.mcpServers);
 
@@ -164,16 +202,17 @@ export class Pipeline {
       const next: TaskStatus = result.status === "failed" ? "failed" : pending.length > 0 ? "awaiting_approval" : "done";
       hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, next) });
     } catch (err) {
-      await store.finishRun(run.id, {
-        status: "failed",
-        result: null,
-        error: (err as Error).message,
-        costUsd: null,
-        sessionId: null,
-      });
-      hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "failed") });
+      const message = (err as Error).message;
+      console.error(`[pipeline] task ${taskId}`, err);
+      if (runId) {
+        await store
+          .finishRun(runId, { status: "failed", result: null, error: message, costUsd: null, sessionId: null })
+          .catch((e) => console.error("[pipeline]", e));
+      }
+      const note = runId ? `Run failed: ${message}` : `Failed before the agent started: ${message}`;
+      hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "failed", note) });
     } finally {
-      runTokens.revoke(token);
+      if (token) runTokens.revoke(token);
     }
   }
 
@@ -184,6 +223,17 @@ export class Pipeline {
     this.deps.hub.broadcast({ type: "task.updated", task });
     await this.deps.queue.enqueue(task.id);
     return task;
+  }
+
+  /**
+   * Enqueues every queued task again. Runs on boot, to recover tasks committed
+   * just before a crash but never enqueued. Tasks that already have a job just
+   * get a second one, which `runTask` skips once the first has claimed the task.
+   */
+  async enqueueQueued(): Promise<Task[]> {
+    const tasks = await this.deps.store.listQueuedTasks();
+    for (const task of tasks) await this.deps.queue.enqueue(task.id);
+    return tasks;
   }
 
   /**

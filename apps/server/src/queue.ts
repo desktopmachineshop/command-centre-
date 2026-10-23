@@ -22,6 +22,12 @@ export class PgBossTaskQueue implements TaskQueue {
   constructor(
     connectionString: string,
     private readonly concurrency: number,
+    /**
+     * How long a job may stay active before pg-boss redelivers it. Keep it above
+     * the stale-run window (agent timeout + 300s), so a redelivery only finds
+     * runs that really died. Capped at pg-boss's 24 hours.
+     */
+    private readonly expireInSeconds = 3600,
   ) {
     this.boss = new PgBoss(connectionString);
     this.boss.on("error", (err) => console.error("[queue]", err));
@@ -30,8 +36,10 @@ export class PgBossTaskQueue implements TaskQueue {
   async start(): Promise<void> {
     if (this.started) return;
     await this.boss.start();
-    // Agent runs are long; give each one an hour before pg-boss considers it stuck.
-    await this.boss.createQueue(QUEUE, { retryLimit: 1, retryDelay: 60, expireInSeconds: 3600 });
+    const expireInSeconds = Math.min(Math.ceil(this.expireInSeconds), 24 * 3600);
+    await this.boss.createQueue(QUEUE, { retryLimit: 1, retryDelay: 60, expireInSeconds });
+    // createQueue leaves an existing queue as it was; bring its expiry in line with the current timeout.
+    await this.boss.updateQueue(QUEUE, { expireInSeconds });
     this.started = true;
   }
 
