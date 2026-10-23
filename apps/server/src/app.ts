@@ -126,7 +126,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken }));
   app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
-  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, verticals, adminToken: config.adminToken, servers: extraMcpServers }));
+  app.route(
+    "/mcp",
+    mcpRoutes({
+      brain,
+      actions,
+      runTokens,
+      verticals,
+      adminToken: config.adminToken,
+      servers: extraMcpServers,
+      handoff: (taskId, target, note) => pipeline.handoff(taskId, target, note), // org roles
+    }),
+  );
 
   if (config.webDistDir) {
     const root = config.webDistDir;
@@ -173,7 +184,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         digest: () => digests.deliver(),
         rollover,
       });
-      if (config.schedulesEnabled) crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e)));
+      if (config.schedulesEnabled) {
+        // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
+        const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
+        crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e), root));
+      }
       if (emailAccounts.length) {
         emailPoller = new EmailPoller({
           accounts: emailAccounts,

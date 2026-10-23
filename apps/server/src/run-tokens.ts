@@ -4,6 +4,8 @@ export interface RunScope {
   taskId: string;
   runId: string;
   vertical: string;
+  /** Org role of the run; narrows its MCP servers to the role's. */
+  role?: string;
 }
 
 /**

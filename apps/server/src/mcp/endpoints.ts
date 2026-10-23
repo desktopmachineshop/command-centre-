@@ -1,4 +1,5 @@
 import { createBrainMcpServer, type Brain } from "@cc/brain";
+import { ROOT_ROLE_ID, type Task } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -26,7 +27,10 @@ async function handle(server: McpServer, request: Request): Promise<Response> {
   return transport.handleRequest(request);
 }
 
-function actionsServer(actions: ActionService, caller: Caller): McpServer {
+/** Creates a task for another org role from a run's task (Pipeline.handoff). */
+export type Handoff = (fromTaskId: string, target: string, note: string) => Promise<{ task: Task; duplicate: boolean }>;
+
+function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff): McpServer {
   const server = new McpServer({ name: "actions", version: "0.1.0" });
   const types = Object.entries(actions.executors).map(([t, e]) => `${t}: ${e.description}`);
   server.registerTool(
@@ -61,18 +65,43 @@ function actionsServer(actions: ActionService, caller: Caller): McpServer {
     "list_pending",
     {
       description:
-        caller.kind === "run"
+        caller.kind === "run" && caller.scope.role !== ROOT_ROLE_ID
           ? "List proposals waiting for Dave's approval in this run's vertical (read-only)."
           : "List proposals waiting for Dave's approval (read-only). All verticals unless one is given.",
       inputSchema: { vertical: z.string().optional() },
     },
     async ({ vertical }) => {
-      // A run only sees its own vertical's approvals; the admin token sees all.
-      const pending = await actions.pending(caller.kind === "run" ? caller.scope.vertical : vertical);
+      // A run only sees its own vertical's approvals; the admin token and the Chief of Staff see all.
+      const crossVertical = caller.kind === "admin" || caller.scope.role === ROOT_ROLE_ID;
+      const pending = await actions.pending(crossVertical ? vertical : caller.scope.vertical);
       const lines = pending.map((p) => `- [${p.vertical}] ${p.actionType}: ${p.summary} (since ${p.createdAt.slice(0, 16)}Z, id ${p.id})`);
       return { content: [{ type: "text", text: lines.length ? lines.join("\n") : "No pending approvals." }] };
     },
   );
+  // --- org roles: handoff (docs/ORG.md) ---
+  if (handoff && caller.kind === "run") {
+    const { taskId } = caller.scope;
+    server.registerTool(
+      "handoff_to_role",
+      {
+        description: `Hand this work to another role in your org: creates a task for it with your note and the original request, then you should stop. roleId is a role id from your system prompt, or "${ROOT_ROLE_ID}" to escalate. The Chief of Staff may use "<vertical>/<role>". Chains are limited in depth and never go back to a role already in them.`,
+        inputSchema: {
+          roleId: z.string().min(1),
+          note: z.string().min(1).describe("What you found, what is needed and anything the next role must not miss"),
+        },
+      },
+      async ({ roleId, note }) => {
+        try {
+          const { task, duplicate } = await handoff(taskId, roleId, note);
+          const text = duplicate ? `Already handed off: task ${task.id} (${task.status}).` : `Handed off to ${task.role} in ${task.vertical}: task ${task.id}.`;
+          return { content: [{ type: "text", text }] };
+        } catch (err) {
+          return { content: [{ type: "text", text: (err as Error).message }], isError: true };
+        }
+      },
+    );
+  }
+  // --- end org roles ---
   return server;
 }
 
@@ -85,6 +114,8 @@ export function mcpRoutes(deps: {
   adminToken: string;
   /** Extra servers mounted at /<name> with the same auth, e.g. odoo. A fresh server per request. */
   servers?: Record<string, () => McpServer>;
+  /** Enables the handoff_to_role tool for runs. */
+  handoff?: Handoff;
 }) {
   const app = new Hono<{ Variables: { caller: Caller } }>();
 
@@ -93,15 +124,19 @@ export function mcpRoutes(deps: {
     if (!caller) return c.json({ error: "unauthorized" }, 401);
     if (caller.kind === "run") {
       const name = c.req.path.split("/").pop() ?? "";
-      const allowed = name === "actions" || (deps.verticals.get(caller.scope.vertical)?.mcpServers.includes(name) ?? false);
-      if (!allowed) return c.json({ error: `vertical ${caller.scope.vertical} may not use ${name}` }, 403);
+      // The run's role narrows the vertical's servers (no role: the vertical's).
+      const allowed = name === "actions" || deps.verticals.mcpServersFor(caller.scope.vertical, caller.scope.role).includes(name);
+      if (!allowed) {
+        const who = caller.scope.role ? `role ${caller.scope.role} in ${caller.scope.vertical}` : `vertical ${caller.scope.vertical}`;
+        return c.json({ error: `${who} may not use ${name}` }, 403);
+      }
     }
     c.set("caller", caller);
     await next();
   });
 
   app.all("/brain", (c) => handle(createBrainMcpServer(deps.brain), c.req.raw));
-  app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller")), c.req.raw));
+  app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller"), deps.handoff), c.req.raw));
   for (const [name, create] of Object.entries(deps.servers ?? {})) app.all(`/${name}`, (c) => handle(create(), c.req.raw));
   return app;
 }

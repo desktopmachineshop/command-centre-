@@ -107,3 +107,19 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .login form { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
 .login label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+
+/* --- Org page (pages/Org.tsx): nested lists as a tree, stacked on phones --- */
+.org-tree, .org-verticals, .org-branch { list-style: none; margin: 0; padding: 0; }
+.org-branch { margin-left: 12px; padding-left: 10px; border-left: 2px solid var(--vertical, var(--border)); }
+.org-vertical { --vertical: var(--accent); margin: 10px 0; }
+.org-vertical > details > summary { cursor: pointer; padding: 6px 0; border-left: 4px solid var(--vertical); padding-left: 8px; }
+.org-card { margin: 8px 0; border-top: 3px solid var(--vertical, var(--accent)); }
+.org-card .title { margin: 0; }
+.org-card details p { margin: 6px 0; }
+.org-card .row.wrap { margin-top: 6px; }
+.org-kpis { margin: 6px 0 0; padding-left: 18px; }
+.org-stats { display: inline-flex; }
+@media (min-width: 641px) {
+  .org-verticals { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 12px; }
+}
+/* --- end Org page --- */

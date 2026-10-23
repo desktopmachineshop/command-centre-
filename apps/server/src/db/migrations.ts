@@ -134,4 +134,14 @@ export const migrations: { id: string; sql: string }[] = [
       );
     `,
   },
+  // --- org roles (docs/ORG.md). 0004 is reserved for the social core. ---
+  {
+    id: "0005_roles",
+    sql: `
+      -- The org role that runs the task; null (older tasks) means the vertical lead.
+      alter table tasks add column if not exists role text;
+      create index if not exists tasks_vertical_role_idx on tasks (vertical, role, status);
+    `,
+  },
+  // --- end org roles ---
 ];

@@ -68,6 +68,8 @@ export const Task = z.object({
   note: z.string().nullish(),
   /** Set when this task duplicated in-flight work and was linked to it instead of running. */
   duplicateOf: z.string().nullish(),
+  /** Org role that runs the task (see docs/ORG.md). Null on tasks from before roles existed: the vertical lead. */
+  role: z.string().nullish(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
