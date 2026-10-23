@@ -38,9 +38,10 @@ ENV NODE_ENV=production \
     SKILLS_DIR=/app/skills \
     WEB_DIST_DIR=/app/web \
     HOME=/data/home
-# Runs as root: Railway mounts volumes root-owned, and /data holds the brain and Claude config.
+# Runs as root: Railway mounts volumes root-owned. /data holds the brain and Claude config;
+# mount a volume there (Railway volume, or the named volume in docker-compose.yml).
+# No VOLUME instruction: Railway rejects it.
 RUN mkdir -p /data/home
-VOLUME ["/data"]
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]
