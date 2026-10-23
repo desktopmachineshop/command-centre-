@@ -107,3 +107,29 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .login { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
 .login form { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
 .login label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+
+/* Social: composer, per-platform post cards, media thumbnails */
+.field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.field textarea, .field input:not([type="file"]):not([type="checkbox"]) { width: 100%; }
+.composer-card textarea { resize: vertical; }
+.composer-card input[type="file"] { max-width: 100%; border: 0; padding: 0; background: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 13px; cursor: pointer; background: var(--surface); }
+.chip.on { border-color: var(--accent); background: var(--me); }
+.chip.off { opacity: 0.5; cursor: default; }
+.chip input { margin: 0; }
+.social-posts { display: flex; flex-direction: column; gap: 8px; margin: 6px 0; }
+.social-post { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 10px; margin: 6px 0; background: var(--bg); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.social-post textarea, .social-post input { width: 100%; }
+.social-post .prewrap { font-size: 14px; }
+.social-post.p-instagram { border-left-color: #d6249f; }
+.social-post.p-threads { border-left-color: var(--text); }
+.social-post.p-x { border-left-color: var(--muted); }
+.social-post.p-reddit { border-left-color: #ff4500; }
+.social-post.p-discord { border-left-color: #5865f2; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.thumb { position: relative; width: 72px; height: 72px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
+.thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-x { position: absolute; top: 2px; right: 2px; padding: 0 6px; line-height: 1.3; border-radius: 999px; font-size: 14px; }
+.clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.account .row.wrap code { font-size: 12px; }

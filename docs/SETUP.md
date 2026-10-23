@@ -275,6 +275,155 @@ Set `EMAIL_ACCOUNTS` to a one-line JSON array (an example is in `.env.example`):
   supported yet. If sent replies show up twice in Sent Items, set `"saveSent": false`.
 - **Odoo mail or any other host:** use the IMAP/SMTP settings the provider gives you.
 
+## Social
+
+The command centre watches and posts to social accounts on Discord, Instagram, Threads, X and
+Reddit (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
+pipeline treats them all the same.
+
+- **In:** every account with `inbound: true`, on a platform whose adapter can read (and whose API
+  tier allows it), is watched for comments, mentions, replies and DMs. Most platforms are polled:
+  every `SOCIAL_POLL_DEFAULT_SECONDS` (default 300), or the adapter's own interval, ±10% jitter.
+  Discord keeps a live connection. Each new item becomes a `social` event in the account's
+  vertical, with the dedupe key `social:<accountId>:<item id>`, and the agent gets a task laying
+  it out for reading. The task's first line is `<Platform> <kind> from <author>: <text>`. Items
+  the account wrote itself are skipped (matched on `handle`, or on `options.userId` when set).
+- **Checkpoints:** each account's poll cursor is stored in Postgres (`social_checkpoints`). It is
+  saved only after every item it covers has been ingested, so a failure means the items are fetched
+  again, never lost. On the very first poll an account starts from "now", so old history is not
+  replayed.
+- **Failures:** an account that fails is retried with backoff (30 s doubling to 15 min) and logged
+  as `[social]`. It never stops the server or the other accounts.
+
+### Actions and approvals
+
+Agents never post directly. They propose one of these, all `draft` policy (approve each one):
+
+- `social.reply` `{accountId, target, text}`: answer a comment, mention or DM. The task prompt
+  includes this payload ready to fill in; `target` must stay as given.
+- `social.post` `{accountId, content}`: one post on one account. `content` is
+  `{text, media?: [{url, type: "image"|"video", alt?}], link?, title?, target?}`. Reddit needs a
+  `title` and a subreddit `target`; Instagram needs at least one image or video.
+- `social.dm` `{accountId, userId, text}`: only on platforms that allow DMs.
+- `social.campaign` `{title, posts: [{accountId, content}], publishAt?}`: the same news on several
+  accounts with **one approval**, e.g. a new YouTube video announced on Instagram, Threads, X,
+  Reddit and Discord.
+
+Every payload is checked when it is proposed (text length, media types, required title or target,
+whether the account exists and belongs to the proposing vertical), so a bad one fails at once,
+before it reaches Approvals. A campaign is refused whole if any of its posts is invalid. Under
+Approvals, social proposals show one card per platform with the text, its character count
+against that platform's limit, media thumbnails and where it goes.
+
+**After approval:** without `publishAt`, every post goes out at once. A platform that fails doesn't
+stop the others, and the result lists what was published (with links) and what failed. With
+`publishAt` (an ISO date-time), the posts are stored in `scheduled_posts` and a system job checks
+every minute, publishes the ones that are due, and marks each one published (with its link) or
+failed. A failure sends a push notification. **Approving the campaign is the only approval**:
+nothing asks again at publish time. A post that is still scheduled can be cancelled on the Social
+page. A post interrupted mid-publish (a crash) is marked failed rather than retried, because it may
+already be live, so check the platform before posting it again.
+
+**Outside input always needs approval.** Social events are untrusted, like email: whatever a
+vertical's `policies` say, no outward action a social-triggered task proposes runs on its own;
+only brain notes keep their policy (see "Morning brief" above). Comments are shown to the agent between `BEGIN/END SOCIAL MESSAGE` markers, with an
+instruction to treat them as data, never as instructions.
+
+### The Social page
+
+The app's **Social** tab lists the configured accounts (platform, handle, vertical, what each can
+do; never credentials), recent social events with their tasks, and scheduled posts with their
+status. Its composer writes a campaign: one shared text (customisable per platform), a link,
+media, the accounts to post to and an optional time. **Send for approval** puts it under
+Approvals as a `social.campaign`, like an agent's proposal.
+
+### Media
+
+Instagram and Threads fetch media from a public URL when publishing, so the server hosts uploads:
+
+- `POST /api/media` (admin token): the file as the raw body with its `content-type`, or multipart
+  with a `file` field. JPEG, PNG, GIF, WebP, MP4, MOV and WebM, up to `MEDIA_MAX_MB` (default 200).
+  It returns `{url, type, ...}`, ready to use as a `media` entry.
+- Files are stored in `DATA_DIR/media/` (on the Railway volume) and served at
+  `GET /media/<random id>.<ext>` without auth. The 128-bit random name is what keeps them private
+  until posted; there is no listing.
+- Set **`PUBLIC_BASE_URL`** to the server's public address, e.g.
+  `https://command.desktopmachineshop.com`, so the returned URLs are ones the platforms can reach.
+  Without it the URL is built from the request's host.
+
+Agents can also use media they found elsewhere by giving its public URL in `media`.
+
+```bash
+curl -X POST https://<your-domain>/api/media -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "content-type: image/jpeg" --data-binary @thumbnail.jpg
+```
+
+### Accounts
+
+Set `SOCIAL_ACCOUNTS` to a one-line JSON array. Each account:
+
+- `id`: short and stable. It appears in dedupe keys, checkpoints and action payloads, so don't
+  rename it once the account is live.
+- `platform`: `discord`, `instagram`, `threads`, `x` or `reddit`.
+- `vertical`: where its events go and which agents may post as it (`dms`, `3dpandme`, ...).
+- `handle`, `displayName` (optional): shown to agents and in the app; `handle` also identifies the
+  account's own posts.
+- `inbound` (default `true`): watch it for comments, mentions and messages.
+- `credentials`: the platform's tokens (see "Platform setup"). They are checked at boot by the
+  platform's adapter; a problem stops the server with a message naming the account and field,
+  never the value.
+- `options` (optional): platform settings, e.g. channels or subreddits to watch, and `userId`
+  (the account's own platform user id, for skipping its own items).
+
+Placeholder example, one account per platform (spread over several lines here; keep it on one
+line in the variable). The exact `credentials` and `options` keys for each platform are listed
+under "Platform setup".
+
+```json
+[
+  { "id": "dms-discord", "platform": "discord", "vertical": "dms", "handle": "DMS Bot",
+    "credentials": { "botToken": "<bot token>" }, "options": { "channels": ["<channel id>"] } },
+  { "id": "3dp-instagram", "platform": "instagram", "vertical": "3dpandme", "handle": "3dpandme",
+    "credentials": { "accessToken": "<long-lived token>", "userId": "<IG user id>" } },
+  { "id": "3dp-threads", "platform": "threads", "vertical": "3dpandme", "handle": "3dpandme",
+    "credentials": { "accessToken": "<long-lived token>", "userId": "<Threads user id>" } },
+  { "id": "3dp-x", "platform": "x", "vertical": "3dpandme", "handle": "3dpandme", "inbound": false,
+    "credentials": { "apiKey": "<key>", "apiSecret": "<secret>", "accessToken": "<token>", "accessSecret": "<secret>" } },
+  { "id": "3dp-reddit", "platform": "reddit", "vertical": "3dpandme", "handle": "u/3dpandme",
+    "credentials": { "clientId": "<id>", "clientSecret": "<secret>", "username": "<user>", "password": "<password>" },
+    "options": { "subreddits": ["3Dprinting"] } }
+]
+```
+
+With `SOCIAL_ACCOUNTS` empty or unset, social is off: no polling, no social actions, and the Social
+page says so.
+
+### Platform setup
+
+<!-- Each adapter's author fills in their platform: how to create the app/bot, the scopes or
+permissions it needs, the exact `credentials` and `options` keys, API tier limits, and the poll
+interval it uses. -->
+
+#### Discord
+
+TODO: bot setup, intents, credentials and options keys.
+
+#### Instagram
+
+TODO: Meta app, Instagram professional account, token, credentials and options keys.
+
+#### Threads
+
+TODO: Meta app, Threads API access, token, credentials and options keys.
+
+#### X
+
+TODO: developer app, API tier (inbound needs a paid tier), credentials and options keys.
+
+#### Reddit
+
+TODO: script app, credentials and options keys, user agent.
+
 ## Cost control and run guardrails
 
 **Budgets.** Set `AGENT_DAILY_BUDGET_USD` for a global daily cap, and/or `dailyBudgetUsd` in a
