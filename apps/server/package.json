@@ -20,6 +20,7 @@
     "@cc/core": "workspace:*",
     "@cc/email": "workspace:*",
     "@cc/odoo": "workspace:*",
+    "@cc/social": "workspace:*",
     "@cc/triage": "workspace:*",
     "@cc/verticals": "workspace:*",
     "@hono/node-server": "^2.1.5",

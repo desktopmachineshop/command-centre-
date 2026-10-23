@@ -71,6 +71,51 @@ export type DigestDay = {
   digests: Digest[];
 };
 
+/** A configured social account as GET /api/social/accounts shows it (never credentials). */
+export type SocialAccount = {
+  id: string;
+  platform: string;
+  vertical: string;
+  handle: string | null;
+  displayName: string | null;
+  inbound: boolean;
+  inboundSupported: boolean;
+  capabilities: {
+    publish: boolean;
+    reply: boolean;
+    dm: boolean;
+    inbound: boolean;
+    media: ("image" | "video")[];
+    maxTextLength: number;
+    requiresMedia?: boolean;
+    requiresTitle?: boolean;
+    requiresTarget?: boolean;
+  } | null;
+};
+
+export type MediaRef = { url: string; type: "image" | "video"; alt?: string };
+
+export type PostContent = { text: string; media?: MediaRef[]; link?: string; title?: string; target?: string };
+
+export type ScheduledPost = {
+  id: string;
+  campaignId: string;
+  title: string;
+  accountId: string;
+  platform: string;
+  vertical: string;
+  content: PostContent;
+  publishAt: string;
+  status: "scheduled" | "publishing" | "published" | "failed" | "cancelled";
+  result: { ok: boolean; id?: string; url?: string | null; error?: string } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SocialEvent = Event & { taskId: string | null; taskStatus: string | null };
+
+export type Campaign = { title: string; posts: { accountId: string; content: PostContent }[]; publishAt?: string };
+
 export function createApi(conn: Connection) {
   const base = conn.baseUrl.replace(/\/$/, "");
   const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
@@ -107,6 +152,22 @@ export function createApi(conn: Connection) {
     stats: () => call<Stats>("/stats"),
     pushKey: () => call<{ publicKey: string | null }>("/push/key"),
     pushSubscribe: (sub: PushSubscriptionJSON) => post("/push/subscribe", sub),
+    socialAccounts: () => call<SocialAccount[]>("/social/accounts"),
+    socialEvents: () => call<SocialEvent[]>("/social/events"),
+    socialScheduled: () => call<ScheduledPost[]>("/social/scheduled"),
+    cancelScheduled: (id: string) => post<ScheduledPost>(`/social/scheduled/${id}/cancel`),
+    compose: (campaign: Campaign) => post<Proposal>("/social/compose", campaign),
+    /** Uploads an image or video as the raw body; returns its public URL. */
+    uploadMedia: async (file: File) => {
+      const res = await fetch(`${base}/api/media`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${conn.token}`, "content-type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
+      return body as { id: string; url: string; type: "image" | "video"; contentType: string; bytes: number };
+    },
   };
 }
 

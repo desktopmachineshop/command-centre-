@@ -10,6 +10,7 @@ export default defineConfig({
     // In dev the PWA talks to a local server through the Vite proxy.
     proxy: {
       "/api": server,
+      "/media": server,
       "/ws": { target: server.replace(/^http/, "ws"), ws: true },
     },
   },

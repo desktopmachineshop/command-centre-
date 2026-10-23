@@ -16,6 +16,7 @@ import type {
   TriageResult,
   WorkerNode,
 } from "@cc/core";
+import type { NewScheduledPost, ScheduledPost, ScheduledPostStatus } from "@cc/social";
 import type { Pool } from "./pool";
 
 type Row = Record<string, any>;
@@ -90,6 +91,21 @@ const toJob = (r: Row): Job => ({
   status: r.status,
   nodeId: r.node_id,
   progress: r.progress,
+  result: r.result,
+  createdAt: iso(r.created_at)!,
+  updatedAt: iso(r.updated_at)!,
+});
+
+const toScheduledPost = (r: Row): ScheduledPost => ({
+  id: r.id,
+  campaignId: r.campaign_id,
+  title: r.title,
+  accountId: r.account_id,
+  platform: r.platform,
+  vertical: r.vertical,
+  content: r.content,
+  publishAt: iso(r.publish_at)!,
+  status: r.status,
   result: r.result,
   createdAt: iso(r.created_at)!,
   updatedAt: iso(r.updated_at)!,
@@ -580,5 +596,107 @@ export class Store {
        on conflict (account_id) do update set uid_validity = excluded.uid_validity, last_uid = excluded.last_uid, updated_at = now()`,
       [accountId, c.uidValidity, c.lastUid],
     );
+  }
+
+  // Social (implements SocialCheckpointStore and ScheduledPostStore from @cc/social)
+
+  async getSocialCheckpoint(accountId: string): Promise<string | null> {
+    const { rows } = await this.pool.query("select cursor from social_checkpoints where account_id = $1", [accountId]);
+    return rows[0]?.cursor ?? null;
+  }
+
+  async saveSocialCheckpoint(accountId: string, cursor: string | null): Promise<void> {
+    await this.pool.query(
+      `insert into social_checkpoints (account_id, cursor) values ($1, $2)
+       on conflict (account_id) do update set cursor = excluded.cursor, updated_at = now()`,
+      [accountId, cursor],
+    );
+  }
+
+  /** Recent social events, each with its task's id and status. */
+  async listSocialEvents(limit = 50): Promise<(Event & { taskId: string | null; taskStatus: TaskStatus | null })[]> {
+    const { rows } = await this.pool.query(
+      `select e.*, t.id as task_id, t.status as task_status from events e
+       left join lateral (select id, status from tasks where event_id = e.id order by created_at limit 1) t on true
+       where e.source = 'social' order by e.received_at desc limit $1`,
+      [limit],
+    );
+    return rows.map((r) => ({ ...toEvent(r), taskId: r.task_id ?? null, taskStatus: r.task_status ?? null }));
+  }
+
+  async insertScheduledPosts(posts: NewScheduledPost[]): Promise<ScheduledPost[]> {
+    if (!posts.length) return [];
+    const { rows } = await this.pool.query(
+      `insert into scheduled_posts (id, campaign_id, title, account_id, platform, vertical, content, publish_at, status)
+       select * , 'scheduled' from unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::text[], $6::text[], $7::jsonb[], $8::timestamptz[])
+       returning *`,
+      [
+        posts.map(() => randomUUID()),
+        posts.map((p) => p.campaignId),
+        posts.map((p) => p.title),
+        posts.map((p) => p.accountId),
+        posts.map((p) => p.platform),
+        posts.map((p) => p.vertical),
+        posts.map((p) => JSON.stringify(p.content)),
+        posts.map((p) => p.publishAt),
+      ],
+    );
+    return rows.map(toScheduledPost);
+  }
+
+  /** Moves due posts to `publishing` (skip-locked, so two servers never take the same post). */
+  async claimDueScheduledPosts(now: Date, limit: number): Promise<ScheduledPost[]> {
+    const { rows } = await this.pool.query(
+      `update scheduled_posts set status = 'publishing', updated_at = now()
+       where id in (
+         select id from scheduled_posts where status = 'scheduled' and publish_at <= $1
+         order by publish_at for update skip locked limit $2
+       ) returning *`,
+      [now, limit],
+    );
+    return rows.map(toScheduledPost).sort((a, b) => a.publishAt.localeCompare(b.publishAt));
+  }
+
+  async finishScheduledPost(id: string, status: "published" | "failed", result: unknown): Promise<void> {
+    await this.pool.query(
+      "update scheduled_posts set status = $2, result = $3, updated_at = now() where id = $1 and status = 'publishing'",
+      [id, status, JSON.stringify(result)],
+    );
+  }
+
+  async failStaleScheduledPosts(olderThan: Date, result: unknown): Promise<ScheduledPost[]> {
+    const { rows } = await this.pool.query(
+      `update scheduled_posts set status = 'failed', result = $2, updated_at = now()
+       where status = 'publishing' and updated_at < $1 returning *`,
+      [olderThan, JSON.stringify(result)],
+    );
+    return rows.map(toScheduledPost);
+  }
+
+  /** Upcoming posts first (soonest first), then the rest, newest first. */
+  async listScheduledPosts(options: { status?: ScheduledPostStatus; limit?: number } = {}): Promise<ScheduledPost[]> {
+    const { rows } = await this.pool.query(
+      `select * from scheduled_posts where ($1::text is null or status = $1)
+       order by (status in ('scheduled', 'publishing')) desc,
+         case when status in ('scheduled', 'publishing') then publish_at end asc,
+         publish_at desc
+       limit $2`,
+      [options.status ?? null, options.limit ?? 100],
+    );
+    return rows.map(toScheduledPost);
+  }
+
+  async getScheduledPost(id: string): Promise<ScheduledPost | null> {
+    const { rows } = await this.pool.query("select * from scheduled_posts where id = $1", [id]);
+    return rows[0] ? toScheduledPost(rows[0]) : null;
+  }
+
+  /** Cancels a post that hasn't started publishing; null otherwise. */
+  async cancelScheduledPost(id: string): Promise<ScheduledPost | null> {
+    const { rows } = await this.pool.query(
+      "update scheduled_posts set status = 'cancelled', updated_at = now() where id = $1 and status = 'scheduled' returning *",
+      [id],
+    );
+    return rows[0] ? toScheduledPost(rows[0]) : null;
   }
 }

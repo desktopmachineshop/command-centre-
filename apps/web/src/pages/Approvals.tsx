@@ -4,6 +4,7 @@ import type { Api } from "../api";
 import { ago } from "../format";
 import { type LiveFeed, useLoad } from "../live";
 import { go } from "../router";
+import { SocialProposalBody, useSocialAccounts } from "../social";
 
 export function Approvals({ api, feed }: { api: Api; feed: LiveFeed }) {
   const { data, error } = useLoad(() => api.proposals("pending"), feed, (m) => m.type === "proposal.updated");
@@ -22,6 +23,8 @@ export function Approvals({ api, feed }: { api: Api; feed: LiveFeed }) {
 export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const social = proposal.actionType.startsWith("social.");
+  const socialAccounts = useSocialAccounts(api);
   const act = async (fn: (id: string) => Promise<unknown>) => {
     setBusy(true);
     setError(null);
@@ -43,6 +46,7 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
         <span className={`status ${proposal.status}`}>{proposal.status}</span>
       </div>
       <p className="title">{proposal.summary}</p>
+      {social && <SocialProposalBody proposal={proposal} accounts={socialAccounts} />}
       <details>
         <summary className="muted small">Details</summary>
         <pre>{JSON.stringify(proposal.payload, null, 2)}</pre>

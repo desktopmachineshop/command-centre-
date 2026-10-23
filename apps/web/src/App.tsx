@@ -9,6 +9,7 @@ import { Devices } from "./pages/Devices";
 import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { Settings } from "./pages/Settings";
+import { Social } from "./pages/Social";
 import { TaskView } from "./pages/TaskView";
 import { go, useRoute } from "./router";
 
@@ -39,6 +40,7 @@ const NAV = [
   ["inbox", "Inbox"],
   ["approvals", "Approvals"],
   ["chat", "Chat"],
+  ["social", "Social"],
   ["brain", "Brain"],
   ["devices", "Devices"],
   ["settings", "Settings"],
@@ -68,6 +70,9 @@ function Shell({ conn, onSignOut }: { conn: Connection; onSignOut: () => void })
       break;
     case "chat":
       body = <Chat api={api} feed={feed} />;
+      break;
+    case "social":
+      body = <Social api={api} feed={feed} />;
       break;
     case "brain":
       body = <Brain api={api} path={id ? decodeURIComponent(id) : undefined} />;
