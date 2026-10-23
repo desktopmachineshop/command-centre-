@@ -6,7 +6,7 @@ export default defineVertical({
   description: "Blog, Instagram and YouTube channel; site hosted on the same Odoo instance as Desktop Machine Shop.",
   brainFolder: "3dpandme",
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
-  skills: ["brain-notes"],
+  skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide"],
   mcpServers: ["brain", "odoo"],
   policies: { "brain.write": "auto" },
 });
