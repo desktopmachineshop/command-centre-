@@ -85,6 +85,11 @@ export class ActionService {
     return this.execute(proposal.id, ["pending"]);
   }
 
+  /** Approvals waiting on Dave, newest first; all verticals unless one is given. */
+  async pending(vertical?: string): Promise<Proposal[]> {
+    return this.store.listProposals({ status: "pending", vertical, limit: 100 });
+  }
+
   async approve(id: string): Promise<Proposal> {
     return this.execute(id, ["pending"]);
   }

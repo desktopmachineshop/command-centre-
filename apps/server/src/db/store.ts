@@ -41,6 +41,8 @@ const toTask = (r: Row): Task => ({
   urgency: r.urgency,
   status: r.status,
   prompt: r.prompt,
+  note: r.note ?? null,
+  duplicateOf: r.duplicate_of ?? null,
   createdAt: iso(r.created_at)!,
   updatedAt: iso(r.updated_at)!,
 });
@@ -123,22 +125,134 @@ export class Store {
 
   // Tasks
 
-  async insertTask(t: { eventId: string; triage: TriageResult; status: TaskStatus; prompt: string }): Promise<Task> {
+  async insertTask(t: {
+    eventId: string;
+    triage: TriageResult;
+    status: TaskStatus;
+    prompt: string;
+    note?: string | null;
+    duplicateOf?: string | null;
+  }): Promise<Task> {
     const { rows } = await this.pool.query(
-      `insert into tasks (id, event_id, vertical, intent, route, urgency, status, prompt, triage)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
-      [randomUUID(), t.eventId, t.triage.vertical, t.triage.intent, t.triage.route, t.triage.urgency, t.status, t.prompt, t.triage],
+      `insert into tasks (id, event_id, vertical, intent, route, urgency, status, prompt, triage, note, duplicate_of)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning *`,
+      [
+        randomUUID(),
+        t.eventId,
+        t.triage.vertical,
+        t.triage.intent,
+        t.triage.route,
+        t.triage.urgency,
+        t.status,
+        t.prompt,
+        t.triage,
+        t.note ?? null,
+        t.duplicateOf ?? null,
+      ],
     );
     return toTask(rows[0]!);
   }
 
-  async setTaskStatus(id: string, status: TaskStatus): Promise<Task> {
+  /** Changes a task's status. The note describes the status, so it is replaced (cleared by default). */
+  async setTaskStatus(id: string, status: TaskStatus, note: string | null = null): Promise<Task> {
     const { rows } = await this.pool.query(
-      "update tasks set status = $2, updated_at = now() where id = $1 returning *",
-      [id, status],
+      "update tasks set status = $2, note = $3, updated_at = now() where id = $1 returning *",
+      [id, status, note],
     );
     if (!rows[0]) throw new Error(`No task ${id}`);
     return toTask(rows[0]);
+  }
+
+  /**
+   * Takes a run slot for a task, allowing at most `max` running tasks per vertical.
+   * A per-vertical advisory lock makes the count-then-update atomic across workers
+   * and replicas. Running tasks untouched for `staleSeconds` (a crashed run) don't
+   * count. Consumes the task's one-off budget override and reports whether it was set.
+   */
+  async claimTaskRun(
+    id: string,
+    options: { max: number; staleSeconds: number },
+  ): Promise<{ state: "claimed"; task: Task; budgetOverride: boolean } | { state: "busy" } | { state: "gone" }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      const current = (await client.query("select vertical from tasks where id = $1", [id])).rows[0];
+      if (!current) {
+        await client.query("rollback");
+        return { state: "gone" };
+      }
+      await client.query("select pg_advisory_xact_lock(hashtext('cc:vertical-runs:' || $1))", [current.vertical]);
+      const task = (await client.query("select * from tasks where id = $1 for update", [id])).rows[0];
+      if (!task || (task.status !== "queued" && task.status !== "running")) {
+        await client.query("rollback");
+        return { state: "gone" };
+      }
+      const { rows: busy } = await client.query(
+        `select count(*)::int as n from tasks
+         where vertical = $1 and status = 'running' and id <> $2 and updated_at > now() - make_interval(secs => $3)`,
+        [task.vertical, id, options.staleSeconds],
+      );
+      if (busy[0]!.n >= options.max) {
+        await client.query("rollback");
+        return { state: "busy" };
+      }
+      const { rows } = await client.query(
+        "update tasks set status = 'running', note = null, budget_override = false, updated_at = now() where id = $1 returning *",
+        [id],
+      );
+      await client.query("commit");
+      return { state: "claimed", task: toTask(rows[0]!), budgetOverride: task.budget_override };
+    } catch (err) {
+      await client.query("rollback").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Puts a failed or deferred task back in the queue, with a one-off budget override. */
+  async requeueForRetry(id: string): Promise<Task | null> {
+    const { rows } = await this.pool.query(
+      `update tasks set status = 'queued', note = null, budget_override = true, updated_at = now()
+       where id = $1 and status in ('failed', 'deferred') returning *`,
+      [id],
+    );
+    return rows[0] ? toTask(rows[0]) : null;
+  }
+
+  /** Re-queues every deferred task (the budget day rolled over). */
+  async requeueDeferred(): Promise<Task[]> {
+    const { rows } = await this.pool.query(
+      "update tasks set status = 'queued', note = null, updated_at = now() where status = 'deferred' returning *",
+    );
+    return rows.map(toTask);
+  }
+
+  /** The newest task in `statuses` with the same vertical and prompt, created within the window. */
+  async findInFlightDuplicate(vertical: string, prompt: string, statuses: TaskStatus[], withinMinutes: number): Promise<Task | null> {
+    const { rows } = await this.pool.query(
+      `select * from tasks
+       where vertical = $1 and md5(prompt) = md5($2) and prompt = $2 and status = any($3::text[])
+         and created_at > now() - make_interval(mins => $4)
+       order by created_at desc limit 1`,
+      [vertical, prompt, statuses, withinMinutes],
+    );
+    return rows[0] ? toTask(rows[0]) : null;
+  }
+
+  /** Tasks of a vertical whose status last changed within `[start, end)`. */
+  async listTasksUpdatedBetween(vertical: string, statuses: TaskStatus[], start: Date, end: Date): Promise<Task[]> {
+    const { rows } = await this.pool.query(
+      `select * from tasks where vertical = $1 and status = any($2::text[]) and updated_at >= $3 and updated_at < $4
+       order by updated_at`,
+      [vertical, statuses, start, end],
+    );
+    return rows.map(toTask);
+  }
+
+  async countTasks(vertical: string, status: TaskStatus): Promise<number> {
+    const { rows } = await this.pool.query("select count(*)::int as n from tasks where vertical = $1 and status = $2", [vertical, status]);
+    return rows[0]!.n;
   }
 
   async getTask(id: string): Promise<Task | null> {
@@ -199,6 +313,27 @@ export class Store {
     return rows[0]!.total;
   }
 
+  /** Agent cost per vertical for runs started within `[since, until)`. */
+  async costByVertical(since: Date, until?: Date): Promise<Record<string, number>> {
+    const { rows } = await this.pool.query(
+      `select t.vertical, coalesce(sum(r.cost_usd), 0)::float as total
+       from agent_runs r join tasks t on t.id = r.task_id
+       where r.started_at >= $1 and ($2::timestamptz is null or r.started_at < $2)
+       group by t.vertical`,
+      [since, until ?? null],
+    );
+    return Object.fromEntries(rows.map((r) => [r.vertical, r.total]));
+  }
+
+  /** Records that a budget alert went out; false if this scope was already alerted that day. */
+  async recordBudgetAlert(day: string, scope: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      "insert into budget_alerts (day, scope) values ($1, $2) on conflict do nothing",
+      [day, scope],
+    );
+    return rowCount === 1;
+  }
+
   // Proposals
 
   async insertProposal(p: {
@@ -244,12 +379,25 @@ export class Store {
     return rows[0] ? toProposal(rows[0]) : null;
   }
 
-  async listProposals(options: { status?: ProposalStatus; taskId?: string; limit?: number } = {}): Promise<Proposal[]> {
+  async listProposals(
+    options: { status?: ProposalStatus; taskId?: string; vertical?: string; limit?: number } = {},
+  ): Promise<Proposal[]> {
     const { rows } = await this.pool.query(
       `select * from proposals
-       where ($1::text is null or status = $1) and ($2::uuid is null or task_id = $2)
-       order by created_at desc limit $3`,
-      [options.status ?? null, options.taskId ?? null, options.limit ?? 50],
+       where ($1::text is null or status = $1) and ($2::uuid is null or task_id = $2) and ($3::text is null or vertical = $3)
+       order by created_at desc limit $4`,
+      [options.status ?? null, options.taskId ?? null, options.vertical ?? null, options.limit ?? 50],
+    );
+    return rows.map(toProposal);
+  }
+
+  /** Proposals of a vertical and policy that finished (executed or failed) within `[start, end)`. */
+  async listProposalsDecidedBetween(vertical: string, policy: Policy, start: Date, end: Date): Promise<Proposal[]> {
+    const { rows } = await this.pool.query(
+      `select * from proposals
+       where vertical = $1 and policy = $2 and status in ('executed', 'failed') and decided_at >= $3 and decided_at < $4
+       order by decided_at`,
+      [vertical, policy, start, end],
     );
     return rows.map(toProposal);
   }
@@ -318,6 +466,15 @@ export class Store {
     const { rows } = await this.pool.query(
       "select * from jobs where ($1::text is null or status = $1) order by created_at desc limit $2",
       [options.status ?? null, options.limit ?? 50],
+    );
+    return rows.map(toJob);
+  }
+
+  /** Jobs updated within `[start, end)`. */
+  async listJobsUpdatedBetween(start: Date, end: Date): Promise<Job[]> {
+    const { rows } = await this.pool.query(
+      "select * from jobs where updated_at >= $1 and updated_at < $2 order by updated_at",
+      [start, end],
     );
     return rows.map(toJob);
   }

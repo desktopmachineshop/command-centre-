@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { type AgentRunner, type AgentRunRequest, ScriptedRunner } from "@cc/agent-runtime";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { VerticalRegistry } from "@cc/verticals";
 import pg from "pg";
 import { createServer, type Overrides } from "../src/app";
 import { loadConfig } from "../src/config";
@@ -31,7 +32,7 @@ export class RecordingNotifier implements Notifier {
 }
 
 export async function makeServer(
-  options: { runner?: AgentRunner; env?: Record<string, string>; overrides?: Overrides } = {},
+  options: { runner?: AgentRunner; env?: Record<string, string>; overrides?: Overrides; verticals?: VerticalRegistry } = {},
 ) {
   const dataDir = mkdtempSync(join(tmpdir(), "cc-server-"));
   const skillsDir = join(dataDir, "skills");
@@ -51,7 +52,13 @@ export async function makeServer(
   });
   const queue = new InlineTaskQueue();
   const notifier = new RecordingNotifier();
-  const server = createServer(config, { ...options.overrides, runner: options.runner, queue, notifier });
+  const server = createServer(config, {
+    ...options.overrides,
+    runner: options.runner,
+    queue,
+    notifier,
+    verticals: options.verticals ?? options.overrides?.verticals,
+  });
   await server.start();
 
   const api = async (path: string, init: RequestInit & { json?: unknown } = {}) => {

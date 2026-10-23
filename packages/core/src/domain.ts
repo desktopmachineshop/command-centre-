@@ -51,7 +51,8 @@ export const TriageResult = z.object({
 });
 export type TriageResult = z.infer<typeof TriageResult>;
 
-export const TaskStatus = z.enum(["queued", "running", "awaiting_approval", "done", "failed", "dropped"]);
+/** `deferred`: held back by a daily budget cap; re-queued when the day rolls over or on retry. */
+export const TaskStatus = z.enum(["queued", "running", "awaiting_approval", "done", "failed", "dropped", "deferred"]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
 export const Task = z.object({
@@ -63,6 +64,10 @@ export const Task = z.object({
   urgency: z.number(),
   status: TaskStatus,
   prompt: z.string(),
+  /** Why the task is in its current state, e.g. which budget deferred it. Shown in the UI. */
+  note: z.string().nullish(),
+  /** Set when this task duplicated in-flight work and was linked to it instead of running. */
+  duplicateOf: z.string().nullish(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -111,4 +111,25 @@ export const migrations: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: "0003_budgets_digests",
+    sql: `
+      alter table tasks add column note text;
+      alter table tasks add column duplicate_of uuid references tasks (id) on delete set null;
+      -- Set by an explicit retry; the next run ignores the budget once and clears it.
+      alter table tasks add column budget_override boolean not null default false;
+      create index tasks_vertical_status_idx on tasks (vertical, status);
+      create index tasks_dedupe_idx on tasks (vertical, md5(prompt), created_at desc);
+      create index agent_runs_started_idx on agent_runs (started_at);
+      create index proposals_vertical_idx on proposals (vertical, decided_at);
+
+      -- One push per budget scope per day, shared across replicas and restarts.
+      create table budget_alerts (
+        day date not null,
+        scope text not null,
+        created_at timestamptz not null default now(),
+        primary key (day, scope)
+      );
+    `,
+  },
 ];

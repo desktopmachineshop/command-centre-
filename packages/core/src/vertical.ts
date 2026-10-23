@@ -32,6 +32,8 @@ export const VerticalManifest = z.object({
   /** Per action type autonomy. Anything unlisted uses `defaultPolicy`. */
   policies: z.record(z.string(), Policy).default({}),
   defaultPolicy: Policy.default("draft"),
+  /** Optional cap on this vertical's agent spend per day; over it, new tasks are deferred. */
+  dailyBudgetUsd: z.number().positive().optional(),
 });
 export type VerticalManifest = z.infer<typeof VerticalManifest>;
 export type VerticalManifestInput = z.input<typeof VerticalManifest>;

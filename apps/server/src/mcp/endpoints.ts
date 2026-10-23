@@ -55,6 +55,18 @@ function actionsServer(actions: ActionService, caller: Caller): McpServer {
       }
     },
   );
+  server.registerTool(
+    "list_pending",
+    {
+      description: "List proposals waiting for Dave's approval (read-only). All verticals unless one is given.",
+      inputSchema: { vertical: z.string().optional() },
+    },
+    async ({ vertical }) => {
+      const pending = await actions.pending(vertical);
+      const lines = pending.map((p) => `- [${p.vertical}] ${p.actionType}: ${p.summary} (since ${p.createdAt.slice(0, 16)}Z, id ${p.id})`);
+      return { content: [{ type: "text", text: lines.length ? lines.join("\n") : "No pending approvals." }] };
+    },
+  );
   return server;
 }
 

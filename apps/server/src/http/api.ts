@@ -5,7 +5,10 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { type ActionService, ProposalStateError } from "../actions";
 import { bearer, tokenMatches } from "../auth";
+import type { BudgetService } from "../budget";
+import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
+import type { DigestService } from "../digest";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
@@ -18,6 +21,8 @@ export interface ApiDeps {
   brain: Brain;
   verticals: VerticalRegistry;
   notifier: Notifier;
+  budget: BudgetService;
+  digests: DigestService;
   adminToken: string;
   webhookSecret?: string;
 }
@@ -92,6 +97,14 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json({ task, event, runs, proposals });
   });
 
+  /** Re-runs a failed or deferred task now. An explicit retry ignores the daily budget once. */
+  app.post("/tasks/:id/retry", async (c) => {
+    const id = c.req.param("id");
+    if (!(await store.getTask(id))) return c.json({ error: "not found" }, 404);
+    const task = await pipeline.retry(id);
+    return task ? c.json(task) : c.json({ error: "only failed or deferred tasks can be retried" }, 409);
+  });
+
   app.get("/proposals", async (c) => {
     const status = c.req.query("status") ? ProposalStatus.parse(c.req.query("status")) : undefined;
     return c.json(await store.listProposals({ status, limit: limit.parse(c.req.query("limit")) }));
@@ -116,10 +129,25 @@ export function apiRoutes(deps: ApiDeps) {
   });
 
   app.get("/stats", async (c) => {
-    const dayStart = new Date();
-    dayStart.setUTCHours(0, 0, 0, 0);
+    const { budget } = deps;
+    const today = budget.today();
     const pending = await store.listProposals({ status: "pending", limit: 200 });
-    return c.json({ costTodayUsd: await store.costSince(dayStart), pendingApprovals: pending.length });
+    return c.json({
+      day: today,
+      costTodayUsd: await store.costSince(dayStart(today, budget.options.timezone)),
+      costTodayByVertical: await budget.spentToday(),
+      budgets: budget.limits(),
+      pendingApprovals: pending.length,
+    });
+  });
+
+  /** Deterministic daily digest: `?date=YYYY-MM-DD` (default today), `?vertical=` to narrow it to one. */
+  app.get("/digest", async (c) => {
+    const date = c.req.query("date") || deps.digests.today();
+    if (!isDay(date)) return c.json({ error: "date must be YYYY-MM-DD" }, 400);
+    const vertical = c.req.query("vertical");
+    if (vertical && !verticals.get(vertical)) return c.json({ error: `unknown vertical ${vertical}` }, 404);
+    return c.json(await deps.digests.buildAll(date, { only: vertical }));
   });
 
   app.get("/push/key", (c) => c.json({ publicKey: deps.notifier.publicKey }));
