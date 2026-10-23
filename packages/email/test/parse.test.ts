@@ -134,11 +134,18 @@ describe("emailPrompt", () => {
       }),
     );
     const prompt = emailPrompt({ accountId: "shop", account: "support@desktopmachineshop.com", accountName: "Dave at DMS", ...p });
+    expect(prompt.split("\n")[0]).toBe("Email from Jane Doe: ER11 collets");
+    expect(prompt).toContain('Received at support@desktopmachineshop.com (account "shop").');
     expect(prompt).toContain("From: Jane Doe <jane@example.com>\nTo: support@desktopmachineshop.com");
     expect(prompt).toContain("Subject: ER11 collets\n\nDo you stock them?\n----- END EMAIL -----");
     expect(prompt).toContain('"email.reply"');
     expect(prompt).toContain('"accountId":"shop","to":"jane@example.com"');
     expect(prompt).toContain('"inReplyTo":"<abc@example.com>"');
     expect(prompt).toContain('Sign replies as "Dave at DMS".');
+  });
+
+  it("titles a nameless sender by address and a blank subject", () => {
+    const prompt = emailPrompt({ accountId: "shop", from: { name: "", address: "bob@example.com" }, subject: "" });
+    expect(prompt.split("\n")[0]).toBe("Email from bob@example.com: (no subject)");
   });
 });

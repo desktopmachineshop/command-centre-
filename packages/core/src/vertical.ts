@@ -1,11 +1,21 @@
 import { z } from "zod";
 import { Policy } from "./domain";
 
+/** True when `Intl` knows the zone, so "today" and cron times can be computed. */
+export function isTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const Schedule = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
   /** Standard 5-field cron expression, evaluated in `timezone`. */
   cron: z.string(),
-  timezone: z.string().default("Europe/London"),
+  timezone: z.string().refine(isTimeZone, "not a known IANA timezone").default("Europe/London"),
   /** Prompt handed to the command agent when the schedule fires. */
   prompt: z.string(),
   enabled: z.boolean().default(true),

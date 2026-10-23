@@ -310,7 +310,8 @@ matched against queued or running work, since chat would run right away anyway.
 
 ## Daily digest
 
-At `DIGEST_CRON` (default `30 18 * * *`, in `DAY_TIMEZONE`; set `off` to disable) the server writes
+At `DIGEST_CRON` (default `30 18 * * *`, in `DAY_TIMEZONE`; set `off` to disable; it runs even with
+`SCHEDULES_ENABLED=false`, which only turns off vertical schedules) the server writes
 a digest for each vertical that had activity. It covers:
 
 - tasks done and failed;
@@ -338,6 +339,15 @@ The personal vertical has a weekday 07:00 (Europe/London) `morning-brief` schedu
 
 `notify` is `auto-with-digest` for the personal vertical, so the brief arrives without an approval
 step and is listed in that evening's digest.
+
+**Outside input always needs approval.** A task started by an untrusted event (`source` `email`
+or `webhook`, or anything other than `chat`, `cron` and `system`) can't auto-execute actions,
+whatever the vertical's `policies` say: its proposals are downgraded to `draft` and wait under
+Approvals, with `payload.policyDowngrade` saying which policy was overridden and why. So a crafted
+email routed to `personal` can't push its own text to your devices through `notify`. The only
+exceptions are the internal-only `brain.journal` and `brain.write`, which keep their policy.
+Proposals made with the admin token (no task) keep their policy too. (`ActionService.propose` in
+`apps/server/src/actions.ts`.)
 
 The brief is **off by default**. To turn it on, set `enabled: true` on the `morning-brief` line in
 `packages/verticals/src/personal.ts` and redeploy. It is an agent run, so it counts towards the

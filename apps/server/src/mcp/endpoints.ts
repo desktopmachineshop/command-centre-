@@ -1,18 +1,20 @@
 import { createBrainMcpServer, type Brain } from "@cc/brain";
+import type { VerticalRegistry } from "@cc/verticals";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ActionService } from "../actions";
+import { bearer, tokenMatches } from "../auth";
 import type { RunScope, RunTokens } from "../run-tokens";
 
 /** Who is calling an MCP endpoint: an agent run (scoped) or Dave's admin token. */
 type Caller = { kind: "run"; scope: RunScope } | { kind: "admin" };
 
 function authenticate(header: string | undefined, adminToken: string, runTokens: RunTokens): Caller | null {
-  const token = header?.match(/^Bearer (.+)$/)?.[1];
+  const token = bearer(header);
   if (!token) return null;
-  if (token === adminToken) return { kind: "admin" };
+  if (tokenMatches(token, adminToken)) return { kind: "admin" };
   const scope = runTokens.lookup(token);
   return scope ? { kind: "run", scope } : null;
 }
@@ -58,11 +60,15 @@ function actionsServer(actions: ActionService, caller: Caller): McpServer {
   server.registerTool(
     "list_pending",
     {
-      description: "List proposals waiting for Dave's approval (read-only). All verticals unless one is given.",
+      description:
+        caller.kind === "run"
+          ? "List proposals waiting for Dave's approval in this run's vertical (read-only)."
+          : "List proposals waiting for Dave's approval (read-only). All verticals unless one is given.",
       inputSchema: { vertical: z.string().optional() },
     },
     async ({ vertical }) => {
-      const pending = await actions.pending(vertical);
+      // A run only sees its own vertical's approvals; the admin token sees all.
+      const pending = await actions.pending(caller.kind === "run" ? caller.scope.vertical : vertical);
       const lines = pending.map((p) => `- [${p.vertical}] ${p.actionType}: ${p.summary} (since ${p.createdAt.slice(0, 16)}Z, id ${p.id})`);
       return { content: [{ type: "text", text: lines.length ? lines.join("\n") : "No pending approvals." }] };
     },
@@ -74,6 +80,8 @@ export function mcpRoutes(deps: {
   brain: Brain;
   actions: ActionService;
   runTokens: RunTokens;
+  /** Run tokens may only reach the servers their vertical's manifest lists in `mcpServers` (plus actions). */
+  verticals: VerticalRegistry;
   adminToken: string;
   /** Extra servers mounted at /<name> with the same auth, e.g. odoo. A fresh server per request. */
   servers?: Record<string, () => McpServer>;
@@ -83,6 +91,11 @@ export function mcpRoutes(deps: {
   app.use("*", async (c, next) => {
     const caller = authenticate(c.req.header("authorization"), deps.adminToken, deps.runTokens);
     if (!caller) return c.json({ error: "unauthorized" }, 401);
+    if (caller.kind === "run") {
+      const name = c.req.path.split("/").pop() ?? "";
+      const allowed = name === "actions" || (deps.verticals.get(caller.scope.vertical)?.mcpServers.includes(name) ?? false);
+      if (!allowed) return c.json({ error: `vertical ${caller.scope.vertical} may not use ${name}` }, 403);
+    }
     c.set("caller", caller);
     await next();
   });

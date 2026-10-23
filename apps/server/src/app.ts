@@ -124,7 +124,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken }));
   app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
-  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, adminToken: config.adminToken, servers: extraMcpServers }));
+  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, verticals, adminToken: config.adminToken, servers: extraMcpServers }));
 
   if (config.webDistDir) {
     const root = config.webDistDir;
@@ -162,17 +162,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await queue.work((taskId) => pipeline.runTask(taskId));
       // Deferred tasks from a day the server slept through; any still over budget re-defer.
       await pipeline.releaseDeferred();
-      if (config.schedulesEnabled) {
-        crons = startSchedules(verticals.all(), (e) => pipeline.ingest(e));
-        crons.push(
-          ...startSystemJobs({
-            timezone: config.timezone,
-            digestCron: config.digestCron,
-            digest: () => digests.deliver(),
-            rollover,
-          }),
-        );
-      }
+      // Rollover and digest run regardless of SCHEDULES_ENABLED, which only gates vertical schedules.
+      crons = startSystemJobs({
+        timezone: config.timezone,
+        digestCron: config.digestCron,
+        digest: () => digests.deliver(),
+        rollover,
+      });
+      if (config.schedulesEnabled) crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e)));
       if (emailAccounts.length) {
         emailPoller = new EmailPoller({
           accounts: emailAccounts,
