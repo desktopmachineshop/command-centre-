@@ -369,7 +369,7 @@ Set `SOCIAL_ACCOUNTS` to a one-line JSON array. Each account:
 - `handle`, `displayName` (optional): shown to agents and in the app; `handle` also identifies the
   account's own posts.
 - `inbound` (default `true`): watch it for comments, mentions and messages.
-- `credentials`: the platform's tokens (see "Platform setup"). They are checked at boot by the
+- `credentials`: the platform's tokens (see "Social: platform setup"). They are checked at boot by the
   platform's adapter; a problem stops the server with a message naming the account and field,
   never the value.
 - `options` (optional): platform settings, e.g. channels or subreddits to watch, and `userId`
@@ -377,52 +377,26 @@ Set `SOCIAL_ACCOUNTS` to a one-line JSON array. Each account:
 
 Placeholder example, one account per platform (spread over several lines here; keep it on one
 line in the variable). The exact `credentials` and `options` keys for each platform are listed
-under "Platform setup".
+under "Social: platform setup" below.
 
 ```json
 [
   { "id": "dms-discord", "platform": "discord", "vertical": "dms", "handle": "DMS Bot",
-    "credentials": { "botToken": "<bot token>" }, "options": { "channels": ["<channel id>"] } },
+    "credentials": { "botToken": "<bot token>" }, "options": { "channelIds": ["<channel id>"], "announceChannelId": "<channel id>" } },
   { "id": "3dp-instagram", "platform": "instagram", "vertical": "3dpandme", "handle": "3dpandme",
-    "credentials": { "accessToken": "<long-lived token>", "userId": "<IG user id>" } },
+    "credentials": { "accessToken": "<long-lived token>", "igUserId": "17841400000000000" } },
   { "id": "3dp-threads", "platform": "threads", "vertical": "3dpandme", "handle": "3dpandme",
-    "credentials": { "accessToken": "<long-lived token>", "userId": "<Threads user id>" } },
+    "credentials": { "accessToken": "<long-lived token>", "threadsUserId": "12345678901234567" } },
   { "id": "3dp-x", "platform": "x", "vertical": "3dpandme", "handle": "3dpandme", "inbound": false,
-    "credentials": { "apiKey": "<key>", "apiSecret": "<secret>", "accessToken": "<token>", "accessSecret": "<secret>" } },
+    "credentials": { "apiKey": "<key>", "apiSecret": "<secret>", "accessToken": "<token>", "accessTokenSecret": "<secret>" } },
   { "id": "3dp-reddit", "platform": "reddit", "vertical": "3dpandme", "handle": "u/3dpandme",
-    "credentials": { "clientId": "<id>", "clientSecret": "<secret>", "username": "<user>", "password": "<password>" },
-    "options": { "subreddits": ["3Dprinting"] } }
+    "credentials": { "clientId": "<id>", "clientSecret": "<secret>", "username": "<user>", "password": "<password>",
+      "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/your_username)" } }
 ]
 ```
 
 With `SOCIAL_ACCOUNTS` empty or unset, social is off: no polling, no social actions, and the Social
 page says so.
-
-### Platform setup
-
-<!-- Each adapter's author fills in their platform: how to create the app/bot, the scopes or
-permissions it needs, the exact `credentials` and `options` keys, API tier limits, and the poll
-interval it uses. -->
-
-#### Discord
-
-TODO: bot setup, intents, credentials and options keys.
-
-#### Instagram
-
-TODO: Meta app, Instagram professional account, token, credentials and options keys.
-
-#### Threads
-
-TODO: Meta app, Threads API access, token, credentials and options keys.
-
-#### X
-
-TODO: developer app, API tier (inbound needs a paid tier), credentials and options keys.
-
-#### Reddit
-
-TODO: script app, credentials and options keys, user agent.
 
 ## Cost control and run guardrails
 
@@ -543,14 +517,12 @@ claude mcp add --transport http odoo https://<your-domain>/mcp/odoo \
 Then ask Claude to `list_websites`. You should see both the Desktop Machine Shop and 3dpandme
 sites, with their blogs.
 
-## Social
-
-### Platform setup
+## Social: platform setup
 
 Each social account is one entry in the `SOCIAL_ACCOUNTS` JSON array, with
 `credentials` (secrets) and `options` (per-platform settings).
 
-#### Discord
+### Discord
 
 The Discord account is a **bot user** in your servers. It posts announcements, answers
 @mentions and DMs, and can watch support channels.
@@ -611,7 +583,7 @@ What the bot does:
 }
 ```
 
-#### Reddit
+### Reddit
 
 Reddit posts as **Dave's own account** through a personal "script" app. It submits to
 subreddits like r/hobbycnc and r/3Dprinting and answers replies, mentions and messages.
@@ -691,7 +663,7 @@ What the adapter does:
 }
 ```
 
-#### X
+### X
 
 The X adapter **posts only**: single posts, threads, images (up to 4) or one video, and replies
 to a post whose URL you paste. It doesn't read mentions, replies or timelines, and it can't send
@@ -764,7 +736,7 @@ What works and what doesn't:
   permissions, stale tokens, an app outside a Project, or duplicate text. Credentials never
   appear in error messages or logs.
 
-#### Instagram
+### Instagram
 
 The adapter uses the **Instagram API with Instagram Login** (Business Login for Instagram) on
 `graph.instagram.com`, Graph API **v26.0**. It needs an Instagram **professional** account
@@ -852,7 +824,7 @@ Login. Meta only delivers those through the `mentions` **webhook**, which is a l
      - Images: JPEG only.
      - Links in captions aren't clickable. A post's `link` is appended to the caption.
 
-#### Threads
+### Threads
 
 The adapter uses the **Threads API** on `graph.threads.com`, version **v1.0**.
 
@@ -918,14 +890,14 @@ What it does:
    - **Other API calls:** up to 4800 × impressions per 24 hours per app and user. Impressions
      count as at least 10.
 
-#### Media hosting (Instagram and Threads)
+### Media hosting (Instagram and Threads)
 
 Instagram and Threads don't accept uploads from us. Meta fetches each image or video **from a
 public URL** (`image_url` / `video_url`), so every `MediaRef.url` must be reachable from the
 internet over HTTPS. The Command Centre server hosts uploaded media at unguessable public URLs
 for this. Don't point it at `localhost` or a private network.
 
-#### Example `SOCIAL_ACCOUNTS` entries
+### Example `SOCIAL_ACCOUNTS` entries
 
 ```json
 [
