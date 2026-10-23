@@ -12,13 +12,17 @@ pnpm --filter @cc/server dev      # API on :8080 (reads ../../.env)
 pnpm --filter @cc/web dev         # PWA on :5173, proxied to the API
 ```
 
-Open http://localhost:5173, leave the server URL blank and paste your `ADMIN_TOKEN`.
+Open http://localhost:5173. The first time, it shows **Set up Command Centre**: paste your
+`ADMIN_TOKEN` and choose your email and password (see "Authentication" below).
 
 With `AGENT_RUNNER=claude-code`, the server runs your local `claude` CLI. You need to be logged
 in, or have `CLAUDE_CODE_OAUTH_TOKEN` set.
 
 Checks: `pnpm typecheck`, and `TEST_DATABASE_URL=postgres://cc:cc@localhost:5432/cc_test pnpm test`.
 Create the `cc_test` database first. Without `TEST_DATABASE_URL`, the server integration tests are skipped.
+The sign-in browser test (`apps/server/test/auth.browser.test.ts`, Playwright) also needs Chromium
+at `PW_CHROMIUM` (default `/opt/pw-browsers/chromium`) and a built PWA; `pnpm test` builds the PWA
+first, and the test is skipped when Chromium is missing.
 
 ## Deploy to Railway
 
@@ -28,7 +32,8 @@ Create the `cc_test` database first. Without `TEST_DATABASE_URL`, the server int
 3. **Add a volume** to the server, mounted at `/data`. It holds the brain checkout, agent
    workspaces and Claude Code's config.
 4. **Set the variables** (see `.env.example`):
-   - `ADMIN_TOKEN`: `openssl rand -hex 32`
+   - `ADMIN_TOKEN`: `openssl rand -hex 32`. You paste it once, at first-run setup; after that
+     it is for automation and MCP (see "Authentication").
    - `CLAUDE_CODE_OAUTH_TOKEN`: run `claude setup-token` on your PC (logged in to your Claude
      subscription) and paste the token. This is what lets the server drive Claude Code headless
      on your subscription.
@@ -37,7 +42,106 @@ Create the `cc_test` database first. Without `TEST_DATABASE_URL`, the server int
    - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: `npx web-push generate-vapid-keys`.
    - `WEBHOOK_SECRET`: `openssl rand -hex 24`, if you'll use webhook ingress.
 5. **Generate a domain** under Settings → Networking. That URL is your command centre.
-6. Keep **one replica**. Live updates and run tokens are held in memory in Phase 0.
+6. Keep **one replica**. Live updates, run tokens and sign-in rate limits are held in memory in Phase 0.
+7. **Open the URL and create your account** (first-run setup, below).
+
+## Authentication
+
+You sign in to the app with your **email and password** (plus an optional authenticator code).
+The server keeps you signed in with a session cookie for 30 days, extended each time you use the
+app, so on the phone and PCs you rarely need to sign in again.
+
+### First-run setup on Railway
+
+While the server has no users, opening the URL shows **Set up Command Centre**:
+
+1. Paste the `ADMIN_TOKEN` from the server's Railway variables. This proves the server is yours,
+   so a stranger who finds the URL first can't claim it. You only need it this once.
+2. Enter your name, email and a password (at least 10 characters), then **Create account**.
+
+You're signed in straight away. After that the setup screen is gone for good: setup is refused
+once any user exists, even with the admin token.
+
+You can also create the first user from your PC instead (next section).
+
+### Users from the command line: create, reset a password
+
+The `user:*` scripts run against the database directly. Each one asks for the password twice
+without echoing it (or reads it from stdin when piped), so it never lands in your shell history.
+
+```bash
+pnpm --filter @cc/server user:create -- --email dave@desktopmachineshop.com --name Dave
+pnpm --filter @cc/server user:reset-password -- --email dave@desktopmachineshop.com
+pnpm --filter @cc/server user:reset-password -- --email dave@desktopmachineshop.com --disable-2fa   # lost your phone
+pnpm --filter @cc/server user:list
+```
+
+They use `DATABASE_PUBLIC_URL` if set, then `DATABASE_URL` (or `CC_DATABASE_URL` to force one).
+Against Railway, from a clone of the repo on your PC with the [Railway CLI](https://docs.railway.com/guides/cli)
+linked to the project (`railway link`):
+
+```bash
+railway run --service Postgres -- pnpm --filter @cc/server user:reset-password -- --email dave@desktopmachineshop.com
+```
+
+`--service Postgres` gives the script the database's public URL, which is reachable from your PC
+(the server's own `DATABASE_URL` is a private-network address). Alternatively, open a shell in
+the server container with `railway ssh` and run `node dist/cli.js reset-password --email ...`.
+
+A reset clears any lockout and signs you out on every device.
+
+### Two-factor authentication (optional)
+
+**Settings → Two-factor authentication → Set up two-factor** shows a QR code. Scan it with an
+authenticator app (1Password, Google Authenticator, Authy, ...). On the phone itself, tap **Open
+in your authenticator app** or type the key shown under the QR code. Enter the 6-digit code to
+turn it on.
+
+You then get **ten recovery codes**, shown once. Keep them somewhere safe (a password manager).
+Each one works once in place of a code. If you lose the phone and the codes, reset with
+`user:reset-password -- --disable-2fa` as above. Turning two-factor off needs your password.
+
+### Devices and passwords
+
+- **Settings → Signed-in devices** lists each session (browser, IP, last active). **Sign out**
+  ends that device's session at once, including its live connection.
+- **Settings → Change password** needs the current password and signs out every other device.
+- **Settings → Sign out** ends this device's session only.
+- After five wrong passwords or codes, an account is locked for 15 seconds, then 30, 60 and so
+  on, doubling up to 15 minutes. An IP that keeps failing is slowed the same way. The error never
+  says whether the email or the password was wrong. If you lock yourself out, wait, or reset the
+  password from the CLI.
+
+### What the admin token is still for
+
+`ADMIN_TOKEN` is the key for machines, not for you day to day:
+
+- **API automation**: `Authorization: Bearer <ADMIN_TOKEN>` works on every `/api` route, as in
+  the `curl` examples below. Bearer requests don't need the CSRF header.
+- **MCP**: `claude mcp add ... --header "Authorization: Bearer <ADMIN_TOKEN>"` for the brain, Odoo
+  and actions endpoints. `/mcp/*` doesn't accept the session cookie.
+- **First-run setup**, once.
+- **"Use an admin token instead"** on the sign-in screen: the old token sign-in, kept for
+  advanced use (for example pointing the app at a different server). That token is stored in the
+  browser until you sign out.
+
+Workers use `WORKER_TOKEN` (or `ADMIN_TOKEN` if that isn't set), as before. Rotating
+`ADMIN_TOKEN` (change the variable and redeploy) doesn't sign anyone out.
+
+### How it works (security notes)
+
+- Passwords are hashed with scrypt (N=2^15, r=8, p=1, a random salt per user). The parameters are
+  stored with each hash, so they can be raised later: older hashes are upgraded at the next sign-in.
+- The session cookie is `HttpOnly`, `SameSite=Lax`, lasts 30 days from last use and, over https,
+  is `Secure` and named `__Host-cc_session`. Railway terminates TLS, so https is detected from
+  `X-Forwarded-Proto`. Only a SHA-256 of the session token is stored in the database.
+- Requests that change something with the cookie must send `X-CC-Request: 1` (the app always
+  does) or come from the same origin. Bearer-token requests are exempt.
+- Sign-in rate limits key on the client IP taken from `X-Forwarded-For`, counting
+  `TRUSTED_PROXY_HOPS` (default 1, Railway's edge) from the right, so a spoofed header can't dodge
+  them. Set it to `0` if nothing sits in front of the server.
+- TOTP follows RFC 6238 (SHA-1, 6 digits, 30 s), accepts one step either side for clock drift,
+  and refuses a code that was already used. The secret is stored in the database unencrypted.
 
 ### First check after deploying
 
@@ -81,9 +185,14 @@ past shop emails into the same format.
 
 ## Phone (PWA)
 
-Open the Railway URL on your phone, sign in with the admin token, then **Add to Home Screen**.
-On iPhone, push notifications only work from the home-screen app. In the app, go to
-**Settings → Enable on this device** to get approval notifications.
+Open the Railway URL on your phone and sign in with your email and password (and the code from
+your authenticator app, if two-factor is on). Then **Add to Home Screen** (iPhone: Share → Add to
+Home Screen; Android: ⋮ → Install app). You stay signed in for 30 days from the last time you
+used it. No token is stored on the phone; the session is an HttpOnly cookie.
+
+On iPhone the home-screen app keeps its own cookies, separate from Safari, so sign in once more
+inside it after adding it. Push notifications on iPhone only work from the home-screen app. In
+the app, go to **Settings → Enable on this device** to get approval notifications.
 
 ## Desktop app & worker
 
@@ -103,8 +212,10 @@ into the app as a single executable, so the PC doesn't need Node installed.
    - **Worker token**: the `WORKER_TOKEN` value;
    - **Computer name** (optional): shown on the Devices page, defaults to the hostname.
 
-   Then **Save and connect**. The window loads the server's app, where you sign in with
-   `ADMIN_TOKEN` as on the phone.
+   Then **Save and connect**. The window loads the server's app, where you sign in with your
+   email and password, as on the phone. The window keeps its own session cookie (in WebView2's
+   profile), so it stays signed in across restarts; it shows up under **Settings → Signed-in
+   devices** as Edge on Windows. The worker token is only for the worker, not for signing in.
 
 Closing the window keeps the app in the tray. The tray menu has the worker's status (online/idle,
 busy with a job and its progress, or offline and retrying), **Open**, **Worker on** (untick it to

@@ -17,10 +17,11 @@ export class LiveFeed {
     this.open();
   }
 
+  /** With cookie sign-in the upgrade request carries the session, so the hello token is empty. */
   private open() {
     const ws = new WebSocket(this.api.wsUrl);
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", role: "client", token: this.api.token }));
+    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", role: "client", token: this.api.token ?? "" }));
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data) as OutboundMessage;
       if (msg.type === "welcome") {

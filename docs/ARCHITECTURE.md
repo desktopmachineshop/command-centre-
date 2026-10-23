@@ -76,7 +76,7 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 
   Dave promotes an action type once he trusts it.
 - Claude Code runs get a per-vertical tool allowlist, and write-tools return proposals instead of executing directly.
-- Secrets stay in Railway env vars, the dashboard sits behind auth (passkey or Cloudflare Access), and every agent run is logged with a transcript and cost.
+- Secrets stay in Railway env vars, the dashboard sits behind email + password sign-in (optional TOTP 2FA, see `docs/SETUP.md`, "Authentication"), and every agent run is logged with a transcript and cost.
 
 ### Social pipeline
 `packages/social` publishes to and listens on Discord, Instagram, Threads, X and Reddit.
@@ -119,7 +119,7 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
   `.claude/skills`.
 - Triage is rules-only for now. Jev slots in as another `Triager` in Phase 1.
 - Still open: a smoke test of real Claude Code against the deployed MCP endpoints (see
-  `docs/SETUP.md`, "First check after deploying"), and passkey auth. Phase 0 uses one admin token.
+  `docs/SETUP.md`, "First check after deploying"), and passkeys. Sign-in is email + password with optional TOTP; the admin token remains for automation and MCP.
 
 Original Phase 0 steps:
 1. Monorepo scaffold, CI (typecheck, lint, test), Dockerfile, Railway config.

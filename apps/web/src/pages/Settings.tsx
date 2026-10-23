@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Api } from "../api";
+import { Account } from "./Account";
 
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const padded = (base64 + "=".repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
@@ -38,8 +39,10 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
         </button>
         {status && <p className="small">{status}</p>}
       </div>
+      <Account api={api} />
       <div className="card">
-        <h3>Connection</h3>
+        <h3>Sign out</h3>
+        <p className="muted small">Signs this device out. Other devices stay signed in.</p>
         <button onClick={onSignOut}>Sign out</button>
       </div>
     </section>

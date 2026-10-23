@@ -149,3 +149,8 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   .org-verticals { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 12px; }
 }
 /* --- end Org page --- */
+
+/* Account forms in Settings (auth). */
+.form { display: flex; flex-direction: column; gap: 10px; max-width: 380px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.list > li.row { padding: 8px 0; border-top: 1px solid var(--border); }

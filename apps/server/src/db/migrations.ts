@@ -173,4 +173,49 @@ export const migrations: { id: string; sql: string }[] = [
     `,
   },
   // --- end org roles ---
+  // --- auth (email + password sign-in; see src/accounts) ---
+  {
+    id: "0006_auth",
+    sql: `
+      create table users (
+        id uuid primary key,
+        -- Always stored lower-cased; the check keeps a direct SQL insert honest too.
+        email text not null unique check (email = lower(email)),
+        name text not null,
+        password_hash text not null,
+        -- Only 'admin' exists today. Other roles (e.g. a VA) are new values here plus a check in the API.
+        role text not null default 'admin',
+        created_at timestamptz not null default now(),
+        last_login_at timestamptz,
+        failed_attempts integer not null default 0,
+        locked_until timestamptz,
+        -- TOTP: the secret is set by /totp/setup and only enforced once totp_enabled_at is set.
+        totp_secret text,
+        totp_enabled_at timestamptz,
+        -- Last accepted TOTP step, so a code can't be replayed.
+        totp_last_step bigint
+      );
+
+      -- id is sha256(cookie token); the token itself is never stored.
+      create table sessions (
+        id text primary key,
+        user_id uuid not null references users (id) on delete cascade,
+        created_at timestamptz not null default now(),
+        last_seen_at timestamptz not null default now(),
+        expires_at timestamptz not null,
+        user_agent text,
+        ip text
+      );
+      create index sessions_user_idx on sessions (user_id);
+      create index sessions_expires_idx on sessions (expires_at);
+
+      create table user_recovery_codes (
+        user_id uuid not null references users (id) on delete cascade,
+        code_hash text not null,
+        used_at timestamptz,
+        primary key (user_id, code_hash)
+      );
+    `,
+  },
+  // --- end auth ---
 ];

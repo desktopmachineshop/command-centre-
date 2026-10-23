@@ -19,12 +19,14 @@ function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 const Env = z.object({
   PORT: z.coerce.number().int().default(8080),
   DATABASE_URL: z.string().min(1),
-  /** Bearer token for the dashboard API and client WebSockets. */
+  /** Bearer token for automation, MCP and first-run setup; people sign in with email + password (src/accounts). */
   ADMIN_TOKEN: z.string().min(16, "ADMIN_TOKEN must be at least 16 characters"),
   /** Token desktop worker nodes present; defaults to ADMIN_TOKEN. */
   WORKER_TOKEN: z.string().min(16).optional(),
   /** Shared secret for POST /api/ingress/webhook/:vertical (header x-cc-webhook-secret). */
   WEBHOOK_SECRET: z.string().min(16).optional(),
+  /** Reverse proxies in front of the server (Railway: 1). Picks the client IP from X-Forwarded-For for sign-in rate limits; 0 ignores the header. */
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
 
   DATA_DIR: z.string().default("./data"),
   BRAIN_DIR: z.string().optional(),
@@ -138,6 +140,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     adminToken: e.ADMIN_TOKEN,
     workerToken: e.WORKER_TOKEN ?? e.ADMIN_TOKEN,
     webhookSecret: e.WEBHOOK_SECRET,
+    trustedProxyHops: e.TRUSTED_PROXY_HOPS,
     dataDir,
     brainDir: resolve(e.BRAIN_DIR ?? `${dataDir}/brain`),
     brainRemoteUrl: e.BRAIN_REMOTE_URL || undefined,
