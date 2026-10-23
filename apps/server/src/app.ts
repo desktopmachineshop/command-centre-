@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
-import { ChainTriager, RulesTriager, type Triager } from "@cc/triage";
+import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -20,6 +20,7 @@ import { type Notifier, WebPushNotifier } from "./push";
 import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
 import { startSchedules } from "./scheduler";
+import { createTriager } from "./triage";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -67,7 +68,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const pipeline = new Pipeline({
     store,
     hub,
-    triager: overrides.triager ?? new ChainTriager([new RulesTriager()]),
+    triager: overrides.triager ?? createTriager(config),
     verticals,
     runner: overrides.runner ?? createRunner(config),
     queue,
