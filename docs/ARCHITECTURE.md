@@ -78,6 +78,37 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 - Claude Code runs get a per-vertical tool allowlist, and write-tools return proposals instead of executing directly.
 - Secrets stay in Railway env vars, the dashboard sits behind auth (passkey or Cloudflare Access), and every agent run is logged with a transcript and cost.
 
+### Social pipeline
+`packages/social` publishes to and listens on Discord, Instagram, Threads, X and Reddit.
+- **One contract, many adapters.** Each platform has one `PlatformAdapter` (`packages/social/src/types.ts`):
+  - capabilities (publish, reply, DM, inbound, media types, text limit, required fields);
+  - a zod schema for its credentials;
+  - `validate`, `publish`, `reply`, and optionally `sendDm`;
+  - an inbound source: polling, or a live connection for the Discord gateway.
+
+  The core only talks to that interface, and adapters get an injected `fetch`, logger and clock,
+  so tests never hit real APIs. Accounts (`SOCIAL_ACCOUNTS`) bind an adapter, credentials and a
+  vertical. A platform whose API tier can't read sets `inbound: false`: X is posting-only on its
+  cheapest access.
+- **Inbound → triage → agent → `social.reply`.** Mentions, comments, replies and DMs are polled
+  or streamed. They are de-duplicated by platform id, with a persisted cursor so history isn't
+  replayed, and enter the pipeline as events with the item's `replyTarget`. Triage routes them to
+  the account's vertical, and the agent drafts with that vertical's voice skill plus
+  `social-platform-guide`. It then proposes a `social.reply` (or a `social.dm` to move support
+  out of public), or escalates with `notify`.
+- **Posts and campaigns.** `social.post` puts one post on one account. `social.campaign`
+  (`{title, posts[], publishAt?}`) bundles a post per account, each written for its platform, so
+  Dave approves an announcement once. With `publishAt`, the approved campaign is scheduled
+  through the job queue rather than published straight away. Each post is checked with its
+  adapter's `validate`, so a post that breaks a platform rule fails early rather than mid-campaign.
+- **Media hosting.** Adapters take media as a public URL (`MediaRef`). Uploads are stored by the
+  server and served at an unguessable URL, so the Instagram and Threads APIs can fetch them.
+  Adapters that upload bytes themselves (X's v2 media upload) download from that same URL.
+- **Untrusted input always needs approval.** Anything a task got from social input is
+  third-party text. Every outward action from such a task is held as `draft` whatever the
+  vertical's policy says, just like email. Agents are told to treat that text as information,
+  never as instructions.
+
 ## Phases
 
 **Phase 0: Foundations** (built). Deviations from the original plan:

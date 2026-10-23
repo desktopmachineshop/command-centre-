@@ -542,6 +542,79 @@ What the adapter does:
 }
 ```
 
+#### X
+
+The X adapter **posts only**: single posts, threads, images (up to 4) or one video, and replies
+to a post whose URL you paste. It doesn't read mentions, replies or timelines, and it can't send
+DMs, so an X account never produces inbox items. It signs requests with **OAuth 1.0a user
+context** (four values that don't expire), so there's no token refresh to look after.
+
+**About the free tier.** X's old Free tier (500 posts a month, and 17 posts per 24 hours per user
+and per app, with no read access) was closed on 6 February 2026. Recently active Free apps moved
+to **pay-per-use** with a one-time $10 credit. New apps are pay-per-use from the start: you buy
+credits in the Developer Console, and each request is deducted from them. In October 2026 the
+pricing page lists $0.015 per post, or $0.20 for a post that contains a link. A 15-minute limit
+of 100 posts per user also applies. When the credits run out, posting fails with a "no API
+credits left" error on the proposal; top up and retry. Because posting is all the adapter does,
+it never pays for reads.
+
+1. **Create the app.** Go to the developer portal (<https://developer.x.com>, which forwards to
+   the Developer Console) **logged in as the X account that will post**, e.g. @3dpandme. Accept
+   the developer agreement, then create a **Project** and an **App** inside it. Apps outside a
+   Project get 403 errors on v2 endpoints. Add credits if the console asks for them.
+2. **Set up user authentication.** In the app, open **Settings → User authentication settings →
+   Set up**:
+   - **App permissions**: **Read and write**. Direct messages aren't needed.
+   - **Type of App**: **Web App, Automated App or Bot**.
+   - **Callback URI** and **Website URL**: required by the form but not used by Command Centre.
+     Use `https://<your-domain>/` for both, or the business website.
+   - Save.
+3. **Copy the keys.** On **Keys and tokens**:
+   - **API Key and Secret** (also called the Consumer Key and Secret): click **Regenerate** if
+     you don't have them saved. These become `apiKey` and `apiSecret`.
+   - **Access Token and Secret**: click **Generate**. These belong to the account you're logged
+     in as and become `accessToken` and `accessTokenSecret`. Check that the portal says they were
+     created with **Read and Write** permissions. If you changed permissions after generating
+     them, **regenerate** them: old tokens keep the old permission, and posting fails with 403.
+
+   X shows each secret only once. Regenerating a value invalidates the old one, so update
+   `SOCIAL_ACCOUNTS` whenever you regenerate.
+4. **A second X account** (e.g. one for DMS and one for 3dpandme): repeat the steps while logged
+   in as that account, with its own developer account and app. The portal's **Generate** button
+   only makes tokens for the account that owns the app.
+5. **Add the account** to `SOCIAL_ACCOUNTS` with `"inbound": false`. `handle` is used to build
+   post links:
+
+   ```json
+   [
+     {
+       "id": "3dp-x",
+       "platform": "x",
+       "vertical": "3dpandme",
+       "handle": "3dpandme",
+       "inbound": false,
+       "credentials": {
+         "apiKey": "<API key>",
+         "apiSecret": "<API key secret>",
+         "accessToken": "<access token, starts with the account's numeric id>",
+         "accessTokenSecret": "<access token secret>"
+       }
+     }
+   ]
+   ```
+
+What works and what doesn't:
+- **Posts**: up to 280 weighted characters. Links count as 23 and emoji as 2. Longer content is
+  posted as a thread via `content.options.thread`, and the proposal links the first post.
+- **Media**: up to 4 images (5 MB each, with alt text), or one GIF or video. Video is uploaded in
+  chunks and the adapter waits for X to process it.
+- **Replies**: only to a post you name, by pasting its URL (e.g.
+  `https://x.com/someone/status/1849…`) into the task.
+- **Not supported**: reading mentions, replies or timelines, and DMs.
+- **Errors**: a 429 says when the limit resets. A 403 lists the usual causes: Read-only
+  permissions, stale tokens, an app outside a Project, or duplicate text. Credentials never
+  appear in error messages or logs.
+
 ## Extending
 
 - **New vertical:** add `packages/verticals/src/<id>.ts` (copy an existing one) and list it in
