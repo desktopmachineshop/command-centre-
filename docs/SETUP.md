@@ -394,6 +394,197 @@ claude mcp add --transport http odoo https://<your-domain>/mcp/odoo \
 Then ask Claude to `list_websites`. You should see both the Desktop Machine Shop and 3dpandme
 sites, with their blogs.
 
+## Social
+
+### Platform setup
+
+#### Instagram
+
+The adapter uses the **Instagram API with Instagram Login** (Business Login for Instagram) on
+`graph.instagram.com`, Graph API **v26.0**. It needs an Instagram **professional** account
+(Business or Creator). Unlike the older Facebook Login route, it does **not** need a linked
+Facebook Page.
+
+What it does:
+
+- **Publish:** a single image, a carousel (2–20 items, images and videos mixed), or a video. Single
+  videos are published as **reels**.
+- **Reply:** answers comments. Instagram threads are one level deep, so a reply to a reply goes on
+  the top-level comment and starts with `@author`.
+- **DMs:** reads and sends direct messages, but only within 24 hours of the user's last message to
+  the account.
+- **Inbound:** polls every 5 minutes. It picks up new comments and replies on the last 10 posts
+  (change this with `options.recentMedia`) and new DMs (turn these off with
+  `options.pollDms: false`).
+
+**@mentions** of the account in other people's posts or comments can't be polled with Instagram
+Login. Meta only delivers those through the `mentions` **webhook**, which is a later addition. An
+@mention in a comment on one of our own posts arrives as an ordinary comment.
+
+1. **Create the Meta app.**
+   - Go to <https://developers.facebook.com/apps> → **Create app**.
+   - Pick the use case **Manage messaging & content on Instagram** (a Business app).
+   - Open **Instagram → API setup with Instagram login**.
+   - Under **Generate access tokens**, click **Add account** and log in as the Instagram
+     account (for example 3dpandme). If the dashboard asks, first add the account under **App
+     roles → Roles** as an Instagram tester. Then accept the invite in the Instagram app.
+2. **Permissions** (scopes) to grant:
+   - `instagram_business_basic`
+   - `instagram_business_content_publish`
+   - `instagram_business_manage_comments`
+   - `instagram_business_manage_messages`
+
+   For DMs, also turn on **Settings → Messages and story replies → Message controls → Connected
+   tools → Allow access to messages** in the Instagram app.
+3. **Get a long-lived token.** In **Generate access tokens**, click **Generate token** next to the
+   account. This gives a long-lived token that lasts 60 days.
+
+   If you'd rather use the OAuth flow:
+   - Send the user to `https://www.instagram.com/oauth/authorize?client_id=…&redirect_uri=…&response_type=code&scope=instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments,instagram_business_manage_messages`.
+   - Exchange the returned `code` at `POST https://api.instagram.com/oauth/access_token`. This
+     gives a short-lived token that lasts 1 hour.
+   - Upgrade it to a long-lived token:
+
+   ```bash
+   curl "https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=$IG_APP_SECRET&access_token=$SHORT_TOKEN"
+   ```
+4. **Get the account id** (`igUserId`). Use the `user_id` field from this call, not the `id`
+   field:
+
+   ```bash
+   curl "https://graph.instagram.com/v26.0/me?fields=user_id,username&access_token=$IG_TOKEN"
+   ```
+5. **Renew the token every ~50 days.**
+   - Long-lived tokens expire after **60 days**.
+   - You can refresh a token once it is at least 24 hours old and hasn't expired yet:
+
+     ```bash
+     curl "https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=$IG_TOKEN"
+     ```
+
+     Put the new `access_token` into `SOCIAL_ACCOUNTS` and redeploy.
+   - The adapter also exports `instagramAdapter.refreshCredentials(account, ctx)` (and
+     `refreshInstagramToken`). Until the core calls these on a schedule and saves the result,
+     set yourself a reminder.
+   - An expired token can't be refreshed. The errors then read "Instagram access token has
+     expired (code 190, subcode 463)…", and you need to generate a new token (step 3).
+6. **App review and limits.**
+   - **Access level:**
+     - For accounts you own and have added in the App Dashboard, **Standard Access** is
+       enough, so no App Review is needed.
+     - Advanced Access (with App Review and business verification) is only needed to serve
+       other people's accounts.
+   - **Publishing:**
+     - Meta allows 100 API-published posts per rolling 24 hours. A carousel counts as one post.
+     - The adapter checks `content_publishing_limit` before every publish and fails with "content
+       publishing limit reached" when you are over.
+     - Media containers are capped at 400 per 24 hours.
+   - **Other API calls:** up to 4800 × impressions per 24 hours. When Meta throttles a request, the
+     error says "rate limited … retry after ~Ns".
+   - **Content rules:**
+     - Captions: up to 2200 characters, 30 hashtags and 20 @tags.
+     - Images: JPEG only.
+     - Links in captions aren't clickable. A post's `link` is appended to the caption.
+
+#### Threads
+
+The adapter uses the **Threads API** on `graph.threads.com`, version **v1.0**.
+
+What it does:
+
+- **Publish:** text, an image, a video, or a carousel (2–20 items).
+  - Posts are up to 500 characters, with at most 5 unique links.
+  - On a text-only post, a `link` becomes the link-preview attachment. On a post with media, the
+    link is appended to the text.
+- **Reply:** replies to any thread, reply or mention through `reply_to_id`.
+- **Inbound:** polls every 5 minutes.
+  - It picks up replies, including nested ones, on the account's last 10 threads. Change this
+    with `options.recentThreads`.
+  - It also picks up **mentions** of the account. Turn these off with
+    `options.pollMentions: false`.
+- **DMs:** Threads has no DM API.
+
+1. **Create the Meta app.**
+   - Create an app with the use case **Access the Threads API**. It can be the same Meta
+     developer account as the Instagram app, but it is a separate app.
+   - Under **App roles → Roles**, add the Threads account as a **Threads Tester**.
+   - Accept the invite in the Threads app, under **Settings → Account → Website permissions →
+     Invites**.
+2. **Permissions** to grant:
+   - `threads_basic`
+   - `threads_content_publish`
+   - `threads_read_replies`
+   - `threads_manage_replies`
+   - `threads_manage_mentions`
+3. **Get a long-lived token.**
+   - **Easiest:** use the dashboard's **User Token Generator** (Threads use case → settings).
+   - **Or the OAuth flow:**
+     - Authorize at `https://threads.net/oauth/authorize?client_id=…&redirect_uri=…&response_type=code&scope=threads_basic,threads_content_publish,threads_read_replies,threads_manage_replies,threads_manage_mentions`.
+     - Exchange the `code` at `POST https://graph.threads.com/oauth/access_token`. This gives a
+       short-lived token that lasts 1 hour.
+     - Upgrade it to a long-lived token:
+
+     ```bash
+     curl "https://graph.threads.com/access_token?grant_type=th_exchange_token&client_secret=$THREADS_APP_SECRET&access_token=$SHORT_TOKEN"
+     ```
+4. **Get the user id** (`threadsUserId`):
+
+   ```bash
+   curl "https://graph.threads.com/v1.0/me?fields=id,username&access_token=$THREADS_TOKEN"
+   ```
+5. **Renew the token every ~50 days.**
+   - Long-lived tokens last **60 days**. You can refresh one once it is at least 24 hours old and
+     hasn't expired yet:
+
+     ```bash
+     curl "https://graph.threads.com/refresh_access_token?grant_type=th_refresh_token&access_token=$THREADS_TOKEN"
+     ```
+   - The adapter exports `threadsAdapter.refreshCredentials(account, ctx)` and
+     `refreshThreadsToken`.
+   - An expired token has to be generated again.
+6. **App review and limits.**
+   - **Without App Review** (testers only), publishing and replies work for your own account.
+     Mentions are the exception: without **Advanced Access** for `threads_manage_mentions`, the
+     mentions endpoint only returns mentions made by the app's testers. To see mentions from the
+     public, submit that permission for App Review.
+   - **Posting:** Meta allows 250 posts and 1000 replies per rolling 24 hours. The adapter checks
+     `threads_publishing_limit` before each post.
+   - **Other API calls:** up to 4800 × impressions per 24 hours per app and user. Impressions
+     count as at least 10.
+
+#### Media hosting (Instagram and Threads)
+
+Instagram and Threads don't accept uploads from us. Meta fetches each image or video **from a
+public URL** (`image_url` / `video_url`), so every `MediaRef.url` must be reachable from the
+internet over HTTPS. The Command Centre server hosts uploaded media at unguessable public URLs
+for this. Don't point it at `localhost` or a private network.
+
+#### Example `SOCIAL_ACCOUNTS` entries
+
+```json
+[
+  {
+    "id": "3dp-instagram",
+    "platform": "instagram",
+    "vertical": "3dpandme",
+    "handle": "3dpandme",
+    "credentials": { "accessToken": "<IG_LONG_LIVED_TOKEN>", "igUserId": "<IG_USER_ID>" },
+    "options": { "recentMedia": 10, "pollDms": true }
+  },
+  {
+    "id": "3dp-threads",
+    "platform": "threads",
+    "vertical": "3dpandme",
+    "handle": "3dpandme",
+    "credentials": { "accessToken": "<THREADS_LONG_LIVED_TOKEN>", "threadsUserId": "<THREADS_USER_ID>" },
+    "options": { "recentThreads": 10, "pollMentions": true }
+  }
+]
+```
+
+Set `handle` to the account's username. The adapters use it, along with the account id, to skip
+the account's own comments and replies.
+
 ## Extending
 
 - **New vertical:** add `packages/verticals/src/<id>.ts` (copy an existing one) and list it in
