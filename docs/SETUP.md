@@ -394,6 +394,154 @@ claude mcp add --transport http odoo https://<your-domain>/mcp/odoo \
 Then ask Claude to `list_websites`. You should see both the Desktop Machine Shop and 3dpandme
 sites, with their blogs.
 
+## Social
+
+### Platform setup
+
+Each social account is one entry in the `SOCIAL_ACCOUNTS` JSON array, with
+`credentials` (secrets) and `options` (per-platform settings).
+
+#### Discord
+
+The Discord account is a **bot user** in your servers. It posts announcements, answers
+@mentions and DMs, and can watch support channels.
+
+1. Go to <https://discord.com/developers/applications>, click **New Application** and name it
+   (e.g. "Desktop Machine Shop").
+2. Under **Bot**:
+   - **Reset Token** and copy it. This is `botToken`. Anyone holding it controls the bot, so
+     keep it only in `SOCIAL_ACCOUNTS`.
+   - Under **Privileged Gateway Intents**, turn on **Message Content Intent**. Without it the
+     gateway closes with code 4014 and the server logs
+     `disallowed intents (turn on the Message Content intent ...)`. Presence and Server
+     Members are not needed. (A bot in fewer than 100 servers doesn't need Discord's approval
+     for this intent.)
+   - Turn off **Public Bot** if only you should be able to add it to servers.
+3. Invite the bot. Under **OAuth2 → URL Generator**, tick the `bot` scope and these
+   permissions: View Channels, Send Messages, Send Messages in Threads, Embed Links,
+   Read Message History. Or use this URL with your application id:
+
+   ```
+   https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot&permissions=274877991936
+   ```
+
+   (`274877991936` = View Channels 1024 + Send Messages 2048 + Embed Links 16384 +
+   Read Message History 65536 + Send Messages in Threads 274877906944.)
+4. Get the ids. In Discord, turn on **User Settings → Advanced → Developer Mode**, then
+   right-click a server or channel and choose **Copy Server ID** / **Copy Channel ID**.
+
+What the bot does:
+
+- **Inbound** uses a live Gateway connection (API v10). It turns these into items:
+  - @mentions of the bot anywhere in its servers (or only in `guildIds`);
+  - DMs to the bot;
+  - every message in the `channelIds` watch list. With `respondToMentionsOnly: true`, only
+    messages there that mention the bot.
+
+  Messages from bots (including itself) and webhooks are ignored. It heartbeats, resumes
+  after drops, and backs off up to 60 s. A bad token (4004) or disallowed intent (4014)
+  stops it with an error instead of retrying.
+- **Publish** goes to `content.target` (a channel id) or `announceChannelId`. The limit is
+  2000 characters. Images are sent as embeds of their public URL (up to 10), and a link is
+  appended to the text so Discord unfurls it. User and role mentions ping; `@everyone` and
+  `@here` never do.
+- **Replies** are threaded Discord replies. **DMs** only reach users who share a server
+  with the bot and allow DMs.
+- REST calls honour Discord's rate-limit headers and retry 429s after `retry_after`.
+
+```json
+{
+  "id": "dms-discord", "platform": "discord", "vertical": "dms", "handle": "Desktop Machine Shop",
+  "credentials": { "botToken": "<bot token>" },
+  "options": {
+    "guildIds": ["<server id>"],
+    "channelIds": ["<#support channel id>"],
+    "announceChannelId": "<#announcements channel id>",
+    "respondToMentionsOnly": false
+  }
+}
+```
+
+#### Reddit
+
+Reddit posts as **Dave's own account** through a personal "script" app. It submits to
+subreddits like r/hobbycnc and r/3Dprinting and answers replies, mentions and messages.
+
+1. **API access.** Since November 2025 Reddit's Responsible Builder Policy requires approval
+   before new OAuth apps get API access; self-service access was closed. Existing apps keep
+   working. If a new app's token requests fail with `401`/`invalid_grant` even though the
+   credentials are right, request access through Reddit's developer support form.
+   Personal, low-volume, non-commercial use within the free rate limit is allowed under the
+   Data API Terms. Commercial use (for example a business account running at scale, or
+   reselling data) needs a separate agreement with Reddit, so keep this to Dave's own
+   account posting and replying by hand-approved proposals.
+2. Signed in as the posting account, open <https://www.reddit.com/prefs/apps>, click
+   **create another app...**, choose **script**, name it (e.g. `commandcentre`), and set the
+   redirect uri to `http://localhost:8080` (it's unused). The string under the app name is
+   `clientId`; **secret** is `clientSecret`. Only accounts listed as developers of a script
+   app can use it.
+3. **User-Agent.** Reddit requires `<platform>:<app id>:<version> (by /u/<username>)`, e.g.
+   `server:com.3dpandme.commandcentre:v0.1.0 (by /u/3dpandme)`. Generic agents get
+   throttled or blocked, and the adapter rejects a `userAgent` without the `(by /u/...)` part.
+4. **Two-factor auth.** The script app logs in with the password grant, which doesn't work
+   with 2FA. You'd have to append a fresh 6-digit code to the password (`password:123456`),
+   which expires in seconds. Use an account without 2FA (a strong unique password, kept only
+   in `SOCIAL_ACCOUNTS`), or keep 2FA and accept that inbound/publishing won't work.
+
+What the adapter does:
+
+- **Token:** the password grant (`POST https://www.reddit.com/api/v1/access_token`). The
+  token lasts an hour, is cached, and is refreshed 5 minutes early or after a 401.
+- **Publish** (`/api/submit`) goes to the subreddit in `content.target` (`hobbycnc` or
+  `r/hobbycnc`). `title` is required (300 characters max).
+  - With `content.link`, it's a link post; any `text` is added as your first comment (the
+    "submission statement" many subreddits require).
+  - With an image and no link, it's a link post to the image's public URL. Native image
+    upload isn't implemented.
+  - Otherwise it's a text post (40,000 characters max).
+  - `content.options` may carry `flairId` (the subreddit's flair template id), `flairText`,
+    `nsfw`, `spoiler` and `resubmit`.
+  - It returns the permalink.
+- **Replies** (`/api/comment`) go to a post, comment or message (10,000 characters max).
+  **DMs** use `/api/compose`, with the subject `options.dmSubject` or "Message from u/<you>".
+- **Inbound** polls `/message/inbox` every 90 s (comment replies, post replies, username
+  mentions and private messages) with a fullname cursor. Each poll is 1-3 requests,
+  well inside the limit. It never marks anything read, so the Reddit inbox still shows
+  what's new. Each item includes the subreddit, the post title and the parent
+  comment/post text.
+- **Errors:** Reddit's `json.errors` become readable messages:
+  - `RATELIMIT` ("take a break for N minutes"): new or low-karma accounts are throttled hard;
+  - `SUBREDDIT_NOEXIST`;
+  - flair required;
+  - `NO_LINKS`/`NO_SELFS`;
+  - `ALREADY_SUB`;
+  - locked/archived threads.
+
+  The client secret, password and token never appear in errors or logs.
+- **Self-promotion:** the adapter only enforces hard API limits; it doesn't know subreddit
+  rules. Reddit's guideline is that self-promotion should be a small part of an account's
+  activity (the old "10% / 9-in-10" rule). Many subreddits also add their own rules:
+  - required flair;
+  - self-promo threads or days;
+  - no link posts;
+  - account age and karma minimums.
+
+  Breaking them gets posts removed and accounts banned. The drafting agents follow the Reddit
+  platform skill for this. When a subreddit rejects a post, the reason comes back in the
+  failed proposal.
+
+```json
+{
+  "id": "3dp-reddit", "platform": "reddit", "vertical": "3dpandme", "handle": "u/<username>",
+  "credentials": {
+    "clientId": "<client id>", "clientSecret": "<secret>",
+    "username": "<username>", "password": "<password>",
+    "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/<username>)"
+  },
+  "options": { "dmSubject": "Re: your message to 3dpandme" }
+}
+```
+
 ## Extending
 
 - **New vertical:** add `packages/verticals/src/<id>.ts` (copy an existing one) and list it in
