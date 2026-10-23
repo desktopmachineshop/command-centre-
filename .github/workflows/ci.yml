@@ -35,6 +35,28 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cc
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t command-centre .
+      # Boot the real image: catches runtime-only failures such as a missing external dependency.
+      - name: Smoke test image
+        run: |
+          docker run -d --name cc --network host \
+            -e DATABASE_URL=postgres://postgres:postgres@localhost:5432/cc \
+            -e ADMIN_TOKEN=ci-admin-token-0123456789 -e AGENT_RUNNER=echo command-centre
+          for i in $(seq 1 30); do curl -sf localhost:8080/healthz && break; sleep 2; done
+          curl -sf localhost:8080/healthz || { docker logs cc; exit 1; }
+          curl -sf -X POST localhost:8080/api/chat -H "authorization: Bearer ci-admin-token-0123456789" \
+            -H "content-type: application/json" -d '{"text":"smoke test"}'
+          docker logs cc

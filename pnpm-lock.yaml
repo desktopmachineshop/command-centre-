@@ -32,6 +32,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: 0.133.0
+        version: 0.133.0(zod@4.6.7)
       '@cc/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime

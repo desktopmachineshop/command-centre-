@@ -14,6 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
     "@cc/agent-runtime": "workspace:*",
     "@cc/brain": "workspace:*",
     "@cc/core": "workspace:*",
