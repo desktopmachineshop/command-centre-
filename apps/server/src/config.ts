@@ -1,10 +1,18 @@
 import { resolve } from "node:path";
+import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
 import { z } from "zod";
 
 const bool = z
   .enum(["true", "false", "1", "0"])
   .transform((v) => v === "true" || v === "1");
+
+/** Variables that must be set; every other blank one (e.g. `WORKER_TOKEN=` in .env.example) counts as unset. */
+const REQUIRED = new Set(["DATABASE_URL", "ADMIN_TOKEN"]);
+
+function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([k, v]) => REQUIRED.has(k) || v?.trim() !== ""));
+}
 
 const Env = z.object({
   PORT: z.coerce.number().int().default(8080),
@@ -35,7 +43,7 @@ const Env = z.object({
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15 * 60_000),
   AGENT_CONCURRENCY: z.coerce.number().int().positive().default(2),
   /** Global cap on agent spend per day (see DAY_TIMEZONE); unset means no cap. */
-  AGENT_DAILY_BUDGET_USD: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().positive().optional()),
+  AGENT_DAILY_BUDGET_USD: z.coerce.number().positive().optional(),
   /** Runs per vertical at once, so one noisy vertical can't take every worker slot. */
   AGENT_MAX_CONCURRENT_PER_VERTICAL: z.coerce.number().int().positive().default(1),
   /** How long a task waits before trying again when its vertical is at its run limit. */
@@ -45,7 +53,7 @@ const Env = z.object({
 
   SCHEDULES_ENABLED: bool.default(true),
   /** Timezone that defines "today" for budgets and digests. */
-  DAY_TIMEZONE: z.string().default("Europe/London"),
+  DAY_TIMEZONE: z.string().refine(isTimeZone, "not a known IANA timezone").default("Europe/London"),
   /** When the daily digest is written, in DAY_TIMEZONE. "off" disables it. */
   DIGEST_CRON: z.string().default("30 18 * * *"),
 
@@ -59,7 +67,7 @@ const Env = z.object({
   /** Anthropic API key for the Haiku fallback classifier (separate from the agent fallback key). */
   ANTHROPIC_TRIAGE_API_KEY: z.string().optional(),
   /** The chain takes the first triager at or above this confidence. */
-  TRIAGE_MIN_CONFIDENCE: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().min(0).max(1).default(0.7)),
+  TRIAGE_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.7),
 
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
@@ -90,7 +98,7 @@ function odooConfig(e: z.infer<typeof Env>) {
 export type Config = ReturnType<typeof loadConfig>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
-  const parsed = Env.safeParse(env);
+  const parsed = Env.safeParse(withoutBlanks(env));
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Invalid configuration:\n${issues}`);

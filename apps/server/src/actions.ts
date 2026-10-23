@@ -1,5 +1,5 @@
 import type { Brain } from "@cc/brain";
-import { type NewProposal, NewProposal as NewProposalSchema, policyFor, type Proposal } from "@cc/core";
+import { type EventSource, type NewProposal, NewProposal as NewProposalSchema, type Policy, policyFor, type Proposal } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { Store } from "./db/store";
 import type { Hub } from "./hub";
@@ -47,10 +47,18 @@ export const builtinExecutors: Record<string, ActionExecutor> = {
   },
 };
 
+/** Event sources Dave controls. Anything else (email, webhook, ...) carries outside text. */
+const TRUSTED_SOURCES: ReadonlySet<EventSource> = new Set(["chat", "cron", "system"]);
+
+/** Internal-only actions that keep their policy even when outside input triggered the task. */
+const UNTRUSTED_AUTO_ALLOWED: ReadonlySet<string> = new Set(["brain.journal", "brain.write"]);
+
 /**
  * Proposals are the only way agents affect the outside world. Each one is
  * checked against its vertical's policy: `draft` waits for approval, the
- * `auto` levels execute straight away.
+ * `auto` levels execute straight away. A task triggered by untrusted input
+ * (an email or webhook) auto-executes nothing but brain writes: its other
+ * proposals are downgraded to `draft`, with the reason in `payload.policyDowngrade`.
  */
 export class ActionService {
   constructor(
@@ -67,13 +75,19 @@ export class ActionService {
       throw new Error(`Unknown action type "${p.actionType}". Known: ${Object.keys(this.executors).join(", ")}`);
     }
     const vertical = this.verticals.require(p.vertical);
-    const policy = policyFor(vertical, p.actionType);
+    let policy: Policy = policyFor(vertical, p.actionType);
+    let payload = p.payload;
+    const untrusted = policy !== "draft" && !UNTRUSTED_AUTO_ALLOWED.has(p.actionType) ? await this.untrustedSource(p.taskId) : null;
+    if (untrusted) {
+      payload = { ...payload, policyDowngrade: { from: policy, reason: `task was triggered by untrusted ${untrusted} input` } };
+      policy = "draft";
+    }
     const proposal = await this.store.insertProposal({
       taskId: p.taskId ?? null,
       vertical: p.vertical,
       actionType: p.actionType,
       summary: p.summary,
-      payload: p.payload,
+      payload,
       policy,
     });
     this.hub.broadcast({ type: "proposal.updated", proposal });
@@ -83,6 +97,18 @@ export class ActionService {
       return proposal;
     }
     return this.execute(proposal.id, ["pending"]);
+  }
+
+  /**
+   * The source of the event behind a task when it is not one Dave controls, else null.
+   * Task-less proposals (admin MCP calls) are trusted; a task we can't trace back is not.
+   */
+  private async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
+    if (!taskId) return null;
+    const task = await this.store.getTask(taskId);
+    const event = task ? await this.store.getEvent(task.eventId) : null;
+    if (!event) return "unknown";
+    return TRUSTED_SOURCES.has(event.source) ? null : event.source;
   }
 
   /** Approvals waiting on Dave, newest first; all verticals unless one is given. */

@@ -114,6 +114,7 @@ describe.skipIf(!DB_URL)("email ingress and reply (integration)", () => {
     });
 
     const request = runner.requests[0]!;
+    expect(request.prompt.split("\n")[0]).toBe("Email from Jane Doe: ER11 collets for a 300W spindle");
     expect(request.prompt).toContain("From: Jane Doe <jane@example.com>");
     expect(request.prompt).toContain("Hi, do you stock the 7-piece ER11 set?\n\nThanks, Jane\n----- END EMAIL -----");
     expect(request.prompt).not.toContain("Anything else?");
