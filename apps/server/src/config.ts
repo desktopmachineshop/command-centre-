@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { type EmailAccount, parseEmailAccounts } from "@cc/email";
 import { z } from "zod";
 
 const bool = z
@@ -51,6 +52,12 @@ const Env = z.object({
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().default("mailto:admin@example.com"),
+
+  // --- Email (see docs/SETUP.md, "Email") ---
+  /** JSON array of IMAP/SMTP accounts; see `EmailAccount` in @cc/email. */
+  EMAIL_ACCOUNTS: z.string().optional(),
+  /** How often to re-check each mailbox; IDLE usually delivers new mail sooner. */
+  EMAIL_POLL_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
 });
 
 export type Config = ReturnType<typeof loadConfig>;
@@ -62,6 +69,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error(`Invalid configuration:\n${issues}`);
   }
   const e = parsed.data;
+  let emailAccounts: EmailAccount[];
+  try {
+    emailAccounts = parseEmailAccounts(e.EMAIL_ACCOUNTS);
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
   const dataDir = resolve(e.DATA_DIR);
   return {
     port: e.PORT,
@@ -95,5 +108,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       e.VAPID_PUBLIC_KEY && e.VAPID_PRIVATE_KEY
         ? { publicKey: e.VAPID_PUBLIC_KEY, privateKey: e.VAPID_PRIVATE_KEY, subject: e.VAPID_SUBJECT }
         : undefined,
+    email: { accounts: emailAccounts, pollIntervalMs: e.EMAIL_POLL_INTERVAL_SECONDS * 1000 },
   };
 }

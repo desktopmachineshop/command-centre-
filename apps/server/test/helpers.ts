@@ -5,7 +5,7 @@ import { type AgentRunner, type AgentRunRequest, ScriptedRunner } from "@cc/agen
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import pg from "pg";
-import { createServer } from "../src/app";
+import { createServer, type Overrides } from "../src/app";
 import { loadConfig } from "../src/config";
 import type { Notifier } from "../src/push";
 import { InlineTaskQueue } from "../src/queue";
@@ -30,7 +30,9 @@ export class RecordingNotifier implements Notifier {
   }
 }
 
-export async function makeServer(options: { runner?: AgentRunner } = {}) {
+export async function makeServer(
+  options: { runner?: AgentRunner; env?: Record<string, string>; overrides?: Overrides } = {},
+) {
   const dataDir = mkdtempSync(join(tmpdir(), "cc-server-"));
   const skillsDir = join(dataDir, "skills");
   mkdirSync(join(skillsDir, "brain-notes"), { recursive: true });
@@ -45,10 +47,11 @@ export async function makeServer(options: { runner?: AgentRunner } = {}) {
     AGENT_RUNNER: "echo",
     SCHEDULES_ENABLED: "false",
     INTERNAL_BASE_URL: "http://cc.test",
+    ...options.env,
   });
   const queue = new InlineTaskQueue();
   const notifier = new RecordingNotifier();
-  const server = createServer(config, { runner: options.runner, queue, notifier });
+  const server = createServer(config, { ...options.overrides, runner: options.runner, queue, notifier });
   await server.start();
 
   const api = async (path: string, init: RequestInit & { json?: unknown } = {}) => {

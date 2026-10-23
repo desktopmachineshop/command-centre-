@@ -7,6 +7,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.js
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/core/package.json packages/core/
+COPY packages/email/package.json packages/email/
 COPY packages/agent-runtime/package.json packages/agent-runtime/
 COPY packages/brain/package.json packages/brain/
 COPY packages/triage/package.json packages/triage/

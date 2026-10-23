@@ -2,12 +2,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
+import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
-import { ActionService } from "./actions";
+import { ActionService, builtinExecutors } from "./actions";
 import type { Config } from "./config";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
@@ -29,6 +30,8 @@ export interface Overrides {
   triager?: Triager;
   notifier?: Notifier;
   verticals?: VerticalRegistry;
+  /** IMAP connector for email ingress and Sent copies (tests use a MemoryMailbox). */
+  imap?: ImapConnector;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -61,7 +64,17 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     folders: verticals.all().map((v) => v.brainFolder),
   });
   const notifier = overrides.notifier ?? new WebPushNotifier(store, config.vapid);
-  const actions = new ActionService(store, hub, verticals, { brain, notifier });
+
+  // --- Email: executors for configured accounts; the poller starts in start() ---
+  const emailAccounts = config.email.accounts;
+  for (const a of emailAccounts) verticals.require(a.vertical);
+  const executors = emailAccounts.length
+    ? { ...builtinExecutors, ...createEmailExecutors(emailAccounts, { connect: overrides.imap }) }
+    : builtinExecutors;
+  let emailPoller: EmailPoller | undefined;
+  // --- end email ---
+
+  const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
   const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency);
@@ -118,9 +131,20 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       if (queue instanceof PgBossTaskQueue) await queue.start();
       await queue.work((taskId) => pipeline.runTask(taskId));
       if (config.schedulesEnabled) crons = startSchedules(verticals.all(), (e) => pipeline.ingest(e));
+      if (emailAccounts.length) {
+        emailPoller = new EmailPoller({
+          accounts: emailAccounts,
+          store,
+          ingest: (e) => pipeline.ingest(e),
+          pollIntervalMs: config.email.pollIntervalMs,
+          connect: overrides.imap,
+        });
+        emailPoller.start();
+      }
     },
     async stop() {
       for (const c of crons) c.stop();
+      await emailPoller?.stop();
       await queue.stop();
       await pool.end();
     },

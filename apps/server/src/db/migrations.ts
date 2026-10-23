@@ -99,4 +99,16 @@ export const migrations: { id: string; sql: string }[] = [
       create index jobs_status_idx on jobs (status, created_at);
     `,
   },
+  {
+    id: "0002_email_checkpoints",
+    sql: `
+      -- Last ingested IMAP UID per email account, valid for one UIDVALIDITY.
+      create table email_checkpoints (
+        account_id text primary key,
+        uid_validity text not null,
+        last_uid bigint not null,
+        updated_at timestamptz not null default now()
+      );
+    `,
+  },
 ];

@@ -17,6 +17,7 @@ apps/web               PWA
 packages/core          shared types and WebSocket protocol
 packages/agent-runtime AgentRunner harness + Claude Code adapter (+ API-key fallback)
 packages/brain         git-backed markdown brain + MCP server
+packages/email         IMAP inbox poller + email.reply / email.send executors
 packages/triage        triagers (rules, Jev, Haiku fallback) + accuracy eval
 packages/verticals     one manifest per business / life area
 skills/                shared skills bank (Agent Skills format)

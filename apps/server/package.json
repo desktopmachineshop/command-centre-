@@ -17,6 +17,7 @@
     "@cc/agent-runtime": "workspace:*",
     "@cc/brain": "workspace:*",
     "@cc/core": "workspace:*",
+    "@cc/email": "workspace:*",
     "@cc/triage": "workspace:*",
     "@cc/verticals": "workspace:*",
     "@hono/node-server": "^2.1.5",
@@ -24,6 +25,9 @@
     "@modelcontextprotocol/sdk": "^1.32.2",
     "croner": "^10.0.1",
     "hono": "^4.13.13",
+    "imapflow": "^2.9.1",
+    "mailparser": "^3.12.4",
+    "nodemailer": "^10.2.1",
     "pg": "^8.23.1",
     "pg-boss": "^12.38.0",
     "web-push": "^3.6.7",
@@ -33,6 +37,7 @@
   "devDependencies": {
     "@types/pg": "^8.23.1",
     "@types/web-push": "^3.6.4",
+    "smtp-server": "^3.21.1",
     "tsup": "^9.0.0"
   }
 }
