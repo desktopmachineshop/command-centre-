@@ -3,9 +3,11 @@ import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
 import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
+import { createOdooExecutors, createOdooMcpServer, OdooClient } from "@cc/odoo";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
 import { createNodeWebSocket } from "@hono/node-ws";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { ActionService, builtinExecutors } from "./actions";
@@ -71,12 +73,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- Email: executors for configured accounts; the poller starts in start() ---
   const emailAccounts = config.email.accounts;
   for (const a of emailAccounts) verticals.require(a.vertical);
-  const executors = emailAccounts.length
-    ? { ...builtinExecutors, ...createEmailExecutors(emailAccounts, { connect: overrides.imap }) }
-    : builtinExecutors;
   let emailPoller: EmailPoller | undefined;
   // --- end email ---
 
+  // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
+  const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
+  const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
+
+  const executors = {
+    ...builtinExecutors,
+    ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
+    ...(odoo ? createOdooExecutors(odoo) : {}),
+  };
   const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
@@ -104,6 +112,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       staleRunSeconds: Math.ceil(config.agent.timeoutMs / 1000) + 300,
       dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
     },
+    mcpServers: ["brain", ...Object.keys(extraMcpServers)],
   });
 
   const app = new Hono();
@@ -115,7 +124,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken }));
   app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
-  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, adminToken: config.adminToken }));
+  app.route("/mcp", mcpRoutes({ brain, actions, runTokens, adminToken: config.adminToken, servers: extraMcpServers }));
 
   if (config.webDistDir) {
     const root = config.webDistDir;

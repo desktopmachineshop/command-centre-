@@ -70,7 +70,22 @@ const Env = z.object({
   EMAIL_ACCOUNTS: z.string().optional(),
   /** How often to re-check each mailbox; IDLE usually delivers new mail sooner. */
   EMAIL_POLL_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
+  /** Odoo external API. Set all four to enable the odoo MCP server and Odoo actions. */
+  ODOO_URL: z.string().optional(),
+  ODOO_DB: z.string().optional(),
+  ODOO_USERNAME: z.string().optional(),
+  ODOO_API_KEY: z.string().optional(),
+  /** "jsonrpc" (default, Odoo 14+) or "json2" (Odoo 19+). */
+  ODOO_API: z.enum(["jsonrpc", "json2"]).default("jsonrpc"),
 });
+
+function odooConfig(e: z.infer<typeof Env>) {
+  const values = { url: e.ODOO_URL, db: e.ODOO_DB, username: e.ODOO_USERNAME, apiKey: e.ODOO_API_KEY };
+  const set = Object.values(values).filter(Boolean).length;
+  if (set === 0) return undefined;
+  if (set < 4) throw new Error("Invalid configuration:\n  ODOO_URL, ODOO_DB, ODOO_USERNAME and ODOO_API_KEY must all be set to enable Odoo");
+  return { ...(values as Record<keyof typeof values, string>), api: e.ODOO_API };
+}
 
 export type Config = ReturnType<typeof loadConfig>;
 
@@ -127,5 +142,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         ? { publicKey: e.VAPID_PUBLIC_KEY, privateKey: e.VAPID_PRIVATE_KEY, subject: e.VAPID_SUBJECT }
         : undefined,
     email: { accounts: emailAccounts, pollIntervalMs: e.EMAIL_POLL_INTERVAL_SECONDS * 1000 },
+    odoo: odooConfig(e),
   };
 }

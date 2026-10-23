@@ -10,6 +10,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/email/package.json packages/email/
 COPY packages/agent-runtime/package.json packages/agent-runtime/
 COPY packages/brain/package.json packages/brain/
+COPY packages/odoo/package.json packages/odoo/
 COPY packages/triage/package.json packages/triage/
 COPY packages/verticals/package.json packages/verticals/
 RUN pnpm install --frozen-lockfile

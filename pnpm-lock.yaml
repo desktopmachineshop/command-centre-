@@ -38,6 +38,9 @@ importers:
       '@cc/email':
         specifier: workspace:*
         version: link:../../packages/email
+      '@cc/odoo':
+        specifier: workspace:*
+        version: link:../../packages/odoo
       '@cc/triage':
         specifier: workspace:*
         version: link:../../packages/triage
@@ -167,6 +170,15 @@ importers:
       smtp-server:
         specifier: ^3.21.1
         version: 3.21.1
+
+  packages/odoo:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.6.7)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/triage:
     dependencies:

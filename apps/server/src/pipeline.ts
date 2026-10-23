@@ -26,6 +26,8 @@ export interface PipelineDeps {
   skillsDir: string;
   internalBaseUrl: string;
   maxTurns: number;
+  /** MCP servers mounted at /mcp/<name> that manifests may list. Default: brain. */
+  mcpServers?: string[];
   budget: BudgetService;
   guards: RunGuards;
 }
@@ -137,7 +139,7 @@ export class Pipeline {
     const token = runTokens.issue({ taskId, runId: run.id, vertical: vertical.id });
     try {
       const cwd = await prepareWorkspace(this.deps.dataDir, this.deps.skillsDir, vertical);
-      const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token);
+      const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token, this.deps.mcpServers);
 
       // Persist messages in order without blocking the stream.
       let chain = Promise.resolve();
