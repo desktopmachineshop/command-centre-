@@ -365,4 +365,19 @@ export class Store {
     );
     return rows.map(toJob);
   }
+
+  // Email checkpoints (implements EmailCheckpointStore from @cc/email)
+
+  async getEmailCheckpoint(accountId: string): Promise<{ uidValidity: string; lastUid: number } | null> {
+    const { rows } = await this.pool.query("select * from email_checkpoints where account_id = $1", [accountId]);
+    return rows[0] ? { uidValidity: rows[0].uid_validity, lastUid: Number(rows[0].last_uid) } : null;
+  }
+
+  async saveEmailCheckpoint(accountId: string, c: { uidValidity: string; lastUid: number }): Promise<void> {
+    await this.pool.query(
+      `insert into email_checkpoints (account_id, uid_validity, last_uid) values ($1, $2, $3)
+       on conflict (account_id) do update set uid_validity = excluded.uid_validity, last_uid = excluded.last_uid, updated_at = now()`,
+      [accountId, c.uidValidity, c.lastUid],
+    );
+  }
 }

@@ -6,7 +6,7 @@ export default defineVertical({
   description: "Day-to-day life, planning, family, reminders and personal admin.",
   brainFolder: "personal",
   intents: ["plan", "reminder", "question", "admin"],
-  skills: ["brain-notes"],
+  skills: ["brain-notes", "email-triage-and-reply"],
   mcpServers: ["brain"],
   policies: { "brain.write": "auto" },
 });

@@ -6,7 +6,7 @@ export default defineVertical({
   description: "Open documentation SaaS.",
   brainFolder: "opend",
   intents: ["support", "bug", "feature-request", "billing"],
-  skills: ["brain-notes"],
+  skills: ["brain-notes", "email-triage-and-reply"],
   mcpServers: ["brain"],
   policies: { "brain.write": "auto" },
 });

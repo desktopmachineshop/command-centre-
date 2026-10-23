@@ -1,5 +1,6 @@
 import type { McpServerConfig } from "@cc/agent-runtime";
 import type { Event, VerticalManifest } from "@cc/core";
+import { emailPrompt } from "@cc/email";
 import type { ActionExecutor } from "./actions";
 
 /** The prompt an agent gets for a task, derived from the event that caused it. */
@@ -7,6 +8,8 @@ export function taskPrompt(event: Event): string {
   const p = event.payload;
   if (event.source === "chat" && typeof p.text === "string") return p.text;
   if (event.source === "cron" && typeof p.prompt === "string") return p.prompt;
+  // Email: a readable message plus how to reply (see @cc/email emailPrompt).
+  if (event.source === "email" && event.kind === "message") return emailPrompt(p);
   return [
     `New ${event.source} event "${event.kind}": ${event.title}`,
     "",
