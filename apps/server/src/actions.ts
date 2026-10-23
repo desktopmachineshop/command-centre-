@@ -13,6 +13,8 @@ export interface ExecutorContext {
 export interface ActionExecutor {
   /** One-line description shown to agents in the propose tool. */
   description: string;
+  /** Optional check when the action is proposed: throw to refuse it before it reaches Approvals. */
+  validate?(payload: Record<string, unknown>, ctx: { vertical: string }): void | Promise<void>;
   execute(payload: Record<string, unknown>, ctx: ExecutorContext): Promise<unknown>;
 }
 
@@ -71,10 +73,12 @@ export class ActionService {
 
   async propose(input: NewProposal): Promise<Proposal> {
     const p = NewProposalSchema.parse(input);
-    if (!this.executors[p.actionType]) {
+    const executor = this.executors[p.actionType];
+    if (!executor) {
       throw new Error(`Unknown action type "${p.actionType}". Known: ${Object.keys(this.executors).join(", ")}`);
     }
     const vertical = this.verticals.require(p.vertical);
+    await executor.validate?.(p.payload, { vertical: vertical.id });
     let policy: Policy = policyFor(vertical, p.actionType);
     let payload = p.payload;
     const untrusted = policy !== "draft" && !UNTRUSTED_AUTO_ALLOWED.has(p.actionType) ? await this.untrustedSource(p.taskId) : null;

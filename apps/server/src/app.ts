@@ -4,6 +4,15 @@ import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } fr
 import { Brain } from "@cc/brain";
 import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient } from "@cc/odoo";
+import {
+  type AdapterMap,
+  adapters as socialPlatformAdapters,
+  createSocialExecutors,
+  platformLabel,
+  publishDueScheduledPosts,
+  SocialInbound,
+  validateSocialCredentials,
+} from "@cc/social";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -18,6 +27,7 @@ import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
 import { DigestService } from "./digest";
 import { apiRoutes } from "./http/api";
+import { mediaRoutes } from "./http/social";
 import { wsHandler } from "./http/ws";
 import { Hub } from "./hub";
 import { mcpRoutes } from "./mcp/endpoints";
@@ -37,6 +47,8 @@ export interface Overrides {
   verticals?: VerticalRegistry;
   /** IMAP connector for email ingress and Sent copies (tests use a MemoryMailbox). */
   imap?: ImapConnector;
+  /** Social platform adapters (tests use fakes). */
+  socialAdapters?: AdapterMap;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -76,6 +88,30 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   let emailPoller: EmailPoller | undefined;
   // --- end email ---
 
+  // --- Social: accounts checked against the adapters, executors, media, scheduled posts; inbound starts in start() ---
+  const socialAdapters = overrides.socialAdapters ?? socialPlatformAdapters;
+  const socialAccounts = validateSocialCredentials(config.social.accounts, socialAdapters);
+  for (const a of socialAccounts) verticals.require(a.vertical);
+  const socialExecutors = socialAccounts.length
+    ? createSocialExecutors(socialAccounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone })
+    : {};
+  const mediaDir = join(config.dataDir, "media");
+  /** Publishes due scheduled posts; the every-minute system job calls this. */
+  const publishScheduledPosts = () =>
+    publishDueScheduledPosts({
+      store,
+      accounts: socialAccounts,
+      adapters: socialAdapters,
+      onFailure: (post, error) =>
+        notifier.notify({
+          title: "Scheduled post failed",
+          body: `${post.title} on ${platformLabel(post.platform)} (${post.accountId}): ${error}`,
+          url: "/social",
+        }),
+    });
+  let socialInbound: SocialInbound | undefined;
+  // --- end social ---
+
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
   const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
   const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
@@ -84,6 +120,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     ...builtinExecutors,
     ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
     ...(odoo ? createOdooExecutors(odoo) : {}),
+    ...socialExecutors,
   };
   const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   const workers = new WorkerService(store, hub);
@@ -125,8 +162,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     return c.json({ ok: true });
   });
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken }));
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret }));
+  const social = {
+    store,
+    actions,
+    accounts: socialAccounts,
+    adapters: socialAdapters,
+    timeZone: config.timezone,
+    media: { dir: mediaDir, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
+  };
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social }));
   app.route("/mcp", mcpRoutes({ brain, actions, runTokens, verticals, adminToken: config.adminToken, servers: extraMcpServers }));
+  // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.
+  app.route("/media", mediaRoutes(mediaDir));
 
   if (config.webDistDir) {
     const root = config.webDistDir;
@@ -156,6 +203,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     budget,
     digests,
     rollover,
+    publishScheduledPosts,
     async start() {
       await migrate(pool);
       await store.markAllNodesOffline();
@@ -172,6 +220,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         digestCron: config.digestCron,
         digest: () => digests.deliver(),
         rollover,
+        socialPublish: socialAccounts.length ? publishScheduledPosts : undefined,
       });
       if (config.schedulesEnabled) crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e)));
       if (emailAccounts.length) {
@@ -184,10 +233,21 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         });
         emailPoller.start();
       }
+      if (socialAccounts.length) {
+        socialInbound = new SocialInbound({
+          accounts: socialAccounts,
+          adapters: socialAdapters,
+          store,
+          ingest: (e) => pipeline.ingest(e),
+          defaultPollSeconds: config.social.defaultPollSeconds,
+        });
+        socialInbound.start();
+      }
     },
     async stop() {
       for (const c of crons) c.stop();
       await emailPoller?.stop();
+      await socialInbound?.stop();
       await queue.stop();
       await pool.end();
     },

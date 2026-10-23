@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
+import { parseSocialAccounts, type SocialAccount } from "@cc/social";
 import { Cron } from "croner";
 import { z } from "zod";
 
@@ -82,6 +83,15 @@ const Env = z.object({
   EMAIL_ACCOUNTS: z.string().optional(),
   /** How often to re-check each mailbox; IDLE usually delivers new mail sooner. */
   EMAIL_POLL_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
+  // --- Social (see docs/SETUP.md, "Social") ---
+  /** JSON array of social accounts; see `SocialAccount` in @cc/social. */
+  SOCIAL_ACCOUNTS: z.string().optional(),
+  /** Poll interval for platforms whose adapter doesn't suggest one. */
+  SOCIAL_POLL_DEFAULT_SECONDS: z.coerce.number().int().positive().default(300),
+  /** Public origin of this server, for media URLs platforms fetch, e.g. https://command.desktopmachineshop.com */
+  PUBLIC_BASE_URL: z.url({ protocol: /^https?$/ }).optional(),
+  /** Largest upload POST /api/media accepts. */
+  MEDIA_MAX_MB: z.coerce.number().positive().default(200),
   /** Odoo external API. Set all four to enable the odoo MCP server and Odoo actions. */
   ODOO_URL: z.string().optional(),
   ODOO_DB: z.string().optional(),
@@ -111,6 +121,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   let emailAccounts: EmailAccount[];
   try {
     emailAccounts = parseEmailAccounts(e.EMAIL_ACCOUNTS);
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
+  let socialAccounts: SocialAccount[];
+  try {
+    // Shape and unique ids only: credentials are checked against the adapters the server runs (app.ts).
+    socialAccounts = parseSocialAccounts(e.SOCIAL_ACCOUNTS, { checkCredentials: false });
   } catch (err) {
     throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
   }
@@ -155,6 +172,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         : undefined,
     email: { accounts: emailAccounts, pollIntervalMs: e.EMAIL_POLL_INTERVAL_SECONDS * 1000 },
     odoo: odooConfig(e),
+    publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
+    social: { accounts: socialAccounts, defaultPollSeconds: e.SOCIAL_POLL_DEFAULT_SECONDS },
+    media: { maxBytes: Math.round(e.MEDIA_MAX_MB * 1024 * 1024) },
   };
 }
 

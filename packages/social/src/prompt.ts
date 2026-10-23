@@ -1,4 +1,4 @@
-import type { InboundItem, Platform } from "./types";
+import type { InboundItem, Platform, ReplyTarget } from "./types";
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   discord: "Discord",
@@ -65,7 +65,13 @@ export function socialPrompt(payload: Record<string, unknown>): string {
       : null,
   ].filter((l): l is string => Boolean(l));
 
-  const reply = { accountId, target: item.replyTarget ?? null, text: "..." };
+  // Platform, kind and id first (the payload went through jsonb, which reorders keys).
+  let target: ReplyTarget | null = null;
+  if (item.replyTarget) {
+    const { platform: p, kind: k, id, ...rest } = item.replyTarget;
+    target = { platform: p, kind: k, id, ...rest };
+  }
+  const reply = { accountId, target, text: "..." };
 
   return [
     // First line is the task title in the inbox, digest and morning brief.

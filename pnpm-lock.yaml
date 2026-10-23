@@ -50,6 +50,9 @@ importers:
       '@cc/odoo':
         specifier: workspace:*
         version: link:../../packages/odoo
+      '@cc/social':
+        specifier: workspace:*
+        version: link:../../packages/social
       '@cc/triage':
         specifier: workspace:*
         version: link:../../packages/triage

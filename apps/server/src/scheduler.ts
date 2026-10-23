@@ -30,13 +30,15 @@ export function startSchedules(verticals: VerticalManifest[], ingest: (e: NewEve
 
 /**
  * Built-in jobs that are not agent runs: the daily digest (`digestCron`, off
- * when unset) and the budget-day rollover just after local midnight.
+ * when unset), the budget-day rollover just after local midnight, and, when
+ * social accounts are configured, publishing due scheduled posts every minute.
  */
 export function startSystemJobs(options: {
   timezone: string;
   digestCron?: string;
   digest: () => Promise<unknown>;
   rollover: () => Promise<unknown>;
+  socialPublish?: () => Promise<unknown>;
 }): Cron[] {
   const job = (name: string, cron: string, fn: () => Promise<unknown>) =>
     new Cron(cron, { timezone: options.timezone, protect: true }, async () => {
@@ -44,5 +46,6 @@ export function startSystemJobs(options: {
     });
   const jobs = [job("rollover", "1 0 * * *", options.rollover)];
   if (options.digestCron) jobs.push(job("digest", options.digestCron, options.digest));
+  if (options.socialPublish) jobs.push(job("social-scheduled", "* * * * *", options.socialPublish));
   return jobs;
 }

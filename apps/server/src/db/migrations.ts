@@ -134,4 +134,33 @@ export const migrations: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: "0004_social",
+    sql: `
+      -- Opaque poll cursor per social account (null: the adapter has none yet).
+      create table social_checkpoints (
+        account_id text primary key,
+        cursor text,
+        updated_at timestamptz not null default now()
+      );
+
+      -- Posts of an approved social.campaign with publishAt, published by the every-minute system job.
+      create table scheduled_posts (
+        id uuid primary key,
+        campaign_id uuid not null,
+        title text not null,
+        account_id text not null,
+        platform text not null,
+        vertical text not null,
+        content jsonb not null,
+        publish_at timestamptz not null,
+        status text not null,
+        result jsonb,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create index scheduled_posts_due_idx on scheduled_posts (status, publish_at);
+      create index scheduled_posts_created_idx on scheduled_posts (created_at desc);
+    `,
+  },
 ];
