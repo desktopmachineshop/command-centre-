@@ -14,6 +14,8 @@ Desktop Machine Shop, 3dpandme, OpenV, OpenD and personal.
 ```
 apps/server            API, WebSocket hub, pipeline, scheduler, MCP endpoints (/mcp/brain, /mcp/actions)
 apps/web               PWA
+apps/worker            worker daemon for PCs: runs ffmpeg, GPU and local Claude Code jobs
+apps/desktop           Tauri app for Windows: the PWA in a window, the worker as a sidecar, tray icon
 packages/core          shared types and WebSocket protocol
 packages/agent-runtime AgentRunner harness + Claude Code adapter (+ API-key fallback)
 packages/brain         git-backed markdown brain + MCP server

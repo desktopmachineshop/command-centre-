@@ -1,0 +1,24 @@
+{
+  "name": "@cc/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "build": "node scripts/build.mjs",
+    "build:sea": "node scripts/build.mjs --sea",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cc/agent-runtime": "workspace:*",
+    "@cc/core": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cc/server": "workspace:*",
+    "@hono/node-server": "^2.1.5",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6"
+  }
+}

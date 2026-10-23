@@ -1,7 +1,10 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Duplex } from "node:stream";
 import { type AgentRunner, type AgentRunRequest, ScriptedRunner } from "@cc/agent-runtime";
+import { serve, type ServerType } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { VerticalRegistry } from "@cc/verticals";
@@ -75,6 +78,31 @@ export async function makeServer(
   };
 
   return { server, config, queue, notifier, api, dataDir };
+}
+
+/**
+ * Serves the app on an ephemeral port with WebSockets, as main.ts does, for
+ * tests that need a real network peer. `dropConnections` cuts every socket.
+ */
+export async function serveServer(server: ReturnType<typeof createServer>) {
+  const sockets = new Set<Duplex>();
+  const http = await new Promise<ServerType>((resolve) => {
+    const s = serve({ fetch: server.app.fetch, port: 0, hostname: "127.0.0.1" }, () => resolve(s));
+  });
+  server.injectWebSocket(http);
+  http.on("upgrade", (_req, socket: Duplex) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+  const { port } = http.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    dropConnections: () => sockets.forEach((s) => s.destroy()),
+    close: () => new Promise<void>((resolve) => {
+      sockets.forEach((s) => s.destroy());
+      http.close(() => resolve());
+    }),
+  };
 }
 
 /**
