@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Where an event entered the system. New ingress adapters add a value here. */
-export const EventSource = z.enum(["chat", "cron", "webhook", "email", "odoo", "system"]);
+export const EventSource = z.enum(["chat", "cron", "webhook", "email", "odoo", "social", "system"]);
 export type EventSource = z.infer<typeof EventSource>;
 
 export const NewEvent = z.object({

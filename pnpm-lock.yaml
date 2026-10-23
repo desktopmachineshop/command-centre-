@@ -214,6 +214,15 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/social:
+    dependencies:
+      '@cc/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/triage:
     dependencies:
       '@anthropic-ai/sdk':
