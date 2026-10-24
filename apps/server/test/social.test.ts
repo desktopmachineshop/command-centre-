@@ -209,7 +209,14 @@ describe.skipIf(!DB_URL)("social (integration)", () => {
       ]),
     );
     expect(after.find((p) => p.accountId === "3dp-x")!.result).toEqual({ ok: false, error: "x API returned 503" });
-    expect(ctx.notifier.sent.at(-1)).toEqual({ title: "Scheduled post failed", body: "Voron part 4 is live on X (3dp-x): x API returned 503", url: "/social" });
+    expect(ctx.notifier.sent.at(-1)).toEqual({
+      title: "Scheduled post failed",
+      body: "Voron part 4 is live on X (3dp-x): x API returned 503",
+      url: "/social",
+      category: "alert",
+      priority: "high",
+      vertical: "3dpandme",
+    });
 
     // Published once only.
     await jobs.socialPublish!();

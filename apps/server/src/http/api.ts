@@ -12,6 +12,8 @@ import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
 import type { DigestService } from "../digest";
 import { buildOrgTree } from "../org";
+import { notificationRoutes } from "../notifications/routes";
+import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
@@ -36,6 +38,8 @@ export interface ApiDeps {
   auth: { service: AuthService; options: AuthHttpOptions };
   /** Drive mode: speech, briefing, approvals by voice, task replies (see ./voice.ts). */
   voice?: VoiceApiDeps;
+  /** Notification centre, preferences and devices (see ../notifications/routes.ts). */
+  notifications?: NotificationService;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -195,6 +199,9 @@ export function apiRoutes(deps: ApiDeps) {
     await store.savePushSubscription(sub);
     return c.json({ ok: true }, 201);
   });
+
+  // /notifications/*, behind the admin check above.
+  if (deps.notifications) app.route("/", notificationRoutes(deps.notifications));
 
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));

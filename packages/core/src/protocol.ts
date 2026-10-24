@@ -51,6 +51,8 @@ export const OutboundMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("node.updated"), node: WorkerNode }),
   // Voice mode: a finished run's structured spoken answer (see @cc/voice parseVoiceResponse).
   z.object({ type: z.literal("run.response"), runId: z.string(), taskId: z.string(), response: VoiceResponse }),
+  // notifications: the notification centre's unread count changed
+  z.object({ type: z.literal("notifications.updated"), unread: z.number().int() }),
 ]);
 export type OutboundMessage = z.infer<typeof OutboundMessage>;
 

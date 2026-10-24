@@ -256,4 +256,61 @@ export const migrations: { id: string; sql: string }[] = [
       create index task_replies_pending_idx on task_replies (task_id, created_at) where consumed_at is null;
     `,
   },
+  // --- notifications (0010): inbox, preferences, device metadata; see src/notifications ---
+  {
+    id: "0010_notifications",
+    sql: `
+      -- Device metadata on push subscriptions. user_id is 'default' until multi-user login attaches users.
+      alter table push_subscriptions add column if not exists id uuid not null default gen_random_uuid();
+      create unique index if not exists push_subscriptions_id_idx on push_subscriptions (id);
+      alter table push_subscriptions add column if not exists user_id text not null default 'default';
+      alter table push_subscriptions add column if not exists name text;
+      alter table push_subscriptions add column if not exists platform text;
+      alter table push_subscriptions add column if not exists user_agent text;
+      -- Lowest priority the device receives ('low' = everything, 'urgent' = urgent only).
+      alter table push_subscriptions add column if not exists min_priority text not null default 'low';
+      alter table push_subscriptions add column if not exists last_success_at timestamptz;
+      alter table push_subscriptions add column if not exists last_failure_at timestamptz;
+      alter table push_subscriptions add column if not exists last_error text;
+
+      -- Stored overrides on top of the built-in defaults, per user ('default' for now).
+      create table if not exists notification_prefs (
+        user_id text primary key,
+        prefs jsonb not null default '{}',
+        updated_at timestamptz not null default now()
+      );
+
+      -- The in-app notification centre: every notification, whether or not it was pushed.
+      create table if not exists notifications (
+        id uuid primary key,
+        user_id text not null default 'default',
+        category text not null,
+        priority text not null,
+        vertical text,
+        title text not null,
+        body text not null,
+        url text,
+        tag text,
+        actions jsonb not null default '[]',
+        data jsonb not null default '{}',
+        status text not null,
+        created_at timestamptz not null default now(),
+        pushed_at timestamptz,
+        read_at timestamptz
+      );
+      create index if not exists notifications_user_created_idx on notifications (user_id, created_at desc);
+      create index if not exists notifications_user_status_idx on notifications (user_id, status, category, created_at);
+      create index if not exists notifications_unread_idx on notifications (user_id) where read_at is null;
+
+      -- Once-a-day system notification jobs (the quick briefing), shared across replicas and restarts.
+      create table if not exists notification_runs (
+        user_id text not null,
+        job text not null,
+        day date not null,
+        created_at timestamptz not null default now(),
+        primary key (user_id, job, day)
+      );
+    `,
+  },
+  // --- end notifications ---
 ];
