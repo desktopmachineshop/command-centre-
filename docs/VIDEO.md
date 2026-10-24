@@ -92,8 +92,9 @@ Higher-quality option for later: CDP `Page.startScreencast` at 2× device scale,
 All providers sit behind `TextToSpeech` (`synthesize(text, { voiceId?, speed?, signal? }) →
 { audio, mime, words?, durationSec }`), the same shape as `packages/voice` on main, so the two
 can converge (a `packages/voice` provider plugs in directly; `durationSec` is the one addition,
-needed for the timeline). Cloud providers get an injected `fetch`. Keys: `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` (+ `ELEVENLABS_MODEL_ID`),
-or `OPENAI_TTS_API_KEY` (+ `OPENAI_TTS_VOICE`). Neither has been called live.
+needed for the timeline). Cloud providers get an injected `fetch`. Keys and voices are the voice settings (see SETUP.md):
+`ELEVENLABS_API_KEY` (+ `VOICE_ELEVENLABS_VOICE`, `VOICE_ELEVENLABS_TTS_MODEL`) or `OPENAI_API_KEY`
+(+ `VOICE_OPENAI_VOICE`, `VOICE_OPENAI_TTS_MODEL`). Neither has been called live.
 
 ### Captions
 

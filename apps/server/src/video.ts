@@ -14,6 +14,7 @@ import {
   VideoRenderResult,
   VideoSpec,
 } from "@cc/video";
+import { ELEVENLABS_DEFAULT_VOICE, type VoiceProviderConfig } from "@cc/voice";
 import { z } from "zod";
 import type { ActionExecutor } from "./actions";
 
@@ -211,12 +212,16 @@ export class VideoProductions {
   }
 }
 
-/** Cloud TTS keys from the environment; a provider is offered only once its key is set. */
-export function videoTtsFromEnv(env: NodeJS.ProcessEnv = process.env): TtsKeys {
+/**
+ * Cloud TTS keys for video narration, from the voice settings in the loaded config
+ * (`ELEVENLABS_API_KEY`, `VOICE_ELEVENLABS_VOICE`/`_TTS_MODEL`, `OPENAI_API_KEY`,
+ * `VOICE_OPENAI_VOICE`/`_TTS_MODEL`); a provider is offered only once its key is set.
+ */
+export function videoTtsFromConfig(p: VoiceProviderConfig): TtsKeys {
   return {
-    ...(env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID
-      ? { elevenlabs: { apiKey: env.ELEVENLABS_API_KEY, voiceId: env.ELEVENLABS_VOICE_ID, modelId: env.ELEVENLABS_MODEL_ID || undefined } }
+    ...(p.elevenlabsApiKey
+      ? { elevenlabs: { apiKey: p.elevenlabsApiKey, voiceId: p.elevenlabsVoice || ELEVENLABS_DEFAULT_VOICE, modelId: p.elevenlabsTtsModel || undefined } }
       : {}),
-    ...(env.OPENAI_TTS_API_KEY ? { openai: { apiKey: env.OPENAI_TTS_API_KEY, voice: env.OPENAI_TTS_VOICE || undefined } } : {}),
+    ...(p.openaiApiKey ? { openai: { apiKey: p.openaiApiKey, model: p.openaiTtsModel || undefined, voice: p.openaiVoice || undefined } } : {}),
   };
 }

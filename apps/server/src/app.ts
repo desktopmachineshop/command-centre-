@@ -50,7 +50,7 @@ import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
 import { VoiceConversations } from "./voice/conversations";
 import { type VoiceCalendar, VoiceService } from "./voice/service";
-import { type VideoMediaStore, VideoProductions, videoTtsFromEnv } from "./video";
+import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -222,7 +222,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     notify: (n) => notifier.notify(n),
     hasAction: (type) => type in actions.executors,
     media: overrides.videoMedia ?? (config.publicBaseUrl ? videoMediaFromStorage(storage, config.publicBaseUrl) : undefined), // storage
-    tts: videoTtsFromEnv(),
+    tts: videoTtsFromConfig(config.voice.providers),
   });
   workers.onJobSettled((job) => video.onJobSettled(job));
   // --- end video ---

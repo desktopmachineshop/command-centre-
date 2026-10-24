@@ -1,7 +1,9 @@
 import type { Capability, Job, NewProposal } from "@cc/core";
 import { BRANDS, silentWav, type VideoSpecInput } from "@cc/video";
+import { ELEVENLABS_DEFAULT_VOICE } from "@cc/voice";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type VideoMediaStore, VideoProductions, videoTtsFromEnv } from "../src/video";
+import { loadConfig } from "../src/config";
+import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "../src/video";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const spec: VideoSpecInput = {
@@ -121,10 +123,15 @@ describe("video.produce chain", () => {
     await f.productions.onJobSettled({ id: "x", kind: "video.render", requires: [], payload: {}, status: "succeeded", nodeId: null, progress: 1, result: null, createdAt: "", updatedAt: "" });
   });
 
-  it("reads TTS keys from the environment only when complete", () => {
-    expect(videoTtsFromEnv({})).toEqual({});
-    expect(videoTtsFromEnv({ ELEVENLABS_API_KEY: "k" })).toEqual({});
-    expect(videoTtsFromEnv({ ELEVENLABS_API_KEY: "k", ELEVENLABS_VOICE_ID: "v", OPENAI_TTS_API_KEY: "o" })).toMatchObject({ elevenlabs: { voiceId: "v" }, openai: { apiKey: "o" } });
+  it("takes TTS keys from the documented voice settings", () => {
+    const tts = (env: Record<string, string>) => videoTtsFromConfig(loadConfig({ ...env, DATABASE_URL: "postgres://x", ADMIN_TOKEN: "admin-token-for-tests-0123456789" }).voice.providers);
+    expect(tts({})).toEqual({});
+    // The old undocumented names are ignored.
+    expect(tts({ ELEVENLABS_VOICE_ID: "v", OPENAI_TTS_API_KEY: "o" })).toEqual({});
+    expect(tts({ ELEVENLABS_API_KEY: "k" })).toEqual({ elevenlabs: { apiKey: "k", voiceId: ELEVENLABS_DEFAULT_VOICE } });
+    expect(
+      tts({ ELEVENLABS_API_KEY: "k", VOICE_ELEVENLABS_VOICE: "v", VOICE_ELEVENLABS_TTS_MODEL: "m", OPENAI_API_KEY: "o", VOICE_OPENAI_VOICE: "fable", VOICE_OPENAI_TTS_MODEL: "tts" }),
+    ).toEqual({ elevenlabs: { apiKey: "k", voiceId: "v", modelId: "m" }, openai: { apiKey: "o", model: "tts", voice: "fable" } });
   });
 });
 

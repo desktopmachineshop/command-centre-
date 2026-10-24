@@ -1662,6 +1662,8 @@ server voice anyway, tick **Options → Use the server voice**.
 | `VOICE_MAX_UPLOAD_KB` / `VOICE_MAX_SECONDS` | `2048` / `60` | limits for `POST /api/voice/transcribe` |
 | `VOICE_LANGUAGE` | `en-GB` | |
 
+Video narration ([VIDEO.md](VIDEO.md)) uses the same keys, voices and TTS models.
+
 `auto` turns a provider on as soon as its key is set. If `OPENAI_API_KEY` is there for something
 else, set `VOICE_STT_PROVIDER=off` / `VOICE_TTS_PROVIDER=off` to keep voice on the browser.
 
