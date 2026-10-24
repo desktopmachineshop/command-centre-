@@ -1,9 +1,14 @@
 # Good morning: overnight summary (24 Oct 2026)
 
 Everything below is merged to `ccr-fa6f7f74-51z3o9`, tested (typecheck + every package's tests
-+ builds, green), pushed, and deployed to Railway at
-**https://server-production-d0c1.up.railway.app**. It is running in **echo mode** (no Claude
-runs, no cost) until you add your Claude token (step 2 below).
++ builds, green), pushed, and deployed to Railway. Use **https://command.desktopmachineshop.com**
+(you already signed in there from your phone at 02:16 UTC). Railway's dashboard still shows the
+certificate as "issue failed" from the earlier Let's Encrypt rate limit, but the domain is
+serving fine. If browsers ever complain, re-run the certificate from Railway → server →
+Settings → Networking. `https://server-production-d0c1.up.railway.app` always works too.
+
+It is running in **echo mode** (no Claude runs, no cost) until you add your Claude token
+(step 2 below).
 
 ## What's built
 
@@ -22,14 +27,26 @@ runs, no cost) until you add your Claude token (step 2 below).
 | **Desktop** | Windows app + worker (GPU/ffmpeg/DaVinci/Claude jobs). Build via the GitHub "Desktop" workflow. |
 | **Cost control** | Daily budget caps, digests that make no Claude calls, run guardrails, duplicate detection. |
 
+**Looks:** the whole app was redesigned for phone and desktop, in light, dark or system theme
+(toggle in the header). Screenshots of every page are in `docs/screenshots/`.
+
+**Final review:** an independent review of the fully merged code checked every `/api` route
+without credentials and found no unauthenticated access. It also found agents can't reach tools
+outside their role. It found and we fixed five bugs, each with a regression test:
+- "Done" on a recurring reminder's notification ended the whole series. It now completes
+  just that occurrence, and push links expire.
+- A voice reply could lose its context if the subscription hit its limit mid-conversation.
+- One-time upload links could be used twice at once, and leaked a file path in an error.
+- A rare race between a voice reply and an approval completing.
+- Video narration ignored the documented voice settings.
+
 **Safety rule throughout:** anything triggered by outside input (email, webhooks, social, Odoo)
 can never send, post or change anything without your approval, whatever the settings say.
 
 ## Your setup checklist (in order)
 
-1. **Create your login.** Open the app and paste `ADMIN_TOKEN` (Railway → command-centre →
-   server → Variables) once on the setup screen. Then choose your email and password. On iPhone,
-   add to Home Screen and sign in again inside it.
+1. **Login: done.** Your account was created at 02:16 UTC. Optional: Settings → set up
+   two-factor and save the recovery codes. Add the app to your home screen.
 2. **Turn on Claude.** On your PC run `claude setup-token`, then in Railway set
    `CLAUDE_CODE_OAUTH_TOKEN` and change `AGENT_RUNNER` to `claude-code`. Then send the
    "First check after deploying" message from `docs/SETUP.md`. **This is the first real agent
