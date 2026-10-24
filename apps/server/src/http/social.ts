@@ -24,7 +24,13 @@ const MEDIA_TYPES: Record<string, { ext: string; kind: "image" | "video" }> = {
   "video/quicktime": { ext: "mov", kind: "video" },
   "video/webm": { ext: "webm", kind: "video" },
 };
-const BY_EXT = Object.fromEntries(Object.entries(MEDIA_TYPES).map(([type, m]) => [m.ext, type]));
+const BY_EXT: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(MEDIA_TYPES).map(([type, m]) => [m.ext, type])),
+  // storage: narration for video jobs is served too (not accepted by POST /api/media).
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+};
 /** 32 hex characters (128 random bits) plus a known extension; nothing else is ever served. */
 export const MEDIA_FILE = new RegExp(`^[a-f0-9]{32}\\.(${Object.keys(BY_EXT).join("|")})$`);
 

@@ -1,5 +1,5 @@
 import type { Brain } from "@cc/brain";
-import { type EventSource, type NewProposal, NewProposal as NewProposalSchema, type Policy, policyFor, type Proposal } from "@cc/core";
+import { type EventSource, type NewProposal, type NotificationCategory, type NotificationPriority, NewProposal as NewProposalSchema, type Policy, policyFor, type Proposal } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { Store } from "./db/store";
 import type { Hub } from "./hub";
@@ -8,6 +8,8 @@ import type { Notifier } from "./push";
 export interface ExecutorContext {
   brain: Brain;
   notifier: Notifier;
+  /** The proposal's vertical, set when an executor runs. */
+  vertical?: string;
 }
 
 export interface ActionExecutor {
@@ -41,13 +43,27 @@ export const builtinExecutors: Record<string, ActionExecutor> = {
     },
   },
   notify: {
-    description: "Send a push notification to Dave's devices. payload: { title, body }",
-    execute: async (payload, { notifier }) => {
-      await notifier.notify({ title: str(payload, "title"), body: str(payload, "body") });
+    description:
+      'Send a notification to Dave\'s devices. payload: { title, body, category?, priority?, url? }. category: "briefing" (morning brief, evening wrap), "reminder", "alert", "orders", "social" or "agent" (default). priority: "high", "normal" or "low".',
+    execute: async (payload, { notifier, vertical }) => {
+      // notifications: agents pick a category; never "approval"/"system", and never urgent (which breaks quiet hours).
+      const category = AGENT_CATEGORIES.has(payload.category as string) ? (payload.category as NotificationCategory) : "agent";
+      const asked = ["high", "normal", "low"].includes(payload.priority as string) ? (payload.priority as NotificationPriority) : undefined;
+      await notifier.notify({
+        title: str(payload, "title"),
+        body: str(payload, "body"),
+        category,
+        priority: asked ?? (category === "alert" ? "high" : undefined),
+        vertical,
+        url: typeof payload.url === "string" && payload.url.startsWith("/") ? payload.url : undefined,
+      });
       return "sent";
     },
   },
 };
+
+/** Categories an agent's `notify` may use. */
+const AGENT_CATEGORIES: ReadonlySet<string> = new Set<NotificationCategory>(["briefing", "reminder", "alert", "orders", "social", "digest", "agent"]);
 
 /** Event sources Dave controls. Anything else (email, webhook, ...) carries outside text. */
 const TRUSTED_SOURCES: ReadonlySet<EventSource> = new Set(["chat", "cron", "system"]);
@@ -71,7 +87,8 @@ export class ActionService {
     readonly executors: Record<string, ActionExecutor> = builtinExecutors,
   ) {}
 
-  async propose(input: NewProposal): Promise<Proposal> {
+  /** `forceDraft` (a reason) holds this proposal for approval whatever the vertical's policy says. */
+  async propose(input: NewProposal, options: { forceDraft?: string } = {}): Promise<Proposal> {
     const p = NewProposalSchema.parse(input);
     const executor = this.executors[p.actionType];
     if (!executor) {
@@ -86,6 +103,10 @@ export class ActionService {
       payload = { ...payload, policyDowngrade: { from: policy, reason: `task was triggered by untrusted ${untrusted} input` } };
       policy = "draft";
     }
+    if (options.forceDraft && policy !== "draft") {
+      payload = { ...payload, policyDowngrade: { from: policy, reason: options.forceDraft } };
+      policy = "draft";
+    }
     const proposal = await this.store.insertProposal({
       taskId: p.taskId ?? null,
       vertical: p.vertical,
@@ -97,7 +118,22 @@ export class ActionService {
     this.hub.broadcast({ type: "proposal.updated", proposal });
 
     if (policy === "draft") {
-      await this.ctx.notifier.notify({ title: `Approve: ${vertical.name}`, body: p.summary, url: "/approvals" });
+      // notifications: one "approvals" notification, replaced by each new request, with Approve/Reject buttons.
+      const pendingApprovals = (await this.store.listProposals({ status: "pending", limit: 200 })).length;
+      await this.ctx.notifier.notify({
+        title: `Approve: ${vertical.name}`,
+        body: p.summary,
+        url: `/approvals/${proposal.id}`,
+        category: "approval",
+        priority: "high",
+        vertical: vertical.id,
+        tag: "approvals",
+        actions: [
+          { action: "approve", title: "Approve" },
+          { action: "reject", title: "Reject" },
+        ],
+        data: { proposalId: proposal.id, pendingApprovals },
+      });
       return proposal;
     }
     return this.execute(proposal.id, ["pending"]);
@@ -146,7 +182,7 @@ export class ActionService {
     let final: Proposal | null;
     try {
       if (!executor) throw new Error(`No executor for ${approved.actionType}`);
-      const result = await executor.execute(approved.payload, this.ctx);
+      const result = await executor.execute(approved.payload, { ...this.ctx, vertical: approved.vertical });
       final = await this.store.transitionProposal(id, ["approved"], "executed", { ok: true, result: result ?? null });
     } catch (err) {
       final = await this.store.transitionProposal(id, ["approved"], "failed", { ok: false, error: (err as Error).message });
@@ -156,8 +192,12 @@ export class ActionService {
     return final!;
   }
 
+  /** Called once a proposal is decided (notifications: marks its approval request read). */
+  onDecided?: (proposal: Proposal) => Promise<void> | void;
+
   /** A task waiting on approvals is done once none of its proposals are pending. */
   private async settleTask(proposal: Proposal): Promise<void> {
+    await Promise.resolve(this.onDecided?.(proposal)).catch((err) => console.error("[actions] onDecided", err));
     if (!proposal.taskId) return;
     const task = await this.store.getTask(proposal.taskId);
     if (task?.status !== "awaiting_approval") return;

@@ -17,6 +17,10 @@ const FileConfig = z.looseObject({
   capabilities: z.partialRecord(Capability, z.boolean()).optional(),
   ffmpegBin: z.string().optional(),
   claudeBin: z.string().optional(),
+  /** Chromium or Chrome for video.capture (turns on the `browser` capability when it exists). */
+  chromiumBin: z.string().optional(),
+  /** Signed-in browser profiles for capture, by name: paths to Playwright storage-state JSON files. */
+  captureProfiles: z.record(z.string(), z.string()).optional(),
   /** Directories `claude.local` jobs may run in (besides the work dir). */
   claudeDirs: z.array(z.string()).optional(),
 });
@@ -36,6 +40,8 @@ export interface WorkerConfig {
   ffmpegBin: string;
   claudeBin: string;
   claudeDirs: string[];
+  chromiumBin: string | null;
+  captureProfiles: Record<string, string>;
   /** Print machine-readable `CC_STATUS {...}` lines for the desktop app. */
   statusJson: boolean;
 }
@@ -115,6 +121,8 @@ export function loadConfig(argv: string[] = process.argv.slice(2), env: NodeJS.P
     ffmpegBin: env.CC_FFMPEG_BIN ?? file.ffmpegBin ?? "ffmpeg",
     claudeBin: env.CC_CLAUDE_BIN ?? file.claudeBin ?? "claude",
     claudeDirs: (file.claudeDirs ?? []).map((d) => resolve(d)),
+    chromiumBin: env.CC_CHROMIUM_BIN ?? file.chromiumBin ?? null,
+    captureProfiles: Object.fromEntries(Object.entries(file.captureProfiles ?? {}).map(([name, path]) => [name, resolve(path)])),
     statusJson: flags["status-json"] ?? false,
   };
 }

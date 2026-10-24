@@ -14,6 +14,8 @@
     "@cc/agent-runtime": "workspace:*",
     "@cc/core": "workspace:*",
     "@cc/storage": "workspace:*",
+    "@cc/video": "workspace:*",
+    "playwright-core": "1.63.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

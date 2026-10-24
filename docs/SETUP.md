@@ -192,7 +192,7 @@ used it. No token is stored on the phone; the session is an HttpOnly cookie.
 
 On iPhone the home-screen app keeps its own cookies, separate from Safari, so sign in once more
 inside it after adding it. Push notifications on iPhone only work from the home-screen app. In
-the app, go to **Settings → Enable on this device** to get approval notifications.
+the app, go to **Notifications → Notification settings → Enable on this device** (see "Notifications").
 
 ## Desktop app & worker
 
@@ -236,7 +236,7 @@ At startup the worker checks what the PC can do, and the server only sends it jo
 | `gpu`          | `nvidia-smi` lists a GPU, or Windows reports an NVIDIA, AMD or Intel Arc adapter      |
 | `davinci`      | DaVinci Resolve or its scripting module is in the default install location            |
 | `claude-local` | `claude` is on `PATH` and logged in (use the native installer, which gives `claude.exe`) |
-| `browser`      | never detected; turn it on in config                                                  |
+| `browser`      | `chromiumBin` (or `CC_CHROMIUM_BIN`) points at Chromium/Chrome that exists            |
 
 To force one on or off, add to `worker.json`, then use **Worker on** to restart the worker:
 
@@ -246,7 +246,9 @@ To force one on or off, add to `worker.json`, then use **Worker on** to restart 
 
 Other `worker.json` keys: `ffmpegBin` and `claudeBin` (full paths, if they're not on `PATH`),
 `workDir`, and `claudeDirs`, the folders `claude.local` jobs may use as their working directory
-(besides the work dir).
+(besides the work dir). For video: `chromiumBin` (the browser `video.capture` drives) and
+`captureProfiles` (`{ "opend-demo": "C:\\...\\opend-demo.json" }`, Playwright storage states for
+signed-in captures).
 
 ### Job kinds
 
@@ -260,6 +262,12 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   options or filters (`-filter_script`, `movie=`…) are rejected. The result is `{outputPath, bytes}`.
 - `claude.local` `{prompt, cwd?, maxTurns?}`: runs headless Claude Code on the PC's own login. The
   result is `{result, sessionId, costUsd}`.
+- `video.capture` `{spec, scenes?, uploads?}` (needs `browser`): records a VideoSpec's capture
+  scenes with Playwright. The result is `{clips: {<scene>: {path, trimStartSec, durationSec, url?}}}`.
+- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?}` (needs `ffmpeg`;
+  NVENC on `gpu` nodes): voices, captions and composes the video. The result is
+  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?}`.
+  See [VIDEO.md](VIDEO.md).
 
 ### Try it
 
@@ -388,8 +396,8 @@ Set `EMAIL_ACCOUNTS` to a one-line JSON array (an example is in `.env.example`):
 
 ## Social
 
-The command centre watches and posts to social accounts on Discord, Instagram, Threads, X and
-Reddit (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
+The command centre watches and posts to social accounts on Discord, Instagram, Threads, X,
+Reddit and YouTube (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
 pipeline treats them all the same.
 
 - **In:** every account with `inbound: true`, on a platform whose adapter can read (and whose API
@@ -413,8 +421,9 @@ Agents never post directly. They propose one of these, all `draft` policy (appro
 - `social.reply` `{accountId, target, text}`: answer a comment, mention or DM. The task prompt
   includes this payload ready to fill in; `target` must stay as given.
 - `social.post` `{accountId, content}`: one post on one account. `content` is
-  `{text, media?: [{url, type: "image"|"video", alt?}], link?, title?, target?}`. Reddit needs a
-  `title` and a subreddit `target`; Instagram needs at least one image or video.
+  `{text, media?: [{url, type: "image"|"video", alt?}], link?, title?, target?, options?}`. Reddit
+  needs a `title` and a subreddit `target`; Instagram needs at least one image or video; YouTube
+  needs a `title` and exactly one video (and takes `options` such as `privacyStatus`).
 - `social.dm` `{accountId, userId, text}`: only on platforms that allow DMs.
 - `social.campaign` `{title, posts: [{accountId, content}], publishAt?}`: the same news on several
   accounts with **one approval**, e.g. a new YouTube video announced on Instagram, Threads, X,
@@ -476,7 +485,7 @@ Set `SOCIAL_ACCOUNTS` to a one-line JSON array. Each account:
 
 - `id`: short and stable. It appears in dedupe keys, checkpoints and action payloads, so don't
   rename it once the account is live.
-- `platform`: `discord`, `instagram`, `threads`, `x` or `reddit`.
+- `platform`: `discord`, `instagram`, `threads`, `x`, `reddit` or `youtube`.
 - `vertical`: where its events go and which agents may post as it (`dms`, `3dpandme`, ...).
 - `handle`, `displayName` (optional): shown to agents and in the app; `handle` also identifies the
   account's own posts.
@@ -503,7 +512,10 @@ under "Social: platform setup" below.
     "credentials": { "apiKey": "<key>", "apiSecret": "<secret>", "accessToken": "<token>", "accessTokenSecret": "<secret>" } },
   { "id": "3dp-reddit", "platform": "reddit", "vertical": "3dpandme", "handle": "u/3dpandme",
     "credentials": { "clientId": "<id>", "clientSecret": "<secret>", "username": "<user>", "password": "<password>",
-      "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/your_username)" } }
+      "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/your_username)" } },
+  { "id": "3dp-youtube", "platform": "youtube", "vertical": "3dpandme", "handle": "@3dpandme",
+    "credentials": { "clientId": "<id>.apps.googleusercontent.com", "clientSecret": "<secret>",
+      "refreshToken": "<refresh token>", "channelId": "UC<22 characters>" } }
 ]
 ```
 
@@ -692,7 +704,7 @@ The personal vertical has a weekday 07:00 (Europe/London) `morning-brief` schedu
 1. reads yesterday's digests and journal (Friday to Sunday on a Monday);
 2. lists pending approvals;
 3. works out today's priorities;
-4. sends you a 3–5 line push through a `notify` action.
+4. sends you a 3–5 line `briefing` push through a `notify` action (see "Notifications").
 
 `notify` is `auto-with-digest` for the personal vertical, so the brief arrives without an approval
 step and is listed in that evening's digest.
@@ -709,6 +721,82 @@ Proposals made with the admin token (no task) keep their policy too. (`ActionSer
 The brief is **off by default**. To turn it on, set `enabled: true` on the `morning-brief` line in
 `packages/verticals/src/personal.ts` and redeploy. It is an agent run, so it counts towards the
 budgets.
+
+## Notifications
+
+Every notification is saved in the app's **notification centre** (the bell in the header, with
+the unread count; the same count shows on the app icon where the Badging API is supported). Each
+one has a **category**, and the category decides whether it reaches your devices as a push.
+Change it all under **Notifications → Notification settings** (`#/notification-settings`).
+
+### Categories and defaults
+
+| Category | What sends it | Default |
+| --- | --- | --- |
+| `approval` | an action waiting for approval | push, sound, high |
+| `briefing` | morning brief, evening wrap, quick briefing | push, silent |
+| `reminder` | personal-assistant reminders | push, sound, high |
+| `alert` | budget reached, a scheduled post failed | push, sound, urgent |
+| `digest` | the daily digest | push, silent, low |
+| `social` | social activity | batched into the next digest |
+| `orders` | Odoo/shop orders | batched into the next digest |
+| `system` | test pushes, system notices | in the app only |
+| `agent` | anything else an agent sends with `notify` | push, sound |
+
+For each category you can set: **on/off** (off: still listed in the centre, already marked read);
+**delivery** (push now, add to the next digest push, or in the app only); **sound** (off shows the
+push silently, with no sound or vibration); and its **priority**. **Per vertical** overrides change
+one category for one business, e.g. 3dpandme social off.
+
+- Approval requests share one notification (tag `approvals`) that is replaced by each new request,
+  says how many more are waiting, and has **Approve** / **Reject** buttons. The buttons don't act
+  from the lock screen: they open the app on that proposal and ask you to confirm. (The service
+  worker has no credentials, and a stray tap on a lock screen shouldn't send an email.) Deciding
+  a proposal marks its notification read.
+- Briefings open a briefing view (`#/briefing/<id>`).
+- **Rate limit:** at most 3 pushes per category per 10 minutes (configurable). Extras collapse into
+  one "and N more" notification per category, which updates in place. Urgent is never limited.
+- **Batched** notifications are added to the next daily-digest push as one line ("Also: 2 social,
+  1 orders"). If there is no digest that day they stay in the centre.
+
+Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`normal`/`low`),
+`vertical`, `tag`, `actions` and `data`; `{title, body, url}` alone still works, and the category
+is then guessed from the title and URL (else `agent`). The `notify` action takes
+`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`.
+
+### Quiet hours
+
+Default **22:00–07:00 Europe/London**, across midnight and following daylight saving. During quiet
+hours only `urgent` pushes (and approvals, if you tick **Let approvals through**). Everything else
+is held and, when quiet hours end, arrives as **one summary push** listing what came in.
+
+### Quick briefing
+
+Off by default. When on, at the set time (default 07:30) you get a `briefing` push with today's
+counts: approvals waiting, tasks so far, spend against budget, and unread notifications. It is a
+system job, not an agent run, so it costs nothing. The agent-written morning brief (above) is
+separate and is also sent as a `briefing`.
+
+### Devices
+
+**Notification settings → Enable on this device** subscribes the device and asks for a name
+("Dave's phone"). The device list shows each one's platform and last successful push, and lets you
+rename or remove it, choose what it gets (everything, high and up, or urgent only: e.g. urgent only
+on the phone, everything on the desktop), and **Send test**. Each category row also has a **Test**
+button, which sends a test push to every device that category reaches (ignoring quiet hours and
+the rate limit). Devices whose subscription has expired are removed automatically.
+
+- **iPhone/iPad (iOS 16.4+):** push only works from the home-screen app. In Safari, **Share → Add
+  to Home Screen**, open Command Centre from the home screen, sign in, then **Enable on this
+  device** and allow notifications. Focus modes can still silence it.
+- **Android (Chrome):** install the app (menu → **Install app**) or use it in Chrome, then **Enable
+  on this device**. If nothing arrives, check Android's notification settings for Chrome / the app.
+- **Windows/macOS:** Chrome or Edge, installed or in a tab. Pushes arrive while the browser runs.
+
+The server needs `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`; without them notifications are only
+in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifications/unread-count`,
+`POST /api/notifications/:id/read`, `POST /api/notifications/read-all`,
+`GET|PUT /api/notifications/prefs`, `/api/notifications/devices`, `POST /api/notifications/test`.
 
 ## Odoo
 
@@ -750,6 +838,69 @@ claude mcp add --transport http odoo https://<your-domain>/mcp/odoo \
 
 Then ask Claude to `list_websites`. You should see both the Desktop Machine Shop and 3dpandme
 sites, with their blogs.
+
+### Odoo events
+
+When Odoo is configured, the server also **polls** Odoo (every 5 minutes by default) and turns
+what happened into events. Odoo Online can't run custom modules, so nothing is pushed to the
+server.
+
+| Source | What it watches | Event | Default handling |
+| --- | --- | --- | --- |
+| `orders` | confirmed sales and website orders (`sale.order` in state sale/done) | `order.created` | filed: a journal line and the digest, no agent |
+| `messages` | customer chatter messages (`mail.message` of type comment, not by an internal user) on orders, contacts and tickets | `message.received` | agent drafts a reply (`dms-customer-reply`) |
+| `tickets` | new Helpdesk tickets (if Helpdesk is installed) | `message.received` | agent drafts a reply |
+| `stock` | a storable product's on-hand quantity dropping below its threshold, once per crossing | `stock.low` | agent proposes a reorder note (`dms-ops`) |
+| `deliveries` | an outgoing delivery still not done `lateAfterHours` after its scheduled date, once | `delivery.late` | agent drafts an apology (`dms-ops`) |
+| `reviews` | submitted ratings and product reviews (`rating.rating`, if installed) | `review.received` | agent drafts a reply (`dms-ops`) |
+
+- **First run:** each source starts from "now" and doesn't replay old records. Progress is kept
+  per source in the `odoo_event_checkpoints` table, so restarts carry on where they stopped.
+- **Missing apps:** if an app or field a source needs isn't there (no Helpdesk, for example), that
+  source logs `odoo-events: <source>: disabled: ...` once and stops. The others keep running.
+  Restart the server after installing the app.
+- **Untrusted:** Odoo content can come from customers. Tasks from Odoo events never auto-execute
+  outward actions: every proposal waits for your approval, whatever the vertical's policy.
+- **Digest:** the daily digest of each vertical gets an **Odoo** section, with the order count
+  and revenue, customer messages, low-stock items, late deliveries and reviews.
+
+Set `ODOO_EVENTS` to choose what runs. Leave it unset (or `on`) for every source with the
+defaults, or set:
+
+- `off` to disable polling;
+- a list such as `orders,stock,deliveries`;
+- JSON options:
+
+```json
+{
+  "sources": ["orders", "messages", "tickets", "stock", "deliveries", "reviews"],
+  "pollSeconds": 300,
+  "lowStockThreshold": 3,
+  "useReorderRules": true,
+  "websites": { "1": "dms", "3dpandme": "3dpandme" },
+  "defaultVertical": "dms",
+  "bigOrderThreshold": 500,
+  "lateAfterHours": 24,
+  "messageTypes": ["comment"],
+  "overlapSeconds": 600
+}
+```
+
+- `pollSeconds`: how often each source is checked (minimum 30).
+- `lowStockThreshold`: a product is low when `qty_available` is **below** this. With
+  `useReorderRules`, a product's reordering rule (Inventory → Configuration → Reordering Rules)
+  with a min quantity above 0 sets its threshold instead. Services and consumables are never low.
+- `websites`: maps an Odoo website, by id or by name, to a vertical. Find the ids with the
+  `list_websites` tool. Anything else (and records with no website, such as stock) goes to
+  `defaultVertical`.
+- `bigOrderThreshold`: an order at or above this total (in its own currency) goes to an agent for
+  a check, instead of just being filed.
+- `lateAfterHours`: grace period after a delivery's scheduled date. Many orders are scheduled for
+  the moment they're placed, so `0` would flag nearly every order.
+- `messageTypes`: add `"email"` to also catch customers' email replies to Odoo's own mails
+  (quotations, order confirmations), if those don't already reach a polled inbox.
+- `overlapSeconds`: how far back each poll looks again, for records committed late. Already-seen
+  ids are skipped.
 
 ## Social: platform setup
 
@@ -1124,6 +1275,146 @@ What it does:
    - **Other API calls:** up to 4800 × impressions per 24 hours per app and user. Impressions
      count as at least 10.
 
+### YouTube
+
+The adapter uses the **YouTube Data API v3** for one channel (e.g. 3dpandme, or a channel for
+OpenV / OpenD videos), with OAuth 2.0 and a refresh token.
+
+What it does:
+
+- **Publish:** uploads one video per post with the resumable upload protocol. The file is
+  streamed from its `MediaRef` URL in 8 MiB chunks, so large videos aren't held in memory, and
+  a dropped chunk or a 5xx is resumed rather than restarted.
+  - `content.title` is the video title (required, at most 100 characters, no `<` or `>`).
+  - `content.text` is the description, with `content.link` added on its own line. The limit is
+    5000 **bytes** (UTF-8), so emoji and accented letters count for more than one.
+  - `content.options`:
+    - `privacyStatus`: `private` (the default), `unlisted` or `public`. Nothing goes public
+      unless the post says so.
+    - `publishAt`: an ISO time for YouTube's own scheduling. It needs `privacyStatus: "private"`
+      (or no `privacyStatus`); YouTube makes the video public at that time. This is different from
+      a campaign's `publishAt`, which decides when Command Centre uploads.
+    - `tags` (500 characters in all, counting commas, and quotes around tags with spaces),
+      `categoryId` (e.g. `"28"` Science & Technology, `"26"` Howto & Style; the account's
+      `options.defaultCategoryId` is used when it's missing), `madeForKids` (default `false`),
+      `notifySubscribers` (default `true`), `containsSyntheticMedia`, `defaultLanguage`.
+    - `thumbnailUrl`: a JPEG or PNG at a public URL, set with `thumbnails.set` after the upload.
+      Custom thumbnails need a verified channel. If setting the thumbnail fails, the upload still
+      counts as published and the server logs why; set the thumbnail in YouTube Studio.
+  - It returns `https://youtu.be/<id>`.
+  - **Shorts:** there's no separate API. A square or vertical video up to 3 minutes long is a
+    Short. Adding `#Shorts` to the title or description is optional.
+- **Reply:** answers a comment or a reply with `comments.insert`. YouTube threads are one level
+  deep, so a reply to a reply goes on the thread and starts with the author's `@handle`.
+- **Inbound:** polls `commentThreads.list` with `allThreadsRelatedToChannelId` every 15 minutes
+  (set `SOCIAL_YOUTUBE_POLL_SECONDS` to change it, minimum 60) for new top-level comments and
+  replies on the channel's videos. Each item has the video link and title. The channel's own
+  comments are skipped. The first poll only notes what's there. Each poll scans the newest
+  `options.pollPages` pages of threads (default 2, 100 threads each, 1 quota unit a page), plus
+  one `comments.list` call for a thread whose reply count went up but whose new replies YouTube
+  left out of the listing. A new reply on a very old thread that is further down than those pages
+  isn't seen. Comments held for review appear once you approve them, if that is within 15 minutes;
+  otherwise answer them from YouTube Studio.
+- **DMs:** YouTube has none.
+- **Errors:**
+  - `quotaExceeded` says the project's daily quota is used up and resets at midnight Pacific
+    Time.
+  - `uploadLimitExceeded` is the channel's own upload limit, not API quota.
+  - Disabled comments, an invalid `publishAt`, a missing scope or a revoked refresh token each
+    get their own message.
+  - The client secret, refresh token, access tokens and upload session ids never appear in
+    errors or logs.
+
+**Quota.** Checked in October 2026 against Google's quota pages (updated 2026-10-15):
+
+- Since 1 June 2026, `videos.insert` and `search.list` each have **their own quota bucket**, by
+  default **100 calls a day**, at 1 unit per call. So an upload no longer eats about 1,600 of the
+  10,000 general units (that was the old cost; it fell to about 100 in December 2025 before the
+  separate bucket).
+- Everything else shares **10,000 units a day** per Google Cloud project:
+  - `thumbnails.set`: 50;
+  - `comments.insert` (a reply): 50;
+  - `commentThreads.list`, `comments.list` and `videos.list`: 1 each.
+- Quotas reset at midnight Pacific Time. Polling every 15 minutes costs roughly 200–300 units a
+  day, which leaves plenty for replies.
+- Usage is under **APIs & Services → YouTube Data API v3 → Quotas** in the Cloud console. More
+  quota needs the YouTube API Services audit and quota extension form.
+
+**The private-lock audit caveat.** In July 2020 YouTube said videos uploaded through an
+unverified API project created after 28 July 2020 would be locked **private** until the project
+passed an API compliance audit, and the creator would get an email about it. Since then:
+
+- In October 2026, the `videos.insert` and `videos` reference pages (updated 2026-10-15) say
+  instead: "Videos uploaded from unverified API projects are not restricted to private viewing
+  mode."
+- The revision history has no entry recording that change, and third-party guides from mid-2026
+  still describe the lock.
+
+So test it once. Upload a short video with `privacyStatus: "unlisted"`. If YouTube still makes it
+private, the adapter logs "uploaded as unlisted but YouTube made it private ... compliance audit",
+and you need to apply for the audit (YouTube API Services → Audit and Quota Extension Form). Until
+then, publish videos by hand in YouTube Studio. Because the default is `private` and Dave publishes
+or schedules deliberately, the lock doesn't affect the default flow.
+
+1. **Create the Google Cloud project.**
+   - Go to <https://console.cloud.google.com/> and create a project, e.g. `command-centre-youtube`.
+     Use one project for all your channels, or one per brand if you want separate quotas.
+   - Open **APIs & Services → Library**, search for **YouTube Data API v3**, and **Enable** it.
+2. **Set up the OAuth consent screen** (**Google Auth Platform → Branding / Audience / Data
+   access**):
+   - **User type: External** (a personal Google account can't use Internal). Fill in the app name
+     (e.g. "Command Centre") and the support email.
+   - **Data access → Add or remove scopes**:
+     - `https://www.googleapis.com/auth/youtube.upload` for uploads and thumbnails;
+     - `https://www.googleapis.com/auth/youtube.force-ssl` for reading comments and replying.
+   - **Audience:** add the Google account that owns the channel as a **test user**, then click
+     **Publish app** to move it to **In production**. While the app is in **Testing**, Google
+     expires refresh tokens after **7 days**, and the adapter starts failing with `invalid_grant`.
+     An unverified app in production works for your own account: you click through a "Google
+     hasn't verified this app" warning once, during step 4. Verification by Google is only needed
+     to serve other people.
+3. **Create the OAuth client.** **Google Auth Platform → Clients → Create client**, type **Desktop
+   app**, named e.g. `youtube-auth`. Copy the **Client ID** and **Client secret**. These become
+   `clientId` and `clientSecret`.
+4. **Get the refresh token.** On a computer with a browser (not the server), in the repo:
+
+   ```bash
+   YT_CLIENT_ID=<client id> YT_CLIENT_SECRET=<client secret> pnpm --filter @cc/social youtube:auth
+   ```
+
+   - It prints a Google sign-in URL and waits on `http://127.0.0.1:<random port>`.
+   - Open the URL and sign in as the account that owns the channel. For a Brand Account channel,
+     pick the channel when Google asks. Tick **both** permissions.
+   - It prints the **refresh token**, the **channel id** (`UC...`, from `channels.list?mine=true`)
+     and a ready-made `SOCIAL_ACCOUNTS` entry.
+   - The flow uses PKCE, `access_type=offline` and `prompt=consent`, so Google always returns a
+     refresh token. `YT_LOGIN_HINT=<email>` pre-selects the account.
+   - Each run makes a new refresh token. Google keeps at most 100 per account and client, and drops
+     the oldest beyond that.
+5. **Add the account** to `SOCIAL_ACCOUNTS`. Set `handle` to the channel's `@handle`; it is shown
+   to agents and used to skip the channel's own comments, along with `channelId`.
+
+   ```json
+   {
+     "id": "3dp-youtube",
+     "platform": "youtube",
+     "vertical": "3dpandme",
+     "handle": "@3dpandme",
+     "credentials": {
+       "clientId": "<id>.apps.googleusercontent.com",
+       "clientSecret": "<client secret>",
+       "refreshToken": "<refresh token from youtube:auth>",
+       "channelId": "UC<22 characters>"
+     },
+     "options": { "defaultCategoryId": "28", "pollPages": 2 }
+   }
+   ```
+
+   For the OpenV and OpenD channels, add one entry each with their own `refreshToken` and
+   `channelId`, in their verticals. They can share the client id and secret.
+6. **Revoking:** remove access at <https://myaccount.google.com/permissions>, or delete the OAuth
+   client. Then run step 4 again.
+
 ### Media hosting (Instagram and Threads)
 
 Instagram and Threads don't accept uploads from us. Meta fetches each image or video **from a
@@ -1156,6 +1447,123 @@ for this. Don't point it at `localhost` or a private network.
 
 Set `handle` to the account's username. The adapters use it, along with the account id, to skip
 the account's own comments and replies.
+
+## Voice and Drive mode
+
+Drive mode (`#/drive`, or the **Drive mode** button on Chat) runs Command Centre by voice: one
+huge talk button, answers read aloud, approvals read out and decided by voice. It is built for
+the phone in the car, so it shows almost nothing to read.
+
+### In the car
+
+1. Pair the phone with the car (or a headset) over Bluetooth. Open Command Centre and tap
+   **Drive mode** before you set off. The first tap on the big button also grants the microphone
+   and turns on the **headset button**: the car's or headset's play/pause button then works as the
+   talk button (Media Session API). If the button does nothing, tap the screen once again.
+2. Press (screen or headset) and speak. Commands are handled on the phone, without the agent:
+   - "what's new" or "briefing": pending approvals, failed or held-back tasks, today's spend and
+     (once the calendar is connected) what's next;
+   - "read approvals", then "approve", "reject" or "next";
+   - "repeat", "stop", "cancel", "that's all";
+   - "conversation mode" or "push to talk" switches modes;
+   - start with a business to send a request there: "shop: has order 1042 shipped?",
+     "dms, …", "3dpandme: …", "open v: …".
+
+   Anything else goes to the agent in **voice mode**: it answers in one to three short spoken
+   sentences. While it works you hear "Working on it", then "Still working on it" every
+   20 seconds.
+3. **Approving by voice always asks twice.** "Approve" reads the item back ("To approve: Reply to
+   Jane about order 1042. Say 'yes, approve' to confirm, or 'no'"). Only "yes, approve" (or the
+   on-screen **Yes, approve** button) does it. A bare "yes" never confirms anything, and a longer
+   sentence such as "approve the quote for Jane" is sent to the agent as a request rather than
+   treated as an approval.
+
+**Two modes** (the toggle at the top; remembered per device):
+
+- **Push to talk** (default): it only listens after a press. If the agent asks a question, it
+  reads the question and waits for your next press. What you say then answers that question in the
+  same conversation.
+- **Conversation**: after a question from the agent, a read-out approval or a confirmation, it
+  plays a "your turn" chime and listens by itself. After 8 seconds of silence it asks "Still
+  there?" once, then stops. Your answer continues the same task. "Stop", "cancel" or "that's all"
+  ends the conversation at any point. **Options → Listen for a follow-up** also listens for
+  5 seconds after a final answer.
+
+How a conversation continues: in voice mode the agent ends its answer with one JSON line,
+`{"voice":{"type":"converse"|"final","text":"…"}}`. The server parses that line and stores it on
+the run as `response`. It shows in `GET /api/tasks/:id` and is pushed live as `run.response`. A
+reply goes to `POST /api/tasks/:id/reply {text, voice}`, which queues the same task again. The
+next run resumes the earlier Claude Code session (`--resume`), so the conversation's history stays
+on one task. If there is no session to resume, the prompt carries the earlier question instead.
+
+**Keeping the screen on.** Drive mode holds a screen wake lock while it is open (the Options line
+shows "Screen: kept on"). The phone releases the lock when you switch apps or lock the screen, and
+Drive mode takes it again when you come back. Mount the phone where you can see the big button,
+and keep it plugged in.
+
+**Android (Chrome)** works best. Speech recognition uses Google's servers unless on-device
+recognition is installed, so it needs signal. The headset button needs Drive mode in the
+foreground and at least one tap first.
+
+**iPhone (Safari) caveats:**
+
+- Speech recognition works in a Safari tab. In an app added to the Home Screen it has
+  historically been exposed but done nothing. There, Drive mode uses the server's
+  speech-to-text when one is configured (see below), so set one up if you use the installed app.
+- Speech only starts after a tap, so tap the big button once when you open Drive mode.
+- The screen wake lock needs iOS 16.4 or later; in Home Screen apps it reportedly only works from iOS 18.4.
+- Headset buttons are less reliable than on Android.
+
+**Safety.** Set everything up before you drive. Use the headset button or a single tap, and don't
+read the screen: everything important is spoken. Long answers are cut to about 40 seconds and end
+with "There's more on screen when you're parked". Nothing outward-facing happens without a spoken
+readback and an explicit "yes, approve". Use it only where hands-free phone use is legal.
+
+### Optional server voices
+
+With nothing configured, Drive mode uses the browser's own speech: free, quick, with an en-GB
+voice where the device has one. Server providers are an upgrade for quality, and a fallback for
+devices whose browser can't listen (iOS Home Screen apps) or has no good voice. `GET
+/api/voice/config` reports what is available, and the PWA chooses automatically. To prefer the
+server voice anyway, tick **Options → Use the server voice**.
+
+| Variable | Default | |
+|---|---|---|
+| `OPENAI_API_KEY` | – | enables OpenAI speech-to-text and text-to-speech |
+| `ELEVENLABS_API_KEY` | – | enables ElevenLabs text-to-speech (and Scribe speech-to-text) |
+| `VOICE_STT_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = OpenAI, else ElevenLabs |
+| `VOICE_TTS_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = ElevenLabs, else OpenAI |
+| `VOICE_OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` | or `gpt-4o-transcribe`, `whisper-1` |
+| `VOICE_OPENAI_TTS_MODEL` / `VOICE_OPENAI_VOICE` | `gpt-4o-mini-tts` / `fable` | |
+| `VOICE_ELEVENLABS_TTS_MODEL` / `VOICE_ELEVENLABS_VOICE` | `eleven_flash_v2_5` / George (British) | voice id from the ElevenLabs voice library |
+| `VOICE_ELEVENLABS_STT_MODEL` | `scribe_v2` | |
+| `VOICE_MAX_UPLOAD_KB` / `VOICE_MAX_SECONDS` | `2048` / `60` | limits for `POST /api/voice/transcribe` |
+| `VOICE_LANGUAGE` | `en-GB` | |
+
+`auto` turns a provider on as soon as its key is set. If `OPENAI_API_KEY` is there for something
+else, set `VOICE_STT_PROVIDER=off` / `VOICE_TTS_PROVIDER=off` to keep voice on the browser.
+
+Typical costs (list prices, October 2026):
+
+- Speech-to-text: OpenAI `gpt-4o-mini-transcribe` about $0.003 a minute (`gpt-4o-transcribe`
+  $0.006); ElevenLabs Scribe v2 about $0.22 an hour.
+- Text-to-speech: ElevenLabs Flash v2.5 about $0.04 per 1,000 characters (a three-sentence answer
+  is about 250 characters, so about 1p); OpenAI `gpt-4o-mini-tts` about $0.015 a minute of audio.
+- An hour of driving with a dozen requests costs a few pence.
+
+Short phrases ("Working on it", confirmations) are cached in memory by `POST /api/voice/speak`.
+
+Endpoints, all behind the dashboard auth:
+
+- `POST /api/voice/transcribe` (raw audio body or multipart `file`; `?seconds=`, `?language=`)
+  returns `{text}`;
+- `POST /api/voice/speak {text, voice?}` returns audio;
+- `GET /api/voice/config`;
+- `GET /api/voice/briefing` returns `{text, approvals, attention, cost, calendar}`. It is
+  deterministic, with no LLM;
+- `GET /api/voice/approvals/next?skip=id,id` returns the next pending proposal, described for
+  reading aloud. Approving and rejecting use the normal `/api/proposals/:id/approve|reject`;
+- `POST /api/chat {text, voice: true}` and `POST /api/tasks/:id/reply {text, voice}`.
 
 ## Extending
 

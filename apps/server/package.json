@@ -27,6 +27,8 @@
     "@cc/storage": "workspace:*",
     "@cc/triage": "workspace:*",
     "@cc/verticals": "workspace:*",
+    "@cc/video": "workspace:*",
+    "@cc/voice": "workspace:*",
     "@hono/node-server": "^2.1.5",
     "@hono/node-ws": "^1.3.1",
     "@modelcontextprotocol/sdk": "^1.32.2",

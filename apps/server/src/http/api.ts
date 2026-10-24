@@ -12,11 +12,14 @@ import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
 import type { DigestService } from "../digest";
 import { buildOrgTree } from "../org";
+import { notificationRoutes } from "../notifications/routes";
+import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
 import { type StorageApiDeps, storageApiRoutes } from "./storage";
+import { type VoiceApiDeps, voiceApiRoutes } from "./voice";
 
 export interface ApiDeps {
   store: Store;
@@ -36,6 +39,10 @@ export interface ApiDeps {
   storage?: StorageApiDeps;
   /** Email + password sign-in (src/accounts). */
   auth: { service: AuthService; options: AuthHttpOptions };
+  /** Drive mode: speech, briefing, approvals by voice, task replies (see ./voice.ts). */
+  voice?: VoiceApiDeps;
+  /** Notification centre, preferences and devices (see ../notifications/routes.ts). */
+  notifications?: NotificationService;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -79,16 +86,17 @@ export function apiRoutes(deps: ApiDeps) {
   app.get("/verticals", (c) => c.json(verticals.all()));
 
   app.post("/chat", async (c) => {
+    // `role` (optional) asks a specific org role, as a "role: ..." prefix would.
+    // `voice: true` (Drive mode) asks the agent for a short spoken answer; see agent-context voicePrompt.
     const body = z
-      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional() })
+      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional(), voice: z.boolean().optional() })
       .parse(await c.req.json());
     const result = await pipeline.ingest({
       source: "chat",
       vertical: body.vertical ?? null,
       kind: "message",
       title: body.text.slice(0, 120),
-      // `role` (optional) asks a specific org role, as a "role: ..." prefix would.
-      payload: body.role ? { text: body.text, role: body.role } : { text: body.text },
+      payload: { text: body.text, ...(body.role ? { role: body.role } : {}), ...(body.voice ? { voice: true } : {}) },
     });
     return c.json(result, 201);
   });
@@ -119,8 +127,13 @@ export function apiRoutes(deps: ApiDeps) {
   app.get("/tasks/:id", async (c) => {
     const task = await store.getTask(c.req.param("id"));
     if (!task) return c.json({ error: "not found" }, 404);
+    const responses = (await deps.voice?.conversations.responses(task.id)) ?? new Map();
     const runs = await Promise.all(
-      (await store.listRuns(task.id)).map(async (run) => ({ ...run, messages: await store.listRunMessages(run.id) })),
+      (await store.listRuns(task.id)).map(async (run) => ({
+        ...run,
+        response: responses.get(run.id) ?? null,
+        messages: await store.listRunMessages(run.id),
+      })),
     );
     const event = await store.getEvent(task.eventId);
     const proposals = await store.listProposals({ taskId: task.id });
@@ -190,9 +203,14 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json({ ok: true }, 201);
   });
 
+  // /notifications/*, behind the admin check above.
+  if (deps.notifications) app.route("/", notificationRoutes(deps.notifications));
+
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
   if (deps.storage) app.route("/", storageApiRoutes(deps.storage)); // storage
+  // /voice/* and /tasks/:id/reply, behind the admin check above.
+  if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
 
   return app;
 }

@@ -4,3 +4,4 @@ export * from "./shared";
 export * from "./jev";
 export * from "./haiku";
 export * from "./eval";
+export * from "./odoo";

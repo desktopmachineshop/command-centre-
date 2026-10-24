@@ -23,9 +23,9 @@ describe("role charter in the system prompt", () => {
     expect(prompt).toContain(role.mission);
     expect(prompt).toContain("You report to the Shop Lead (shop-lead).");
     expect(prompt).toContain(`Autonomy: ${role.autonomyNotes}`);
-    expect(prompt).toContain("You own these kinds of work: presales-question, order-status, return-warranty.");
+    expect(prompt).toContain("You own these kinds of work: presales-question, order-status, return-warranty, customer-message, review.");
     for (const sibling of ["shop-lead", "catalogue-pricing", "marketing-social", "ops-admin", ROOT_ROLE_ID]) expect(prompt).toContain(`- ${sibling}: `);
-    expect(prompt).toContain("Owns: supplier, invoice-admin.");
+    expect(prompt).toContain("Owns: supplier, invoice-admin, new-order, stock-low, delivery-late.");
     expect(prompt).toMatch(/handoff_to_role.*3 handoffs left/s);
     // Still the base prompt.
     expect(prompt).toContain("propose_action");

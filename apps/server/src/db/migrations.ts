@@ -218,6 +218,101 @@ export const migrations: { id: string; sql: string }[] = [
     `,
   },
   // --- end auth ---
+  // --- Odoo events ---
+  {
+    id: "0009_odoo_events",
+    sql: `
+      -- One row per Odoo event source (key "<odoo db>:<source>"): a date cursor and the ids
+      -- seen in its overlap window, or for stock/deliveries the ids currently low/late.
+      create table odoo_event_checkpoints (
+        source text primary key,
+        cursor text,
+        seen_ids integer[] not null default '{}',
+        state jsonb not null default '{}',
+        updated_at timestamptz not null default now()
+      );
+      -- The daily digest reads the day's Odoo events per vertical.
+      create index events_source_vertical_received_idx on events (source, vertical, received_at);
+    `,
+  },
+  // --- end odoo events ---
+  {
+    id: "0008_voice",
+    sql: `
+      -- Voice mode: the structured spoken answer of a run ({text, type: converse | final, structured}).
+      alter table agent_runs add column if not exists voice_response jsonb;
+
+      -- Dave's replies continuing a task's conversation; each one drives one more run of the same task.
+      create table task_replies (
+        id uuid primary key,
+        task_id uuid not null references tasks (id) on delete cascade,
+        text text not null,
+        voice boolean not null default false,
+        resume_session_id text,
+        run_id uuid references agent_runs (id) on delete set null,
+        created_at timestamptz not null default now(),
+        consumed_at timestamptz
+      );
+      create index task_replies_pending_idx on task_replies (task_id, created_at) where consumed_at is null;
+    `,
+  },
+  // --- notifications (0010): inbox, preferences, device metadata; see src/notifications ---
+  {
+    id: "0010_notifications",
+    sql: `
+      -- Device metadata on push subscriptions. user_id is 'default' until multi-user login attaches users.
+      alter table push_subscriptions add column if not exists id uuid not null default gen_random_uuid();
+      create unique index if not exists push_subscriptions_id_idx on push_subscriptions (id);
+      alter table push_subscriptions add column if not exists user_id text not null default 'default';
+      alter table push_subscriptions add column if not exists name text;
+      alter table push_subscriptions add column if not exists platform text;
+      alter table push_subscriptions add column if not exists user_agent text;
+      -- Lowest priority the device receives ('low' = everything, 'urgent' = urgent only).
+      alter table push_subscriptions add column if not exists min_priority text not null default 'low';
+      alter table push_subscriptions add column if not exists last_success_at timestamptz;
+      alter table push_subscriptions add column if not exists last_failure_at timestamptz;
+      alter table push_subscriptions add column if not exists last_error text;
+
+      -- Stored overrides on top of the built-in defaults, per user ('default' for now).
+      create table if not exists notification_prefs (
+        user_id text primary key,
+        prefs jsonb not null default '{}',
+        updated_at timestamptz not null default now()
+      );
+
+      -- The in-app notification centre: every notification, whether or not it was pushed.
+      create table if not exists notifications (
+        id uuid primary key,
+        user_id text not null default 'default',
+        category text not null,
+        priority text not null,
+        vertical text,
+        title text not null,
+        body text not null,
+        url text,
+        tag text,
+        actions jsonb not null default '[]',
+        data jsonb not null default '{}',
+        status text not null,
+        created_at timestamptz not null default now(),
+        pushed_at timestamptz,
+        read_at timestamptz
+      );
+      create index if not exists notifications_user_created_idx on notifications (user_id, created_at desc);
+      create index if not exists notifications_user_status_idx on notifications (user_id, status, category, created_at);
+      create index if not exists notifications_unread_idx on notifications (user_id) where read_at is null;
+
+      -- Once-a-day system notification jobs (the quick briefing), shared across replicas and restarts.
+      create table if not exists notification_runs (
+        user_id text not null,
+        job text not null,
+        day date not null,
+        created_at timestamptz not null default now(),
+        primary key (user_id, job, day)
+      );
+    `,
+  },
+  // --- end notifications ---
   // --- storage (packages/storage: our public blob id <-> Drive file id or local file) ---
   {
     id: "0011_storage",

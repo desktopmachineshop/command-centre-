@@ -126,6 +126,7 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .social-post.p-threads { border-left-color: var(--text); }
 .social-post.p-x { border-left-color: var(--muted); }
 .social-post.p-reddit { border-left-color: #ff4500; }
+.social-post.p-youtube { border-left-color: #ff0033; }
 .social-post.p-discord { border-left-color: #5865f2; }
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
 .thumb { position: relative; width: 72px; height: 72px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
@@ -154,3 +155,50 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .form { display: flex; flex-direction: column; gap: 10px; max-width: 380px; }
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 .list > li.row { padding: 8px 0; border-top: 1px solid var(--border); }
+
+/* --- Drive mode (pages/Drive.tsx): full screen, high contrast, huge targets --- */
+.drive-link { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; min-height: 48px; border-radius: 999px; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.drive {
+  min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  background: var(--bg); color: var(--text); text-align: center;
+}
+.drive button { min-height: 56px; font-size: 1.1rem; font-weight: 600; }
+.drive-bar { width: 100%; max-width: 640px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.drive-modes { display: flex; gap: 4px; }
+.drive-modes button { padding: 8px 12px; font-size: 1rem; }
+.drive-state { font-size: clamp(1.6rem, 7vw, 2.6rem); font-weight: 800; margin: 8px 0 0; }
+.drive-ptt {
+  width: min(72vw, 52vh, 360px); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--accent-text); border: 6px solid var(--accent); box-shadow: 0 0 0 0 var(--accent);
+}
+.drive-ptt.listening { background: var(--bad); border-color: var(--bad); animation: drive-pulse 1.2s ease-out infinite; }
+.drive-ptt.speaking { background: var(--ok); border-color: var(--ok); }
+.drive-ptt.waiting, .drive-ptt.sending { background: var(--surface); color: var(--accent); }
+@keyframes drive-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad) 60%, transparent); } 100% { box-shadow: 0 0 0 28px transparent; } }
+@media (prefers-reduced-motion: reduce) { .drive-ptt.listening { animation: none; } }
+.drive-caption { font-size: clamp(1.15rem, 4.5vw, 1.6rem); line-height: 1.35; max-width: 640px; min-height: 3em; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.drive-actions { display: flex; gap: 12px; width: 100%; max-width: 640px; }
+.drive-actions button { flex: 1; min-height: 72px; font-size: 1.3rem; }
+.drive-error { color: var(--bad); font-size: 1.1rem; font-weight: 600; max-width: 640px; }
+.drive-more { width: 100%; max-width: 640px; text-align: left; margin-top: auto; }
+.drive-more summary { cursor: pointer; padding: 12px 0; color: var(--muted); }
+.drive-more label { margin: 10px 0; }
+.drive-more input[type="checkbox"] { width: 22px; height: 22px; }
+/* --- end Drive mode --- */
+
+/* --- notifications: header bell, centre, settings matrix --- */
+.bell { position: relative; margin-left: auto; color: var(--muted); display: inline-flex; align-items: center; padding: 4px; }
+.bell.active { color: var(--text); }
+.bell .badge { position: absolute; top: -4px; right: -8px; margin: 0; }
+.notification.unread { border-left: 3px solid var(--accent); }
+.notification.read { opacity: 0.8; }
+.table-wrap { overflow-x: auto; }
+.matrix { border-collapse: collapse; width: 100%; font-size: 14px; }
+.matrix th, .matrix td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.matrix thead th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.confirm { border-color: var(--warn); }
+.briefing-lines { padding-left: 18px; font-size: 1.05rem; }
+.briefing-lines li { margin: 4px 0; }
+.device input:not([type="checkbox"]) { min-width: 0; flex: 1 1 10rem; }
+/* --- end notifications --- */

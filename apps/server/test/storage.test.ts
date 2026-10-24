@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CHUNK_UNIT, uploadResumable } from "@cc/storage";
 import { FakeDrive } from "@cc/storage/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { videoMediaFromStorage } from "../src/storage";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const WORKER = "worker-token-for-tests-0123456789";
@@ -51,6 +52,20 @@ describe.skipIf(!DB_URL)("storage on the local backend", () => {
     }
   });
 
+  it("works as the video pipeline's media store (one-shot PUT, public /media URL)", async () => {
+    const media = videoMediaFromStorage(ctx.server.storage, "https://cc.test");
+    const up = await media.createUpload("spec-1/final.mp4", "video/mp4");
+    expect(up.publicUrl).toMatch(/^https:\/\/cc\.test\/media\/[a-f0-9]{32}\.mp4$/);
+    const put = new URL(up.putUrl);
+    const data = bytes(50);
+    expect((await ctx.server.app.request(`${put.pathname}?key=wrong`, { method: "PUT", body: data })).status).toBe(404);
+    expect((await ctx.server.app.request(`${put.pathname}${put.search}`, { method: "PUT", body: data })).status).toBe(201);
+    await serveChecks(ctx, new URL(up.publicUrl).pathname, data, "video/mp4");
+    expect((await ctx.server.app.request(`${put.pathname}${put.search}`, { method: "PUT", body: data })).status).toBe(404); // one-shot
+    const voice = await media.put("spec-1/voice-a.mp3", bytes(30), "audio/mpeg");
+    await serveChecks(ctx, new URL(voice).pathname, bytes(30), "audio/mpeg");
+  });
+
   it("direct uploads in chunks to our own endpoint, then complete; admin and worker paths", async () => {
     const data = bytes(CHUNK_UNIT + 77);
     // No auth, wrong worker token, worker folder outside its scope.
@@ -86,7 +101,7 @@ describe.skipIf(!DB_URL)("storage on the local backend", () => {
     const list = await ctx.api("/api/storage");
     expect(list.body).toMatchObject({ backend: "local", drive: null });
     expect(list.body.files.map((f: { id: string }) => f.id)).toContain(session.body.id);
-    expect(list.body.byFolder).toEqual(expect.arrayContaining([expect.objectContaining({ folder: "renders", files: 1, bytes: data.length })]));
+    expect(list.body.byFolder).toEqual(expect.arrayContaining([expect.objectContaining({ folder: "renders", files: 3, bytes: data.length + 80 })]));
     expect((await ctx.api("/api/storage/migrate", { method: "POST", json: {} })).status).toBe(409);
   });
 });

@@ -85,7 +85,7 @@ class Sender {
       const res = await this.doFetch(this.o.uploadUrl, {
         method: "PUT",
         headers: { "content-range": `bytes ${start}-${end}/${total}`, "content-length": String(chunk.length) },
-        body: chunk,
+        body: chunk as unknown as Uint8Array<ArrayBuffer>,
         signal: this.o.signal,
       });
       const out = await this.read(res);

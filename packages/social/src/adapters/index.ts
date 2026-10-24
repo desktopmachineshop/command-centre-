@@ -4,6 +4,7 @@ import { instagramAdapter } from "./instagram";
 import { redditAdapter } from "./reddit";
 import { threadsAdapter } from "./threads";
 import { xAdapter } from "./x";
+import { youtubeAdapter } from "./youtube";
 
 /** One adapter per platform. Each lives in its own file and is developed independently. */
 export const adapters: Record<Platform, PlatformAdapter> = {
@@ -12,4 +13,5 @@ export const adapters: Record<Platform, PlatformAdapter> = {
   threads: threadsAdapter,
   x: xAdapter,
   reddit: redditAdapter,
+  youtube: youtubeAdapter,
 };

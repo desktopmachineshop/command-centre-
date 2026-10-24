@@ -1,4 +1,4 @@
-import type { Capability, InboundMessage } from "@cc/core";
+import type { Capability, InboundMessage, Job } from "@cc/core";
 import type { Store } from "./db/store";
 import type { Hub, Peer } from "./hub";
 
@@ -8,6 +8,7 @@ import type { Hub, Peer } from "./hub";
  */
 export class WorkerService {
   private readonly online = new Map<string, Capability[]>();
+  private readonly settledListeners: ((job: Job) => Promise<void> | void)[] = [];
 
   constructor(
     private readonly store: Store,
@@ -51,6 +52,7 @@ export class WorkerService {
         );
         if (job) this.hub.broadcast({ type: "job.updated", job });
         await this.dispatch();
+        if (job) await this.settled(job);
         return;
       }
     }
@@ -61,6 +63,21 @@ export class WorkerService {
     this.hub.broadcast({ type: "job.updated", job: created });
     await this.dispatch();
     return created;
+  }
+
+  /** Called when a job succeeds or fails (e.g. to chain the next video stage). */
+  onJobSettled(listener: (job: Job) => Promise<void> | void): void {
+    this.settledListeners.push(listener);
+  }
+
+  private async settled(job: Job): Promise<void> {
+    for (const listener of this.settledListeners) {
+      try {
+        await listener(job);
+      } catch (err) {
+        console.error(`[workers] job ${job.id} (${job.kind}) settle hook failed: ${(err as Error).message}`);
+      }
+    }
   }
 
   /** Hands queued jobs to idle online nodes that have every required capability. */

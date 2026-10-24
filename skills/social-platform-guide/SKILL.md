@@ -1,6 +1,6 @@
 ---
 name: social-platform-guide
-description: Practical rules for drafting social posts and replies on Instagram, Threads, X, Discord and Reddit (length limits, hashtags, media, community and self-promotion rules), how to answer inbound social items with social.reply, and when to escalate to Dave with notify. Use whenever you draft a social.post, social.reply, social.dm or social.campaign, or handle a task that came from a social mention, comment, reply or DM.
+description: Practical rules for drafting social posts and replies on Instagram, Threads, X, Discord, Reddit and YouTube (length limits, hashtags, media, video titles, descriptions, chapters, tags, Shorts and thumbnails, community and self-promotion rules), how to answer inbound social items with social.reply, and when to escalate to Dave with notify. Use whenever you draft a social.post, social.reply, social.dm or social.campaign, or handle a task that came from a social mention, comment, reply or DM.
 ---
 
 # Social platform guide
@@ -24,8 +24,11 @@ Pair this skill with the brand voice skill for the vertical (`social-voice-3dpan
   task or by Dave. Never invent a URL. Always write `alt` text for images: what's in the picture,
   plainly, in one sentence ("A blue PLA benchy on a textured PEI sheet").
 - `link`: on platforms without a link field, it is added to the end of the text for you.
-- `title` and `target`: Reddit needs both (`target` is the subreddit name, without `r/`). Discord
-  takes a channel id in `target`. Other platforms reject them.
+- `title` and `target`: Reddit needs both (`target` is the subreddit name, without `r/`). YouTube
+  needs a `title` (the video title) and no `target`. Discord takes a channel id in `target`. Other
+  platforms reject them.
+- `options`: platform extras, e.g. X's `thread`, Reddit's `flairId`, or YouTube's
+  `privacyStatus`, `publishAt`, `tags` and `thumbnailUrl` (see YouTube below).
 - Use the `accountId`s the task lists. Don't guess one.
 
 `publishAt` is an ISO 8601 time with an offset, e.g. `2026-10-24T18:00:00+01:00`. Leave it out to
@@ -104,6 +107,72 @@ this wrong harms Dave's reputation far more than a missed post helps it.
   useful `social.reply` is worth more than any post. Mention a product only if it is directly
   the answer, with disclosure.
 - Reddit needs `title` and `target` (the subreddit) on every post.
+
+### YouTube
+A YouTube post **uploads a video** to the channel. That's a big, public, hard-to-undo action, so
+propose it only when Dave asks for it or hands you a finished video. Never invent a video URL.
+
+- **One video, required.** `media` is exactly one `{ url, type: "video" }`. No images, no
+  text-only posts.
+- **Title** (`title`, required): up to **100 characters**, no `<` or `>`.
+  - Put the searchable words first ("ER11 collet guide: sizes, nuts and runout"), because the
+    end is cut off in search results and on phones.
+  - Be honest: no clickbait, no ALL CAPS, at most one emoji.
+  - For OpenV and OpenD, name the product and the job ("OpenV: trace requirements to tests in
+    5 minutes").
+- **Description** (`text`): up to **5000 bytes**. Emoji and accented letters take more than one
+  byte, so leave headroom. No `<` or `>`.
+  - The first two lines show above "more", so start with what the video is and who it's for.
+  - `link` (the blog post or product page) goes on its own line after the text.
+  - **Chapters:** a list of timestamps, one per line, starting at `00:00`, at least three, each at
+    least 10 seconds long, in order:
+
+    ```
+    00:00 Intro
+    01:10 Collet sizes
+    04:32 Fitting the nut
+    ```
+
+    Only add chapters when Dave gives you the timestamps, or they're in the script or edit notes.
+    Never guess them.
+  - Then links to related videos, the shop or affiliate links with a disclosure ("Affiliate
+    links: I earn a small commission"), and 2–3 hashtags at the very end. The first three
+    hashtags show above the title, so make them specific (`#3dprinting #cnc`).
+- **Options** (`content.options`):
+  - `privacyStatus`: leave it out or use `"private"` unless Dave said to publish. The default is
+    private: Dave publishes or schedules deliberately. Use `"unlisted"` for a preview link.
+  - `publishAt`: when Dave gives a release time, set `publishAt` (ISO with offset) and leave
+    `privacyStatus` as private. YouTube publishes it at that time. Don't also put `publishAt` on
+    the campaign unless the upload itself should wait.
+  - `tags`: 5–15 specific tags, 500 characters in all ("ER11 collet", "desktop cnc", "3d
+    printing"). The first few matter most; misspellings and competitor names don't belong.
+  - `categoryId`: `"28"` (Science & Technology) or `"26"` (Howto & Style); leave it out to use
+    the account's default.
+  - `madeForKids`: false (the default) for all of Dave's channels. Only change it if Dave says.
+  - `thumbnailUrl`: a 1280×720 JPEG or PNG Dave made, at a public URL (upload it to `/api/media`).
+    Bold, readable at phone size, three or four words at most, consistent with the channel's
+    other thumbnails. It is set after the upload. If it fails, the video is still up, so tell Dave
+    to set it in Studio.
+- **Shorts:** a vertical (or square) video **up to 3 minutes** becomes a Short automatically.
+  Give it a short punchy title. `#Shorts` in the title or description is optional; one at the
+  end of the description is fine. Chapters and custom thumbnails don't apply to Shorts.
+- **Announce it elsewhere** with a `social.campaign` once the video is public or scheduled. The
+  YouTube upload returns a `https://youtu.be/<id>` link to use in the other posts.
+- **Quota:** each upload, thumbnail and reply uses the project's daily API quota. Don't propose
+  re-uploads to "fix" a title or description; tell Dave to edit it in YouTube Studio.
+
+**Replying to YouTube comments.** Inbound items are new comments and replies on the channel's
+videos. The context gives the video title and link, and for a reply, the comment it answers.
+- Answer the question asked, in one to three sentences. If the answer is in the video, give the
+  timestamp ("It's at 04:32: two turns past finger tight").
+- Replies go on the thread. When you answer a reply, the adapter starts it with the person's
+  `@handle` for you, so don't add it yourself.
+- Thank people for useful tips and corrections. Heart-only or "first!" comments need no reply.
+- Never paste links in replies unless they are Dave's own pages and directly answer the
+  question: YouTube holds comments with links for review, and it looks like spam.
+- Support and order problems go private: ask them to email the shop. There are no YouTube DMs.
+- Spam, scams ("contact me on WhatsApp"), impersonators using Dave's name or avatar: don't reply.
+  Escalate impersonators with `notify` so Dave can report them.
 
 ## Replying to inbound items
 

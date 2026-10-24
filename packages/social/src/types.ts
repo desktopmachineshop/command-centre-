@@ -7,7 +7,7 @@ import { z } from "zod";
  * or swapped without touching the pipeline.
  */
 
-export const Platform = z.enum(["discord", "instagram", "threads", "x", "reddit"]);
+export const Platform = z.enum(["discord", "instagram", "threads", "x", "reddit", "youtube"]);
 export type Platform = z.infer<typeof Platform>;
 
 export const SocialAccount = z.object({
@@ -42,11 +42,11 @@ export interface PostContent {
   media?: MediaRef[];
   /** A link to attach (Reddit link post, Discord embed). Platforms without link fields get it in the text. */
   link?: string;
-  /** Required by Reddit. */
+  /** Required by Reddit (post title) and YouTube (video title). */
   title?: string;
   /** Where to post when the platform needs it: Reddit subreddit name, Discord channel id. */
   target?: string;
-  /** Adapter-specific extras (e.g. Reddit flair, Instagram "reel"). */
+  /** Adapter-specific extras (e.g. Reddit flair, Instagram "reel", YouTube privacyStatus/tags). */
   options?: Record<string, unknown>;
 }
 
@@ -144,7 +144,7 @@ export interface AdapterCapabilities {
   maxTextLength: number;
   /** Instagram: a post needs at least one image or video. */
   requiresMedia?: boolean;
-  /** Reddit: posts need a title and a subreddit `target`. */
+  /** Reddit and YouTube: posts need a title. Reddit also needs a subreddit `target`. */
   requiresTitle?: boolean;
   requiresTarget?: boolean;
 }

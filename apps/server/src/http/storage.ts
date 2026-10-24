@@ -1,4 +1,5 @@
 import { FOLDERS, type BlobInfo, type Storage, UploadIncompleteError } from "@cc/storage";
+import { Readable, Transform } from "node:stream";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { bearer, tokenMatches } from "../auth";
@@ -116,6 +117,26 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
     const out = await deps.storage.local.receiveChunk(row, c.req.header("content-range"), c.req.raw.body);
     if (out.done) return c.json(withUrl(c, deps, out.info), 201);
     return c.body(null, 308, out.received > 0 ? { range: `bytes=0-${out.received - 1}` } : {});
+  });
+
+  /** One-shot whole-file PUT for a reservation (video jobs), streamed into the configured backend. */
+  app.put("/storage/put/:id", async (c) => {
+    const id = c.req.param("id");
+    const r = await deps.storage.reservation(id, c.req.query("key") ?? "");
+    const body = c.req.raw.body;
+    if (!r) return c.json({ error: "not found" }, 404);
+    if (!body) return c.json({ error: "empty body" }, 400);
+    let seen = 0;
+    const limit = new Transform({
+      transform(chunk: Buffer, _e, done) {
+        seen += chunk.length;
+        done(seen > deps.uploadMaxBytes ? new Error("too large") : null, chunk);
+      },
+    });
+    const source = Readable.fromWeb(body as import("node:stream/web").ReadableStream);
+    limit.on("error", () => source.destroy());
+    const info = await deps.storage.put(source.pipe(limit), { id, ...r });
+    return c.json(withUrl(c, deps, info), 201);
   });
 
   return app;

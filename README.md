@@ -24,10 +24,13 @@ packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/m
 packages/social        social platform adapters, inbound watcher, social.* executors, scheduled posts
 packages/storage       BlobStore: large files on the volume or Google Drive, LRU cache, resumable uploads
 packages/triage        triagers (rules, Jev, Haiku fallback) + accuracy eval
+packages/video         VideoSpec, TTS adapters, Playwright capture, captions, ffmpeg compositor
 packages/verticals     one manifest per business / life area
+packages/voice         speech-to-text / text-to-speech clients (OpenAI, ElevenLabs, fake) + speakable text
 skills/                shared skills bank (Agent Skills format)
 ```
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and phased plan
 - [docs/SETUP.md](docs/SETUP.md): running locally and deploying to Railway
 - [docs/ORG.md](docs/ORG.md): the org chart of agent roles (Chief of Staff, leads, specialists), routing and handoffs
+- [docs/VIDEO.md](docs/VIDEO.md): the video pipeline for OpenV and OpenD content

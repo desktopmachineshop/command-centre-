@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { rm } from "node:fs/promises";
 import type { BlobIndex, UsageRow } from "./blob-index";
@@ -16,7 +17,7 @@ import type {
   UploadSession,
   UploadSessionOptions,
 } from "./types";
-import { isBlobId } from "./types";
+import { isBlobId, newBlobId } from "./types";
 
 export interface StorageOptions {
   index: BlobIndex;
@@ -89,6 +90,33 @@ export class Storage implements BlobStore {
 
   createUploadSession(options: UploadSessionOptions & { baseUrl?: string }): Promise<UploadSession> {
     return this.drive ? this.drive.createUploadSession(options) : this.local.createUploadSession(options);
+  }
+
+  /**
+   * A one-shot upload URL for clients that send a whole file in a single PUT
+   * (video jobs): `<baseUrl>/api/storage/put/<id>?key=…`. The server streams the
+   * body into the configured backend under that id.
+   */
+  async reserve(o: { name: string; contentType: string; folder?: Folder; baseUrl: string }): Promise<{ id: string; putUrl: string }> {
+    const id = newBlobId(o.name);
+    const putUrl = `${o.baseUrl.replace(/\/+$/, "")}/api/storage/put/${id}?key=${randomBytes(24).toString("base64url")}`;
+    await this.index.put({
+      id, backend: "local", remoteId: null, name: o.name, size: 0, contentType: o.contentType, folder: o.folder ?? "renders",
+      status: "pending", uploadUrl: putUrl, localPath: null, createdAt: new Date(),
+    });
+    return { id, putUrl };
+  }
+
+  /** The reservation for `id`, if `key` matches and it is still unused (one week). */
+  async reservation(id: string, key: string): Promise<{ name: string; contentType: string; folder: Folder } | null> {
+    if (!isBlobId(id)) return null;
+    const row = await this.index.get(id);
+    if (!row || row.status !== "pending" || !row.uploadUrl?.includes("/api/storage/put/")) return null;
+    if (Date.now() - row.createdAt.getTime() > 7 * 86_400_000) return null;
+    const expected = Buffer.from(new URL(row.uploadUrl).searchParams.get("key") ?? "");
+    const given = Buffer.from(key);
+    if (!expected.length || expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+    return { name: row.name, contentType: row.contentType, folder: row.folder };
   }
 
   async completeUpload(id: string): Promise<BlobInfo> {

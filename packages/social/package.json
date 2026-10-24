@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "youtube:auth": "tsx scripts/youtube-auth.ts"
   },
   "dependencies": {
     "@cc/core": "workspace:*",

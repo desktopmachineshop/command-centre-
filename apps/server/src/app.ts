@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
 import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
-import { createOdooExecutors, createOdooMcpServer, OdooClient } from "@cc/odoo";
+import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
 import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
@@ -15,6 +15,7 @@ import {
 } from "@cc/social";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
+import { createVoiceProviders, type SpeechToText, type TextToSpeech } from "@cc/voice";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -32,16 +33,21 @@ import { DigestService } from "./digest";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { storagePublicRoutes } from "./http/storage";
-import { createStorage } from "./storage";
+import { createStorage, videoMediaFromStorage } from "./storage";
 import { wsHandler } from "./http/ws";
 import { Hub } from "./hub";
 import { mcpRoutes } from "./mcp/endpoints";
 import { Pipeline } from "./pipeline";
-import { type Notifier, WebPushNotifier } from "./push";
+import { NotificationService, startNotificationJobs, teeNotifier } from "./notifications/service";
+import { NotificationStore } from "./notifications/store";
+import { type Notifier, type PushTransport, WebPushTransport } from "./push";
 import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
 import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
+import { VoiceConversations } from "./voice/conversations";
+import { type VoiceCalendar, VoiceService } from "./voice/service";
+import { type VideoMediaStore, VideoProductions, videoTtsFromEnv } from "./video";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -56,6 +62,16 @@ export interface Overrides {
   socialAdapters?: AdapterMap;
   /** Cheaper password hashing for tests. */
   scrypt?: ScryptParams;
+  /** Server speech providers (tests use fakes); default from VOICE_* config. */
+  voiceProviders?: { stt?: SpeechToText; tts?: TextToSpeech };
+  /** Calendar for the spoken briefing (the personal-assistant calendar plugs in here). */
+  voiceCalendar?: VoiceCalendar;
+  /** Web Push sender behind the notification service (tests use a fake). */
+  pushTransport?: PushTransport;
+  /** Clock for notification quiet hours and rate limits (tests). */
+  notificationClock?: () => Date;
+  /** Media store for video jobs' uploads (until the server's own media hosting is wired in). */
+  videoMedia?: VideoMediaStore;
   /** fetch for Google APIs (tests use a fake Drive). */
   googleFetch?: typeof fetch;
 }
@@ -89,7 +105,16 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     remoteUrl: config.brainRemoteUrl,
     folders: verticals.all().map((v) => v.brainFolder),
   });
-  const notifier = overrides.notifier ?? new WebPushNotifier(store, config.vapid);
+  // --- Notifications: inbox, preferences, quiet hours, rate limits, devices (src/notifications) ---
+  const notifications = new NotificationService(new NotificationStore(pool), overrides.pushTransport ?? new WebPushTransport(config.vapid), {
+    timezone: config.timezone,
+    now: overrides.notificationClock,
+    onUnreadChange: (unread) => hub.broadcast({ type: "notifications.updated", unread }),
+    spend: async (since) => ({ costUsd: await store.costSince(since), budgetUsd: config.agent.dailyBudgetUsd ?? null }),
+  });
+  // A test notifier sees every notify() call as made; the service still stores and routes it.
+  const notifier: Notifier = overrides.notifier ? teeNotifier(notifications, overrides.notifier) : notifications;
+  // --- end notifications ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---
   const emailAccounts = config.email.accounts;
@@ -115,6 +140,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           title: "Scheduled post failed",
           body: `${post.title} on ${platformLabel(post.platform)} (${post.accountId}): ${error}`,
           url: "/social",
+          category: "alert",
+          priority: "high",
+          vertical: post.vertical,
         }),
     });
   let socialInbound: SocialInbound | undefined;
@@ -129,20 +157,62 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
   const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
 
+  // --- Odoo events: polls Odoo for orders, messages, stock, deliveries, reviews; starts in start() ---
+  const odooEventsConfig = odoo && config.odoo ? config.odooEvents : undefined;
+  if (odooEventsConfig) for (const v of [odooEventsConfig.defaultVertical, ...Object.values(odooEventsConfig.websites)]) verticals.require(v);
+  const odooEvents =
+    odoo && config.odoo && odooEventsConfig?.sources.length
+      ? new OdooEventPoller({
+          client: odoo,
+          store,
+          config: odooEventsConfig,
+          instance: config.odoo.db,
+          baseUrl: config.odoo.url,
+          ingest: (e) => pipeline.ingest(e),
+        })
+      : undefined;
+  // --- end odoo events ---
+  const workers = new WorkerService(store, hub);
+
+  // --- video (packages/video): video.produce → worker capture/render jobs → social.campaign draft ---
+  const video: VideoProductions = new VideoProductions({
+    submit: (job) => workers.submit(job),
+    propose: (proposal, options) => actions.propose(proposal, options),
+    notify: (n) => notifier.notify(n),
+    hasAction: (type) => type in actions.executors,
+    media: overrides.videoMedia ?? (config.publicBaseUrl ? videoMediaFromStorage(storage, config.publicBaseUrl) : undefined), // storage
+    tts: videoTtsFromEnv(),
+  });
+  workers.onJobSettled((job) => video.onJobSettled(job));
+  // --- end video ---
+
   const executors = {
     ...builtinExecutors,
     ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
     ...(odoo ? createOdooExecutors(odoo) : {}),
     ...socialExecutors,
+    ...video.executors(),
   };
-  const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
-  const workers = new WorkerService(store, hub);
+  const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier }, executors);
+  actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
   const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;
   const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency, staleRunSeconds + 300);
   const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
   const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone);
+  // --- Voice: server speech providers (optional), briefing, task conversations ---
+  const voiceProviders = overrides.voiceProviders ?? createVoiceProviders(config.voice.providers);
+  const voiceConversations = new VoiceConversations(store, hub, queue);
+  const voiceService = new VoiceService(store, verticals, budget, {
+    ...voiceProviders,
+    calendar: overrides.voiceCalendar,
+    maxUploadBytes: config.voice.maxUploadBytes,
+    maxSeconds: config.voice.maxSeconds,
+    language: config.voice.language,
+    timezone: config.timezone,
+  });
+  // --- end voice ---
   const pipeline = new Pipeline({
     store,
     hub,
@@ -165,6 +235,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
     },
     mcpServers: ["brain", ...Object.keys(extraMcpServers)],
+    voice: voiceConversations,
   });
 
   const app = new Hono();
@@ -191,7 +262,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, storage: storageDeps, auth: { service: auth, options: authHttp } }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -216,6 +287,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   }
 
   let crons: ReturnType<typeof startSchedules> = [];
+  let notificationCrons: ReturnType<typeof startNotificationJobs> = [];
 
   /** Just after midnight: finish yesterday's digest notes (no push) and release deferred tasks. */
   const rollover = async () => {
@@ -235,9 +307,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     queue,
     budget,
     digests,
+    notifications,
     rollover,
     publishScheduledPosts,
     auth,
+    odooEvents,
     storage,
     async start() {
       await migrate(pool);
@@ -259,6 +333,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         rollover,
         socialPublish: socialAccounts.length ? publishScheduledPosts : undefined,
       });
+      notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
       if (config.schedulesEnabled) {
         // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
         const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
@@ -284,11 +359,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         });
         socialInbound.start();
       }
+      odooEvents?.start();
     },
     async stop() {
       for (const c of crons) c.stop();
+      for (const c of notificationCrons) c.stop();
       await emailPoller?.stop();
       await socialInbound?.stop();
+      await odooEvents?.stop();
       await queue.stop();
       await pool.end();
     },

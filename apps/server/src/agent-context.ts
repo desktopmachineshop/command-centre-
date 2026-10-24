@@ -1,13 +1,18 @@
 import type { McpServerConfig } from "@cc/agent-runtime";
 import { type Event, ROOT_ROLE_ID, type VerticalManifest } from "@cc/core";
 import { emailPrompt } from "@cc/email";
+import { odooPrompt } from "@cc/odoo";
 import { socialPrompt } from "@cc/social";
 import type { OrgRole, VerticalRegistry } from "@cc/verticals";
+import { voiceResponseInstructions } from "@cc/voice";
 import type { ActionExecutor } from "./actions";
 
 /** The prompt an agent gets for a task, derived from the event that caused it. */
 export function taskPrompt(event: Event): string {
   const p = event.payload;
+  // --- voice: chat sent with {voice: true} (Drive mode) asks for a short spoken answer ---
+  if (event.source === "chat" && typeof p.text === "string" && p.voice === true) return voicePrompt(p.text);
+  // --- end voice ---
   if (event.source === "chat" && typeof p.text === "string") return p.text;
   if (event.source === "cron" && typeof p.prompt === "string") return p.prompt;
   // Email: a readable message plus how to reply (see @cc/email emailPrompt).
@@ -16,6 +21,8 @@ export function taskPrompt(event: Event): string {
   if (handoff) return handoff;
   // Social: the message as quoted data plus a ready social.reply payload (see @cc/social socialPrompt).
   if (event.source === "social") return socialPrompt(p);
+  // Odoo: a human title, the record as quoted (untrusted) data and ready action payloads (see @cc/odoo odooPrompt).
+  if (event.source === "odoo") return odooPrompt(event);
   return [
     `New ${event.source} event "${event.kind}": ${event.title}`,
     "",
@@ -26,6 +33,11 @@ export function taskPrompt(event: Event): string {
     "",
     "Decide what needs doing and do it.",
   ].join("\n");
+}
+
+/** Voice mode: Dave's words plus the spoken-answer rules and response protocol (see @cc/voice). */
+export function voicePrompt(text: string): string {
+  return `${text}\n\n${voiceResponseInstructions}`;
 }
 
 export function systemPrompt(
