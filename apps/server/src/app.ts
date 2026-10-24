@@ -31,6 +31,8 @@ import { Store } from "./db/store";
 import { DigestService } from "./digest";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
+import { storagePublicRoutes } from "./http/storage";
+import { createStorage } from "./storage";
 import { wsHandler } from "./http/ws";
 import { Hub } from "./hub";
 import { mcpRoutes } from "./mcp/endpoints";
@@ -54,6 +56,8 @@ export interface Overrides {
   socialAdapters?: AdapterMap;
   /** Cheaper password hashing for tests. */
   scrypt?: ScryptParams;
+  /** fetch for Google APIs (tests use a fake Drive). */
+  googleFetch?: typeof fetch;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -100,7 +104,6 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const socialExecutors = socialAccounts.length
     ? createSocialExecutors(socialAccounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone })
     : {};
-  const mediaDir = join(config.dataDir, "media");
   /** Publishes due scheduled posts; the every-minute system job calls this. */
   const publishScheduledPosts = () =>
     publishDueScheduledPosts({
@@ -116,6 +119,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     });
   let socialInbound: SocialInbound | undefined;
   // --- end social ---
+
+  // --- storage: media and large files on the volume or Google Drive (packages/storage) ---
+  const storage = createStorage(config, pool, { fetch: overrides.googleFetch });
+  const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerToken: config.workerToken };
+  // --- end storage ---
 
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
   const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
@@ -179,9 +187,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     accounts: socialAccounts,
     adapters: socialAdapters,
     timeZone: config.timezone,
-    media: { dir: mediaDir, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
+    media: { blobs: storage, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
   };
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, auth: { service: auth, options: authHttp } }));
+  // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
+  app.route("/api", storagePublicRoutes(storageDeps)); // storage
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, storage: storageDeps, auth: { service: auth, options: authHttp } }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -195,7 +205,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     }),
   );
   // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.
-  app.route("/media", mediaRoutes(mediaDir));
+  // Streamed from the BlobStore (volume, cache or Drive); the URL scheme is unchanged.
+  app.route("/media", mediaRoutes(storage));
 
   if (config.webDistDir) {
     const root = config.webDistDir;
@@ -227,11 +238,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     rollover,
     publishScheduledPosts,
     auth,
+    storage,
     async start() {
       await migrate(pool);
       await auth.warm();
       await store.markAllNodesOffline();
       await brain.init();
+      await storage.init(); // storage: index media from before the index, load the cache
       if (queue instanceof PgBossTaskQueue) await queue.start();
       await queue.work((taskId) => pipeline.runTask(taskId));
       // Tasks committed just before a crash but never enqueued.

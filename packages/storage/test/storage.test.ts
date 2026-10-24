@@ -15,7 +15,7 @@ import {
   UploadIncompleteError,
   uploadResumable,
 } from "../src";
-import { FakeDrive } from "./fake-drive";
+import { FakeDrive } from "../src/testing";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "cc-storage-"));
 const bytes = (n: number, seed = 7) => Buffer.from(Array.from({ length: n }, (_, i) => (i * seed + 3) % 251));

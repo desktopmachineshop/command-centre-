@@ -176,26 +176,3 @@ export class PgBlobIndex implements BlobIndex {
     );
   }
 }
-
-/** SQL for the server's migration list (id 0011_storage). */
-export const STORAGE_MIGRATION_SQL = `
-  create table if not exists storage_files (
-    id text primary key,
-    backend text not null check (backend in ('local', 'gdrive')),
-    remote_id text,
-    name text not null,
-    size bigint not null default 0,
-    content_type text not null,
-    folder text not null,
-    status text not null default 'ready' check (status in ('pending', 'ready')),
-    upload_url text,
-    local_path text,
-    created_at timestamptz not null default now()
-  );
-  create index if not exists storage_files_folder_idx on storage_files (folder, created_at desc);
-  create index if not exists storage_files_backend_idx on storage_files (backend, status);
-  create table if not exists storage_state (
-    key text primary key,
-    value text not null
-  );
-`;

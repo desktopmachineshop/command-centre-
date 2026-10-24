@@ -94,6 +94,20 @@ const Env = z.object({
   PUBLIC_BASE_URL: z.url({ protocol: /^https?$/ }).optional(),
   /** Largest upload POST /api/media accepts. */
   MEDIA_MAX_MB: z.coerce.number().positive().default(200),
+  // --- storage (see docs/SETUP.md, "Storage (Google Drive)") ---
+  /** Where large files go: "local" (the volume, default) or "gdrive" (needs the GOOGLE_* credentials). */
+  STORAGE_BACKEND: z.enum(["local", "gdrive"]).default("local"),
+  /** LRU cache of Drive files on the volume (DATA_DIR/cache), in MB. */
+  STORAGE_CACHE_MB: z.coerce.number().min(0).default(2048),
+  /** Top-level Drive folder. */
+  STORAGE_DRIVE_FOLDER: z.string().min(1).default("Command Centre"),
+  /** Largest direct upload (POST /api/storage/upload-session) accepted, in MB. */
+  STORAGE_UPLOAD_MAX_MB: z.coerce.number().positive().default(20_480),
+  /** Google OAuth client and refresh token (shared with Calendar; `google:auth` grants drive.file too). */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REFRESH_TOKEN: z.string().optional(),
+  // --- end storage ---
   /** Odoo external API. Set all four to enable the odoo MCP server and Odoo actions. */
   ODOO_URL: z.string().optional(),
   ODOO_DB: z.string().optional(),
@@ -178,8 +192,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
     social: { accounts: socialAccounts, defaultPollSeconds: e.SOCIAL_POLL_DEFAULT_SECONDS },
     media: { maxBytes: Math.round(e.MEDIA_MAX_MB * 1024 * 1024) },
+    storage: storageConfig(e), // storage
   };
 }
+
+// --- storage ---
+function storageConfig(e: z.infer<typeof Env>) {
+  const google =
+    e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET && e.GOOGLE_REFRESH_TOKEN
+      ? { clientId: e.GOOGLE_CLIENT_ID, clientSecret: e.GOOGLE_CLIENT_SECRET, refreshToken: e.GOOGLE_REFRESH_TOKEN }
+      : undefined;
+  if (e.STORAGE_BACKEND === "gdrive" && !google) {
+    throw new Error("Invalid configuration:\n  STORAGE_BACKEND=gdrive needs GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REFRESH_TOKEN");
+  }
+  return {
+    backend: e.STORAGE_BACKEND,
+    google: e.STORAGE_BACKEND === "gdrive" ? google : undefined,
+    cacheBytes: Math.round(e.STORAGE_CACHE_MB * 1024 * 1024),
+    driveFolder: e.STORAGE_DRIVE_FOLDER,
+    uploadMaxBytes: Math.round(e.STORAGE_UPLOAD_MAX_MB * 1024 * 1024),
+  };
+}
+// --- end storage ---
 
 /** True when croner accepts the pattern (catches e.g. quotes left in from an env file). */
 function isCron(pattern: string): boolean {

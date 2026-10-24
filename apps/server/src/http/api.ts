@@ -16,6 +16,7 @@ import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
+import { type StorageApiDeps, storageApiRoutes } from "./storage";
 
 export interface ApiDeps {
   store: Store;
@@ -31,6 +32,8 @@ export interface ApiDeps {
   webhookSecret?: string;
   /** Social page API and media uploads (see ./social.ts). */
   social?: SocialApiDeps;
+  /** /storage: direct uploads, file list, migration (see ./storage.ts). */
+  storage?: StorageApiDeps;
   /** Email + password sign-in (src/accounts). */
   auth: { service: AuthService; options: AuthHttpOptions };
 }
@@ -189,6 +192,7 @@ export function apiRoutes(deps: ApiDeps) {
 
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
+  if (deps.storage) app.route("/", storageApiRoutes(deps.storage)); // storage
 
   return app;
 }
