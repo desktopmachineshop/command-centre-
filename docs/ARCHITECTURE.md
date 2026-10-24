@@ -152,7 +152,7 @@ Original Phase 0 steps:
 
 **Phase 4: 3dpandme & marketing.** Content calendar, Odoo blog drafts, Instagram and YouTube via their APIs, video jobs routed to the desktop, and ad and marketing proposal skills.
 
-**Phase 5: OpenV / OpenD.** Support triage, and docs and requirements upkeep using their existing MCP servers. More non-Claude agents through the `ai-sdk` adapter, where they're cheaper or better.
+**Phase 5: OpenV / OpenD.** Support triage, and docs and requirements upkeep using their existing MCP servers. Product videos (demos, shorts, explainers) through `video.produce` and the worker's `video.capture`/`video.render` jobs: see [VIDEO.md](VIDEO.md). More non-Claude agents through the `ai-sdk` adapter, where they're cheaper or better.
 
 ## Risks / notes
 - **Claude subscription as a server driver:** it suits personal use, but it has usage limits, and headless auth on a server has to be maintained. Mitigations: the adapter's API-key fallback, Jev and cheap-model triage to cut volume, and per-day budget caps.

@@ -3,9 +3,9 @@
   "tasks": {
     "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
     "typecheck": {},
-    "test": { "env": ["TEST_DATABASE_URL"] },
-    "@cc/server#test": { "dependsOn": ["@cc/web#build"], "env": ["TEST_DATABASE_URL", "PW_CHROMIUM"] },
-    "@cc/worker#test": { "dependsOn": ["@cc/server#test"], "env": ["TEST_DATABASE_URL"] },
+    "test": { "env": ["TEST_DATABASE_URL"], "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH", "CC_CHROMIUM_BIN", "CC_FFMPEG_BIN"] },
+    "@cc/server#test": { "dependsOn": ["@cc/web#build"], "env": ["TEST_DATABASE_URL", "PW_CHROMIUM"], "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH", "CC_CHROMIUM_BIN", "CC_FFMPEG_BIN"] },
+    "@cc/worker#test": { "dependsOn": ["@cc/server#test"], "env": ["TEST_DATABASE_URL"], "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH", "CC_CHROMIUM_BIN", "CC_FFMPEG_BIN"] },
     "dev": { "cache": false, "persistent": true }
   }
 }

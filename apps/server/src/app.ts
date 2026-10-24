@@ -45,6 +45,7 @@ import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
 import { VoiceConversations } from "./voice/conversations";
 import { type VoiceCalendar, VoiceService } from "./voice/service";
+import { type VideoMediaStore, VideoProductions, videoTtsFromEnv } from "./video";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -67,6 +68,8 @@ export interface Overrides {
   pushTransport?: PushTransport;
   /** Clock for notification quiet hours and rate limits (tests). */
   notificationClock?: () => Date;
+  /** Media store for video jobs' uploads (until the server's own media hosting is wired in). */
+  videoMedia?: VideoMediaStore;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -161,16 +164,29 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         })
       : undefined;
   // --- end odoo events ---
+  const workers = new WorkerService(store, hub);
+
+  // --- video (packages/video): video.produce → worker capture/render jobs → social.campaign draft ---
+  const video: VideoProductions = new VideoProductions({
+    submit: (job) => workers.submit(job),
+    propose: (proposal, options) => actions.propose(proposal, options),
+    notify: (n) => notifier.notify(n),
+    hasAction: (type) => type in actions.executors,
+    media: overrides.videoMedia,
+    tts: videoTtsFromEnv(),
+  });
+  workers.onJobSettled((job) => video.onJobSettled(job));
+  // --- end video ---
 
   const executors = {
     ...builtinExecutors,
     ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
     ...(odoo ? createOdooExecutors(odoo) : {}),
     ...socialExecutors,
+    ...video.executors(),
   };
-  const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
+  const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
-  const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
   const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;

@@ -59,6 +59,9 @@ importers:
       '@cc/verticals':
         specifier: workspace:*
         version: link:../../packages/verticals
+      '@cc/video':
+        specifier: workspace:*
+        version: link:../../packages/video
       '@cc/voice':
         specifier: workspace:*
         version: link:../../packages/voice
@@ -160,6 +163,12 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cc/video':
+        specifier: workspace:*
+        version: link:../../packages/video
+      playwright-core:
+        specifier: 1.63.0
+        version: 1.63.0
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -265,6 +274,16 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/video:
+    dependencies:
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      playwright-core:
+        specifier: 1.63.0
+        version: 1.63.0
 
   packages/voice: {}
 

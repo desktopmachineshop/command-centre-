@@ -47,6 +47,8 @@ export function davinciPaths(platform: NodeJS.Platform, env: NodeJS.ProcessEnv):
 export interface DetectOptions {
   ffmpegBin: string;
   claudeBin: string;
+  /** Configured Chromium; `browser` is detected when it exists. */
+  chromiumBin?: string | null;
   overrides?: Partial<Record<Capability, boolean>>;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -61,7 +63,7 @@ export async function detectCapabilities(options: DetectOptions): Promise<Capabi
     gpu: await detectGpu(platform, env),
     davinci: davinciPaths(platform, env).some((p) => existsSync(p)),
     "claude-local": which(options.claudeBin, env, platform) !== null,
-    browser: false, // not detected; enable it in config
+    browser: !!options.chromiumBin && which(options.chromiumBin, env, platform) !== null,
   };
   const merged = { ...detected, ...options.overrides };
   return (Object.keys(merged) as Capability[]).filter((c) => merged[c]);

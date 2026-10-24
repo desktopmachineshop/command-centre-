@@ -14,6 +14,7 @@ COPY packages/odoo/package.json packages/odoo/
 COPY packages/social/package.json packages/social/
 COPY packages/triage/package.json packages/triage/
 COPY packages/verticals/package.json packages/verticals/
+COPY packages/video/package.json packages/video/
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter @cc/web build && pnpm --filter @cc/server build
