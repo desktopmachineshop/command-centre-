@@ -130,7 +130,14 @@ export class DigestService {
       );
     }
     if (options.push !== false && active.length > 0) {
-      await this.notifier.notify({ title: `Daily digest, ${day}`, body: active.map((d) => d.headline).join("\n"), url: "/" });
+      await this.notifier.notify({
+        title: `Daily digest, ${day}`,
+        body: active.map((d) => d.headline).join("\n"),
+        url: "/",
+        category: "digest",
+        priority: "normal",
+        tag: "digest",
+      });
     }
     return active;
   }

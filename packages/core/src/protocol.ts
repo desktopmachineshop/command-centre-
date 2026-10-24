@@ -45,6 +45,8 @@ export const OutboundMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("job.updated"), job: Job }),
   z.object({ type: z.literal("job.assign"), job: Job }),
   z.object({ type: z.literal("node.updated"), node: WorkerNode }),
+  // notifications: the notification centre's unread count changed
+  z.object({ type: z.literal("notifications.updated"), unread: z.number().int() }),
 ]);
 export type OutboundMessage = z.infer<typeof OutboundMessage>;
 

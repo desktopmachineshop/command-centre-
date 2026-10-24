@@ -32,7 +32,9 @@ import { wsHandler } from "./http/ws";
 import { Hub } from "./hub";
 import { mcpRoutes } from "./mcp/endpoints";
 import { Pipeline } from "./pipeline";
-import { type Notifier, WebPushNotifier } from "./push";
+import { NotificationService, startNotificationJobs, teeNotifier } from "./notifications/service";
+import { NotificationStore } from "./notifications/store";
+import { type Notifier, type PushTransport, WebPushTransport } from "./push";
 import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
 import { startSchedules, startSystemJobs } from "./scheduler";
@@ -49,6 +51,10 @@ export interface Overrides {
   imap?: ImapConnector;
   /** Social platform adapters (tests use fakes). */
   socialAdapters?: AdapterMap;
+  /** Web Push sender behind the notification service (tests use a fake). */
+  pushTransport?: PushTransport;
+  /** Clock for notification quiet hours and rate limits (tests). */
+  notificationClock?: () => Date;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -80,7 +86,16 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     remoteUrl: config.brainRemoteUrl,
     folders: verticals.all().map((v) => v.brainFolder),
   });
-  const notifier = overrides.notifier ?? new WebPushNotifier(store, config.vapid);
+  // --- Notifications: inbox, preferences, quiet hours, rate limits, devices (src/notifications) ---
+  const notifications = new NotificationService(new NotificationStore(pool), overrides.pushTransport ?? new WebPushTransport(config.vapid), {
+    timezone: config.timezone,
+    now: overrides.notificationClock,
+    onUnreadChange: (unread) => hub.broadcast({ type: "notifications.updated", unread }),
+    spend: async (since) => ({ costUsd: await store.costSince(since), budgetUsd: config.agent.dailyBudgetUsd ?? null }),
+  });
+  // A test notifier sees every notify() call as made; the service still stores and routes it.
+  const notifier: Notifier = overrides.notifier ? teeNotifier(notifications, overrides.notifier) : notifications;
+  // --- end notifications ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---
   const emailAccounts = config.email.accounts;
@@ -107,6 +122,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           title: "Scheduled post failed",
           body: `${post.title} on ${platformLabel(post.platform)} (${post.accountId}): ${error}`,
           url: "/social",
+          category: "alert",
+          priority: "high",
+          vertical: post.vertical,
         }),
     });
   let socialInbound: SocialInbound | undefined;
@@ -123,6 +141,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     ...socialExecutors,
   };
   const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
+  actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
   const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
@@ -170,7 +189,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     timeZone: config.timezone,
     media: { dir: mediaDir, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
   };
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, notifications }));
   app.route("/mcp", mcpRoutes({ brain, actions, runTokens, verticals, adminToken: config.adminToken, servers: extraMcpServers }));
   // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.
   app.route("/media", mediaRoutes(mediaDir));
@@ -183,6 +202,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   }
 
   let crons: ReturnType<typeof startSchedules> = [];
+  let notificationCrons: ReturnType<typeof startNotificationJobs> = [];
 
   /** Just after midnight: finish yesterday's digest notes (no push) and release deferred tasks. */
   const rollover = async () => {
@@ -202,6 +222,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     queue,
     budget,
     digests,
+    notifications,
     rollover,
     publishScheduledPosts,
     async start() {
@@ -222,6 +243,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         rollover,
         socialPublish: socialAccounts.length ? publishScheduledPosts : undefined,
       });
+      notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
       if (config.schedulesEnabled) crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e)));
       if (emailAccounts.length) {
         emailPoller = new EmailPoller({
@@ -246,6 +268,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     async stop() {
       for (const c of crons) c.stop();
+      for (const c of notificationCrons) c.stop();
       await emailPoller?.stop();
       await socialInbound?.stop();
       await queue.stop();

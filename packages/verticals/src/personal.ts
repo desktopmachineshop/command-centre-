@@ -8,7 +8,7 @@ const MORNING_BRIEF = `Write Dave's morning brief for today.
 3. Read the journal for those dates ("journal/<date>.md"), and today's journal if it already exists.
 4. Call the actions tool list_pending to see the approvals waiting for Dave.
 5. Decide today's priorities: anything urgent or overdue, failed tasks worth a retry, approvals waiting more than a day, and whatever the notes or journal flag for today.
-6. Propose exactly one "notify" action with title "Morning brief" and a body of 3 to 5 short lines, most important first: the top priority, then the approvals waiting (count and the oldest one), then anything else worth knowing. No greeting, no filler. If there is truly nothing, say so in one line.
+6. Propose exactly one "notify" action with title "Morning brief", category "briefing" and a body of 3 to 5 short lines, most important first: the top priority, then the approvals waiting (count and the oldest one), then anything else worth knowing. No greeting, no filler. If there is truly nothing, say so in one line.
 
 Do not propose any other action.`;
 
