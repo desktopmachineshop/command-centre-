@@ -56,6 +56,9 @@ importers:
       '@cc/social':
         specifier: workspace:*
         version: link:../../packages/social
+      '@cc/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@cc/triage':
         specifier: workspace:*
         version: link:../../packages/triage
@@ -166,6 +169,9 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cc/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@cc/video':
         specifier: workspace:*
         version: link:../../packages/video
@@ -271,6 +277,8 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  packages/storage: {}
 
   packages/triage:
     dependencies:

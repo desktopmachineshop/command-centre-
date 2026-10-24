@@ -19,6 +19,7 @@ import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
 import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
+import { type StorageApiDeps, storageApiRoutes } from "./storage";
 import { type VoiceApiDeps, voiceApiRoutes } from "./voice";
 
 export interface ApiDeps {
@@ -35,6 +36,8 @@ export interface ApiDeps {
   webhookSecret?: string;
   /** Social page API and media uploads (see ./social.ts). */
   social?: SocialApiDeps;
+  /** /storage: direct uploads, file list, migration (see ./storage.ts). */
+  storage?: StorageApiDeps;
   /** Email + password sign-in (src/accounts). */
   auth: { service: AuthService; options: AuthHttpOptions };
   /** Drive mode: speech, briefing, approvals by voice, task replies (see ./voice.ts). */
@@ -211,6 +214,7 @@ export function apiRoutes(deps: ApiDeps) {
 
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
+  if (deps.storage) app.route("/", storageApiRoutes(deps.storage)); // storage
   // /voice/* and /tasks/:id/reply, behind the admin check above.
   if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
   // /pa/*: the Today page.

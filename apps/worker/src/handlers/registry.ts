@@ -1,5 +1,6 @@
 import type { Job } from "@cc/core";
 import { z } from "zod";
+import type { StorageUploader } from "../storage";
 
 export interface JobContext {
   job: Job;
@@ -9,6 +10,8 @@ export interface JobContext {
   progress(progress: number, message?: string): void;
   /** Aborted when the worker shuts down. */
   signal: AbortSignal;
+  /** Uploads an output file to Command Centre storage; see ../storage.ts. */
+  storage?: StorageUploader;
 }
 
 /**

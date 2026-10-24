@@ -12,6 +12,7 @@ export * from "./capabilities";
 export * from "./client";
 export * from "./config";
 export * from "./handlers/registry";
+export * from "./storage";
 export { claudeHandler, echoHandler, ffmpegHandler, videoCaptureHandler, videoRenderHandler };
 
 /** The built-in job kinds. Add new handlers here. */

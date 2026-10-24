@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type Capability, type InboundMessage, type Job, OutboundMessage } from "@cc/core";
 import type { HandlerRegistry } from "./handlers/registry";
+import { createStorageUploader, type StorageUploader } from "./storage";
 
 export type WorkerState = "connecting" | "connected" | "disconnected" | "stopped";
 
@@ -25,6 +26,8 @@ export interface WorkerClientOptions {
   progressIntervalMs?: number;
   onStatus?: (status: WorkerStatus) => void;
   log?: (line: string) => void;
+  /** Upload helper handed to jobs as ctx.storage; defaults to one for this server and token. */
+  storage?: StorageUploader;
 }
 
 /** Delay before reconnect attempt `attempt` (0-based): exponential, with "equal jitter". */
@@ -47,7 +50,11 @@ export class WorkerClient {
   private current: { job: Job; abort: AbortController; progress: number } | null = null;
   private status: WorkerStatus = { state: "disconnected", job: null };
 
-  constructor(private readonly options: WorkerClientOptions) {}
+  private readonly storage: StorageUploader;
+
+  constructor(private readonly options: WorkerClientOptions) {
+    this.storage = options.storage ?? createStorageUploader({ serverUrl: options.wsUrl, token: options.token });
+  }
 
   get state(): WorkerStatus {
     return this.status;
@@ -176,6 +183,7 @@ export class WorkerClient {
         job,
         dir,
         signal: abort.signal,
+        storage: this.storage,
         progress: (progress, message) => {
           run.progress = Math.max(0, Math.min(1, progress));
           this.setStatus({});

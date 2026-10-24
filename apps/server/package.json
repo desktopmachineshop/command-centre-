@@ -25,6 +25,7 @@
     "@cc/odoo": "workspace:*",
     "@cc/pa": "workspace:*",
     "@cc/social": "workspace:*",
+    "@cc/storage": "workspace:*",
     "@cc/triage": "workspace:*",
     "@cc/verticals": "workspace:*",
     "@cc/video": "workspace:*",
