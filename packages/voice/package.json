@@ -1,0 +1,15 @@
+{
+  "name": "@cc/voice",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./speakable": "./src/speakable.ts",
+    "./response": "./src/response.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  }
+}

@@ -15,6 +15,7 @@ import {
 } from "@cc/social";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
+import { createVoiceProviders, type SpeechToText, type TextToSpeech } from "@cc/voice";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -40,6 +41,8 @@ import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
 import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
+import { VoiceConversations } from "./voice/conversations";
+import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -54,6 +57,10 @@ export interface Overrides {
   socialAdapters?: AdapterMap;
   /** Cheaper password hashing for tests. */
   scrypt?: ScryptParams;
+  /** Server speech providers (tests use fakes); default from VOICE_* config. */
+  voiceProviders?: { stt?: SpeechToText; tts?: TextToSpeech };
+  /** Calendar for the spoken briefing (the personal-assistant calendar plugs in here). */
+  voiceCalendar?: VoiceCalendar;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -151,6 +158,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency, staleRunSeconds + 300);
   const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
   const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone);
+  // --- Voice: server speech providers (optional), briefing, task conversations ---
+  const voiceProviders = overrides.voiceProviders ?? createVoiceProviders(config.voice.providers);
+  const voiceConversations = new VoiceConversations(store, hub, queue);
+  const voiceService = new VoiceService(store, verticals, budget, {
+    ...voiceProviders,
+    calendar: overrides.voiceCalendar,
+    maxUploadBytes: config.voice.maxUploadBytes,
+    maxSeconds: config.voice.maxSeconds,
+    language: config.voice.language,
+    timezone: config.timezone,
+  });
+  // --- end voice ---
   const pipeline = new Pipeline({
     store,
     hub,
@@ -173,6 +192,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
     },
     mcpServers: ["brain", ...Object.keys(extraMcpServers)],
+    voice: voiceConversations,
   });
 
   const app = new Hono();
@@ -197,7 +217,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     timeZone: config.timezone,
     media: { dir: mediaDir, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
   };
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, auth: { service: auth, options: authHttp } }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations } }));
   app.route(
     "/mcp",
     mcpRoutes({

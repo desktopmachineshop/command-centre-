@@ -1241,6 +1241,123 @@ for this. Don't point it at `localhost` or a private network.
 Set `handle` to the account's username. The adapters use it, along with the account id, to skip
 the account's own comments and replies.
 
+## Voice and Drive mode
+
+Drive mode (`#/drive`, or the **Drive mode** button on Chat) runs Command Centre by voice: one
+huge talk button, answers read aloud, approvals read out and decided by voice. It is built for
+the phone in the car, so it shows almost nothing to read.
+
+### In the car
+
+1. Pair the phone with the car (or a headset) over Bluetooth. Open Command Centre and tap
+   **Drive mode** before you set off. The first tap on the big button also grants the microphone
+   and turns on the **headset button**: the car's or headset's play/pause button then works as the
+   talk button (Media Session API). If the button does nothing, tap the screen once again.
+2. Press (screen or headset) and speak. Commands are handled on the phone, without the agent:
+   - "what's new" or "briefing": pending approvals, failed or held-back tasks, today's spend and
+     (once the calendar is connected) what's next;
+   - "read approvals", then "approve", "reject" or "next";
+   - "repeat", "stop", "cancel", "that's all";
+   - "conversation mode" or "push to talk" switches modes;
+   - start with a business to send a request there: "shop: has order 1042 shipped?",
+     "dms, …", "3dpandme: …", "open v: …".
+
+   Anything else goes to the agent in **voice mode**: it answers in one to three short spoken
+   sentences. While it works you hear "Working on it", then "Still working on it" every
+   20 seconds.
+3. **Approving by voice always asks twice.** "Approve" reads the item back ("To approve: Reply to
+   Jane about order 1042. Say 'yes, approve' to confirm, or 'no'"). Only "yes, approve" (or the
+   on-screen **Yes, approve** button) does it. A bare "yes" never confirms anything, and a longer
+   sentence such as "approve the quote for Jane" is sent to the agent as a request rather than
+   treated as an approval.
+
+**Two modes** (the toggle at the top; remembered per device):
+
+- **Push to talk** (default): it only listens after a press. If the agent asks a question, it
+  reads the question and waits for your next press. What you say then answers that question in the
+  same conversation.
+- **Conversation**: after a question from the agent, a read-out approval or a confirmation, it
+  plays a "your turn" chime and listens by itself. After 8 seconds of silence it asks "Still
+  there?" once, then stops. Your answer continues the same task. "Stop", "cancel" or "that's all"
+  ends the conversation at any point. **Options → Listen for a follow-up** also listens for
+  5 seconds after a final answer.
+
+How a conversation continues: in voice mode the agent ends its answer with one JSON line,
+`{"voice":{"type":"converse"|"final","text":"…"}}`. The server parses that line and stores it on
+the run as `response`. It shows in `GET /api/tasks/:id` and is pushed live as `run.response`. A
+reply goes to `POST /api/tasks/:id/reply {text, voice}`, which queues the same task again. The
+next run resumes the earlier Claude Code session (`--resume`), so the conversation's history stays
+on one task. If there is no session to resume, the prompt carries the earlier question instead.
+
+**Keeping the screen on.** Drive mode holds a screen wake lock while it is open (the Options line
+shows "Screen: kept on"). The phone releases the lock when you switch apps or lock the screen, and
+Drive mode takes it again when you come back. Mount the phone where you can see the big button,
+and keep it plugged in.
+
+**Android (Chrome)** works best. Speech recognition uses Google's servers unless on-device
+recognition is installed, so it needs signal. The headset button needs Drive mode in the
+foreground and at least one tap first.
+
+**iPhone (Safari) caveats:**
+
+- Speech recognition works in a Safari tab. In an app added to the Home Screen it has
+  historically been exposed but done nothing. There, Drive mode uses the server's
+  speech-to-text when one is configured (see below), so set one up if you use the installed app.
+- Speech only starts after a tap, so tap the big button once when you open Drive mode.
+- The screen wake lock needs iOS 16.4 or later; in Home Screen apps it reportedly only works from iOS 18.4.
+- Headset buttons are less reliable than on Android.
+
+**Safety.** Set everything up before you drive. Use the headset button or a single tap, and don't
+read the screen: everything important is spoken. Long answers are cut to about 40 seconds and end
+with "There's more on screen when you're parked". Nothing outward-facing happens without a spoken
+readback and an explicit "yes, approve". Use it only where hands-free phone use is legal.
+
+### Optional server voices
+
+With nothing configured, Drive mode uses the browser's own speech: free, quick, with an en-GB
+voice where the device has one. Server providers are an upgrade for quality, and a fallback for
+devices whose browser can't listen (iOS Home Screen apps) or has no good voice. `GET
+/api/voice/config` reports what is available, and the PWA chooses automatically. To prefer the
+server voice anyway, tick **Options → Use the server voice**.
+
+| Variable | Default | |
+|---|---|---|
+| `OPENAI_API_KEY` | – | enables OpenAI speech-to-text and text-to-speech |
+| `ELEVENLABS_API_KEY` | – | enables ElevenLabs text-to-speech (and Scribe speech-to-text) |
+| `VOICE_STT_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = OpenAI, else ElevenLabs |
+| `VOICE_TTS_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = ElevenLabs, else OpenAI |
+| `VOICE_OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` | or `gpt-4o-transcribe`, `whisper-1` |
+| `VOICE_OPENAI_TTS_MODEL` / `VOICE_OPENAI_VOICE` | `gpt-4o-mini-tts` / `fable` | |
+| `VOICE_ELEVENLABS_TTS_MODEL` / `VOICE_ELEVENLABS_VOICE` | `eleven_flash_v2_5` / George (British) | voice id from the ElevenLabs voice library |
+| `VOICE_ELEVENLABS_STT_MODEL` | `scribe_v2` | |
+| `VOICE_MAX_UPLOAD_KB` / `VOICE_MAX_SECONDS` | `2048` / `60` | limits for `POST /api/voice/transcribe` |
+| `VOICE_LANGUAGE` | `en-GB` | |
+
+`auto` turns a provider on as soon as its key is set. If `OPENAI_API_KEY` is there for something
+else, set `VOICE_STT_PROVIDER=off` / `VOICE_TTS_PROVIDER=off` to keep voice on the browser.
+
+Typical costs (list prices, October 2026):
+
+- Speech-to-text: OpenAI `gpt-4o-mini-transcribe` about $0.003 a minute (`gpt-4o-transcribe`
+  $0.006); ElevenLabs Scribe v2 about $0.22 an hour.
+- Text-to-speech: ElevenLabs Flash v2.5 about $0.04 per 1,000 characters (a three-sentence answer
+  is about 250 characters, so about 1p); OpenAI `gpt-4o-mini-tts` about $0.015 a minute of audio.
+- An hour of driving with a dozen requests costs a few pence.
+
+Short phrases ("Working on it", confirmations) are cached in memory by `POST /api/voice/speak`.
+
+Endpoints, all behind the dashboard auth:
+
+- `POST /api/voice/transcribe` (raw audio body or multipart `file`; `?seconds=`, `?language=`)
+  returns `{text}`;
+- `POST /api/voice/speak {text, voice?}` returns audio;
+- `GET /api/voice/config`;
+- `GET /api/voice/briefing` returns `{text, approvals, attention, cost, calendar}`. It is
+  deterministic, with no LLM;
+- `GET /api/voice/approvals/next?skip=id,id` returns the next pending proposal, described for
+  reading aloud. Approving and rejecting use the normal `/api/proposals/:id/approve|reject`;
+- `POST /api/chat {text, voice: true}` and `POST /api/tasks/:id/reply {text, voice}`.
+
 ## Extending
 
 - **New vertical:** add `packages/verticals/src/<id>.ts` (copy an existing one) and list it in

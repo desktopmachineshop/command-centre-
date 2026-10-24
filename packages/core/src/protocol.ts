@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { AgentMessage, Capability, Event, Job, Proposal, Task, WorkerNode } from "./domain";
 
+/** Voice mode: the spoken answer of a run. `converse` waits for Dave's reply, `final` is done. */
+export const VoiceResponse = z.object({ text: z.string(), type: z.enum(["converse", "final"]), structured: z.boolean() });
+export type VoiceResponse = z.infer<typeof VoiceResponse>;
+
 /**
  * WebSocket protocol between the server and its clients (PWA / desktop UI)
  * and worker nodes (desktop daemon). Every frame is one JSON message.
@@ -45,6 +49,8 @@ export const OutboundMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("job.updated"), job: Job }),
   z.object({ type: z.literal("job.assign"), job: Job }),
   z.object({ type: z.literal("node.updated"), node: WorkerNode }),
+  // Voice mode: a finished run's structured spoken answer (see @cc/voice parseVoiceResponse).
+  z.object({ type: z.literal("run.response"), runId: z.string(), taskId: z.string(), response: VoiceResponse }),
 ]);
 export type OutboundMessage = z.infer<typeof OutboundMessage>;
 
