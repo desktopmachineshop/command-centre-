@@ -1,4 +1,4 @@
-import type { Event, Job, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun } from "@cc/core";
+import type { Event, Job, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
 
 /** Connection settings. The desktop app can point at a remote server; the PWA defaults to its own origin. */
 export interface Connection {
@@ -38,7 +38,7 @@ export class ApiError extends Error {
 export type TaskDetail = {
   task: Task;
   event: Event | null;
-  runs: (AgentRun & { messages: AgentMessage[] })[];
+  runs: (AgentRun & { messages: AgentMessage[]; response?: VoiceResponse | null })[];
   proposals: Proposal[];
 };
 
@@ -116,6 +116,26 @@ export type SocialEvent = Event & { taskId: string | null; taskStatus: string | 
 
 export type Campaign = { title: string; posts: { accountId: string; content: PostContent }[]; publishAt?: string };
 
+// --- voice (Drive mode) ---
+export type VoiceConfig = {
+  stt: { provider: string; model: string } | null;
+  tts: { provider: string; model: string; voice: string } | null;
+  maxUploadBytes: number;
+  maxSeconds: number;
+  language: string;
+  calendar: boolean;
+};
+
+export type VoiceBriefing = { text: string; approvals: { count: number }; cost: { todayUsd: number } };
+
+export type NextApproval = {
+  proposal: Pick<Proposal, "id" | "vertical" | "actionType" | "summary" | "createdAt"> | null;
+  position: number;
+  remaining: number;
+  text: string;
+};
+// --- end voice ---
+
 export function createApi(conn: Connection) {
   const base = conn.baseUrl.replace(/\/$/, "");
   const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
@@ -134,7 +154,8 @@ export function createApi(conn: Connection) {
     wsUrl: `${base.replace(/^http/, "ws") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`}/ws`,
     token: conn.token,
     verticals: () => call<VerticalManifest[]>("/verticals"),
-    chat: (text: string, vertical?: string) => post<{ event: Event; task: Task }>("/chat", { text, vertical }),
+    chat: (text: string, vertical?: string, options: { voice?: boolean } = {}) =>
+      post<{ event: Event; task: Task }>("/chat", { text, vertical, ...(options.voice ? { voice: true } : {}) }),
     tasks: (status?: string) => call<Task[]>(`/tasks${status ? `?status=${status}` : ""}`),
     task: (id: string) => call<TaskDetail>(`/tasks/${id}`),
     retry: (id: string) => post<Task>(`/tasks/${id}/retry`),
@@ -157,6 +178,35 @@ export function createApi(conn: Connection) {
     socialScheduled: () => call<ScheduledPost[]>("/social/scheduled"),
     cancelScheduled: (id: string) => post<ScheduledPost>(`/social/scheduled/${id}/cancel`),
     compose: (campaign: Campaign) => post<Proposal>("/social/compose", campaign),
+    // --- voice (Drive mode) ---
+    voiceConfig: () => call<VoiceConfig>("/voice/config"),
+    voiceBriefing: () => call<VoiceBriefing>("/voice/briefing"),
+    nextApproval: (skip: string[] = []) => call<NextApproval>(`/voice/approvals/next${skip.length ? `?skip=${skip.join(",")}` : ""}`),
+    replyToTask: (id: string, text: string, voice = true) => post<Task>(`/tasks/${id}/reply`, { text, voice }),
+    transcribe: async (audio: Blob, seconds: number, language?: string) => {
+      const query = new URLSearchParams({ seconds: seconds.toFixed(1), ...(language ? { language } : {}) });
+      const res = await fetch(`${base}/api/voice/transcribe?${query}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${conn.token}`, "content-type": audio.type || "audio/webm" },
+        body: audio,
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
+      return body as { text: string };
+    },
+    speak: async (text: string, voice?: string) => {
+      const res = await fetch(`${base}/api/voice/speak`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${conn.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ text, voice }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new ApiError(res.status, body?.error ?? res.statusText);
+      }
+      return res.blob();
+    },
+    // --- end voice ---
     /** Uploads an image or video as the raw body; returns its public URL. */
     uploadMedia: async (file: File) => {
       const res = await fetch(`${base}/api/media`, {

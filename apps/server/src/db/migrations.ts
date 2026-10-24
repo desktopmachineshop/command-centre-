@@ -163,4 +163,24 @@ export const migrations: { id: string; sql: string }[] = [
       create index scheduled_posts_created_idx on scheduled_posts (created_at desc);
     `,
   },
+  {
+    id: "0008_voice",
+    sql: `
+      -- Voice mode: the structured spoken answer of a run ({text, type: converse | final, structured}).
+      alter table agent_runs add column if not exists voice_response jsonb;
+
+      -- Dave's replies continuing a task's conversation; each one drives one more run of the same task.
+      create table task_replies (
+        id uuid primary key,
+        task_id uuid not null references tasks (id) on delete cascade,
+        text text not null,
+        voice boolean not null default false,
+        resume_session_id text,
+        run_id uuid references agent_runs (id) on delete set null,
+        created_at timestamptz not null default now(),
+        consumed_at timestamptz
+      );
+      create index task_replies_pending_idx on task_replies (task_id, created_at) where consumed_at is null;
+    `,
+  },
 ];

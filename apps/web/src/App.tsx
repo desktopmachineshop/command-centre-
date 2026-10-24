@@ -6,6 +6,7 @@ import { Approvals } from "./pages/Approvals";
 import { Brain } from "./pages/Brain";
 import { Chat } from "./pages/Chat";
 import { Devices } from "./pages/Devices";
+import { Drive } from "./pages/Drive";
 import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { Settings } from "./pages/Settings";
@@ -59,6 +60,9 @@ function Shell({ conn, onSignOut }: { conn: Connection; onSignOut: () => void })
 
   const stats = useLoad(api.stats, feed, (m) => m.type === "proposal.updated" || m.type === "task.updated");
   const pending = stats.data?.pendingApprovals ?? 0;
+
+  // Drive mode is full screen: no nav, nothing to read (see pages/Drive.tsx).
+  if (page === "drive") return <Drive api={api} feed={feed} />;
 
   let body;
   switch (page) {

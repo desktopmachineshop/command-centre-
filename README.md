@@ -24,6 +24,7 @@ packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/m
 packages/social        social platform adapters, inbound watcher, social.* executors, scheduled posts
 packages/triage        triagers (rules, Jev, Haiku fallback) + accuracy eval
 packages/verticals     one manifest per business / life area
+packages/voice         speech-to-text / text-to-speech clients (OpenAI, ElevenLabs, fake) + speakable text
 skills/                shared skills bank (Agent Skills format)
 ```
 

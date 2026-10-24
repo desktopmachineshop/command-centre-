@@ -2,11 +2,15 @@ import type { McpServerConfig } from "@cc/agent-runtime";
 import type { Event, VerticalManifest } from "@cc/core";
 import { emailPrompt } from "@cc/email";
 import { socialPrompt } from "@cc/social";
+import { voiceResponseInstructions } from "@cc/voice";
 import type { ActionExecutor } from "./actions";
 
 /** The prompt an agent gets for a task, derived from the event that caused it. */
 export function taskPrompt(event: Event): string {
   const p = event.payload;
+  // --- voice: chat sent with {voice: true} (Drive mode) asks for a short spoken answer ---
+  if (event.source === "chat" && typeof p.text === "string" && p.voice === true) return voicePrompt(p.text);
+  // --- end voice ---
   if (event.source === "chat" && typeof p.text === "string") return p.text;
   if (event.source === "cron" && typeof p.prompt === "string") return p.prompt;
   // Email: a readable message plus how to reply (see @cc/email emailPrompt).
@@ -23,6 +27,11 @@ export function taskPrompt(event: Event): string {
     "",
     "Decide what needs doing and do it.",
   ].join("\n");
+}
+
+/** Voice mode: Dave's words plus the spoken-answer rules and response protocol (see @cc/voice). */
+export function voicePrompt(text: string): string {
+  return `${text}\n\n${voiceResponseInstructions}`;
 }
 
 export function systemPrompt(vertical: VerticalManifest, executors: Record<string, ActionExecutor>, now = new Date()): string {
