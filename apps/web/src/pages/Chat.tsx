@@ -2,7 +2,8 @@ import type { AgentMessage, Task } from "@cc/core";
 import { type FormEvent, useEffect, useState } from "react";
 import type { Api } from "../api";
 import { type LiveFeed, useLive } from "../live";
-import { go } from "../router";
+import { Icon } from "../icons";
+import { Empty, ErrorBanner, PageHead, VTag } from "../ui";
 import { Transcript } from "./Transcript";
 
 type Turn = { text: string; task: Task; messages: AgentMessage[]; result?: string };
@@ -45,16 +46,20 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   return (
     <section className="chat">
-      <h2>Chat</h2>
+      <PageHead title="Chat" sub="Each message becomes a task for the command agent." />
       <div className="turns">
-        {turns.length === 0 && <p className="muted">Ask the command agent anything. Start with a vertical name (e.g. "dms: …") or pick one below.</p>}
+        {turns.length === 0 && (
+          <Empty icon="chat">
+            Ask the command agent anything. Start with a vertical name (e.g. "dms: …") or pick one below.
+          </Empty>
+        )}
         {turns.map((t) => (
           <div key={t.task.id} className="turn">
             <div className="bubble me">{t.text}</div>
             <div className="bubble agent">
               <div className="row between small">
-                <span className="tag">{t.task.vertical}</span>
-                <a className={`status ${t.task.status}`} onClick={() => go(`task/${t.task.id}`)}>
+                <VTag id={t.task.vertical} />
+                <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
                   {t.task.status.replace("_", " ")}
                 </a>
               </div>
@@ -63,7 +68,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
           </div>
         ))}
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <form className="composer" onSubmit={send}>
         <select value={vertical} onChange={(e) => setVertical(e.target.value)} aria-label="Vertical">
           <option value="">auto</option>
@@ -85,7 +90,10 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             }
           }}
         />
-        <button className="primary">Send</button>
+        <button className="primary" aria-label="Send">
+          <Icon name="send" size={16} />
+          Send
+        </button>
       </form>
     </section>
   );

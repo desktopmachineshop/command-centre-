@@ -1,5 +1,8 @@
 import { type FormEvent, useState } from "react";
 import { ApiError, COOKIE_SESSION, type Connection, createApi } from "../api";
+import { BrandMark } from "../icons";
+import { useTheme } from "../theme";
+import { ErrorBanner, ThemeToggle } from "../ui";
 
 type Mode = "password" | "token";
 
@@ -18,9 +21,13 @@ export function Login({
   onSignedIn: (c: Connection) => void;
 }) {
   const [mode, setMode] = useState<Mode>("password");
+  const [theme, setTheme] = useTheme();
 
   return (
     <div className="login">
+      <div className="login-theme">
+        <ThemeToggle value={theme} onChange={setTheme} />
+      </div>
       {mode === "token" ? (
         <TokenForm onSignedIn={onSignedIn} onBack={() => setMode("password")} />
       ) : setupRequired ? (
@@ -81,6 +88,7 @@ function PasswordForm({ notice, onSignedIn, onUseToken }: { notice?: string; onS
 
   return (
     <form className="card" onSubmit={submit}>
+      <BrandMark size={52} />
       <h1>Command Centre</h1>
       {needsCode ? (
         <>
@@ -109,18 +117,18 @@ function PasswordForm({ notice, onSignedIn, onUseToken }: { notice?: string; onS
           </label>
         </>
       )}
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <button className="primary" disabled={busy}>
         {busy ? "Signing in…" : needsCode ? "Verify" : "Sign in"}
       </button>
       {needsCode ? (
-        <a className="small" onClick={() => (setNeedsCode(false), setTotp(""), setError(null))}>
+        <button type="button" className="link" onClick={() => (setNeedsCode(false), setTotp(""), setError(null))}>
           Back
-        </a>
+        </button>
       ) : (
-        <a className="small" onClick={onUseToken}>
+        <button type="button" className="link" onClick={onUseToken}>
           Use an admin token instead
-        </a>
+        </button>
       )}
     </form>
   );
@@ -146,6 +154,7 @@ function SetupForm({ onSignedIn, onUseToken }: { onSignedIn: (c: Connection) => 
 
   return (
     <form className="card" onSubmit={submit}>
+      <BrandMark size={52} />
       <h1>Set up Command Centre</h1>
       <p className="muted small">
         Create your account. To prove this server is yours, paste the <code>ADMIN_TOKEN</code> from your Railway variables. You only need it
@@ -171,13 +180,13 @@ function SetupForm({ onSignedIn, onUseToken }: { onSignedIn: (c: Connection) => 
         Repeat password
         <input value={confirm} onChange={(e) => setConfirm(e.target.value)} type="password" autoComplete="new-password" minLength={10} required />
       </label>
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <button className="primary" disabled={busy}>
         {busy ? "Creating…" : "Create account"}
       </button>
-      <a className="small" onClick={onUseToken}>
+      <button type="button" className="link" onClick={onUseToken}>
         Use an admin token instead
-      </a>
+      </button>
     </form>
   );
 }
@@ -199,6 +208,7 @@ function TokenForm({ onSignedIn, onBack }: { onSignedIn: (c: Connection) => void
 
   return (
     <form className="card" onSubmit={submit}>
+      <BrandMark size={52} />
       <h1>Command Centre</h1>
       <p className="muted small">Sign in with the server's admin token. It is saved in this browser until you sign out.</p>
       <label>
@@ -209,13 +219,13 @@ function TokenForm({ onSignedIn, onBack }: { onSignedIn: (c: Connection) => void
         Admin token
         <input value={token} onChange={(e) => setToken(e.target.value)} type="password" required autoComplete="current-password" />
       </label>
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <button className="primary" disabled={busy}>
         {busy ? "Connecting…" : "Connect"}
       </button>
-      <a className="small" onClick={onBack}>
+      <button type="button" className="link" onClick={onBack}>
         Sign in with email and password
-      </a>
+      </button>
     </form>
   );
 }

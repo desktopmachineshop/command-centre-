@@ -2,26 +2,32 @@ import { type FormEvent, useState } from "react";
 import type { Api, MediaRef, PostContent, ScheduledPost, SocialAccount } from "../api";
 import { ago } from "../format";
 import { type LiveFeed, useLoad } from "../live";
-import { go } from "../router";
 import { CharCount, charCount, handleLabel, MediaThumbs, platformLabel } from "../social";
+import { Icon } from "../icons";
+import { Empty, ErrorBanner, PageHead, Skeleton, Status, VTag } from "../ui";
 
 /** Accounts, the composer, scheduled posts, and recent social activity. */
 export function Social({ api, feed }: { api: Api; feed: LiveFeed }) {
   const accounts = useLoad(api.socialAccounts, feed, () => false);
   return (
     <section>
-      <h2>Social</h2>
-      {accounts.error && <p className="error">{accounts.error}</p>}
+      <PageHead title="Social" sub="Write once, post to several accounts. Nothing goes out until you approve it." />
+      {accounts.error && <ErrorBanner>{accounts.error}</ErrorBanner>}
+      {!accounts.data && !accounts.error && <Skeleton rows={2} />}
       {accounts.data?.length === 0 && (
-        <p className="muted">No social accounts yet. Add them to SOCIAL_ACCOUNTS on the server (see docs/SETUP.md, "Social").</p>
+        <Empty icon="social">
+          No social accounts yet. Add them to <code>SOCIAL_ACCOUNTS</code> on the server (see docs/SETUP.md, "Social").
+        </Empty>
       )}
       {accounts.data && accounts.data.length > 0 && (
-        <>
+        <div className="social-grid">
           <Composer api={api} accounts={accounts.data} />
-          <Scheduled api={api} feed={feed} accounts={accounts.data} />
-          <Recent api={api} feed={feed} />
-          <Accounts accounts={accounts.data} />
-        </>
+          <div>
+            <Scheduled api={api} feed={feed} accounts={accounts.data} />
+            <Recent api={api} feed={feed} />
+            <Accounts accounts={accounts.data} />
+          </div>
+        </div>
       )}
     </section>
   );
@@ -30,7 +36,9 @@ export function Social({ api, feed }: { api: Api; feed: LiveFeed }) {
 function Accounts({ accounts }: { accounts: SocialAccount[] }) {
   return (
     <>
-      <h3>Accounts</h3>
+      <div className="section-title">
+        <h3>Accounts</h3>
+      </div>
       <ul className="list">
         {accounts.map((a) => {
           const caps = a.capabilities;
@@ -41,9 +49,9 @@ function Accounts({ accounts }: { accounts: SocialAccount[] }) {
                 <strong>
                   {platformLabel(a.platform)} <span className="muted">{handleLabel(a)}</span>
                 </strong>
-                <span className="tag">{a.vertical}</span>
+                <VTag id={a.vertical} />
               </div>
-              <div className="row wrap small muted">
+              <div className="row wrap small muted caps">
                 <code>{a.id}</code>
                 {can.map((k) => (
                   <span key={k}>{k}</span>
@@ -154,7 +162,10 @@ function Composer({ api, accounts }: { api: Api; accounts: SocialAccount[] }) {
 
   return (
     <form className="card composer-card" onSubmit={submit}>
-      <h3>New post</h3>
+      <div className="card-head">
+        <Icon name="plus" />
+        <h3>New post</h3>
+      </div>
       <label className="field">
         <span className="small muted">Title (for Approvals, and the Reddit and YouTube title)</span>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New video: ER11 collet guide" />
@@ -252,13 +263,13 @@ function Composer({ api, accounts }: { api: Api; accounts: SocialAccount[] }) {
         <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
       </label>
 
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {sent && (
-        <p className="small">
-          Sent to <a onClick={() => go("approvals")}>Approvals</a>: {sent}
+        <p className="small status done note">
+          Sent to <a href="#/approvals">Approvals</a>: {sent}
         </p>
       )}
-      <div className="row between">
+      <div className="composer-foot">
         <span className="muted small">Nothing is posted until you approve it.</span>
         <button className="primary" disabled={!ready || busy}>
           Send for approval
@@ -286,13 +297,14 @@ function Scheduled({ api, feed, accounts }: { api: Api; feed: LiveFeed; accounts
   if (!data?.length && !error) return null;
   return (
     <>
-      <div className="row between">
+      <div className="section-title">
         <h3>Scheduled</h3>
-        <a className="small" onClick={() => void reload()}>
-          refresh
-        </a>
+        <button type="button" className="ghost small" onClick={() => void reload()}>
+          <Icon name="refresh" size={14} />
+          Refresh
+        </button>
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <ul className="list">
         {data?.map((p) => {
           const a = accounts.find((x) => x.id === p.accountId);
@@ -302,17 +314,17 @@ function Scheduled({ api, feed, accounts }: { api: Api; feed: LiveFeed; accounts
                 <span>
                   <strong>{platformLabel(p.platform)}</strong> <span className="muted">{a ? handleLabel(a) : p.accountId}</span>
                 </span>
-                <span className={`status ${p.status === "published" ? "done" : p.status === "cancelled" ? "rejected" : p.status === "scheduled" ? "pending" : p.status}`}>
-                  {p.status}
-                </span>
+                <Status value={p.status === "published" ? "done" : p.status === "cancelled" ? "rejected" : p.status === "scheduled" ? "pending" : p.status} label={p.status} />
               </div>
               <div className="title">{p.title}</div>
               <div className="small prewrap clip">{p.content.text}</div>
               <MediaThumbs media={p.content.media} />
               <div className="row between small">
-                <span className="muted">{new Date(p.publishAt).toLocaleString()}</span>
+                <span className="muted">
+                  <Icon name="clock" size={14} /> {new Date(p.publishAt).toLocaleString()}
+                </span>
                 {p.status === "scheduled" && (
-                  <button disabled={busy === p.id} onClick={() => void cancel(p)}>
+                  <button className="danger-text small" disabled={busy === p.id} onClick={() => void cancel(p)}>
                     Cancel
                   </button>
                 )}
@@ -339,18 +351,22 @@ function Recent({ api, feed }: { api: Api; feed: LiveFeed }) {
   );
   return (
     <>
-      <h3>Recent</h3>
-      {error && <p className="error">{error}</p>}
-      {data?.length === 0 && <p className="muted small">No comments, mentions or messages yet.</p>}
+      <div className="section-title">
+        <h3>Recent</h3>
+      </div>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {data?.length === 0 && <Empty icon="chat">No comments, mentions or messages yet.</Empty>}
       <ul className="list">
         {data?.map((e) => (
-          <li key={e.id} className="item" onClick={() => e.taskId && go(`task/${e.taskId}`)}>
-            <div className="row between">
-              <span className="tag">{e.vertical}</span>
-              {e.taskStatus && <span className={`status ${e.taskStatus}`}>{e.taskStatus.replace("_", " ")}</span>}
-            </div>
-            <div className="title">{e.title}</div>
-            <div className="muted small">{ago(e.receivedAt)}</div>
+          <li key={e.id} className={`item ${e.taskId ? "" : "static"}`}>
+            <a className="item-link" href={e.taskId ? `#/task/${e.taskId}` : undefined}>
+              <div className="item-top">
+                {e.vertical ? <VTag id={e.vertical} /> : <span />}
+                {e.taskStatus && <Status value={e.taskStatus} />}
+              </div>
+              <div className="title">{e.title}</div>
+              <div className="muted small">{ago(e.receivedAt)}</div>
+            </a>
           </li>
         ))}
       </ul>

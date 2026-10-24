@@ -2,17 +2,19 @@ import type { Proposal } from "@cc/core";
 import { useState } from "react";
 import type { Api } from "../api";
 import { ago } from "../format";
+import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
-import { go } from "../router";
 import { SocialProposalBody, useSocialAccounts } from "../social";
+import { Empty, ErrorBanner, PageHead, Skeleton, Status, VTag } from "../ui";
 
 export function Approvals({ api, feed }: { api: Api; feed: LiveFeed }) {
   const { data, error } = useLoad(() => api.proposals("pending"), feed, (m) => m.type === "proposal.updated");
   return (
     <section>
-      <h2>Approvals</h2>
-      {error && <p className="error">{error}</p>}
-      {data?.length === 0 && <p className="muted">Nothing waiting for you.</p>}
+      <PageHead title="Approvals" sub={data?.length ? `${data.length} waiting for you` : undefined} />
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {!data && !error && <Skeleton rows={2} />}
+      {data?.length === 0 && <Empty icon="approvals">Nothing waiting for you. Outward-facing actions that need a yes show up here.</Empty>}
       {data?.map((p) => (
         <ProposalCard key={p.id} api={api} proposal={p} />
       ))}
@@ -38,12 +40,12 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
   };
 
   return (
-    <div className="card proposal">
-      <div className="row between small">
-        <span>
-          <span className="tag">{proposal.vertical}</span> <code>{proposal.actionType}</code>
+    <div className={`card proposal ${proposal.status === "pending" ? "is-pending" : ""}`}>
+      <div className="proposal-head small">
+        <span className="row">
+          <VTag id={proposal.vertical} /> <code className="action-type">{proposal.actionType}</code>
         </span>
-        <span className={`status ${proposal.status}`}>{proposal.status}</span>
+        <Status value={proposal.status} />
       </div>
       <p className="title">{proposal.summary}</p>
       {social && <SocialProposalBody proposal={proposal} accounts={socialAccounts} />}
@@ -52,28 +54,30 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
         <pre>{JSON.stringify(proposal.payload, null, 2)}</pre>
         {proposal.result != null && <pre>{JSON.stringify(proposal.result, null, 2)}</pre>}
       </details>
-      <div className="row between">
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <div className="proposal-foot">
         <span className="muted small">
           {ago(proposal.createdAt)}
           {proposal.taskId && (
             <>
               {" · "}
-              <a onClick={() => go(`task/${proposal.taskId}`)}>task</a>
+              <a href={`#/task/${proposal.taskId}`}>task</a>
             </>
           )}
         </span>
         {proposal.status === "pending" && (
-          <span className="row">
-            <button disabled={busy} onClick={() => act(api.reject)}>
+          <span className="actions">
+            <button className="danger-text" disabled={busy} onClick={() => act(api.reject)}>
+              <Icon name="x" size={16} />
               Reject
             </button>
             <button className="primary" disabled={busy} onClick={() => act(api.approve)}>
+              <Icon name="check" size={16} />
               Approve
             </button>
           </span>
         )}
       </div>
-      {error && <p className="error">{error}</p>}
     </div>
   );
 }
