@@ -8,8 +8,8 @@ export default defineVertical({
   brainFolder: "openv",
   color: "#3b6fd8",
   intents: ["support", "bug", "feature-request", "billing"],
-  skills: ["brain-notes", "email-triage-and-reply"],
-  mcpServers: ["brain"],
+  skills: ["brain-notes", "email-triage-and-reply", "video-scriptwriter"],
+  mcpServers: ["brain", "pa"],
   policies: { "brain.write": "auto" },
   roles: saasRoles("OpenV"),
 });

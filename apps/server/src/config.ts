@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
 import { type OdooEventsConfig, parseOdooEventsConfig } from "@cc/odoo";
+import { type CalendarAccount, parseCalendarAccounts } from "@cc/pa";
 import { parseSocialAccounts, type SocialAccount } from "@cc/social";
 import { Cron } from "croner";
 import { z } from "zod";
@@ -95,6 +96,20 @@ const Env = z.object({
   PUBLIC_BASE_URL: z.url({ protocol: /^https?$/ }).optional(),
   /** Largest upload POST /api/media accepts. */
   MEDIA_MAX_MB: z.coerce.number().positive().default(200),
+  // --- storage (see docs/SETUP.md, "Storage (Google Drive)") ---
+  /** Where large files go: "local" (the volume, default) or "gdrive" (needs the GOOGLE_* credentials). */
+  STORAGE_BACKEND: z.enum(["local", "gdrive"]).default("local"),
+  /** LRU cache of Drive files on the volume (DATA_DIR/cache), in MB. */
+  STORAGE_CACHE_MB: z.coerce.number().min(0).default(2048),
+  /** Top-level Drive folder. */
+  STORAGE_DRIVE_FOLDER: z.string().min(1).default("Command Centre"),
+  /** Largest direct upload (POST /api/storage/upload-session) accepted, in MB. */
+  STORAGE_UPLOAD_MAX_MB: z.coerce.number().positive().default(20_480),
+  /** Google OAuth client and refresh token (shared with Calendar; `google:auth` grants drive.file too). */
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REFRESH_TOKEN: z.string().optional(),
+  // --- end storage ---
   /** Odoo external API. Set all four to enable the odoo MCP server and Odoo actions. */
   ODOO_URL: z.string().optional(),
   ODOO_DB: z.string().optional(),
@@ -104,6 +119,38 @@ const Env = z.object({
   ODOO_API: z.enum(["jsonrpc", "json2"]).default("jsonrpc"),
   /** Odoo inbound events (only with Odoo configured): unset/"on", "off", a source list, or JSON options. See @cc/odoo events.ts. */
   ODOO_EVENTS: z.string().optional(),
+
+  // --- Voice (see docs/SETUP.md, "Voice and Drive mode"); all optional, the PWA falls back to browser speech ---
+  /** Server speech-to-text: "auto" (first provider with a key), "openai", "elevenlabs" or "off". */
+  VOICE_STT_PROVIDER: z.enum(["auto", "openai", "elevenlabs", "off"]).default("auto"),
+  /** Server text-to-speech: "auto" (ElevenLabs, then OpenAI), "openai", "elevenlabs" or "off". */
+  VOICE_TTS_PROVIDER: z.enum(["auto", "openai", "elevenlabs", "off"]).default("auto"),
+  OPENAI_API_KEY: z.string().optional(),
+  ELEVENLABS_API_KEY: z.string().optional(),
+  /** Default gpt-4o-mini-transcribe. */
+  VOICE_OPENAI_STT_MODEL: z.string().optional(),
+  /** Default gpt-4o-mini-tts. */
+  VOICE_OPENAI_TTS_MODEL: z.string().optional(),
+  /** OpenAI voice name, default "fable". */
+  VOICE_OPENAI_VOICE: z.string().optional(),
+  /** Default scribe_v2. */
+  VOICE_ELEVENLABS_STT_MODEL: z.string().optional(),
+  /** Default eleven_flash_v2_5. */
+  VOICE_ELEVENLABS_TTS_MODEL: z.string().optional(),
+  /** ElevenLabs voice id, default "George" (British). */
+  VOICE_ELEVENLABS_VOICE: z.string().optional(),
+  /** Largest recording POST /api/voice/transcribe accepts. */
+  VOICE_MAX_UPLOAD_KB: z.coerce.number().int().positive().default(2048),
+  /** Longest recording (as the PWA declares it) POST /api/voice/transcribe accepts. */
+  VOICE_MAX_SECONDS: z.coerce.number().positive().default(60),
+  /** Language hint for transcription and the PWA's voices. */
+  VOICE_LANGUAGE: z.string().default("en-GB"),
+  // --- end voice ---
+  // --- Personal assistant (see docs/SETUP.md, "Personal assistant") ---
+  /** JSON array of Google Calendar accounts; see `GoogleCalendarAccount` in @cc/pa. */
+  CALENDAR_ACCOUNTS: z.string().optional(),
+  // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN are read by parseCalendarAccounts (shared with Drive).
+  // --- end pa ---
 });
 
 function odooConfig(e: z.infer<typeof Env>) {
@@ -145,6 +192,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
   }
   // --- end odoo events ---
+  let calendarAccounts: CalendarAccount[];
+  try {
+    calendarAccounts = parseCalendarAccounts(e.CALENDAR_ACCOUNTS, env);
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
   const dataDir = resolve(e.DATA_DIR);
   return {
     port: e.PORT,
@@ -191,8 +244,48 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
     social: { accounts: socialAccounts, defaultPollSeconds: e.SOCIAL_POLL_DEFAULT_SECONDS },
     media: { maxBytes: Math.round(e.MEDIA_MAX_MB * 1024 * 1024) },
+    // --- voice ---
+    voice: {
+      providers: {
+        stt: e.VOICE_STT_PROVIDER,
+        tts: e.VOICE_TTS_PROVIDER,
+        openaiApiKey: e.OPENAI_API_KEY,
+        elevenlabsApiKey: e.ELEVENLABS_API_KEY,
+        openaiSttModel: e.VOICE_OPENAI_STT_MODEL,
+        openaiTtsModel: e.VOICE_OPENAI_TTS_MODEL,
+        openaiVoice: e.VOICE_OPENAI_VOICE,
+        elevenlabsSttModel: e.VOICE_ELEVENLABS_STT_MODEL,
+        elevenlabsTtsModel: e.VOICE_ELEVENLABS_TTS_MODEL,
+        elevenlabsVoice: e.VOICE_ELEVENLABS_VOICE,
+      },
+      maxUploadBytes: e.VOICE_MAX_UPLOAD_KB * 1024,
+      maxSeconds: e.VOICE_MAX_SECONDS,
+      language: e.VOICE_LANGUAGE,
+    },
+    // --- end voice ---
+    pa: { calendarAccounts },
+    storage: storageConfig(e), // storage
   };
 }
+
+// --- storage ---
+function storageConfig(e: z.infer<typeof Env>) {
+  const google =
+    e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET && e.GOOGLE_REFRESH_TOKEN
+      ? { clientId: e.GOOGLE_CLIENT_ID, clientSecret: e.GOOGLE_CLIENT_SECRET, refreshToken: e.GOOGLE_REFRESH_TOKEN }
+      : undefined;
+  if (e.STORAGE_BACKEND === "gdrive" && !google) {
+    throw new Error("Invalid configuration:\n  STORAGE_BACKEND=gdrive needs GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REFRESH_TOKEN");
+  }
+  return {
+    backend: e.STORAGE_BACKEND,
+    google: e.STORAGE_BACKEND === "gdrive" ? google : undefined,
+    cacheBytes: Math.round(e.STORAGE_CACHE_MB * 1024 * 1024),
+    driveFolder: e.STORAGE_DRIVE_FOLDER,
+    uploadMaxBytes: Math.round(e.STORAGE_UPLOAD_MAX_MB * 1024 * 1024),
+  };
+}
+// --- end storage ---
 
 /** True when croner accepts the pattern (catches e.g. quotes left in from an env file). */
 function isCron(pattern: string): boolean {

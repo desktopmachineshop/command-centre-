@@ -21,6 +21,9 @@ await build({
   target: "node22",
   format: "cjs", // Node 22 SEA runs a CommonJS main script
   legalComments: "none",
+  // playwright-core ships its own driver files and can't be bundled: video.capture loads it at
+  // runtime and reports a clear error when it's missing (see docs/VIDEO.md, "Worker setup").
+  external: ["playwright-core"],
   logLevel: "info",
 });
 

@@ -46,7 +46,12 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   return (
     <section className="chat">
-      <PageHead title="Chat" sub="Each message becomes a task for the command agent." />
+      <PageHead title="Chat" sub="Each message becomes a task for the command agent.">
+        <a className="drive-link" href="#/drive" aria-label="Drive mode: talk hands-free">
+          <Icon name="drive" size={20} />
+          <span>Drive mode</span>
+        </a>
+      </PageHead>
       <div className="turns">
         {turns.length === 0 && (
           <Empty icon="chat">

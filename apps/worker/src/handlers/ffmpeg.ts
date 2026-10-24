@@ -35,6 +35,9 @@ export const FfmpegPayload = z
       .refine((n) => !n.includes(".."), "plain file name only"),
     /** Input duration, for progress when ffmpeg can't report it. */
     durationSec: z.number().positive().optional(),
+    /** Upload the output to Command Centre storage and return its URL (the result's `upload`). */
+    upload: z.boolean().default(false),
+    uploadFolder: z.enum(["renders", "media", "footage", "assets"]).default("renders"),
   })
   .superRefine((p, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: "custom", path: ["args"], message });
@@ -108,7 +111,12 @@ export function ffmpegHandler(bin: string) {
         });
       });
 
-      return { outputPath: output, bytes: (await stat(output)).size };
+      const bytes = (await stat(output)).size;
+      if (!payload.upload) return { outputPath: output, bytes };
+      if (!ctx.storage) throw new JobError("upload requested but this worker has no storage uploader");
+      ctx.progress(0.99, "uploading output");
+      const upload = await ctx.storage.uploadFile(output, { folder: payload.uploadFolder, signal: ctx.signal });
+      return { outputPath: output, bytes, url: upload.url, upload };
     },
   });
 }

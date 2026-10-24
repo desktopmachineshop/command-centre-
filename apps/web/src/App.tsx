@@ -1,19 +1,23 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, COOKIE_SESSION, type Connection, createApi, loadConnection, saveConnection } from "./api";
 import { usd } from "./format";
-import { LiveFeed, useLoad } from "./live";
+import { LiveFeed, useLive, useLoad } from "./live";
+import { NotificationSettings } from "./pages/NotificationSettings";
+import { Briefing, Notifications } from "./pages/Notifications";
 import { Approvals } from "./pages/Approvals";
 import { Brain } from "./pages/Brain";
 import { Chat } from "./pages/Chat";
 import { Devices } from "./pages/Devices";
+import { Drive } from "./pages/Drive";
 import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { Org } from "./pages/Org";
 import { Settings } from "./pages/Settings";
 import { Social } from "./pages/Social";
 import { TaskView } from "./pages/TaskView";
+import { Today } from "./pages/Today";
 import { BrandMark, Icon, type IconName } from "./icons";
-import { useRoute } from "./router";
+import { routeQuery, useRoute } from "./router";
 import { useMedia, useTheme } from "./theme";
 import { ThemeCycle, ThemeToggle, type VerticalInfo, VerticalsContext } from "./ui";
 
@@ -166,21 +170,38 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
 
   const stats = useLoad(api.stats, feed, (m) => m.type === "proposal.updated" || m.type === "task.updated");
   const pending = stats.data?.pendingApprovals ?? 0;
+  const unread = useUnread(api, feed, page);
   /**
    * Badge counts by nav key. The notifications page adds its unread count here
    * (`notifications: unread`), which also badges the header bell.
    */
-  const badges: Record<string, number> = { approvals: pending };
+  const badges: Record<string, number> = { approvals: pending, notifications: unread };
 
   let body;
   switch (page) {
-    // Stubs until their pages land (today, drive, notifications, notification-settings, briefing):
-    // they fall through to the Inbox below.
+    case "today":
+      body = <Today api={api} feed={feed} />;
+      break;
+    // Drive mode is full screen (FULL_SCREEN): no nav, nothing to read (see pages/Drive.tsx).
+    case "drive":
+      body = <Drive api={api} feed={feed} />;
+      break;
+    // --- notifications ---
+    case "notifications":
+      body = <Notifications api={api} feed={feed} />;
+      break;
+    case "notification-settings":
+      body = <NotificationSettings api={api} />;
+      break;
+    case "briefing":
+      body = <Briefing api={api} feed={feed} id={id} />;
+      break;
+    // --- end notifications ---
     case "task":
       body = <TaskView api={api} feed={feed} id={id!} />;
       break;
     case "approvals":
-      body = <Approvals api={api} feed={feed} />;
+      body = <Approvals api={api} feed={feed} id={id} />;
       break;
     case "chat":
       body = <Chat api={api} feed={feed} />;
@@ -210,7 +231,6 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   const rest = NAV.filter((n) => !primary.includes(n));
   const groups = [...new Set(NAV.map((n) => n.group))];
   const spend = stats.data ? usd(stats.data.costTodayUsd) : null;
-  const unread = badges.notifications ?? 0;
 
   if (FULL_SCREEN.has(page ?? "")) return <VerticalsContext.Provider value={verticals}>{body}</VerticalsContext.Provider>;
 
@@ -356,3 +376,30 @@ function MoreSheet({
   );
 }
 
+
+// --- notifications ---
+/**
+ * The notification centre's unread count, live, mirrored to the app icon
+ * badge (Badging API) where supported. A route opened from a push carries
+ * `n=<id>`, which marks that notification read.
+ */
+function useUnread(api: ReturnType<typeof createApi>, feed: LiveFeed, page: string | undefined): number {
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    api.unreadCount().then((r) => setUnread(r.unread), () => {});
+  }, [api]);
+  useLive(feed, (m) => {
+    if (m.type === "notifications.updated") setUnread(m.unread);
+  });
+  useEffect(() => {
+    const n = routeQuery().get("n");
+    if (n) api.markRead(n).then((r) => setUnread(r.unread), () => {});
+  }, [api, page, location.hash]);
+  useEffect(() => {
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (!nav.setAppBadge) return;
+    (unread > 0 ? nav.setAppBadge(unread) : nav.clearAppBadge!()).catch(() => {});
+  }, [unread]);
+  return unread;
+}
+// --- end notifications ---

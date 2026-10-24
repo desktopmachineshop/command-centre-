@@ -2442,3 +2442,82 @@ a.stat:hover {
   flex: 1 1 10rem;
 }
 /* --- end notifications --- */
+
+/* --- pa: Today page (pages/Today.tsx) --- */
+.today-page .quick-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-2) var(--sp-3);
+}
+.today-page .quick-add label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 12rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.today-page .quick-add input,
+.today-page form.row input {
+  width: 100%;
+  min-width: 0;
+}
+.today-page .quick-add p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.today-page .item.row {
+  cursor: default;
+  gap: var(--sp-3);
+}
+.today-page .item time {
+  min-width: 6.5em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--accent);
+}
+.today-page .todo-list li {
+  min-height: 44px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.today-page .todo-list li:last-child {
+  border-bottom: 0;
+}
+.today-page .todo-list input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.today-page > h3,
+.notifications > h3,
+.briefing > h3 {
+  margin-top: var(--sp-6);
+}
+/* --- end pa --- */
+
+/* Pages that build their own title row (Today, Notifications, settings) look like PageHead. */
+.main > section > .row.between:first-child {
+  flex-wrap: wrap;
+  margin: 0 0 var(--sp-4);
+}
+.main > section > .row.between:first-child > h2,
+.main > section > h2:first-child {
+  margin: 0;
+  font-size: var(--fs-2xl);
+}
+.main > section > h2:first-child {
+  margin-bottom: var(--sp-4);
+}
+.shell.is-phone .main > section > .row.between:first-child > h2,
+.shell.is-phone .main > section > h2:first-child {
+  font-size: var(--fs-xl);
+}
+.notifications > .row.wrap label,
+.notification-settings label.small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

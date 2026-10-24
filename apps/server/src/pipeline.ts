@@ -10,6 +10,7 @@ import type { Store } from "./db/store";
 import type { Hub } from "./hub";
 import type { TaskQueue } from "./queue";
 import type { RunTokens } from "./run-tokens";
+import type { VoiceConversations } from "./voice/conversations";
 import { prepareWorkspace } from "./workspace";
 
 export interface PipelineDeps {
@@ -32,6 +33,8 @@ export interface PipelineDeps {
   guards: RunGuards;
   /** Most handoffs in one chain of tasks (default MAX_HANDOFF_DEPTH). */
   maxHandoffDepth?: number;
+  /** Voice conversations: replies that continue a task, and spoken responses. */
+  voice?: Pick<VoiceConversations, "beforeRun" | "afterRun">;
 }
 
 /** Default limit on handoffs in one chain, so roles can't pass work around forever. */
@@ -290,12 +293,16 @@ export class Pipeline {
       const cwd = await prepareWorkspace(this.deps.dataDir, this.deps.skillsDir, vertical, role);
       const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token, this.deps.mcpServers, role.mcpServers ?? vertical.mcpServers);
       const brief = roleBrief(verticals, vertical.id, role.id, this.maxHandoffDepth - handoffDepth(event));
+      // --- voice: a reply from Dave continues the task, resuming the earlier session (./voice/conversations.ts) ---
+      const turn = (await this.deps.voice?.beforeRun(task, run.id)) ?? null;
+      // --- end voice ---
 
       // Persist messages in order without blocking the stream.
       let chain = Promise.resolve();
       const result = await runner.run(
         {
-          prompt: task.prompt,
+          prompt: turn?.prompt ?? task.prompt,
+          resumeSessionId: turn?.resumeSessionId,
           systemPrompt: systemPrompt(vertical, this.deps.actions.executors, new Date(), brief),
           cwd,
           mcpServers,
@@ -309,6 +316,9 @@ export class Pipeline {
       );
       await chain;
       await store.finishRun(run.id, result);
+      // --- voice: store and broadcast the structured spoken answer of voice-mode runs ---
+      await this.deps.voice?.afterRun(task, run.id, result, turn).catch((err) => console.error("[voice]", err));
+      // --- end voice ---
 
       const pending = await store.listProposals({ taskId, status: "pending" });
       const next: TaskStatus = result.status === "failed" ? "failed" : pending.length > 0 ? "awaiting_approval" : "done";

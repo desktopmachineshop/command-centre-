@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
 import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
+import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
 import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
@@ -15,6 +17,7 @@ import {
 } from "@cc/social";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
+import { createVoiceProviders, type SpeechToText, type TextToSpeech } from "@cc/voice";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -31,15 +34,23 @@ import { Store } from "./db/store";
 import { DigestService } from "./digest";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
+import { storagePublicRoutes } from "./http/storage";
+import { createStorage, videoMediaFromStorage } from "./storage";
 import { wsHandler } from "./http/ws";
 import { Hub } from "./hub";
-import { mcpRoutes } from "./mcp/endpoints";
+import { paVoiceCalendar, reminderPushActions } from "./http/pa";
+import { type Caller, mcpRoutes } from "./mcp/endpoints";
 import { Pipeline } from "./pipeline";
-import { type Notifier, WebPushNotifier } from "./push";
+import { NotificationService, startNotificationJobs, teeNotifier } from "./notifications/service";
+import { NotificationStore } from "./notifications/store";
+import { type Notifier, type PushTransport, WebPushTransport } from "./push";
 import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
 import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
+import { VoiceConversations } from "./voice/conversations";
+import { type VoiceCalendar, VoiceService } from "./voice/service";
+import { type VideoMediaStore, VideoProductions, videoTtsFromEnv } from "./video";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -54,6 +65,20 @@ export interface Overrides {
   socialAdapters?: AdapterMap;
   /** Cheaper password hashing for tests. */
   scrypt?: ScryptParams;
+  /** Server speech providers (tests use fakes); default from VOICE_* config. */
+  voiceProviders?: { stt?: SpeechToText; tts?: TextToSpeech };
+  /** Calendar for the spoken briefing (the personal-assistant calendar plugs in here). */
+  voiceCalendar?: VoiceCalendar;
+  /** Web Push sender behind the notification service (tests use a fake). */
+  pushTransport?: PushTransport;
+  /** Clock for notification quiet hours and rate limits (tests). */
+  notificationClock?: () => Date;
+  /** Media store for video jobs' uploads (until the server's own media hosting is wired in). */
+  videoMedia?: VideoMediaStore;
+  /** fetch for Google Calendar and its token endpoint (tests use a fake). */
+  calendarFetch?: typeof fetch;
+  /** fetch for Google APIs (tests use a fake Drive). */
+  googleFetch?: typeof fetch;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -85,7 +110,16 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     remoteUrl: config.brainRemoteUrl,
     folders: verticals.all().map((v) => v.brainFolder),
   });
-  const notifier = overrides.notifier ?? new WebPushNotifier(store, config.vapid);
+  // --- Notifications: inbox, preferences, quiet hours, rate limits, devices (src/notifications) ---
+  const notifications = new NotificationService(new NotificationStore(pool), overrides.pushTransport ?? new WebPushTransport(config.vapid), {
+    timezone: config.timezone,
+    now: overrides.notificationClock,
+    onUnreadChange: (unread) => hub.broadcast({ type: "notifications.updated", unread }),
+    spend: async (since) => ({ costUsd: await store.costSince(since), budgetUsd: config.agent.dailyBudgetUsd ?? null }),
+  });
+  // A test notifier sees every notify() call as made; the service still stores and routes it.
+  const notifier: Notifier = overrides.notifier ? teeNotifier(notifications, overrides.notifier) : notifications;
+  // --- end notifications ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---
   const emailAccounts = config.email.accounts;
@@ -100,7 +134,6 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const socialExecutors = socialAccounts.length
     ? createSocialExecutors(socialAccounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone })
     : {};
-  const mediaDir = join(config.dataDir, "media");
   /** Publishes due scheduled posts; the every-minute system job calls this. */
   const publishScheduledPosts = () =>
     publishDueScheduledPosts({
@@ -112,14 +145,58 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           title: "Scheduled post failed",
           body: `${post.title} on ${platformLabel(post.platform)} (${post.accountId}): ${error}`,
           url: "/social",
+          category: "alert",
+          priority: "high",
+          vertical: post.vertical,
         }),
     });
   let socialInbound: SocialInbound | undefined;
   // --- end social ---
 
+  // --- storage: media and large files on the volume or Google Drive (packages/storage) ---
+  const storage = createStorage(config, pool, { fetch: overrides.googleFetch });
+  const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerToken: config.workerToken };
+  // --- end storage ---
+
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
   const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
-  const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
+  const extraMcpServers: Record<string, (caller: Caller) => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
+
+  // --- PA: reminders and lists (always), Google Calendar when CALENDAR_ACCOUNTS is set; /mcp/pa below ---
+  const paStore = new PgPaStore(pool);
+  for (const a of config.pa.calendarAccounts) verticals.require(a.vertical);
+  const authAlerted = new Set<string>();
+  const calendar = config.pa.calendarAccounts.length
+    ? new CalendarService(config.pa.calendarAccounts, {
+        timeZone: config.timezone,
+        fetch: overrides.calendarFetch,
+        // A revoked or expired refresh token: one push per account per server day, saying how to fix it.
+        onAuthError: (err) => {
+          const key = `${err.accountId}:${new Date().toISOString().slice(0, 10)}`;
+          if (authAlerted.has(key)) return;
+          authAlerted.add(key);
+          void notifier
+            .notify({ title: "Calendar disconnected", body: err.message.slice(0, 300), url: "/today", category: "alert", vertical: "personal", tag: `calendar-auth-${err.accountId}` })
+            .catch(() => {});
+        },
+      })
+    : null;
+  const paSigningSecret = createHash("sha256").update(`pa-push:${config.adminToken}`).digest("hex");
+  const deliverReminders = () =>
+    deliverDueReminders(paStore, ({ reminder, title, body }) =>
+      notifier.notify({
+        title,
+        body,
+        url: "/today",
+        category: "reminder",
+        priority: "high",
+        vertical: reminder.vertical,
+        tag: `reminder-${reminder.id}`,
+        renotify: true,
+        ...reminderPushActions(paSigningSecret, reminder.id),
+      }),
+    );
+  // --- end pa ---
 
   // --- Odoo events: polls Odoo for orders, messages, stock, deliveries, reviews; starts in start() ---
   const odooEventsConfig = odoo && config.odoo ? config.odooEvents : undefined;
@@ -136,21 +213,66 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         })
       : undefined;
   // --- end odoo events ---
+  const workers = new WorkerService(store, hub);
+
+  // --- video (packages/video): video.produce → worker capture/render jobs → social.campaign draft ---
+  const video: VideoProductions = new VideoProductions({
+    submit: (job) => workers.submit(job),
+    propose: (proposal, options) => actions.propose(proposal, options),
+    notify: (n) => notifier.notify(n),
+    hasAction: (type) => type in actions.executors,
+    media: overrides.videoMedia ?? (config.publicBaseUrl ? videoMediaFromStorage(storage, config.publicBaseUrl) : undefined), // storage
+    tts: videoTtsFromEnv(),
+  });
+  workers.onJobSettled((job) => video.onJobSettled(job));
+  // --- end video ---
 
   const executors = {
     ...builtinExecutors,
+    ...createPaExecutors(paStore, { timeZone: config.timezone }),
+    ...(calendar ? createCalendarExecutors(calendar) : {}),
     ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
     ...(odoo ? createOdooExecutors(odoo) : {}),
     ...socialExecutors,
+    ...video.executors(),
   };
-  const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
-  const workers = new WorkerService(store, hub);
+  const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier }, executors);
+  actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
+  // pa: Dave writes directly; a run writes directly only if its task came from chat/cron/system, else it proposes.
+  extraMcpServers.pa = (caller) =>
+    createPaMcpServer({
+      store: paStore,
+      calendar,
+      timeZone: config.timezone,
+      caller:
+        caller.kind === "admin"
+          ? { createdBy: "dave", untrustedSource: async () => null }
+          : {
+              vertical: caller.scope.vertical,
+              taskId: caller.scope.taskId,
+              createdBy: "agent",
+              untrustedSource: () => actions.untrustedSource(caller.scope.taskId),
+            },
+      propose: (p) => actions.propose(p),
+    });
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
   const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;
   const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency, staleRunSeconds + 300);
   const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
   const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone);
+  // --- Voice: server speech providers (optional), briefing, task conversations ---
+  const voiceProviders = overrides.voiceProviders ?? createVoiceProviders(config.voice.providers);
+  const voiceConversations = new VoiceConversations(store, hub, queue);
+  const voiceService = new VoiceService(store, verticals, budget, {
+    ...voiceProviders,
+    calendar: overrides.voiceCalendar ?? (calendar ? paVoiceCalendar(calendar) : undefined),
+    maxUploadBytes: config.voice.maxUploadBytes,
+    maxSeconds: config.voice.maxSeconds,
+    language: config.voice.language,
+    timezone: config.timezone,
+  });
+  // --- end voice ---
   const pipeline = new Pipeline({
     store,
     hub,
@@ -173,6 +295,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
     },
     mcpServers: ["brain", ...Object.keys(extraMcpServers)],
+    voice: voiceConversations,
   });
 
   const app = new Hono();
@@ -195,9 +318,12 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     accounts: socialAccounts,
     adapters: socialAdapters,
     timeZone: config.timezone,
-    media: { dir: mediaDir, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
+    media: { blobs: storage, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
   };
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, auth: { service: auth, options: authHttp } }));
+  const pa = { store: paStore, calendar, timeZone: config.timezone, signingSecret: paSigningSecret };
+  // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
+  app.route("/api", storagePublicRoutes(storageDeps)); // storage
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -211,7 +337,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     }),
   );
   // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.
-  app.route("/media", mediaRoutes(mediaDir));
+  // Streamed from the BlobStore (volume, cache or Drive); the URL scheme is unchanged.
+  app.route("/media", mediaRoutes(storage));
 
   if (config.webDistDir) {
     const root = config.webDistDir;
@@ -221,6 +348,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   }
 
   let crons: ReturnType<typeof startSchedules> = [];
+  let notificationCrons: ReturnType<typeof startNotificationJobs> = [];
 
   /** Just after midnight: finish yesterday's digest notes (no push) and release deferred tasks. */
   const rollover = async () => {
@@ -240,15 +368,22 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     queue,
     budget,
     digests,
+    notifications,
     rollover,
     publishScheduledPosts,
     auth,
     odooEvents,
+    paStore,
+    calendar,
+    /** Sends due reminders; the every-minute system job calls this. */
+    deliverReminders,
+    storage,
     async start() {
       await migrate(pool);
       await auth.warm();
       await store.markAllNodesOffline();
       await brain.init();
+      await storage.init(); // storage: index media from before the index, load the cache
       if (queue instanceof PgBossTaskQueue) await queue.start();
       await queue.work((taskId) => pipeline.runTask(taskId));
       // Tasks committed just before a crash but never enqueued.
@@ -262,7 +397,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         digest: () => digests.deliver(),
         rollover,
         socialPublish: socialAccounts.length ? publishScheduledPosts : undefined,
+        paReminders: deliverReminders,
       });
+      notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
       if (config.schedulesEnabled) {
         // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
         const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
@@ -292,6 +429,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     async stop() {
       for (const c of crons) c.stop();
+      for (const c of notificationCrons) c.stop();
       await emailPoller?.stop();
       await socialInbound?.stop();
       await odooEvents?.stop();

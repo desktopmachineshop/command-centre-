@@ -50,15 +50,27 @@ importers:
       '@cc/odoo':
         specifier: workspace:*
         version: link:../../packages/odoo
+      '@cc/pa':
+        specifier: workspace:*
+        version: link:../../packages/pa
       '@cc/social':
         specifier: workspace:*
         version: link:../../packages/social
+      '@cc/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@cc/triage':
         specifier: workspace:*
         version: link:../../packages/triage
       '@cc/verticals':
         specifier: workspace:*
         version: link:../../packages/verticals
+      '@cc/video':
+        specifier: workspace:*
+        version: link:../../packages/video
+      '@cc/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.13)
@@ -120,6 +132,9 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cc/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       qrcode-generator:
         specifier: 2.0.4
         version: 2.0.4
@@ -139,6 +154,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
+      playwright-core:
+        specifier: 1.63.0
+        version: 1.63.0
       vite:
         specifier: ^8.3.5
         version: 8.3.5(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)
@@ -151,6 +169,15 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cc/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
+      '@cc/video':
+        specifier: workspace:*
+        version: link:../../packages/video
+      playwright-core:
+        specifier: 1.63.0
+        version: 1.63.0
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -226,6 +253,22 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
 
+  packages/pa:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.6.7)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+
   packages/social:
     dependencies:
       '@cc/core':
@@ -234,6 +277,8 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  packages/storage: {}
 
   packages/triage:
     dependencies:
@@ -256,6 +301,18 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/video:
+    dependencies:
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      playwright-core:
+        specifier: 1.63.0
+        version: 1.63.0
+
+  packages/voice: {}
 
 packages:
 

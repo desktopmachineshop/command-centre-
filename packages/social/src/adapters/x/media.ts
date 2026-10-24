@@ -81,7 +81,7 @@ export async function uploadMedia(
   let id: string;
   if (!isVideo && !isGif) {
     const form = new FormData();
-    form.set("media", new Blob([bytes], { type: mime }), "image");
+    form.set("media", new Blob([new Uint8Array(bytes)], { type: mime }), "image");
     form.set("media_category", "tweet_image");
     const res = await client.request<UploadData>("POST", "/2/media/upload", "upload an image", { multipart: form });
     id = requireId(res);
@@ -120,7 +120,7 @@ async function chunkedUpload(
   for (let offset = 0, index = 0; offset < bytes.byteLength; offset += CHUNK_BYTES, index++) {
     const form = new FormData();
     form.set("segment_index", String(index));
-    form.set("media", new Blob([bytes.subarray(offset, offset + CHUNK_BYTES)], { type: mime }), "chunk");
+    form.set("media", new Blob([new Uint8Array(bytes.subarray(offset, offset + CHUNK_BYTES))], { type: mime }), "chunk");
     await client.request("POST", `/2/media/upload/${id}/append`, what, { multipart: form });
   }
   const fin = await client.request<UploadData>("POST", `/2/media/upload/${id}/finalize`, what);

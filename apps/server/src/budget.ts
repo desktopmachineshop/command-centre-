@@ -82,6 +82,10 @@ export class BudgetService {
       title: `Budget reached: ${who}`,
       body: `Spent ${usd(breach.spentUsd)} of ${usd(breach.limitUsd)} today. New tasks wait until tomorrow; retry one from its task page to run it now.`,
       url: "/",
+      category: "alert",
+      priority: "high",
+      vertical: breach.scope === "vertical" ? vertical.id : undefined,
+      tag: `budget-${scope.replace(":", "-")}`,
     });
   }
 }

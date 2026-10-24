@@ -1,4 +1,5 @@
-import type { Event, Job, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun } from "@cc/core";
+import type { Event, Job, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
+import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
 
 /**
  * Connection settings. Normally `token` is null: the server set an HttpOnly session
@@ -71,7 +72,7 @@ export type SessionInfo = {
 export type TaskDetail = {
   task: Task;
   event: Event | null;
-  runs: (AgentRun & { messages: AgentMessage[] })[];
+  runs: (AgentRun & { messages: AgentMessage[]; response?: VoiceResponse | null })[];
   proposals: Proposal[];
 };
 
@@ -154,7 +155,69 @@ export type ScheduledPost = {
 
 export type SocialEvent = Event & { taskId: string | null; taskStatus: string | null };
 
+// --- pa: the Today page (GET /api/pa/today etc.) ---
+export type CalendarEvent = {
+  accountId: string;
+  calendarId: string;
+  calendarName: string;
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string | null;
+  busy: boolean;
+  response: string | null;
+  url: string | null;
+};
+
+export type Reminder = {
+  id: string;
+  text: string;
+  dueAt: string;
+  recurrence: string | null;
+  vertical: string;
+  createdBy: "dave" | "agent";
+  status: "pending" | "sent" | "done" | "cancelled";
+  snoozedUntil: string | null;
+};
+
+export type TodoItem = { id: string; listId: string; text: string; done: boolean; dueDate: string | null; position: number };
+export type TodoList = { id: string; vertical: string; name: string; position: number; openCount: number; doneCount: number };
+
+export type TodayView = {
+  day: string;
+  timeZone: string;
+  calendarConfigured: boolean;
+  events: CalendarEvent[];
+  calendarErrors: string[];
+  reminders: Reminder[];
+  upcoming: Reminder[];
+  lists: (TodoList & { items: TodoItem[] })[];
+};
+// --- end pa ---
+
 export type Campaign = { title: string; posts: { accountId: string; content: PostContent }[]; publishAt?: string };
+
+// --- voice (Drive mode) ---
+export type VoiceConfig = {
+  stt: { provider: string; model: string } | null;
+  tts: { provider: string; model: string; voice: string } | null;
+  maxUploadBytes: number;
+  maxSeconds: number;
+  language: string;
+  calendar: boolean;
+};
+
+export type VoiceBriefing = { text: string; approvals: { count: number }; cost: { todayUsd: number } };
+
+export type NextApproval = {
+  proposal: Pick<Proposal, "id" | "vertical" | "actionType" | "summary" | "createdAt"> | null;
+  position: number;
+  remaining: number;
+  text: string;
+};
+// --- end voice ---
 
 /**
  * `onUnauthorized` runs when the server answers 401 to a signed-in call (session
@@ -162,6 +225,16 @@ export type Campaign = { title: string; posts: { accountId: string; content: Pos
  */
 export function createApi(conn: Connection, onUnauthorized?: () => void) {
   const base = conn.baseUrl.replace(/\/$/, "");
+  /** Auth for raw (non-JSON) requests: the session cookie plus CSRF header, or the admin token. */
+  const authed = (headers: Record<string, string>): RequestInit => ({
+    credentials: "include",
+    headers: { ...(conn.token ? { authorization: `Bearer ${conn.token}` } : {}), "x-cc-request": "1", ...headers },
+  });
+  const failed = async (res: Response) => {
+    const body = await res.json().catch(() => null);
+    if (res.status === 401) onUnauthorized?.();
+    return new ApiError(res.status, body?.error ?? res.statusText, body);
+  };
   const call = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
     const res = await fetch(`${base}/api${path}`, {
       ...init,
@@ -188,7 +261,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     wsUrl: `${base.replace(/^http/, "ws") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`}/ws`,
     token: conn.token,
     verticals: () => call<VerticalManifest[]>("/verticals"),
-    chat: (text: string, vertical?: string) => post<{ event: Event; task: Task }>("/chat", { text, vertical }),
+    chat: (text: string, vertical?: string, options: { voice?: boolean } = {}) =>
+      post<{ event: Event; task: Task }>("/chat", { text, vertical, ...(options.voice ? { voice: true } : {}) }),
     tasks: (status?: string, filter: { vertical?: string; role?: string } = {}) => {
       const q = new URLSearchParams(Object.entries({ status, ...filter }).filter(([, v]) => v) as [string, string][]).toString();
       return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);
@@ -215,24 +289,51 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     socialScheduled: () => call<ScheduledPost[]>("/social/scheduled"),
     cancelScheduled: (id: string) => post<ScheduledPost>(`/social/scheduled/${id}/cancel`),
     compose: (campaign: Campaign) => post<Proposal>("/social/compose", campaign),
+    // --- pa ---
+    today: (day?: string) => call<TodayView>(`/pa/today${day ? `?day=${day}` : ""}`),
+    completeReminder: (id: string) => post<Reminder>(`/pa/reminders/${id}/complete`),
+    snoozeReminder: (id: string, minutes: number) => post<Reminder>(`/pa/reminders/${id}/snooze`, { minutes }),
+    createList: (name: string) => post<TodoList>("/pa/lists", { name }),
+    renameList: (id: string, name: string) => call<TodoList>(`/pa/lists/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+    deleteList: (id: string) => call(`/pa/lists/${id}`, { method: "DELETE" }),
+    addItem: (listId: string, text: string) => post<TodoItem[]>(`/pa/lists/${listId}/items`, { text }),
+    setItemDone: (id: string, done: boolean) => call<TodoItem>(`/pa/items/${id}`, { method: "PATCH", body: JSON.stringify({ done }) }),
+    deleteItem: (id: string) => call(`/pa/items/${id}`, { method: "DELETE" }),
+    // --- end pa ---
+    // --- voice (Drive mode) ---
+    voiceConfig: () => call<VoiceConfig>("/voice/config"),
+    voiceBriefing: () => call<VoiceBriefing>("/voice/briefing"),
+    nextApproval: (skip: string[] = []) => call<NextApproval>(`/voice/approvals/next${skip.length ? `?skip=${skip.join(",")}` : ""}`),
+    replyToTask: (id: string, text: string, voice = true) => post<Task>(`/tasks/${id}/reply`, { text, voice }),
+    transcribe: async (audio: Blob, seconds: number, language?: string) => {
+      const query = new URLSearchParams({ seconds: seconds.toFixed(1), ...(language ? { language } : {}) });
+      const res = await fetch(`${base}/api/voice/transcribe?${query}`, {
+        method: "POST",
+        ...authed({ "content-type": audio.type || "audio/webm" }),
+        body: audio,
+      });
+      if (!res.ok) throw await failed(res);
+      return (await res.json()) as { text: string };
+    },
+    speak: async (text: string, voice?: string) => {
+      const res = await fetch(`${base}/api/voice/speak`, {
+        method: "POST",
+        ...authed({ "content-type": "application/json" }),
+        body: JSON.stringify({ text, voice }),
+      });
+      if (!res.ok) throw await failed(res);
+      return res.blob();
+    },
+    // --- end voice ---
     /** Uploads an image or video as the raw body; returns its public URL. */
     uploadMedia: async (file: File) => {
-      // Same auth as `call`: session cookie (+ CSRF header) or the admin token.
       const res = await fetch(`${base}/api/media`, {
         method: "POST",
-        credentials: "include",
-        headers: {
-          ...(conn.token ? { authorization: `Bearer ${conn.token}` } : {}),
-          "content-type": file.type || "application/octet-stream",
-          "x-cc-request": "1",
-        },
+        ...authed({ "content-type": file.type || "application/octet-stream" }),
         body: file,
       });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        if (res.status === 401) onUnauthorized?.();
-        throw new ApiError(res.status, body?.error ?? res.statusText, body);
-      }
+      if (!res.ok) throw await failed(res);
+      const body = await res.json();
       return body as { id: string; url: string; type: "image" | "video"; contentType: string; bytes: number };
     },
 
@@ -252,6 +353,32 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     totpSetup: () => post<{ secret: string; otpauthUrl: string }>("/auth/totp/setup"),
     totpEnable: (code: string) => post<{ recoveryCodes: string[] }>("/auth/totp/enable", { code }),
     totpDisable: (password: string) => post<{ ok: true }>("/auth/totp/disable", { password }),
+
+    // --- notifications ---
+    notifications: (options: { category?: string; unread?: boolean; limit?: number } = {}) =>
+      call<{ items: StoredNotification[]; unread: number; unreadByCategory: Record<string, number> }>(
+        `/notifications?${new URLSearchParams(
+          Object.entries({ category: options.category, unread: options.unread ? "1" : undefined, limit: options.limit?.toString() }).filter(
+            ([, v]) => v,
+          ) as [string, string][],
+        )}`,
+      ),
+    notification: (id: string) => call<StoredNotification>(`/notifications/${id}`),
+    unreadCount: () => call<{ unread: number }>("/notifications/unread-count"),
+    markRead: (id: string) => post<{ unread: number }>(`/notifications/${id}/read`),
+    markAllRead: (category?: string) => post<{ changed: number; unread: number }>("/notifications/read-all", { category }),
+    notificationPrefs: () =>
+      call<{ prefs: NotificationPrefs; defaults: NotificationPrefs; categories: NotificationCategory[] }>("/notifications/prefs"),
+    saveNotificationPrefs: (patch: Partial<NotificationPrefs>) =>
+      call<{ prefs: NotificationPrefs }>("/notifications/prefs", { method: "PUT", body: JSON.stringify(patch) }),
+    devices: () => call<{ publicKey: string | null; devices: NotificationDevice[] }>("/notifications/devices"),
+    addDevice: (subscription: PushSubscriptionJSON, name?: string) => post<NotificationDevice>("/notifications/devices", { subscription, name }),
+    updateDevice: (id: string, patch: { name?: string; minPriority?: NotificationPriority }) =>
+      call<NotificationDevice>(`/notifications/devices/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    removeDevice: (id: string) => call<{ ok: true }>(`/notifications/devices/${id}`, { method: "DELETE" }),
+    testNotification: (options: { category?: NotificationCategory; deviceId?: string }) =>
+      post<{ notification: StoredNotification; pushConfigured: boolean }>("/notifications/test", options),
+    // --- end notifications ---
   };
 }
 

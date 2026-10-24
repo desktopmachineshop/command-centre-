@@ -1,9 +1,4 @@
-import { randomBytes } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import {
   type AdapterMap,
   CampaignPayload,
@@ -17,6 +12,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { ActionService } from "../actions";
 import type { Store } from "../db/store";
+import type { BlobStore } from "@cc/storage";
 
 /** Upload types: content type → extension. The extension decides the type served back. */
 const MEDIA_TYPES: Record<string, { ext: string; kind: "image" | "video" }> = {
@@ -28,9 +24,15 @@ const MEDIA_TYPES: Record<string, { ext: string; kind: "image" | "video" }> = {
   "video/quicktime": { ext: "mov", kind: "video" },
   "video/webm": { ext: "webm", kind: "video" },
 };
-const BY_EXT = Object.fromEntries(Object.entries(MEDIA_TYPES).map(([type, m]) => [m.ext, type]));
+const BY_EXT: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(MEDIA_TYPES).map(([type, m]) => [m.ext, type])),
+  // storage: narration for video jobs is served too (not accepted by POST /api/media).
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+};
 /** 32 hex characters (128 random bits) plus a known extension; nothing else is ever served. */
-const MEDIA_FILE = new RegExp(`^[a-f0-9]{32}\\.(${Object.keys(BY_EXT).join("|")})$`);
+export const MEDIA_FILE = new RegExp(`^[a-f0-9]{32}\\.(${Object.keys(BY_EXT).join("|")})$`);
 
 export interface SocialApiDeps {
   store: Store;
@@ -38,13 +40,14 @@ export interface SocialApiDeps {
   accounts: SocialAccount[];
   adapters: AdapterMap;
   timeZone: string;
-  media: { dir: string; maxBytes: number; publicBaseUrl?: string };
+  /** Media goes through the BlobStore (local volume or Google Drive; see @cc/storage). */
+  media: { blobs: BlobStore; maxBytes: number; publicBaseUrl?: string };
 }
 
 class TooLarge extends Error {}
 
 /** The server's public origin: PUBLIC_BASE_URL, else what the request (or its proxy) says. */
-function publicOrigin(c: Context, configured?: string): string {
+export function publicOrigin(c: Context, configured?: string): string {
   if (configured) return configured;
   const host = c.req.header("x-forwarded-host") ?? c.req.header("host");
   const proto = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim();
@@ -109,20 +112,16 @@ export function socialApiRoutes(deps: SocialApiDeps) {
    * content type. Returns a public, unguessable URL platforms can fetch.
    */
   app.post("/media", async (c) => {
-    const { dir, maxBytes } = deps.media;
+    const { blobs, maxBytes } = deps.media;
     const tooLarge = () => c.json({ error: `file is larger than ${Math.round(maxBytes / 1024 / 1024)} MB` }, 413);
     const declared = Number(c.req.header("content-length"));
     // Multipart adds a little framing around the file.
     if (Number.isFinite(declared) && declared > maxBytes + 64 * 1024) return tooLarge();
 
     const contentType = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-    await mkdir(dir, { recursive: true });
-    const id = randomBytes(16).toString("hex");
-
     let type: string;
     let media: (typeof MEDIA_TYPES)[string] | undefined;
-    let bytes: number;
-    let path: string;
+    let source: Readable;
     if (contentType === "multipart/form-data") {
       const form = await c.req.formData();
       const upload = form.get("file");
@@ -131,36 +130,38 @@ export function socialApiRoutes(deps: SocialApiDeps) {
       media = MEDIA_TYPES[type];
       if (!media) return c.json({ error: unsupported(type) }, 415);
       if (upload.size > maxBytes) return tooLarge();
-      path = join(dir, `${id}.${media.ext}`);
-      await writeFile(`${path}.part`, Buffer.from(await upload.arrayBuffer()));
-      bytes = upload.size;
+      source = Readable.fromWeb(upload.stream() as import("node:stream/web").ReadableStream);
     } else {
       type = contentType;
       media = MEDIA_TYPES[type];
       if (!media) return c.json({ error: unsupported(type) }, 415);
       const body = c.req.raw.body;
       if (!body) return c.json({ error: "empty body" }, 400);
-      path = join(dir, `${id}.${media.ext}`);
-      bytes = 0;
-      const limit = new Transform({
-        transform(chunk: Buffer, _enc, done) {
-          bytes += chunk.length;
-          done(bytes > maxBytes ? new TooLarge() : null, chunk);
-        },
-      });
-      try {
-        await pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), limit, createWriteStream(`${path}.part`));
-      } catch (err) {
-        await rm(`${path}.part`, { force: true });
-        if (err instanceof TooLarge) return tooLarge();
-        throw err;
-      }
+      source = Readable.fromWeb(body as import("node:stream/web").ReadableStream);
     }
+    // Streamed through to the BlobStore with the size limit enforced on the way.
+    let seen = 0;
+    const limit = new Transform({
+      transform(chunk: Buffer, _enc, done) {
+        seen += chunk.length;
+        done(seen > maxBytes ? new TooLarge() : null, chunk);
+      },
+    });
+    // A refused upload must not leave a stray "error" event behind.
+    limit.on("error", () => source.destroy());
+    let info;
+    try {
+      info = await blobs.put(source.pipe(limit), { name: `upload.${media.ext}`, contentType: type, folder: "media" });
+    } catch (err) {
+      if (err instanceof TooLarge || limit.errored instanceof TooLarge) return tooLarge();
+      throw err;
+    }
+    const bytes = info.size;
+    const id = info.id.split(".")[0]!;
     if (bytes === 0) {
-      await rm(`${path}.part`, { force: true });
+      await blobs.delete(info.id);
       return c.json({ error: "empty file" }, 400);
     }
-    await rename(`${path}.part`, path);
     const file = `${id}.${media.ext}`;
     return c.json(
       { id: file, url: `${publicOrigin(c, deps.media.publicBaseUrl)}/media/${file}`, type: media.kind, contentType: type, bytes },
@@ -178,14 +179,14 @@ const unsupported = (type: string) =>
  * Public, unauthenticated media at /media/<id>.<ext>. Only exact random-id
  * file names are served (no listing, no paths), with byte ranges for video.
  */
-export function mediaRoutes(dir: string) {
+export function mediaRoutes(blobs: BlobStore) {
   const app = new Hono();
   app.get("/:file", async (c) => {
     const file = c.req.param("file");
     if (!MEDIA_FILE.test(file)) return c.text("not found", 404);
-    const path = join(dir, file);
-    const info = await stat(path).catch(() => null);
-    if (!info?.isFile()) return c.text("not found", 404);
+    // Streams from the BlobStore: local file, warm cache, then Drive. Drive URLs never leave the server.
+    const info = await blobs.head(file);
+    if (!info) return c.text("not found", 404);
 
     const headers: Record<string, string> = {
       "content-type": BY_EXT[file.split(".").pop()!]!,
@@ -212,7 +213,9 @@ export function mediaRoutes(dir: string) {
     }
     headers["content-length"] = String(end - start + 1);
     if (c.req.method === "HEAD") return c.body(null, status, headers);
-    const stream = Readable.toWeb(createReadStream(path, { start, end })) as ReadableStream;
+    const body = await blobs.get(file, status === 206 || start > 0 ? { range: { start, end } } : {});
+    if (!body) return c.text("not found", 404);
+    const stream = Readable.toWeb(body.stream) as ReadableStream;
     return c.body(stream, status, headers);
   });
   return app;

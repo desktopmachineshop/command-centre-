@@ -192,7 +192,7 @@ used it. No token is stored on the phone; the session is an HttpOnly cookie.
 
 On iPhone the home-screen app keeps its own cookies, separate from Safari, so sign in once more
 inside it after adding it. Push notifications on iPhone only work from the home-screen app. In
-the app, go to **Settings → Enable on this device** to get approval notifications.
+the app, go to **Notifications → Notification settings → Enable on this device** (see "Notifications").
 
 ## Desktop app & worker
 
@@ -236,7 +236,7 @@ At startup the worker checks what the PC can do, and the server only sends it jo
 | `gpu`          | `nvidia-smi` lists a GPU, or Windows reports an NVIDIA, AMD or Intel Arc adapter      |
 | `davinci`      | DaVinci Resolve or its scripting module is in the default install location            |
 | `claude-local` | `claude` is on `PATH` and logged in (use the native installer, which gives `claude.exe`) |
-| `browser`      | never detected; turn it on in config                                                  |
+| `browser`      | `chromiumBin` (or `CC_CHROMIUM_BIN`) points at Chromium/Chrome that exists            |
 
 To force one on or off, add to `worker.json`, then use **Worker on** to restart the worker:
 
@@ -246,7 +246,9 @@ To force one on or off, add to `worker.json`, then use **Worker on** to restart 
 
 Other `worker.json` keys: `ffmpegBin` and `claudeBin` (full paths, if they're not on `PATH`),
 `workDir`, and `claudeDirs`, the folders `claude.local` jobs may use as their working directory
-(besides the work dir).
+(besides the work dir). For video: `chromiumBin` (the browser `video.capture` drives) and
+`captureProfiles` (`{ "opend-demo": "C:\\...\\opend-demo.json" }`, Playwright storage states for
+signed-in captures).
 
 ### Job kinds
 
@@ -260,6 +262,12 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   options or filters (`-filter_script`, `movie=`…) are rejected. The result is `{outputPath, bytes}`.
 - `claude.local` `{prompt, cwd?, maxTurns?}`: runs headless Claude Code on the PC's own login. The
   result is `{result, sessionId, costUsd}`.
+- `video.capture` `{spec, scenes?, uploads?}` (needs `browser`): records a VideoSpec's capture
+  scenes with Playwright. The result is `{clips: {<scene>: {path, trimStartSec, durationSec, url?}}}`.
+- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?}` (needs `ffmpeg`;
+  NVENC on `gpu` nodes): voices, captions and composes the video. The result is
+  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?}`.
+  See [VIDEO.md](VIDEO.md).
 
 ### Try it
 
@@ -456,7 +464,8 @@ Instagram and Threads fetch media from a public URL when publishing, so the serv
 - `POST /api/media` (admin token): the file as the raw body with its `content-type`, or multipart
   with a `file` field. JPEG, PNG, GIF, WebP, MP4, MOV and WebM, up to `MEDIA_MAX_MB` (default 200).
   It returns `{url, type, ...}`, ready to use as a `media` entry.
-- Files are stored in `DATA_DIR/media/` (on the Railway volume) and served at
+- Files are stored in `DATA_DIR/media/` (on the Railway volume), or in Google Drive with
+  `STORAGE_BACKEND=gdrive` (see "Storage (Google Drive)"), and served at
   `GET /media/<random id>.<ext>` without auth. The 128-bit random name is what keeps them private
   until posted; there is no listing.
 - Set **`PUBLIC_BASE_URL`** to the server's public address, e.g.
@@ -513,6 +522,128 @@ under "Social: platform setup" below.
 With `SOCIAL_ACCOUNTS` empty or unset, social is off: no polling, no social actions, and the Social
 page says so.
 
+## Storage (Google Drive)
+
+The Railway volume is small, so large files (raw footage, video renders, media uploads,
+generated assets, big attachments) can live in **your Google Drive** instead
+(`packages/storage`). One `BlobStore` interface has two backends:
+
+- **`local`** (the default): files stay on the volume, exactly as before. `media` is
+  `DATA_DIR/media/`, other folders are `DATA_DIR/storage/<folder>/`.
+- **`gdrive`**: new files go to a **Command Centre** folder in your My Drive, with the subfolders
+  `media`, `renders`, `footage`, `attachments` and `assets`. The folders are created on first use
+  and their ids are remembered in Postgres.
+
+Postgres keeps a small index (`storage_files`, migration `0011_storage`) that maps each public id
+to its Drive file id (or its local file), with its name, size, type, folder and creation time.
+
+### What stays the same
+
+- **Public media URLs stay on our domain.** `GET /media/<32 hex>.<ext>` behaves as before:
+  - it returns the right content type, `nosniff` and byte ranges;
+  - there is no listing;
+  - unknown ids get a 404.
+
+  The server streams the bytes from the cache, or else from Drive. Drive links are never handed
+  out: Instagram and Threads can't fetch Drive share links, and the file stays private in your Drive.
+- **Files already on the volume keep working.** At boot, files in `DATA_DIR/media` are added to
+  the index and served from the volume. To move them to Drive, see "Migrating" below.
+
+### Set it up
+
+1. **Enable the Google Drive API** in the same Google Cloud project as Calendar (the PA setup):
+   *APIs & Services → Library → Google Drive API → Enable*.
+2. **Scope.** The app asks for `https://www.googleapis.com/auth/drive.file`. With it, the app can
+   only see files it created itself, never the rest of your Drive. Google classes it as
+   **non-sensitive**. For an app for personal use (fewer than 100 users), verification is not
+   required. Set the OAuth consent screen's publishing status to **In production**: in
+   **Testing**, refresh tokens expire after 7 days.
+3. **Credentials.** A single `google:auth` run (from the PA setup) grants both the Calendar scopes
+   and `drive.file`, and prints `GOOGLE_REFRESH_TOKEN`. If you authorised Calendar before Drive
+   was added, run it again so the token covers Drive too.
+4. **Set the variables** on Railway:
+
+   | Variable | Default | Meaning |
+   | --- | --- | --- |
+   | `STORAGE_BACKEND` | `local` | `gdrive` to store new files in Drive. It needs the three `GOOGLE_*` variables, or the server refuses to boot. |
+   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | | The same OAuth client and token as Calendar. |
+   | `STORAGE_CACHE_MB` | `2048` | The LRU cache of Drive files on the volume (`DATA_DIR/cache`). `0` turns it off. |
+   | `STORAGE_DRIVE_FOLDER` | `Command Centre` | Name of the top-level Drive folder. |
+   | `STORAGE_UPLOAD_MAX_MB` | `20480` | Largest direct upload. |
+   | `MEDIA_MAX_MB` | `200` | Largest `POST /api/media` upload (unchanged). |
+
+### The cache and its size
+
+- The first fetch of a Drive file streams it from Drive, honouring any byte range. The same fetch
+  also downloads the whole file into `DATA_DIR/cache` in the background.
+- Meta and YouTube often fetch the same media several times, and those repeat fetches are then
+  served from the volume.
+- When the cache is full, the least recently read file is evicted first.
+- A single file larger than a quarter of the cap is never cached, so one big render can't flush
+  everything else.
+- **Sizing:** leave room on the volume for the brain, the agent workspaces and the cache.
+  - On a 5 GB volume, 1024 to 2048 MB is sensible.
+  - The cache only needs to hold what is being published this week; everything is still in Drive.
+
+### Direct uploads (large files)
+
+Big files don't pass through `POST /api/media`. Upload them directly instead:
+
+1. **Start a session.** Call `POST /api/storage/upload-session` (session cookie or admin token)
+   with `{name, contentType, size, folder?}`. It returns
+   `{id, uploadUrl, chunkSize, backend, url}`.
+   - With `gdrive`, `uploadUrl` is a Drive resumable session URI. The bytes go straight to
+     Google, and the URI only allows uploading that one file.
+   - With `local`, `uploadUrl` is our own chunk endpoint (`PUT /api/storage/uploads/<id>?key=…`).
+     It speaks the same protocol, so clients don't need to know which backend is in use.
+2. **Upload the bytes.** PUT them in chunks of `chunkSize` (a multiple of 256 KiB; only the last
+   chunk may be smaller), with `Content-Range: bytes a-b/total`.
+   - A `308` reply's `Range` header says where to continue.
+   - After an error, an empty PUT with `Content-Range: bytes */total` asks how much arrived.
+3. **Register the file.** Call `POST /api/storage/complete` with `{id}`. The server checks with
+   Drive (or the volume) that every byte arrived, then returns the file and its public `/media`
+   URL. For types that `/media` doesn't serve (e.g. a PDF attachment), `url` is `null`.
+
+**Desktop workers** use `POST /api/worker/storage/upload-session` and
+`POST /api/worker/storage/complete` with `Authorization: Bearer <WORKER_TOKEN>`.
+- A worker can only upload, into `renders`, `media`, `footage` or `assets`. It can't list, read
+  or delete files.
+- In a job handler, call `ctx.storage.uploadFile(path, {folder})`
+  (`apps/worker/src/storage.ts`). It does all three steps, resumes after failures, and returns
+  `{id, url, size}`.
+- `ffmpeg.run` with `"upload": true` (and optionally `"uploadFolder"`) uploads its output and
+  returns `url` in the job result.
+
+### Seeing what's stored
+
+`GET /api/storage` (`?folder=`, `?limit=`) lists files with their URLs and shows:
+- usage per folder;
+- cache statistics;
+- with Drive, `drive.folderUrl`, a link to open the Command Centre folder in Drive, and your
+  Drive quota.
+
+`DELETE /api/storage/<id>` deletes a file from Drive, the cache and the index.
+
+### Migrating local media into Drive
+
+After switching to `gdrive`, call `POST /api/storage/migrate` with `{"deleteLocal": true}`:
+- Every local file is copied into Drive under the **same id**, so URLs already posted keep working.
+- With `deleteLocal`, each local copy then moves into the cache (or is deleted if it doesn't fit),
+  freeing the volume.
+- Without `deleteLocal`, it only copies.
+- The call is safe to run again: files that are already in Drive are skipped.
+
+### Drive quota and limits
+
+- **Storage quota.** A free Google account has 15 GB, shared between Drive, Gmail and Photos.
+  Raw footage fills that quickly, so a Google One plan is worth having if you keep footage. Files
+  count against **your** quota, because the app creates them in your Drive.
+- **Upload limits.** Drive accepts up to 750 GB of uploads per user per day, and files up to 5 TB.
+- **Rate limits.** Requests are limited per minute. The store retries 429, 5xx and rate-limit 403
+  responses with exponential backoff, as Google recommends.
+- **Resumable sessions.** A session URI expires after a week. An expired session must be started
+  again.
+
 ## Cost control and run guardrails
 
 **Budgets.** Set `AGENT_DAILY_BUDGET_USD` for a global daily cap, and/or `dailyBudgetUsd` in a
@@ -568,12 +699,19 @@ whole day. The Inbox's **Today** card shows the same numbers live. Any day's dig
 
 ## Morning brief
 
-The personal vertical has a weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
+The Chief of Staff (the org root, `packages/verticals/src/org.ts`, running in the personal vertical) has a
+weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
 
-1. reads yesterday's digests and journal (Friday to Sunday on a Monday);
-2. lists pending approvals;
-3. works out today's priorities;
-4. sends you a 3–5 line push through a `notify` action.
+1. reads today's calendar, the reminders due today (and overdue ones) and the top to-dos, through
+   the `pa` tools (see "Personal assistant" below);
+2. reads yesterday's digests and journal (Friday to Sunday on a Monday);
+3. lists pending approvals;
+4. works out today's priorities;
+5. sends you a short `briefing` push through a `notify` action (see "Notifications").
+
+There is also a Sunday-to-Thursday 21:00 `evening-wrap` on the personal vertical's Calendar &
+Reminders role (`packages/verticals/src/personal.ts`): tomorrow's calendar, open reminders and
+to-dos, and what's waiting for approval, in one push.
 
 `notify` is `auto-with-digest` for the personal vertical, so the brief arrives without an approval
 step and is listed in that evening's digest.
@@ -588,8 +726,199 @@ Proposals made with the admin token (no task) keep their policy too. (`ActionSer
 `apps/server/src/actions.ts`.)
 
 The brief is **off by default**. To turn it on, set `enabled: true` on the `morning-brief` line in
-`packages/verticals/src/personal.ts` and redeploy. It is an agent run, so it counts towards the
-budgets.
+`packages/verticals/src/org.ts` and redeploy; the same goes for the `evening-wrap` line in
+`packages/verticals/src/personal.ts`. Each is an agent run, so it counts towards the budgets.
+
+## Personal assistant
+
+`packages/pa` gives every vertical's agents a `pa` MCP server (`/mcp/pa`) for reminders and to-do
+lists, and the personal vertical a Google Calendar. The app's **Today** tab shows the day's agenda,
+the reminders due and your lists.
+
+### What it can do
+
+- **Reminders.** "Remind me to call the garage at 4pm", "every weekday at 08:00 remind me to…".
+  They are stored in Postgres and pushed to your devices when due, by a job that checks every
+  minute. One-off reminders stay open (marked *sent*) until you tick them off. Recurring ones
+  (`daily`, `weekdays`, `weekly:mon,thu`, `monthly:15`, or the RRULE forms `FREQ=DAILY`,
+  `FREQ=WEEKLY;BYDAY=…`, `FREQ=MONTHLY;BYMONTHDAY=n`) move to their next occurrence and keep
+  their local time through the clock changes. If the server was down, you get one alert, not a
+  backlog. The push has **Done** and **Snooze 1h** buttons (signed links, so they work from the
+  lock screen without signing in); the Today page has the same. Reminders go through the
+  notification system as category `reminder` at `high` priority (see "Notifications" for quiet
+  hours and per-category settings); a revoked calendar token is an `alert`.
+- **Lists.** "Add milk and eggs to shopping", "put swimming bag on the Noah list". Lists (today,
+  shopping, home, Noah…) are created as they are used, and are per vertical. On the Today page you
+  tick items off, add, remove and rename.
+- **Calendar.** "What's on Thursday?", "when am I free next week?", "book the dentist next week".
+  Agents read events (recurring ones expanded) and free/busy across all your configured calendars.
+  To create, move or delete an event they propose `calendar.create`, `calendar.update` or
+  `calendar.delete`, which wait under Approvals (`draft` policy), whatever else is going on. Event
+  reminders can be set per event (`reminders: [{method: "popup", minutes: 60}]`, `"default"` or
+  `"none"`).
+- **Who may write.** Reminders and list items are internal, so a task you started (Chat) or a
+  schedule writes them straight away. A task started by outside input (email, webhook, social)
+  can't: its reminders and list changes become `pa.*` proposals that wait for your approval.
+- The **Today** tab's box sends what you type to the assistant in Chat, so it understands
+  "remind me…" and "add … to …" the same way.
+
+Without `CALENDAR_ACCOUNTS`, reminders and lists still work; the calendar tools say no calendar is
+connected.
+
+### Google Calendar
+
+Do this once, on your PC. The same OAuth client and refresh token are shared with Google Drive
+storage, so one run of `google:auth` covers both.
+
+1. **Cloud project.** At <https://console.cloud.google.com/> create a project (e.g. "Command
+   Centre"). Under **APIs & Services → Library**, enable the **Google Calendar API** (and the
+   **Google Drive API**, for Drive storage).
+2. **Consent screen** (**Google Auth Platform → Branding / Audience**, called "OAuth consent
+   screen" in older consoles). App name "Command Centre", your email as support and developer
+   contact.
+   - If your calendar is on Google Workspace (e.g. `@desktopmachineshop.com`), choose **Internal**:
+     no verification, no test users, and tokens don't expire after 7 days.
+   - For a personal `@gmail.com` account, choose **External** and add yourself under
+     **Test users**. **Important:** while the app's publishing status is **Testing**, Google
+     expires refresh tokens after 7 days
+     ([Google: refresh token expiration](https://developers.google.com/identity/protocols/oauth2#expiration)).
+     Once it works, press **Publish app** (status "In production"). You don't need to submit it
+     for verification for your own use: when you sign in, Google shows "Google hasn't verified
+     this app"; choose **Advanced → Go to Command Centre (unsafe)**. Unverified apps are limited
+     to 100 users, which is fine for one
+     ([Google: unverified apps](https://support.google.com/cloud/answer/7454865)).
+3. **Scopes** (Data access): `…/auth/calendar.events` (read and write events),
+   `…/auth/calendar.events.freebusy` (free/busy), `…/auth/calendar.calendarlist.readonly` (only so
+   `google:auth` can print your calendar ids), and `…/auth/drive.file` for Drive storage (only
+   files the app creates). See [Calendar API scopes](https://developers.google.com/workspace/calendar/api/auth).
+4. **OAuth client.** **Clients → Create client → Desktop app**. Copy the client id and secret.
+5. **Get the refresh token** with the loopback flow (PKCE, a random `127.0.0.1` port; see
+   [OAuth for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app)):
+
+   ```bash
+   GOOGLE_CLIENT_ID=<id> GOOGLE_CLIENT_SECRET=<secret> pnpm --filter @cc/pa google:auth
+   # optional: --scopes calendar.events,calendar.events.freebusy,drive.file
+   ```
+
+   It opens Google's consent page (or prints the URL), and when you allow it, prints
+   `GOOGLE_REFRESH_TOKEN=…`, the calendars the account can see with their ids, and a ready
+   `CALENDAR_ACCOUNTS` line. By default it asks for the calendar scopes plus `drive.file`.
+6. **Set on Railway:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, and
+   `CALENDAR_ACCOUNTS`, e.g.
+
+   ```json
+   [{"id":"google","provider":"google","vertical":"personal",
+     "calendars":["primary",{"id":"family0123@group.calendar.google.com","name":"Family"},
+                  {"id":"en.uk#holiday@group.v.calendar.google.com","name":"UK holidays","write":false}]}]
+   ```
+
+   - `calendars`: `primary` plus any shared or family calendars, by id (from `google:auth`, or
+     Google Calendar → the calendar's settings → **Integrate calendar → Calendar ID**). Every listed
+     calendar counts for free/busy. `write: false` for ones you can only read; new events go to the
+     first writable one unless the agent names another.
+   - `credentials` is optional: `{clientId, clientSecret, refreshToken}`, each defaulting to the
+     `GOOGLE_*` variables, or `"env:OTHER_VAR"`. Set it only for a second Google account.
+   - `vertical`: which vertical's agents use it. The personal vertical reads every account's events
+     (work commitments block personal time too); other verticals read and write only their own.
+   - Only `provider: "google"` is supported. Errors name the field, never the value.
+
+**If Google revokes the token** (you removed the app's access, changed your password, the app is
+still in Testing after 7 days, or it went unused for 6 months), calendar reads show "Google
+rejected the refresh token … run `pnpm --filter @cc/pa google:auth`", and you get one push a day
+saying so. Run step 5 again and update `GOOGLE_REFRESH_TOKEN`.
+
+### Enabling the morning brief and evening wrap
+
+Set `enabled: true` on `morning-brief` (`packages/verticals/src/org.ts`) and/or `evening-wrap`
+(`packages/verticals/src/personal.ts`) and redeploy (see "Morning brief" above). They use the
+`personal-assistant` skill (`skills/personal-assistant/SKILL.md`), which also covers how the agent
+handles "remind me…", "add … to shopping", "when am I free Thursday?" and "book the dentist next
+week" (it finds a slot, then proposes the event), and UK date and time conventions.
+
+### From other agents
+
+```bash
+claude mcp add --transport http pa https://<your-domain>/mcp/pa \
+  --header "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+With the admin token, writes are yours (`created_by` "dave") and you see every vertical.
+
+## Notifications
+
+Every notification is saved in the app's **notification centre** (the bell in the header, with
+the unread count; the same count shows on the app icon where the Badging API is supported). Each
+one has a **category**, and the category decides whether it reaches your devices as a push.
+Change it all under **Notifications → Notification settings** (`#/notification-settings`).
+
+### Categories and defaults
+
+| Category | What sends it | Default |
+| --- | --- | --- |
+| `approval` | an action waiting for approval | push, sound, high |
+| `briefing` | morning brief, evening wrap, quick briefing | push, silent |
+| `reminder` | personal-assistant reminders | push, sound, high |
+| `alert` | budget reached, a scheduled post failed | push, sound, urgent |
+| `digest` | the daily digest | push, silent, low |
+| `social` | social activity | batched into the next digest |
+| `orders` | Odoo/shop orders | batched into the next digest |
+| `system` | test pushes, system notices | in the app only |
+| `agent` | anything else an agent sends with `notify` | push, sound |
+
+For each category you can set: **on/off** (off: still listed in the centre, already marked read);
+**delivery** (push now, add to the next digest push, or in the app only); **sound** (off shows the
+push silently, with no sound or vibration); and its **priority**. **Per vertical** overrides change
+one category for one business, e.g. 3dpandme social off.
+
+- Approval requests share one notification (tag `approvals`) that is replaced by each new request,
+  says how many more are waiting, and has **Approve** / **Reject** buttons. The buttons don't act
+  from the lock screen: they open the app on that proposal and ask you to confirm. (The service
+  worker has no credentials, and a stray tap on a lock screen shouldn't send an email.) Deciding
+  a proposal marks its notification read.
+- Briefings open a briefing view (`#/briefing/<id>`).
+- **Rate limit:** at most 3 pushes per category per 10 minutes (configurable). Extras collapse into
+  one "and N more" notification per category, which updates in place. Urgent is never limited.
+- **Batched** notifications are added to the next daily-digest push as one line ("Also: 2 social,
+  1 orders"). If there is no digest that day they stay in the centre.
+
+Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`normal`/`low`),
+`vertical`, `tag`, `actions` and `data`; `{title, body, url}` alone still works, and the category
+is then guessed from the title and URL (else `agent`). The `notify` action takes
+`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`.
+
+### Quiet hours
+
+Default **22:00–07:00 Europe/London**, across midnight and following daylight saving. During quiet
+hours only `urgent` pushes (and approvals, if you tick **Let approvals through**). Everything else
+is held and, when quiet hours end, arrives as **one summary push** listing what came in.
+
+### Quick briefing
+
+Off by default. When on, at the set time (default 07:30) you get a `briefing` push with today's
+counts: approvals waiting, tasks so far, spend against budget, and unread notifications. It is a
+system job, not an agent run, so it costs nothing. The agent-written morning brief (above) is
+separate and is also sent as a `briefing`.
+
+### Devices
+
+**Notification settings → Enable on this device** subscribes the device and asks for a name
+("Dave's phone"). The device list shows each one's platform and last successful push, and lets you
+rename or remove it, choose what it gets (everything, high and up, or urgent only: e.g. urgent only
+on the phone, everything on the desktop), and **Send test**. Each category row also has a **Test**
+button, which sends a test push to every device that category reaches (ignoring quiet hours and
+the rate limit). Devices whose subscription has expired are removed automatically.
+
+- **iPhone/iPad (iOS 16.4+):** push only works from the home-screen app. In Safari, **Share → Add
+  to Home Screen**, open Command Centre from the home screen, sign in, then **Enable on this
+  device** and allow notifications. Focus modes can still silence it.
+- **Android (Chrome):** install the app (menu → **Install app**) or use it in Chrome, then **Enable
+  on this device**. If nothing arrives, check Android's notification settings for Chrome / the app.
+- **Windows/macOS:** Chrome or Edge, installed or in a tab. Pushes arrive while the browser runs.
+
+The server needs `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`; without them notifications are only
+in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifications/unread-count`,
+`POST /api/notifications/:id/read`, `POST /api/notifications/read-all`,
+`GET|PUT /api/notifications/prefs`, `/api/notifications/devices`, `POST /api/notifications/test`.
 
 ## Odoo
 
@@ -1240,6 +1569,123 @@ for this. Don't point it at `localhost` or a private network.
 
 Set `handle` to the account's username. The adapters use it, along with the account id, to skip
 the account's own comments and replies.
+
+## Voice and Drive mode
+
+Drive mode (`#/drive`, or the **Drive mode** button on Chat) runs Command Centre by voice: one
+huge talk button, answers read aloud, approvals read out and decided by voice. It is built for
+the phone in the car, so it shows almost nothing to read.
+
+### In the car
+
+1. Pair the phone with the car (or a headset) over Bluetooth. Open Command Centre and tap
+   **Drive mode** before you set off. The first tap on the big button also grants the microphone
+   and turns on the **headset button**: the car's or headset's play/pause button then works as the
+   talk button (Media Session API). If the button does nothing, tap the screen once again.
+2. Press (screen or headset) and speak. Commands are handled on the phone, without the agent:
+   - "what's new" or "briefing": pending approvals, failed or held-back tasks, today's spend and
+     (once the calendar is connected) what's next;
+   - "read approvals", then "approve", "reject" or "next";
+   - "repeat", "stop", "cancel", "that's all";
+   - "conversation mode" or "push to talk" switches modes;
+   - start with a business to send a request there: "shop: has order 1042 shipped?",
+     "dms, …", "3dpandme: …", "open v: …".
+
+   Anything else goes to the agent in **voice mode**: it answers in one to three short spoken
+   sentences. While it works you hear "Working on it", then "Still working on it" every
+   20 seconds.
+3. **Approving by voice always asks twice.** "Approve" reads the item back ("To approve: Reply to
+   Jane about order 1042. Say 'yes, approve' to confirm, or 'no'"). Only "yes, approve" (or the
+   on-screen **Yes, approve** button) does it. A bare "yes" never confirms anything, and a longer
+   sentence such as "approve the quote for Jane" is sent to the agent as a request rather than
+   treated as an approval.
+
+**Two modes** (the toggle at the top; remembered per device):
+
+- **Push to talk** (default): it only listens after a press. If the agent asks a question, it
+  reads the question and waits for your next press. What you say then answers that question in the
+  same conversation.
+- **Conversation**: after a question from the agent, a read-out approval or a confirmation, it
+  plays a "your turn" chime and listens by itself. After 8 seconds of silence it asks "Still
+  there?" once, then stops. Your answer continues the same task. "Stop", "cancel" or "that's all"
+  ends the conversation at any point. **Options → Listen for a follow-up** also listens for
+  5 seconds after a final answer.
+
+How a conversation continues: in voice mode the agent ends its answer with one JSON line,
+`{"voice":{"type":"converse"|"final","text":"…"}}`. The server parses that line and stores it on
+the run as `response`. It shows in `GET /api/tasks/:id` and is pushed live as `run.response`. A
+reply goes to `POST /api/tasks/:id/reply {text, voice}`, which queues the same task again. The
+next run resumes the earlier Claude Code session (`--resume`), so the conversation's history stays
+on one task. If there is no session to resume, the prompt carries the earlier question instead.
+
+**Keeping the screen on.** Drive mode holds a screen wake lock while it is open (the Options line
+shows "Screen: kept on"). The phone releases the lock when you switch apps or lock the screen, and
+Drive mode takes it again when you come back. Mount the phone where you can see the big button,
+and keep it plugged in.
+
+**Android (Chrome)** works best. Speech recognition uses Google's servers unless on-device
+recognition is installed, so it needs signal. The headset button needs Drive mode in the
+foreground and at least one tap first.
+
+**iPhone (Safari) caveats:**
+
+- Speech recognition works in a Safari tab. In an app added to the Home Screen it has
+  historically been exposed but done nothing. There, Drive mode uses the server's
+  speech-to-text when one is configured (see below), so set one up if you use the installed app.
+- Speech only starts after a tap, so tap the big button once when you open Drive mode.
+- The screen wake lock needs iOS 16.4 or later; in Home Screen apps it reportedly only works from iOS 18.4.
+- Headset buttons are less reliable than on Android.
+
+**Safety.** Set everything up before you drive. Use the headset button or a single tap, and don't
+read the screen: everything important is spoken. Long answers are cut to about 40 seconds and end
+with "There's more on screen when you're parked". Nothing outward-facing happens without a spoken
+readback and an explicit "yes, approve". Use it only where hands-free phone use is legal.
+
+### Optional server voices
+
+With nothing configured, Drive mode uses the browser's own speech: free, quick, with an en-GB
+voice where the device has one. Server providers are an upgrade for quality, and a fallback for
+devices whose browser can't listen (iOS Home Screen apps) or has no good voice. `GET
+/api/voice/config` reports what is available, and the PWA chooses automatically. To prefer the
+server voice anyway, tick **Options → Use the server voice**.
+
+| Variable | Default | |
+|---|---|---|
+| `OPENAI_API_KEY` | – | enables OpenAI speech-to-text and text-to-speech |
+| `ELEVENLABS_API_KEY` | – | enables ElevenLabs text-to-speech (and Scribe speech-to-text) |
+| `VOICE_STT_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = OpenAI, else ElevenLabs |
+| `VOICE_TTS_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = ElevenLabs, else OpenAI |
+| `VOICE_OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` | or `gpt-4o-transcribe`, `whisper-1` |
+| `VOICE_OPENAI_TTS_MODEL` / `VOICE_OPENAI_VOICE` | `gpt-4o-mini-tts` / `fable` | |
+| `VOICE_ELEVENLABS_TTS_MODEL` / `VOICE_ELEVENLABS_VOICE` | `eleven_flash_v2_5` / George (British) | voice id from the ElevenLabs voice library |
+| `VOICE_ELEVENLABS_STT_MODEL` | `scribe_v2` | |
+| `VOICE_MAX_UPLOAD_KB` / `VOICE_MAX_SECONDS` | `2048` / `60` | limits for `POST /api/voice/transcribe` |
+| `VOICE_LANGUAGE` | `en-GB` | |
+
+`auto` turns a provider on as soon as its key is set. If `OPENAI_API_KEY` is there for something
+else, set `VOICE_STT_PROVIDER=off` / `VOICE_TTS_PROVIDER=off` to keep voice on the browser.
+
+Typical costs (list prices, October 2026):
+
+- Speech-to-text: OpenAI `gpt-4o-mini-transcribe` about $0.003 a minute (`gpt-4o-transcribe`
+  $0.006); ElevenLabs Scribe v2 about $0.22 an hour.
+- Text-to-speech: ElevenLabs Flash v2.5 about $0.04 per 1,000 characters (a three-sentence answer
+  is about 250 characters, so about 1p); OpenAI `gpt-4o-mini-tts` about $0.015 a minute of audio.
+- An hour of driving with a dozen requests costs a few pence.
+
+Short phrases ("Working on it", confirmations) are cached in memory by `POST /api/voice/speak`.
+
+Endpoints, all behind the dashboard auth:
+
+- `POST /api/voice/transcribe` (raw audio body or multipart `file`; `?seconds=`, `?language=`)
+  returns `{text}`;
+- `POST /api/voice/speak {text, voice?}` returns audio;
+- `GET /api/voice/config`;
+- `GET /api/voice/briefing` returns `{text, approvals, attention, cost, calendar}`. It is
+  deterministic, with no LLM;
+- `GET /api/voice/approvals/next?skip=id,id` returns the next pending proposal, described for
+  reading aloud. Approving and rejecting use the normal `/api/proposals/:id/approve|reject`;
+- `POST /api/chat {text, voice: true}` and `POST /api/tasks/:id/reply {text, voice}`.
 
 ## Extending
 
