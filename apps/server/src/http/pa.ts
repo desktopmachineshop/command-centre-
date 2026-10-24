@@ -25,12 +25,37 @@ export function signReminderAction(secret: string, id: string, action: string): 
   return createHmac("sha256", secret).update(`pa-reminder:${id}:${action}`).digest("base64url");
 }
 
-/** The pre-signed links a reminder push carries ("Done", "Snooze 1h"). */
+/**
+ * A reminder push's buttons ("Done", "Snooze 1h") and their pre-signed links in
+ * `data.actionUrls`, which the service worker POSTs to (sw-notify.js `backgroundAction`).
+ */
 export function reminderPushActions(secret: string, id: string) {
-  return [
-    { action: "done", title: "Done", url: `/api/pa/reminders/${id}/push/done?sig=${signReminderAction(secret, id, "done")}` },
-    { action: "snooze", title: "Snooze 1h", url: `/api/pa/reminders/${id}/push/snooze?sig=${signReminderAction(secret, id, "snooze")}` },
-  ];
+  const link = (action: string) => `/api/pa/reminders/${id}/push/${action}?sig=${signReminderAction(secret, id, action)}`;
+  return {
+    actions: [
+      { action: "done", title: "Done" },
+      { action: "snooze", title: "Snooze 1h" },
+    ],
+    data: { reminderId: id, actionUrls: { done: link("done"), snooze: link("snooze") } },
+  };
+}
+
+/** The PA calendar as the spoken briefing's calendar: the next events from now, declined ones left out. */
+export function paVoiceCalendar(calendar: CalendarService) {
+  return {
+    async upcoming({ now, limit }: { now: Date; limit: number }) {
+      const { events } = await calendar.listEvents(now, new Date(now.getTime() + 36 * 3_600_000), { vertical: "personal" });
+      return events
+        .filter((e) => e.response !== "declined" && (e.allDay || new Date(e.end) > now))
+        .slice(0, limit)
+        .map((e) => ({
+          title: e.title,
+          start: e.allDay ? new Date(`${e.start}T00:00:00Z`).toISOString() : e.start,
+          allDay: e.allDay,
+          ...(e.location ? { location: e.location } : {}),
+        }));
+    },
+  };
 }
 
 const sigOk = (secret: string, id: string, action: string, sig: string | undefined) => {

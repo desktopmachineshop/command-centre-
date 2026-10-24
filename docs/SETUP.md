@@ -12,13 +12,17 @@ pnpm --filter @cc/server dev      # API on :8080 (reads ../../.env)
 pnpm --filter @cc/web dev         # PWA on :5173, proxied to the API
 ```
 
-Open http://localhost:5173, leave the server URL blank and paste your `ADMIN_TOKEN`.
+Open http://localhost:5173. The first time, it shows **Set up Command Centre**: paste your
+`ADMIN_TOKEN` and choose your email and password (see "Authentication" below).
 
 With `AGENT_RUNNER=claude-code`, the server runs your local `claude` CLI. You need to be logged
 in, or have `CLAUDE_CODE_OAUTH_TOKEN` set.
 
 Checks: `pnpm typecheck`, and `TEST_DATABASE_URL=postgres://cc:cc@localhost:5432/cc_test pnpm test`.
 Create the `cc_test` database first. Without `TEST_DATABASE_URL`, the server integration tests are skipped.
+The sign-in browser test (`apps/server/test/auth.browser.test.ts`, Playwright) also needs Chromium
+at `PW_CHROMIUM` (default `/opt/pw-browsers/chromium`) and a built PWA; `pnpm test` builds the PWA
+first, and the test is skipped when Chromium is missing.
 
 ## Deploy to Railway
 
@@ -28,7 +32,8 @@ Create the `cc_test` database first. Without `TEST_DATABASE_URL`, the server int
 3. **Add a volume** to the server, mounted at `/data`. It holds the brain checkout, agent
    workspaces and Claude Code's config.
 4. **Set the variables** (see `.env.example`):
-   - `ADMIN_TOKEN`: `openssl rand -hex 32`
+   - `ADMIN_TOKEN`: `openssl rand -hex 32`. You paste it once, at first-run setup; after that
+     it is for automation and MCP (see "Authentication").
    - `CLAUDE_CODE_OAUTH_TOKEN`: run `claude setup-token` on your PC (logged in to your Claude
      subscription) and paste the token. This is what lets the server drive Claude Code headless
      on your subscription.
@@ -37,7 +42,106 @@ Create the `cc_test` database first. Without `TEST_DATABASE_URL`, the server int
    - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: `npx web-push generate-vapid-keys`.
    - `WEBHOOK_SECRET`: `openssl rand -hex 24`, if you'll use webhook ingress.
 5. **Generate a domain** under Settings → Networking. That URL is your command centre.
-6. Keep **one replica**. Live updates and run tokens are held in memory in Phase 0.
+6. Keep **one replica**. Live updates, run tokens and sign-in rate limits are held in memory in Phase 0.
+7. **Open the URL and create your account** (first-run setup, below).
+
+## Authentication
+
+You sign in to the app with your **email and password** (plus an optional authenticator code).
+The server keeps you signed in with a session cookie for 30 days, extended each time you use the
+app, so on the phone and PCs you rarely need to sign in again.
+
+### First-run setup on Railway
+
+While the server has no users, opening the URL shows **Set up Command Centre**:
+
+1. Paste the `ADMIN_TOKEN` from the server's Railway variables. This proves the server is yours,
+   so a stranger who finds the URL first can't claim it. You only need it this once.
+2. Enter your name, email and a password (at least 10 characters), then **Create account**.
+
+You're signed in straight away. After that the setup screen is gone for good: setup is refused
+once any user exists, even with the admin token.
+
+You can also create the first user from your PC instead (next section).
+
+### Users from the command line: create, reset a password
+
+The `user:*` scripts run against the database directly. Each one asks for the password twice
+without echoing it (or reads it from stdin when piped), so it never lands in your shell history.
+
+```bash
+pnpm --filter @cc/server user:create -- --email dave@desktopmachineshop.com --name Dave
+pnpm --filter @cc/server user:reset-password -- --email dave@desktopmachineshop.com
+pnpm --filter @cc/server user:reset-password -- --email dave@desktopmachineshop.com --disable-2fa   # lost your phone
+pnpm --filter @cc/server user:list
+```
+
+They use `DATABASE_PUBLIC_URL` if set, then `DATABASE_URL` (or `CC_DATABASE_URL` to force one).
+Against Railway, from a clone of the repo on your PC with the [Railway CLI](https://docs.railway.com/guides/cli)
+linked to the project (`railway link`):
+
+```bash
+railway run --service Postgres -- pnpm --filter @cc/server user:reset-password -- --email dave@desktopmachineshop.com
+```
+
+`--service Postgres` gives the script the database's public URL, which is reachable from your PC
+(the server's own `DATABASE_URL` is a private-network address). Alternatively, open a shell in
+the server container with `railway ssh` and run `node dist/cli.js reset-password --email ...`.
+
+A reset clears any lockout and signs you out on every device.
+
+### Two-factor authentication (optional)
+
+**Settings → Two-factor authentication → Set up two-factor** shows a QR code. Scan it with an
+authenticator app (1Password, Google Authenticator, Authy, ...). On the phone itself, tap **Open
+in your authenticator app** or type the key shown under the QR code. Enter the 6-digit code to
+turn it on.
+
+You then get **ten recovery codes**, shown once. Keep them somewhere safe (a password manager).
+Each one works once in place of a code. If you lose the phone and the codes, reset with
+`user:reset-password -- --disable-2fa` as above. Turning two-factor off needs your password.
+
+### Devices and passwords
+
+- **Settings → Signed-in devices** lists each session (browser, IP, last active). **Sign out**
+  ends that device's session at once, including its live connection.
+- **Settings → Change password** needs the current password and signs out every other device.
+- **Settings → Sign out** ends this device's session only.
+- After five wrong passwords or codes, an account is locked for 15 seconds, then 30, 60 and so
+  on, doubling up to 15 minutes. An IP that keeps failing is slowed the same way. The error never
+  says whether the email or the password was wrong. If you lock yourself out, wait, or reset the
+  password from the CLI.
+
+### What the admin token is still for
+
+`ADMIN_TOKEN` is the key for machines, not for you day to day:
+
+- **API automation**: `Authorization: Bearer <ADMIN_TOKEN>` works on every `/api` route, as in
+  the `curl` examples below. Bearer requests don't need the CSRF header.
+- **MCP**: `claude mcp add ... --header "Authorization: Bearer <ADMIN_TOKEN>"` for the brain, Odoo
+  and actions endpoints. `/mcp/*` doesn't accept the session cookie.
+- **First-run setup**, once.
+- **"Use an admin token instead"** on the sign-in screen: the old token sign-in, kept for
+  advanced use (for example pointing the app at a different server). That token is stored in the
+  browser until you sign out.
+
+Workers use `WORKER_TOKEN` (or `ADMIN_TOKEN` if that isn't set), as before. Rotating
+`ADMIN_TOKEN` (change the variable and redeploy) doesn't sign anyone out.
+
+### How it works (security notes)
+
+- Passwords are hashed with scrypt (N=2^15, r=8, p=1, a random salt per user). The parameters are
+  stored with each hash, so they can be raised later: older hashes are upgraded at the next sign-in.
+- The session cookie is `HttpOnly`, `SameSite=Lax`, lasts 30 days from last use and, over https,
+  is `Secure` and named `__Host-cc_session`. Railway terminates TLS, so https is detected from
+  `X-Forwarded-Proto`. Only a SHA-256 of the session token is stored in the database.
+- Requests that change something with the cookie must send `X-CC-Request: 1` (the app always
+  does) or come from the same origin. Bearer-token requests are exempt.
+- Sign-in rate limits key on the client IP taken from `X-Forwarded-For`, counting
+  `TRUSTED_PROXY_HOPS` (default 1, Railway's edge) from the right, so a spoofed header can't dodge
+  them. Set it to `0` if nothing sits in front of the server.
+- TOTP follows RFC 6238 (SHA-1, 6 digits, 30 s), accepts one step either side for clock drift,
+  and refuses a code that was already used. The secret is stored in the database unencrypted.
 
 ### First check after deploying
 
@@ -81,9 +185,14 @@ past shop emails into the same format.
 
 ## Phone (PWA)
 
-Open the Railway URL on your phone, sign in with the admin token, then **Add to Home Screen**.
-On iPhone, push notifications only work from the home-screen app. In the app, go to
-**Settings → Enable on this device** to get approval notifications.
+Open the Railway URL on your phone and sign in with your email and password (and the code from
+your authenticator app, if two-factor is on). Then **Add to Home Screen** (iPhone: Share → Add to
+Home Screen; Android: ⋮ → Install app). You stay signed in for 30 days from the last time you
+used it. No token is stored on the phone; the session is an HttpOnly cookie.
+
+On iPhone the home-screen app keeps its own cookies, separate from Safari, so sign in once more
+inside it after adding it. Push notifications on iPhone only work from the home-screen app. In
+the app, go to **Notifications → Notification settings → Enable on this device** (see "Notifications").
 
 ## Desktop app & worker
 
@@ -103,8 +212,10 @@ into the app as a single executable, so the PC doesn't need Node installed.
    - **Worker token**: the `WORKER_TOKEN` value;
    - **Computer name** (optional): shown on the Devices page, defaults to the hostname.
 
-   Then **Save and connect**. The window loads the server's app, where you sign in with
-   `ADMIN_TOKEN` as on the phone.
+   Then **Save and connect**. The window loads the server's app, where you sign in with your
+   email and password, as on the phone. The window keeps its own session cookie (in WebView2's
+   profile), so it stays signed in across restarts; it shows up under **Settings → Signed-in
+   devices** as Edge on Windows. The worker token is only for the worker, not for signing in.
 
 Closing the window keeps the app in the tray. The tray menu has the worker's status (online/idle,
 busy with a job and its progress, or offline and retrying), **Open**, **Worker on** (untick it to
@@ -277,8 +388,8 @@ Set `EMAIL_ACCOUNTS` to a one-line JSON array (an example is in `.env.example`):
 
 ## Social
 
-The command centre watches and posts to social accounts on Discord, Instagram, Threads, X and
-Reddit (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
+The command centre watches and posts to social accounts on Discord, Instagram, Threads, X,
+Reddit and YouTube (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
 pipeline treats them all the same.
 
 - **In:** every account with `inbound: true`, on a platform whose adapter can read (and whose API
@@ -302,8 +413,9 @@ Agents never post directly. They propose one of these, all `draft` policy (appro
 - `social.reply` `{accountId, target, text}`: answer a comment, mention or DM. The task prompt
   includes this payload ready to fill in; `target` must stay as given.
 - `social.post` `{accountId, content}`: one post on one account. `content` is
-  `{text, media?: [{url, type: "image"|"video", alt?}], link?, title?, target?}`. Reddit needs a
-  `title` and a subreddit `target`; Instagram needs at least one image or video.
+  `{text, media?: [{url, type: "image"|"video", alt?}], link?, title?, target?, options?}`. Reddit
+  needs a `title` and a subreddit `target`; Instagram needs at least one image or video; YouTube
+  needs a `title` and exactly one video (and takes `options` such as `privacyStatus`).
 - `social.dm` `{accountId, userId, text}`: only on platforms that allow DMs.
 - `social.campaign` `{title, posts: [{accountId, content}], publishAt?}`: the same news on several
   accounts with **one approval**, e.g. a new YouTube video announced on Instagram, Threads, X,
@@ -364,7 +476,7 @@ Set `SOCIAL_ACCOUNTS` to a one-line JSON array. Each account:
 
 - `id`: short and stable. It appears in dedupe keys, checkpoints and action payloads, so don't
   rename it once the account is live.
-- `platform`: `discord`, `instagram`, `threads`, `x` or `reddit`.
+- `platform`: `discord`, `instagram`, `threads`, `x`, `reddit` or `youtube`.
 - `vertical`: where its events go and which agents may post as it (`dms`, `3dpandme`, ...).
 - `handle`, `displayName` (optional): shown to agents and in the app; `handle` also identifies the
   account's own posts.
@@ -391,7 +503,10 @@ under "Social: platform setup" below.
     "credentials": { "apiKey": "<key>", "apiSecret": "<secret>", "accessToken": "<token>", "accessTokenSecret": "<secret>" } },
   { "id": "3dp-reddit", "platform": "reddit", "vertical": "3dpandme", "handle": "u/3dpandme",
     "credentials": { "clientId": "<id>", "clientSecret": "<secret>", "username": "<user>", "password": "<password>",
-      "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/your_username)" } }
+      "userAgent": "server:com.3dpandme.commandcentre:v0.1.0 (by /u/your_username)" } },
+  { "id": "3dp-youtube", "platform": "youtube", "vertical": "3dpandme", "handle": "@3dpandme",
+    "credentials": { "clientId": "<id>.apps.googleusercontent.com", "clientSecret": "<secret>",
+      "refreshToken": "<refresh token>", "channelId": "UC<22 characters>" } }
 ]
 ```
 
@@ -453,16 +568,18 @@ whole day. The Inbox's **Today** card shows the same numbers live. Any day's dig
 
 ## Morning brief
 
-The personal vertical has a weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
+The Chief of Staff (the org root, `packages/verticals/src/org.ts`, running in the personal vertical) has a
+weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
 
 1. reads today's calendar, the reminders due today (and overdue ones) and the top to-dos, through
    the `pa` tools (see "Personal assistant" below);
 2. reads yesterday's digests and journal (Friday to Sunday on a Monday);
 3. lists pending approvals;
 4. works out today's priorities;
-5. sends you a short push through a `notify` action.
+5. sends you a short `briefing` push through a `notify` action (see "Notifications").
 
-There is also a Sunday-to-Thursday 21:00 `evening-wrap`: tomorrow's calendar, open reminders and
+There is also a Sunday-to-Thursday 21:00 `evening-wrap` on the personal vertical's Calendar &
+Reminders role (`packages/verticals/src/personal.ts`): tomorrow's calendar, open reminders and
 to-dos, and what's waiting for approval, in one push.
 
 `notify` is `auto-with-digest` for the personal vertical, so the brief arrives without an approval
@@ -478,8 +595,8 @@ Proposals made with the admin token (no task) keep their policy too. (`ActionSer
 `apps/server/src/actions.ts`.)
 
 The brief is **off by default**. To turn it on, set `enabled: true` on the `morning-brief` line in
-`packages/verticals/src/personal.ts` and redeploy; the same goes for the `evening-wrap` line. Each
-is an agent run, so it counts towards the budgets.
+`packages/verticals/src/org.ts` and redeploy; the same goes for the `evening-wrap` line in
+`packages/verticals/src/personal.ts`. Each is an agent run, so it counts towards the budgets.
 
 ## Personal assistant
 
@@ -496,7 +613,9 @@ the reminders due and your lists.
   `FREQ=WEEKLY;BYDAY=…`, `FREQ=MONTHLY;BYMONTHDAY=n`) move to their next occurrence and keep
   their local time through the clock changes. If the server was down, you get one alert, not a
   backlog. The push has **Done** and **Snooze 1h** buttons (signed links, so they work from the
-  lock screen without signing in); the Today page has the same.
+  lock screen without signing in); the Today page has the same. Reminders go through the
+  notification system as category `reminder` at `high` priority (see "Notifications" for quiet
+  hours and per-category settings); a revoked calendar token is an `alert`.
 - **Lists.** "Add milk and eggs to shopping", "put swimming bag on the Noah list". Lists (today,
   shopping, home, Noah…) are created as they are used, and are per vertical. On the Today page you
   tick items off, add, remove and rename.
@@ -579,8 +698,8 @@ saying so. Run step 5 again and update `GOOGLE_REFRESH_TOKEN`.
 
 ### Enabling the morning brief and evening wrap
 
-Set `enabled: true` on `morning-brief` and/or `evening-wrap` in
-`packages/verticals/src/personal.ts` and redeploy (see "Morning brief" above). They use the
+Set `enabled: true` on `morning-brief` (`packages/verticals/src/org.ts`) and/or `evening-wrap`
+(`packages/verticals/src/personal.ts`) and redeploy (see "Morning brief" above). They use the
 `personal-assistant` skill (`skills/personal-assistant/SKILL.md`), which also covers how the agent
 handles "remind me…", "add … to shopping", "when am I free Thursday?" and "book the dentist next
 week" (it finds a slot, then proposes the event), and UK date and time conventions.
@@ -593,6 +712,82 @@ claude mcp add --transport http pa https://<your-domain>/mcp/pa \
 ```
 
 With the admin token, writes are yours (`created_by` "dave") and you see every vertical.
+
+## Notifications
+
+Every notification is saved in the app's **notification centre** (the bell in the header, with
+the unread count; the same count shows on the app icon where the Badging API is supported). Each
+one has a **category**, and the category decides whether it reaches your devices as a push.
+Change it all under **Notifications → Notification settings** (`#/notification-settings`).
+
+### Categories and defaults
+
+| Category | What sends it | Default |
+| --- | --- | --- |
+| `approval` | an action waiting for approval | push, sound, high |
+| `briefing` | morning brief, evening wrap, quick briefing | push, silent |
+| `reminder` | personal-assistant reminders | push, sound, high |
+| `alert` | budget reached, a scheduled post failed | push, sound, urgent |
+| `digest` | the daily digest | push, silent, low |
+| `social` | social activity | batched into the next digest |
+| `orders` | Odoo/shop orders | batched into the next digest |
+| `system` | test pushes, system notices | in the app only |
+| `agent` | anything else an agent sends with `notify` | push, sound |
+
+For each category you can set: **on/off** (off: still listed in the centre, already marked read);
+**delivery** (push now, add to the next digest push, or in the app only); **sound** (off shows the
+push silently, with no sound or vibration); and its **priority**. **Per vertical** overrides change
+one category for one business, e.g. 3dpandme social off.
+
+- Approval requests share one notification (tag `approvals`) that is replaced by each new request,
+  says how many more are waiting, and has **Approve** / **Reject** buttons. The buttons don't act
+  from the lock screen: they open the app on that proposal and ask you to confirm. (The service
+  worker has no credentials, and a stray tap on a lock screen shouldn't send an email.) Deciding
+  a proposal marks its notification read.
+- Briefings open a briefing view (`#/briefing/<id>`).
+- **Rate limit:** at most 3 pushes per category per 10 minutes (configurable). Extras collapse into
+  one "and N more" notification per category, which updates in place. Urgent is never limited.
+- **Batched** notifications are added to the next daily-digest push as one line ("Also: 2 social,
+  1 orders"). If there is no digest that day they stay in the centre.
+
+Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`normal`/`low`),
+`vertical`, `tag`, `actions` and `data`; `{title, body, url}` alone still works, and the category
+is then guessed from the title and URL (else `agent`). The `notify` action takes
+`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`.
+
+### Quiet hours
+
+Default **22:00–07:00 Europe/London**, across midnight and following daylight saving. During quiet
+hours only `urgent` pushes (and approvals, if you tick **Let approvals through**). Everything else
+is held and, when quiet hours end, arrives as **one summary push** listing what came in.
+
+### Quick briefing
+
+Off by default. When on, at the set time (default 07:30) you get a `briefing` push with today's
+counts: approvals waiting, tasks so far, spend against budget, and unread notifications. It is a
+system job, not an agent run, so it costs nothing. The agent-written morning brief (above) is
+separate and is also sent as a `briefing`.
+
+### Devices
+
+**Notification settings → Enable on this device** subscribes the device and asks for a name
+("Dave's phone"). The device list shows each one's platform and last successful push, and lets you
+rename or remove it, choose what it gets (everything, high and up, or urgent only: e.g. urgent only
+on the phone, everything on the desktop), and **Send test**. Each category row also has a **Test**
+button, which sends a test push to every device that category reaches (ignoring quiet hours and
+the rate limit). Devices whose subscription has expired are removed automatically.
+
+- **iPhone/iPad (iOS 16.4+):** push only works from the home-screen app. In Safari, **Share → Add
+  to Home Screen**, open Command Centre from the home screen, sign in, then **Enable on this
+  device** and allow notifications. Focus modes can still silence it.
+- **Android (Chrome):** install the app (menu → **Install app**) or use it in Chrome, then **Enable
+  on this device**. If nothing arrives, check Android's notification settings for Chrome / the app.
+- **Windows/macOS:** Chrome or Edge, installed or in a tab. Pushes arrive while the browser runs.
+
+The server needs `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`; without them notifications are only
+in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifications/unread-count`,
+`POST /api/notifications/:id/read`, `POST /api/notifications/read-all`,
+`GET|PUT /api/notifications/prefs`, `/api/notifications/devices`, `POST /api/notifications/test`.
 
 ## Odoo
 
@@ -634,6 +829,69 @@ claude mcp add --transport http odoo https://<your-domain>/mcp/odoo \
 
 Then ask Claude to `list_websites`. You should see both the Desktop Machine Shop and 3dpandme
 sites, with their blogs.
+
+### Odoo events
+
+When Odoo is configured, the server also **polls** Odoo (every 5 minutes by default) and turns
+what happened into events. Odoo Online can't run custom modules, so nothing is pushed to the
+server.
+
+| Source | What it watches | Event | Default handling |
+| --- | --- | --- | --- |
+| `orders` | confirmed sales and website orders (`sale.order` in state sale/done) | `order.created` | filed: a journal line and the digest, no agent |
+| `messages` | customer chatter messages (`mail.message` of type comment, not by an internal user) on orders, contacts and tickets | `message.received` | agent drafts a reply (`dms-customer-reply`) |
+| `tickets` | new Helpdesk tickets (if Helpdesk is installed) | `message.received` | agent drafts a reply |
+| `stock` | a storable product's on-hand quantity dropping below its threshold, once per crossing | `stock.low` | agent proposes a reorder note (`dms-ops`) |
+| `deliveries` | an outgoing delivery still not done `lateAfterHours` after its scheduled date, once | `delivery.late` | agent drafts an apology (`dms-ops`) |
+| `reviews` | submitted ratings and product reviews (`rating.rating`, if installed) | `review.received` | agent drafts a reply (`dms-ops`) |
+
+- **First run:** each source starts from "now" and doesn't replay old records. Progress is kept
+  per source in the `odoo_event_checkpoints` table, so restarts carry on where they stopped.
+- **Missing apps:** if an app or field a source needs isn't there (no Helpdesk, for example), that
+  source logs `odoo-events: <source>: disabled: ...` once and stops. The others keep running.
+  Restart the server after installing the app.
+- **Untrusted:** Odoo content can come from customers. Tasks from Odoo events never auto-execute
+  outward actions: every proposal waits for your approval, whatever the vertical's policy.
+- **Digest:** the daily digest of each vertical gets an **Odoo** section, with the order count
+  and revenue, customer messages, low-stock items, late deliveries and reviews.
+
+Set `ODOO_EVENTS` to choose what runs. Leave it unset (or `on`) for every source with the
+defaults, or set:
+
+- `off` to disable polling;
+- a list such as `orders,stock,deliveries`;
+- JSON options:
+
+```json
+{
+  "sources": ["orders", "messages", "tickets", "stock", "deliveries", "reviews"],
+  "pollSeconds": 300,
+  "lowStockThreshold": 3,
+  "useReorderRules": true,
+  "websites": { "1": "dms", "3dpandme": "3dpandme" },
+  "defaultVertical": "dms",
+  "bigOrderThreshold": 500,
+  "lateAfterHours": 24,
+  "messageTypes": ["comment"],
+  "overlapSeconds": 600
+}
+```
+
+- `pollSeconds`: how often each source is checked (minimum 30).
+- `lowStockThreshold`: a product is low when `qty_available` is **below** this. With
+  `useReorderRules`, a product's reordering rule (Inventory → Configuration → Reordering Rules)
+  with a min quantity above 0 sets its threshold instead. Services and consumables are never low.
+- `websites`: maps an Odoo website, by id or by name, to a vertical. Find the ids with the
+  `list_websites` tool. Anything else (and records with no website, such as stock) goes to
+  `defaultVertical`.
+- `bigOrderThreshold`: an order at or above this total (in its own currency) goes to an agent for
+  a check, instead of just being filed.
+- `lateAfterHours`: grace period after a delivery's scheduled date. Many orders are scheduled for
+  the moment they're placed, so `0` would flag nearly every order.
+- `messageTypes`: add `"email"` to also catch customers' email replies to Odoo's own mails
+  (quotations, order confirmations), if those don't already reach a polled inbox.
+- `overlapSeconds`: how far back each poll looks again, for records committed late. Already-seen
+  ids are skipped.
 
 ## Social: platform setup
 
@@ -1008,6 +1266,146 @@ What it does:
    - **Other API calls:** up to 4800 × impressions per 24 hours per app and user. Impressions
      count as at least 10.
 
+### YouTube
+
+The adapter uses the **YouTube Data API v3** for one channel (e.g. 3dpandme, or a channel for
+OpenV / OpenD videos), with OAuth 2.0 and a refresh token.
+
+What it does:
+
+- **Publish:** uploads one video per post with the resumable upload protocol. The file is
+  streamed from its `MediaRef` URL in 8 MiB chunks, so large videos aren't held in memory, and
+  a dropped chunk or a 5xx is resumed rather than restarted.
+  - `content.title` is the video title (required, at most 100 characters, no `<` or `>`).
+  - `content.text` is the description, with `content.link` added on its own line. The limit is
+    5000 **bytes** (UTF-8), so emoji and accented letters count for more than one.
+  - `content.options`:
+    - `privacyStatus`: `private` (the default), `unlisted` or `public`. Nothing goes public
+      unless the post says so.
+    - `publishAt`: an ISO time for YouTube's own scheduling. It needs `privacyStatus: "private"`
+      (or no `privacyStatus`); YouTube makes the video public at that time. This is different from
+      a campaign's `publishAt`, which decides when Command Centre uploads.
+    - `tags` (500 characters in all, counting commas, and quotes around tags with spaces),
+      `categoryId` (e.g. `"28"` Science & Technology, `"26"` Howto & Style; the account's
+      `options.defaultCategoryId` is used when it's missing), `madeForKids` (default `false`),
+      `notifySubscribers` (default `true`), `containsSyntheticMedia`, `defaultLanguage`.
+    - `thumbnailUrl`: a JPEG or PNG at a public URL, set with `thumbnails.set` after the upload.
+      Custom thumbnails need a verified channel. If setting the thumbnail fails, the upload still
+      counts as published and the server logs why; set the thumbnail in YouTube Studio.
+  - It returns `https://youtu.be/<id>`.
+  - **Shorts:** there's no separate API. A square or vertical video up to 3 minutes long is a
+    Short. Adding `#Shorts` to the title or description is optional.
+- **Reply:** answers a comment or a reply with `comments.insert`. YouTube threads are one level
+  deep, so a reply to a reply goes on the thread and starts with the author's `@handle`.
+- **Inbound:** polls `commentThreads.list` with `allThreadsRelatedToChannelId` every 15 minutes
+  (set `SOCIAL_YOUTUBE_POLL_SECONDS` to change it, minimum 60) for new top-level comments and
+  replies on the channel's videos. Each item has the video link and title. The channel's own
+  comments are skipped. The first poll only notes what's there. Each poll scans the newest
+  `options.pollPages` pages of threads (default 2, 100 threads each, 1 quota unit a page), plus
+  one `comments.list` call for a thread whose reply count went up but whose new replies YouTube
+  left out of the listing. A new reply on a very old thread that is further down than those pages
+  isn't seen. Comments held for review appear once you approve them, if that is within 15 minutes;
+  otherwise answer them from YouTube Studio.
+- **DMs:** YouTube has none.
+- **Errors:**
+  - `quotaExceeded` says the project's daily quota is used up and resets at midnight Pacific
+    Time.
+  - `uploadLimitExceeded` is the channel's own upload limit, not API quota.
+  - Disabled comments, an invalid `publishAt`, a missing scope or a revoked refresh token each
+    get their own message.
+  - The client secret, refresh token, access tokens and upload session ids never appear in
+    errors or logs.
+
+**Quota.** Checked in October 2026 against Google's quota pages (updated 2026-10-15):
+
+- Since 1 June 2026, `videos.insert` and `search.list` each have **their own quota bucket**, by
+  default **100 calls a day**, at 1 unit per call. So an upload no longer eats about 1,600 of the
+  10,000 general units (that was the old cost; it fell to about 100 in December 2025 before the
+  separate bucket).
+- Everything else shares **10,000 units a day** per Google Cloud project:
+  - `thumbnails.set`: 50;
+  - `comments.insert` (a reply): 50;
+  - `commentThreads.list`, `comments.list` and `videos.list`: 1 each.
+- Quotas reset at midnight Pacific Time. Polling every 15 minutes costs roughly 200–300 units a
+  day, which leaves plenty for replies.
+- Usage is under **APIs & Services → YouTube Data API v3 → Quotas** in the Cloud console. More
+  quota needs the YouTube API Services audit and quota extension form.
+
+**The private-lock audit caveat.** In July 2020 YouTube said videos uploaded through an
+unverified API project created after 28 July 2020 would be locked **private** until the project
+passed an API compliance audit, and the creator would get an email about it. Since then:
+
+- In October 2026, the `videos.insert` and `videos` reference pages (updated 2026-10-15) say
+  instead: "Videos uploaded from unverified API projects are not restricted to private viewing
+  mode."
+- The revision history has no entry recording that change, and third-party guides from mid-2026
+  still describe the lock.
+
+So test it once. Upload a short video with `privacyStatus: "unlisted"`. If YouTube still makes it
+private, the adapter logs "uploaded as unlisted but YouTube made it private ... compliance audit",
+and you need to apply for the audit (YouTube API Services → Audit and Quota Extension Form). Until
+then, publish videos by hand in YouTube Studio. Because the default is `private` and Dave publishes
+or schedules deliberately, the lock doesn't affect the default flow.
+
+1. **Create the Google Cloud project.**
+   - Go to <https://console.cloud.google.com/> and create a project, e.g. `command-centre-youtube`.
+     Use one project for all your channels, or one per brand if you want separate quotas.
+   - Open **APIs & Services → Library**, search for **YouTube Data API v3**, and **Enable** it.
+2. **Set up the OAuth consent screen** (**Google Auth Platform → Branding / Audience / Data
+   access**):
+   - **User type: External** (a personal Google account can't use Internal). Fill in the app name
+     (e.g. "Command Centre") and the support email.
+   - **Data access → Add or remove scopes**:
+     - `https://www.googleapis.com/auth/youtube.upload` for uploads and thumbnails;
+     - `https://www.googleapis.com/auth/youtube.force-ssl` for reading comments and replying.
+   - **Audience:** add the Google account that owns the channel as a **test user**, then click
+     **Publish app** to move it to **In production**. While the app is in **Testing**, Google
+     expires refresh tokens after **7 days**, and the adapter starts failing with `invalid_grant`.
+     An unverified app in production works for your own account: you click through a "Google
+     hasn't verified this app" warning once, during step 4. Verification by Google is only needed
+     to serve other people.
+3. **Create the OAuth client.** **Google Auth Platform → Clients → Create client**, type **Desktop
+   app**, named e.g. `youtube-auth`. Copy the **Client ID** and **Client secret**. These become
+   `clientId` and `clientSecret`.
+4. **Get the refresh token.** On a computer with a browser (not the server), in the repo:
+
+   ```bash
+   YT_CLIENT_ID=<client id> YT_CLIENT_SECRET=<client secret> pnpm --filter @cc/social youtube:auth
+   ```
+
+   - It prints a Google sign-in URL and waits on `http://127.0.0.1:<random port>`.
+   - Open the URL and sign in as the account that owns the channel. For a Brand Account channel,
+     pick the channel when Google asks. Tick **both** permissions.
+   - It prints the **refresh token**, the **channel id** (`UC...`, from `channels.list?mine=true`)
+     and a ready-made `SOCIAL_ACCOUNTS` entry.
+   - The flow uses PKCE, `access_type=offline` and `prompt=consent`, so Google always returns a
+     refresh token. `YT_LOGIN_HINT=<email>` pre-selects the account.
+   - Each run makes a new refresh token. Google keeps at most 100 per account and client, and drops
+     the oldest beyond that.
+5. **Add the account** to `SOCIAL_ACCOUNTS`. Set `handle` to the channel's `@handle`; it is shown
+   to agents and used to skip the channel's own comments, along with `channelId`.
+
+   ```json
+   {
+     "id": "3dp-youtube",
+     "platform": "youtube",
+     "vertical": "3dpandme",
+     "handle": "@3dpandme",
+     "credentials": {
+       "clientId": "<id>.apps.googleusercontent.com",
+       "clientSecret": "<client secret>",
+       "refreshToken": "<refresh token from youtube:auth>",
+       "channelId": "UC<22 characters>"
+     },
+     "options": { "defaultCategoryId": "28", "pollPages": 2 }
+   }
+   ```
+
+   For the OpenV and OpenD channels, add one entry each with their own `refreshToken` and
+   `channelId`, in their verticals. They can share the client id and secret.
+6. **Revoking:** remove access at <https://myaccount.google.com/permissions>, or delete the OAuth
+   client. Then run step 4 again.
+
 ### Media hosting (Instagram and Threads)
 
 Instagram and Threads don't accept uploads from us. Meta fetches each image or video **from a
@@ -1040,6 +1438,123 @@ for this. Don't point it at `localhost` or a private network.
 
 Set `handle` to the account's username. The adapters use it, along with the account id, to skip
 the account's own comments and replies.
+
+## Voice and Drive mode
+
+Drive mode (`#/drive`, or the **Drive mode** button on Chat) runs Command Centre by voice: one
+huge talk button, answers read aloud, approvals read out and decided by voice. It is built for
+the phone in the car, so it shows almost nothing to read.
+
+### In the car
+
+1. Pair the phone with the car (or a headset) over Bluetooth. Open Command Centre and tap
+   **Drive mode** before you set off. The first tap on the big button also grants the microphone
+   and turns on the **headset button**: the car's or headset's play/pause button then works as the
+   talk button (Media Session API). If the button does nothing, tap the screen once again.
+2. Press (screen or headset) and speak. Commands are handled on the phone, without the agent:
+   - "what's new" or "briefing": pending approvals, failed or held-back tasks, today's spend and
+     (once the calendar is connected) what's next;
+   - "read approvals", then "approve", "reject" or "next";
+   - "repeat", "stop", "cancel", "that's all";
+   - "conversation mode" or "push to talk" switches modes;
+   - start with a business to send a request there: "shop: has order 1042 shipped?",
+     "dms, …", "3dpandme: …", "open v: …".
+
+   Anything else goes to the agent in **voice mode**: it answers in one to three short spoken
+   sentences. While it works you hear "Working on it", then "Still working on it" every
+   20 seconds.
+3. **Approving by voice always asks twice.** "Approve" reads the item back ("To approve: Reply to
+   Jane about order 1042. Say 'yes, approve' to confirm, or 'no'"). Only "yes, approve" (or the
+   on-screen **Yes, approve** button) does it. A bare "yes" never confirms anything, and a longer
+   sentence such as "approve the quote for Jane" is sent to the agent as a request rather than
+   treated as an approval.
+
+**Two modes** (the toggle at the top; remembered per device):
+
+- **Push to talk** (default): it only listens after a press. If the agent asks a question, it
+  reads the question and waits for your next press. What you say then answers that question in the
+  same conversation.
+- **Conversation**: after a question from the agent, a read-out approval or a confirmation, it
+  plays a "your turn" chime and listens by itself. After 8 seconds of silence it asks "Still
+  there?" once, then stops. Your answer continues the same task. "Stop", "cancel" or "that's all"
+  ends the conversation at any point. **Options → Listen for a follow-up** also listens for
+  5 seconds after a final answer.
+
+How a conversation continues: in voice mode the agent ends its answer with one JSON line,
+`{"voice":{"type":"converse"|"final","text":"…"}}`. The server parses that line and stores it on
+the run as `response`. It shows in `GET /api/tasks/:id` and is pushed live as `run.response`. A
+reply goes to `POST /api/tasks/:id/reply {text, voice}`, which queues the same task again. The
+next run resumes the earlier Claude Code session (`--resume`), so the conversation's history stays
+on one task. If there is no session to resume, the prompt carries the earlier question instead.
+
+**Keeping the screen on.** Drive mode holds a screen wake lock while it is open (the Options line
+shows "Screen: kept on"). The phone releases the lock when you switch apps or lock the screen, and
+Drive mode takes it again when you come back. Mount the phone where you can see the big button,
+and keep it plugged in.
+
+**Android (Chrome)** works best. Speech recognition uses Google's servers unless on-device
+recognition is installed, so it needs signal. The headset button needs Drive mode in the
+foreground and at least one tap first.
+
+**iPhone (Safari) caveats:**
+
+- Speech recognition works in a Safari tab. In an app added to the Home Screen it has
+  historically been exposed but done nothing. There, Drive mode uses the server's
+  speech-to-text when one is configured (see below), so set one up if you use the installed app.
+- Speech only starts after a tap, so tap the big button once when you open Drive mode.
+- The screen wake lock needs iOS 16.4 or later; in Home Screen apps it reportedly only works from iOS 18.4.
+- Headset buttons are less reliable than on Android.
+
+**Safety.** Set everything up before you drive. Use the headset button or a single tap, and don't
+read the screen: everything important is spoken. Long answers are cut to about 40 seconds and end
+with "There's more on screen when you're parked". Nothing outward-facing happens without a spoken
+readback and an explicit "yes, approve". Use it only where hands-free phone use is legal.
+
+### Optional server voices
+
+With nothing configured, Drive mode uses the browser's own speech: free, quick, with an en-GB
+voice where the device has one. Server providers are an upgrade for quality, and a fallback for
+devices whose browser can't listen (iOS Home Screen apps) or has no good voice. `GET
+/api/voice/config` reports what is available, and the PWA chooses automatically. To prefer the
+server voice anyway, tick **Options → Use the server voice**.
+
+| Variable | Default | |
+|---|---|---|
+| `OPENAI_API_KEY` | – | enables OpenAI speech-to-text and text-to-speech |
+| `ELEVENLABS_API_KEY` | – | enables ElevenLabs text-to-speech (and Scribe speech-to-text) |
+| `VOICE_STT_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = OpenAI, else ElevenLabs |
+| `VOICE_TTS_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = ElevenLabs, else OpenAI |
+| `VOICE_OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` | or `gpt-4o-transcribe`, `whisper-1` |
+| `VOICE_OPENAI_TTS_MODEL` / `VOICE_OPENAI_VOICE` | `gpt-4o-mini-tts` / `fable` | |
+| `VOICE_ELEVENLABS_TTS_MODEL` / `VOICE_ELEVENLABS_VOICE` | `eleven_flash_v2_5` / George (British) | voice id from the ElevenLabs voice library |
+| `VOICE_ELEVENLABS_STT_MODEL` | `scribe_v2` | |
+| `VOICE_MAX_UPLOAD_KB` / `VOICE_MAX_SECONDS` | `2048` / `60` | limits for `POST /api/voice/transcribe` |
+| `VOICE_LANGUAGE` | `en-GB` | |
+
+`auto` turns a provider on as soon as its key is set. If `OPENAI_API_KEY` is there for something
+else, set `VOICE_STT_PROVIDER=off` / `VOICE_TTS_PROVIDER=off` to keep voice on the browser.
+
+Typical costs (list prices, October 2026):
+
+- Speech-to-text: OpenAI `gpt-4o-mini-transcribe` about $0.003 a minute (`gpt-4o-transcribe`
+  $0.006); ElevenLabs Scribe v2 about $0.22 an hour.
+- Text-to-speech: ElevenLabs Flash v2.5 about $0.04 per 1,000 characters (a three-sentence answer
+  is about 250 characters, so about 1p); OpenAI `gpt-4o-mini-tts` about $0.015 a minute of audio.
+- An hour of driving with a dozen requests costs a few pence.
+
+Short phrases ("Working on it", confirmations) are cached in memory by `POST /api/voice/speak`.
+
+Endpoints, all behind the dashboard auth:
+
+- `POST /api/voice/transcribe` (raw audio body or multipart `file`; `?seconds=`, `?language=`)
+  returns `{text}`;
+- `POST /api/voice/speak {text, voice?}` returns audio;
+- `GET /api/voice/config`;
+- `GET /api/voice/briefing` returns `{text, approvals, attention, cost, calendar}`. It is
+  deterministic, with no LLM;
+- `GET /api/voice/approvals/next?skip=id,id` returns the next pending proposal, described for
+  reading aloud. Approving and rejecting use the normal `/api/proposals/:id/approve|reject`;
+- `POST /api/chat {text, voice: true}` and `POST /api/tasks/:id/reply {text, voice}`.
 
 ## Extending
 

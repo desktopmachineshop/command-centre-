@@ -134,15 +134,19 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
 
     await ctx.server.deliverReminders();
     const push = ctx.notifier.sent.find((n) => n.body.startsWith("Noah's swimming kit")) as any;
-    expect(push).toMatchObject({ title: "Reminder", url: "/today", tag: `reminder-${created.id}` });
-    expect(push.actions.map((a: any) => a.action)).toEqual(["done", "snooze"]);
+    expect(push).toMatchObject({ title: "Reminder", url: "/today", tag: `reminder-${created.id}`, category: "reminder", priority: "high", vertical: "personal" });
+    expect(push.actions).toEqual([
+      { action: "done", title: "Done" },
+      { action: "snooze", title: "Snooze 1h" },
+    ]);
+    const urls = push.data.actionUrls as { done: string; snooze: string };
 
-    const bad = await ctx.server.app.request(push.actions[0].url.replace(/sig=[^&]+/, "sig=forged"), { method: "POST" });
+    const bad = await ctx.server.app.request(urls.done.replace(/sig=[^&]+/, "sig=forged"), { method: "POST" });
     expect(bad.status).toBe(401);
-    const snooze = await ctx.server.app.request(push.actions[1].url, { method: "POST" });
+    const snooze = await ctx.server.app.request(urls.snooze, { method: "POST" });
     expect(snooze.status).toBe(200);
     expect(await snooze.json()).toMatchObject({ status: "pending" });
-    const done = await ctx.server.app.request(push.actions[0].url, { method: "POST" });
+    const done = await ctx.server.app.request(urls.done, { method: "POST" });
     expect(await done.json()).toMatchObject({ status: "done" });
   });
 

@@ -223,7 +223,7 @@ export function createSocialExecutors(
   return {
     "social.post": {
       description:
-        'Publish one post on one social account. payload: { accountId, content: { text, media?: [{ url, type: "image"|"video", alt? }], link?, title? (Reddit), target? (subreddit or Discord channel id) } }. Media must be at a public URL (upload to /api/media, or use one you found). For several platforms at once, use social.campaign.',
+        'Publish one post on one social account. payload: { accountId, content: { text, media?: [{ url, type: "image"|"video", alt? }], link?, title? (Reddit post title, YouTube video title), target? (subreddit or Discord channel id), options? (platform extras, e.g. YouTube { privacyStatus, publishAt, tags, categoryId, madeForKids, thumbnailUrl }) } }. Media must be at a public URL (upload to /api/media, or use one you found). For several platforms at once, use social.campaign.',
       validate: (payload, ctx) => void validatePost(payload, ctx.vertical),
       execute: async (payload) => {
         const { p, a, adapter } = validatePost(payload);

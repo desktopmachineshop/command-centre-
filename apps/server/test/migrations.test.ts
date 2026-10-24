@@ -18,8 +18,7 @@ describe.skipIf(!DB_URL)("migrations", () => {
         await pool.query("insert into schema_migrations (id) values ($1)", [id]);
       }
 
-      // Later migrations (0007_pa, ...) follow; this test is about the first three.
-      expect((await migrate(pool)).slice(0, 3)).toEqual(["0002_email_checkpoints", "0003_budgets_digests", "0004_social"]);
+      expect(await migrate(pool)).toEqual(migrations.map((m) => m.id).filter((id) => id !== "0001_init"));
       const cols = await pool.query("select column_name from information_schema.columns where table_name = 'tasks' and column_name in ('note', 'duplicate_of', 'budget_override')");
       expect(cols.rows).toHaveLength(3);
       expect(await migrate(pool)).toEqual([]);

@@ -56,6 +56,12 @@ export const INTENT_HINTS: Record<string, string> = {
   reminder: "Something Dave needs to remember or do by a date: appointments, renewals, deadlines",
   question: "A question that needs an answer or a bit of research",
   admin: "Personal admin: bills, bank, insurance, utilities, government, household",
+  // Odoo events (set by the rules triager from the event kind; see ./odoo.ts)
+  "new-order": "A new confirmed sales or website order in Odoo",
+  "customer-message": "A customer's message or helpdesk ticket on an Odoo record that may need a reply",
+  "stock-low": "A product's stock fell below its reorder threshold",
+  "delivery-late": "An outgoing delivery is past its scheduled date and not yet shipped",
+  review: "A customer rating or product review",
   other: "None of the other intents fit",
 };
 

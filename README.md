@@ -25,8 +25,10 @@ packages/pa            personal assistant: reminders, to-do lists, Google Calend
 packages/social        social platform adapters, inbound watcher, social.* executors, scheduled posts
 packages/triage        triagers (rules, Jev, Haiku fallback) + accuracy eval
 packages/verticals     one manifest per business / life area
+packages/voice         speech-to-text / text-to-speech clients (OpenAI, ElevenLabs, fake) + speakable text
 skills/                shared skills bank (Agent Skills format)
 ```
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and phased plan
 - [docs/SETUP.md](docs/SETUP.md): running locally and deploying to Railway
+- [docs/ORG.md](docs/ORG.md): the org chart of agent roles (Chief of Staff, leads, specialists), routing and handoffs

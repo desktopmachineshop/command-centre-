@@ -1,4 +1,5 @@
 import type { Event, TriageResult } from "@cc/core";
+import { triageOdooEvent } from "./odoo";
 import type { TriageContext, Triager } from "./triager";
 
 /**
@@ -34,6 +35,17 @@ export class RulesTriager implements Triager {
         triager: this.name,
       };
     }
+
+    // A handoff between org roles: the server set the vertical and role, so no model needs to guess.
+    if (event.source === "system" && event.kind === "handoff" && known) {
+      return { vertical: known.id, intent: "handoff", urgency: 0.6, route: "agent", confidence: 1, triager: this.name };
+    }
+    // --- Odoo events: route and intent from the kind (./odoo.ts) ---
+    if (event.source === "odoo") {
+      const odoo = triageOdooEvent(event, context, this.name);
+      if (odoo) return odoo;
+    }
+    // --- end odoo ---
 
     if (known) {
       return {

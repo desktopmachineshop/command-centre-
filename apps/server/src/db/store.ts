@@ -16,6 +16,7 @@ import type {
   TriageResult,
   WorkerNode,
 } from "@cc/core";
+import type { OdooCheckpoint } from "@cc/odoo";
 import type { NewScheduledPost, ScheduledPost, ScheduledPostStatus } from "@cc/social";
 import type { Pool } from "./pool";
 
@@ -44,6 +45,7 @@ const toTask = (r: Row): Task => ({
   prompt: r.prompt,
   note: r.note ?? null,
   duplicateOf: r.duplicate_of ?? null,
+  role: r.role ?? null,
   createdAt: iso(r.created_at)!,
   updatedAt: iso(r.updated_at)!,
 });
@@ -174,10 +176,11 @@ export class Store {
     prompt: string;
     note?: string | null;
     duplicateOf?: string | null;
+    role?: string | null;
   }): Promise<Task> {
     const { rows } = await this.pool.query(
-      `insert into tasks (id, event_id, vertical, intent, route, urgency, status, prompt, triage, note, duplicate_of)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning *`,
+      `insert into tasks (id, event_id, vertical, intent, route, urgency, status, prompt, triage, note, duplicate_of, role)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning *`,
       [
         randomUUID(),
         t.eventId,
@@ -190,6 +193,7 @@ export class Store {
         t.triage,
         t.note ?? null,
         t.duplicateOf ?? null,
+        t.role ?? null,
       ],
     );
     return toTask(rows[0]!);
@@ -320,12 +324,55 @@ export class Store {
     return rows[0] ? toTask(rows[0]) : null;
   }
 
-  async listTasks(options: { status?: TaskStatus; limit?: number } = {}): Promise<Task[]> {
+  /**
+   * Newest tasks first. `role` narrows to one org role; with `includeUnassigned`
+   * (for a vertical's lead) tasks from before roles existed count as that role's.
+   */
+  async listTasks(
+    options: { status?: TaskStatus; limit?: number; vertical?: string; role?: string; includeUnassigned?: boolean } = {},
+  ): Promise<Task[]> {
     const { rows } = await this.pool.query(
-      `select * from tasks where ($1::text is null or status = $1) order by created_at desc limit $2`,
-      [options.status ?? null, options.limit ?? 50],
+      `select * from tasks
+       where ($1::text is null or status = $1) and ($3::text is null or vertical = $3)
+         and ($4::text is null or role = $4 or ($5::boolean and role is null))
+       order by created_at desc limit $2`,
+      [options.status ?? null, options.limit ?? 50, options.vertical ?? null, options.role ?? null, options.includeUnassigned ?? false],
     );
     return rows.map(toTask);
+  }
+
+  /**
+   * Per (vertical, role) numbers for the org chart: open tasks and pending
+   * proposals now, tasks done and agent cost since `since`.
+   * `role` is null for tasks from before roles existed.
+   */
+  async roleStats(since: Date): Promise<{ vertical: string; role: string | null; open: number; done: number; costUsd: number; pending: number }[]> {
+    const { rows } = await this.pool.query(
+      `with t as (
+         select vertical, role,
+           count(*) filter (where status in ('queued', 'running', 'awaiting_approval', 'deferred'))::int as open,
+           count(*) filter (where status = 'done' and updated_at >= $1)::int as done
+         from tasks group by vertical, role
+       ), c as (
+         select t.vertical, t.role, coalesce(sum(r.cost_usd), 0)::float as cost
+         from agent_runs r join tasks t on t.id = r.task_id where r.started_at >= $1
+         group by t.vertical, t.role
+       ), p as (
+         select t.vertical, t.role, count(*)::int as pending
+         from proposals p join tasks t on t.id = p.task_id where p.status = 'pending'
+         group by t.vertical, t.role
+       ), k as (
+         select vertical, role from t union select vertical, role from c union select vertical, role from p
+       )
+       select k.vertical, k.role, coalesce(t.open, 0) as open, coalesce(t.done, 0) as done,
+              coalesce(c.cost, 0)::float as cost, coalesce(p.pending, 0) as pending
+       from k
+       left join t on t.vertical = k.vertical and t.role is not distinct from k.role
+       left join c on c.vertical = k.vertical and c.role is not distinct from k.role
+       left join p on p.vertical = k.vertical and p.role is not distinct from k.role`,
+      [since],
+    );
+    return rows.map((r) => ({ vertical: r.vertical, role: r.role, open: r.open, done: r.done, costUsd: r.cost, pending: r.pending }));
   }
 
   // Agent runs
@@ -699,4 +746,29 @@ export class Store {
     );
     return rows[0] ? toScheduledPost(rows[0]) : null;
   }
+
+  // --- Odoo events (implements OdooCheckpointStore from @cc/odoo) ---
+
+  async getOdooCheckpoint(key: string): Promise<OdooCheckpoint | null> {
+    const { rows } = await this.pool.query("select cursor, seen_ids, state from odoo_event_checkpoints where source = $1", [key]);
+    return rows[0] ? { cursor: rows[0].cursor ?? null, seenIds: rows[0].seen_ids ?? [], state: rows[0].state ?? {} } : null;
+  }
+
+  async saveOdooCheckpoint(key: string, c: OdooCheckpoint): Promise<void> {
+    await this.pool.query(
+      `insert into odoo_event_checkpoints (source, cursor, seen_ids, state) values ($1, $2, $3, $4)
+       on conflict (source) do update set cursor = excluded.cursor, seen_ids = excluded.seen_ids, state = excluded.state, updated_at = now()`,
+      [key, c.cursor, c.seenIds, JSON.stringify(c.state)],
+    );
+  }
+
+  /** Odoo events of a vertical received within `[start, end)`, oldest first (for the digest). */
+  async listOdooEventsBetween(vertical: string, start: Date, end: Date): Promise<Event[]> {
+    const { rows } = await this.pool.query(
+      `select * from events where source = 'odoo' and vertical = $1 and received_at >= $2 and received_at < $3 order by received_at`,
+      [vertical, start, end],
+    );
+    return rows.map(toEvent);
+  }
+  // --- end odoo events ---
 }

@@ -1,6 +1,6 @@
 import type { AgentRunner, AgentRunRequest, AgentRunResult } from "@cc/agent-runtime";
 import { defineVertical } from "@cc/core";
-import { VerticalRegistry, verticals } from "@cc/verticals";
+import { chiefOfStaff, VerticalRegistry, verticals } from "@cc/verticals";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ADMIN, DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./helpers";
 
@@ -34,7 +34,7 @@ class ControlledRunner implements AgentRunner {
   }
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
-    const vertical = request.cwd!.split("/").pop()!;
+    const vertical = request.cwd!.split("/").at(-2)!; // workspaces/<vertical>/<role>
     const step = this.steps.shift() ?? {};
     this.prompts.push(request.prompt);
     this.active.set(vertical, (this.active.get(vertical) ?? 0) + 1);
@@ -343,9 +343,9 @@ describe.skipIf(!DB_URL)("daily digest", () => {
     );
   });
 
-  it("offers a morning brief for the personal vertical, off by default", () => {
-    const personal = verticals.find((v) => v.id === "personal")!;
-    const brief = personal.schedules.find((s) => s.id === "morning-brief");
+  it("offers a morning brief, owned by the Chief of Staff and off by default", () => {
+    expect(chiefOfStaff.homeVertical).toBe("personal");
+    const brief = chiefOfStaff.schedules.find((s) => s.id === "morning-brief");
     expect(brief).toMatchObject({ cron: "0 7 * * 1-5", timezone: "Europe/London", enabled: false });
     expect(brief!.prompt).toMatch(/digests/);
     expect(brief!.prompt).toMatch(/list_pending/);

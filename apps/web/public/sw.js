@@ -1,8 +1,9 @@
-// Service worker: offline app shell + web push notifications for approvals.
-const SHELL = "cc-shell-v2";
+// Service worker: offline app shell + web push notifications.
+importScripts("/sw-notify.js"); // notifications
+const SHELL = "cc-shell-v3";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg"])));
+  event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/sw-notify.js"])));
   self.skipWaiting();
 });
 
@@ -31,36 +32,40 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+// --- notifications: categories, tags, actions, badge (pure logic in sw-notify.js) ---
 self.addEventListener("push", (event) => {
-  const data = event.data ? event.data.json() : { title: "Command Centre", body: "" };
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: "/icon.svg",
-      tag: data.tag,
-      // Reminder buttons ("Done", "Snooze 1h"): each carries a pre-signed URL the click POSTs to.
-      actions: (data.actions ?? []).map((a) => ({ action: a.action, title: a.title })),
-      data: { url: data.url ?? "/", actions: data.actions ?? [] },
-    }),
-  );
+  let payload;
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "Command Centre", body: event.data ? event.data.text() : "" };
+  }
+  const { title, options } = self.CCNotify.notificationOptions(payload);
+  const badge =
+    typeof payload.unread === "number" && self.navigator.setAppBadge
+      ? (payload.unread > 0 ? self.navigator.setAppBadge(payload.unread) : self.navigator.clearAppBadge()).catch(() => {})
+      : Promise.resolve();
+  event.waitUntil(Promise.all([self.registration.showNotification(title, options), badge]));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const button = (event.notification.data?.actions ?? []).find((a) => a.action === event.action);
-  if (button) {
-    event.waitUntil(fetch(button.url, { method: "POST" }).catch(() => {}));
+  // Reminder buttons (Done, Snooze 1h) act in the background through their pre-signed link.
+  const background = self.CCNotify.backgroundAction(event.notification.data, event.action);
+  if (background) {
+    event.waitUntil(fetch(background, { method: "POST" }).catch(() => {}));
     return;
   }
-  const target = event.notification.data?.url ?? "/";
+  // Approve/Reject open the confirm step in the app; nothing is approved from the lock screen.
+  const target = self.CCNotify.appUrl(self.CCNotify.clickTarget(event.notification.data, event.action));
   event.waitUntil(
-    self.clients.matchAll({ type: "window" }).then((wins) => {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
       const existing = wins.find((w) => new URL(w.url).origin === self.location.origin);
       if (existing) {
-        existing.focus();
-        return existing.navigate(`/#${target}`);
+        return existing.focus().then((w) => (w || existing).navigate(target));
       }
-      return self.clients.openWindow(`/#${target}`);
+      return self.clients.openWindow(target);
     }),
   );
 });
+// --- end notifications ---

@@ -1,19 +1,25 @@
 import type { Brain } from "@cc/brain";
-import { Capability, ProposalStatus, TaskStatus } from "@cc/core";
+import { Capability, leadOf, ProposalStatus, ROOT_ROLE_ID, TaskStatus } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import { Hono } from "hono";
 import { z } from "zod";
+import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
+import type { AuthService } from "../accounts/service";
 import { type ActionService, ProposalStateError } from "../actions";
-import { bearer, tokenMatches } from "../auth";
+import { tokenMatches } from "../auth";
 import type { BudgetService } from "../budget";
 import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
 import type { DigestService } from "../digest";
+import { buildOrgTree } from "../org";
+import { notificationRoutes } from "../notifications/routes";
+import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
 import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
+import { type VoiceApiDeps, voiceApiRoutes } from "./voice";
 
 export interface ApiDeps {
   store: Store;
@@ -29,13 +35,19 @@ export interface ApiDeps {
   webhookSecret?: string;
   /** Social page API and media uploads (see ./social.ts). */
   social?: SocialApiDeps;
+  /** Email + password sign-in (src/accounts). */
+  auth: { service: AuthService; options: AuthHttpOptions };
+  /** Drive mode: speech, briefing, approvals by voice, task replies (see ./voice.ts). */
+  voice?: VoiceApiDeps;
+  /** Notification centre, preferences and devices (see ../notifications/routes.ts). */
+  notifications?: NotificationService;
   /** Today page API and reminder notification buttons (see ./pa.ts). */
   pa?: PaApiDeps;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
 
-/** JSON API for the PWA and desktop app. Everything except webhooks needs the admin token. */
+/** JSON API for the PWA and desktop app. Everything except webhooks and sign-in needs a session cookie or the admin token. */
 export function apiRoutes(deps: ApiDeps) {
   const { store, pipeline, actions, workers, brain, verticals } = deps;
   const app = new Hono();
@@ -69,37 +81,62 @@ export function apiRoutes(deps: ApiDeps) {
   // Reminder notification buttons carry their own signature, so they sit before the admin check too.
   if (deps.pa) app.route("/", paPushRoutes(deps.pa));
 
-  app.use("*", async (c, next) => {
-    if (!tokenMatches(bearer(c.req.header("authorization")), deps.adminToken)) return c.json({ error: "unauthorized" }, 401);
-    await next();
-  });
+  // --- auth: /api/auth/* (sign-in, sessions, 2FA), then everything else needs a session cookie OR the admin Bearer token ---
+  app.route("/auth", authRoutes(deps.auth.service, deps.auth.options));
+  app.use("*", requireApiAuth(deps.auth.service, deps.auth.options));
+  // --- end auth ---
 
   app.get("/verticals", (c) => c.json(verticals.all()));
 
   app.post("/chat", async (c) => {
-    const body = z.object({ text: z.string().min(1), vertical: z.string().optional() }).parse(await c.req.json());
+    // `role` (optional) asks a specific org role, as a "role: ..." prefix would.
+    // `voice: true` (Drive mode) asks the agent for a short spoken answer; see agent-context voicePrompt.
+    const body = z
+      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional(), voice: z.boolean().optional() })
+      .parse(await c.req.json());
     const result = await pipeline.ingest({
       source: "chat",
       vertical: body.vertical ?? null,
       kind: "message",
       title: body.text.slice(0, 120),
-      payload: { text: body.text },
+      payload: { text: body.text, ...(body.role ? { role: body.role } : {}), ...(body.voice ? { voice: true } : {}) },
     });
     return c.json(result, 201);
   });
 
   app.get("/events", async (c) => c.json(await store.listEvents(limit.parse(c.req.query("limit")))));
 
+  /** `?status=`, plus `?vertical=` and `?role=` (an org role id) to narrow to one role's tasks. */
   app.get("/tasks", async (c) => {
     const status = c.req.query("status") ? TaskStatus.parse(c.req.query("status")) : undefined;
-    return c.json(await store.listTasks({ status, limit: limit.parse(c.req.query("limit")) }));
+    const role = c.req.query("role") || undefined;
+    let vertical = c.req.query("vertical") || undefined;
+    if (vertical && !verticals.get(vertical)) return c.json({ error: `unknown vertical ${vertical}` }, 404);
+    if (role === ROOT_ROLE_ID) vertical = verticals.rootVertical;
+    // Tasks from before roles existed belong to their vertical's lead.
+    const includeUnassigned = !!(vertical && role && role !== ROOT_ROLE_ID && leadOf(verticals.require(vertical)).id === role);
+    return c.json(await store.listTasks({ status, vertical, role, includeUnassigned, limit: limit.parse(c.req.query("limit")) }));
   });
+
+  // --- org roles (docs/ORG.md) ---
+  /** The org chart with live numbers per role over the last 7 days. */
+  app.get("/org", async (c) => {
+    const windowDays = 7;
+    const since = new Date(Date.now() - windowDays * 86_400_000);
+    return c.json(buildOrgTree(verticals, await store.roleStats(since), windowDays));
+  });
+  // --- end org roles ---
 
   app.get("/tasks/:id", async (c) => {
     const task = await store.getTask(c.req.param("id"));
     if (!task) return c.json({ error: "not found" }, 404);
+    const responses = (await deps.voice?.conversations.responses(task.id)) ?? new Map();
     const runs = await Promise.all(
-      (await store.listRuns(task.id)).map(async (run) => ({ ...run, messages: await store.listRunMessages(run.id) })),
+      (await store.listRuns(task.id)).map(async (run) => ({
+        ...run,
+        response: responses.get(run.id) ?? null,
+        messages: await store.listRunMessages(run.id),
+      })),
     );
     const event = await store.getEvent(task.eventId);
     const proposals = await store.listProposals({ taskId: task.id });
@@ -169,8 +206,13 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json({ ok: true }, 201);
   });
 
+  // /notifications/*, behind the admin check above.
+  if (deps.notifications) app.route("/", notificationRoutes(deps.notifications));
+
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
+  // /voice/* and /tasks/:id/reply, behind the admin check above.
+  if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
 

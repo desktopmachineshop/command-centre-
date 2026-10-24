@@ -165,6 +165,156 @@ export const migrations: { id: string; sql: string }[] = [
       create index scheduled_posts_created_idx on scheduled_posts (created_at desc);
     `,
   },
+  // --- org roles (docs/ORG.md). 0004 is reserved for the social core. ---
+  {
+    id: "0005_roles",
+    sql: `
+      -- The org role that runs the task; null (older tasks) means the vertical lead.
+      alter table tasks add column if not exists role text;
+      create index if not exists tasks_vertical_role_idx on tasks (vertical, role, status);
+    `,
+  },
+  // --- end org roles ---
+  // --- auth (email + password sign-in; see src/accounts) ---
+  {
+    id: "0006_auth",
+    sql: `
+      create table users (
+        id uuid primary key,
+        -- Always stored lower-cased; the check keeps a direct SQL insert honest too.
+        email text not null unique check (email = lower(email)),
+        name text not null,
+        password_hash text not null,
+        -- Only 'admin' exists today. Other roles (e.g. a VA) are new values here plus a check in the API.
+        role text not null default 'admin',
+        created_at timestamptz not null default now(),
+        last_login_at timestamptz,
+        failed_attempts integer not null default 0,
+        locked_until timestamptz,
+        -- TOTP: the secret is set by /totp/setup and only enforced once totp_enabled_at is set.
+        totp_secret text,
+        totp_enabled_at timestamptz,
+        -- Last accepted TOTP step, so a code can't be replayed.
+        totp_last_step bigint
+      );
+
+      -- id is sha256(cookie token); the token itself is never stored.
+      create table sessions (
+        id text primary key,
+        user_id uuid not null references users (id) on delete cascade,
+        created_at timestamptz not null default now(),
+        last_seen_at timestamptz not null default now(),
+        expires_at timestamptz not null,
+        user_agent text,
+        ip text
+      );
+      create index sessions_user_idx on sessions (user_id);
+      create index sessions_expires_idx on sessions (expires_at);
+
+      create table user_recovery_codes (
+        user_id uuid not null references users (id) on delete cascade,
+        code_hash text not null,
+        used_at timestamptz,
+        primary key (user_id, code_hash)
+      );
+    `,
+  },
+  // --- end auth ---
+  // --- Odoo events ---
+  {
+    id: "0009_odoo_events",
+    sql: `
+      -- One row per Odoo event source (key "<odoo db>:<source>"): a date cursor and the ids
+      -- seen in its overlap window, or for stock/deliveries the ids currently low/late.
+      create table odoo_event_checkpoints (
+        source text primary key,
+        cursor text,
+        seen_ids integer[] not null default '{}',
+        state jsonb not null default '{}',
+        updated_at timestamptz not null default now()
+      );
+      -- The daily digest reads the day's Odoo events per vertical.
+      create index events_source_vertical_received_idx on events (source, vertical, received_at);
+    `,
+  },
+  // --- end odoo events ---
+  {
+    id: "0008_voice",
+    sql: `
+      -- Voice mode: the structured spoken answer of a run ({text, type: converse | final, structured}).
+      alter table agent_runs add column if not exists voice_response jsonb;
+
+      -- Dave's replies continuing a task's conversation; each one drives one more run of the same task.
+      create table task_replies (
+        id uuid primary key,
+        task_id uuid not null references tasks (id) on delete cascade,
+        text text not null,
+        voice boolean not null default false,
+        resume_session_id text,
+        run_id uuid references agent_runs (id) on delete set null,
+        created_at timestamptz not null default now(),
+        consumed_at timestamptz
+      );
+      create index task_replies_pending_idx on task_replies (task_id, created_at) where consumed_at is null;
+    `,
+  },
+  // --- notifications (0010): inbox, preferences, device metadata; see src/notifications ---
+  {
+    id: "0010_notifications",
+    sql: `
+      -- Device metadata on push subscriptions. user_id is 'default' until multi-user login attaches users.
+      alter table push_subscriptions add column if not exists id uuid not null default gen_random_uuid();
+      create unique index if not exists push_subscriptions_id_idx on push_subscriptions (id);
+      alter table push_subscriptions add column if not exists user_id text not null default 'default';
+      alter table push_subscriptions add column if not exists name text;
+      alter table push_subscriptions add column if not exists platform text;
+      alter table push_subscriptions add column if not exists user_agent text;
+      -- Lowest priority the device receives ('low' = everything, 'urgent' = urgent only).
+      alter table push_subscriptions add column if not exists min_priority text not null default 'low';
+      alter table push_subscriptions add column if not exists last_success_at timestamptz;
+      alter table push_subscriptions add column if not exists last_failure_at timestamptz;
+      alter table push_subscriptions add column if not exists last_error text;
+
+      -- Stored overrides on top of the built-in defaults, per user ('default' for now).
+      create table if not exists notification_prefs (
+        user_id text primary key,
+        prefs jsonb not null default '{}',
+        updated_at timestamptz not null default now()
+      );
+
+      -- The in-app notification centre: every notification, whether or not it was pushed.
+      create table if not exists notifications (
+        id uuid primary key,
+        user_id text not null default 'default',
+        category text not null,
+        priority text not null,
+        vertical text,
+        title text not null,
+        body text not null,
+        url text,
+        tag text,
+        actions jsonb not null default '[]',
+        data jsonb not null default '{}',
+        status text not null,
+        created_at timestamptz not null default now(),
+        pushed_at timestamptz,
+        read_at timestamptz
+      );
+      create index if not exists notifications_user_created_idx on notifications (user_id, created_at desc);
+      create index if not exists notifications_user_status_idx on notifications (user_id, status, category, created_at);
+      create index if not exists notifications_unread_idx on notifications (user_id) where read_at is null;
+
+      -- Once-a-day system notification jobs (the quick briefing), shared across replicas and restarts.
+      create table if not exists notification_runs (
+        user_id text not null,
+        job text not null,
+        day date not null,
+        created_at timestamptz not null default now(),
+        primary key (user_id, job, day)
+      );
+    `,
+  },
+  // --- end notifications ---
   // --- pa: reminders, to-do lists and items (SQL lives in @cc/pa) ---
   { id: PA_MIGRATION_ID, sql: PA_MIGRATION_SQL },
   // --- end pa ---

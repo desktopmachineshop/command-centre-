@@ -25,7 +25,7 @@ describe.skipIf(!DB_URL)("MCP run-token scope", () => {
     name: "probe",
     async run(request: AgentRunRequest) {
       const { headers, url } = request.mcpServers!.actions as { url: string; headers: Record<string, string> };
-      const vertical = request.cwd!.split("/").pop()!;
+      const vertical = request.cwd!.split("/").at(-2)!; // workspaces/<vertical>/<role>
       probes[vertical] = {};
       for (const name of ["actions", "brain", "odoo"]) {
         const res = await ctx.server.app.request(url.replace("/mcp/actions", `/mcp/${name}`), {

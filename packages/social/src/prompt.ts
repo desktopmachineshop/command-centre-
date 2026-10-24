@@ -6,6 +6,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   threads: "Threads",
   x: "X",
   reddit: "Reddit",
+  youtube: "YouTube",
 };
 
 export const platformLabel = (p: string): string => PLATFORM_LABELS[p as Platform] ?? p;

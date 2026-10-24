@@ -29,6 +29,11 @@ describe("RulesTriager", () => {
     expect(await rules.triage(event({}), context)).toMatchObject({ vertical: "personal", route: "agent", confidence: 1 });
   });
 
+  it("routes a handoff between org roles to the agent with full confidence", async () => {
+    const r = await rules.triage(event({ source: "system", kind: "handoff", vertical: "dms", payload: { role: "ops-admin" } }), context);
+    expect(r).toMatchObject({ vertical: "dms", intent: "handoff", route: "agent", confidence: 1 });
+  });
+
   it("picks up a vertical mentioned in chat", async () => {
     const r1 = await rules.triage(event({ title: "dms: check stock of ER11" }), context);
     const r2 = await rules.triage(event({ title: "anything new at desktop machine shop?" }), context);

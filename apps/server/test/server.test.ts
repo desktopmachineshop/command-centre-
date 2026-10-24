@@ -44,7 +44,7 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(request.systemPrompt).toContain("Desktop Machine Shop");
     expect(Object.keys(request.mcpServers!)).toEqual(["actions", "brain", "pa"]);
     expect(request.allowedTools).toEqual(["Skill", "mcp__actions", "mcp__brain", "mcp__pa"]);
-    expect(request.cwd).toMatch(/workspaces\/dms$/);
+    expect(request.cwd).toMatch(/workspaces\/dms\/shop-lead$/);
   });
 
   it("holds draft actions for approval, then executes on approve", async () => {
