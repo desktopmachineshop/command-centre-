@@ -174,6 +174,23 @@ export class PgPaStore {
     return rows[0] ? toReminder(rows[0]) : null;
   }
 
+  /**
+   * "Done" on the alert for the occurrence due at `dueAt` (null if it has moved on).
+   * A one-off completes; a recurring one only acknowledges this occurrence (clears
+   * any snooze) and its series stays pending.
+   */
+  async acknowledgeReminder(id: string, dueAt: Date): Promise<Reminder | null> {
+    const { rows } = await this.db.query(
+      `update reminders set
+         status = case when recurrence is null then 'done' else status end,
+         completed_at = case when recurrence is null then now() else completed_at end,
+         snoozed_until = null, updated_at = now(), version = version + 1
+       where id = $1 and status = any($2) and due_at = $3 returning *`,
+      [uuidOrNil(id), OPEN_REMINDER, dueAt],
+    );
+    return rows[0] ? toReminder(rows[0]) : null;
+  }
+
   async cancelReminder(id: string, vertical?: string): Promise<Reminder | null> {
     const { rows } = await this.db.query(
       `update reminders set status = 'cancelled', snoozed_until = null, updated_at = now(), version = version + 1
@@ -187,15 +204,15 @@ export class PgPaStore {
    * Snooze until `until`. A one-off reminder simply moves (and is pending again);
    * a recurring one gets a one-off re-alert and its series stays on schedule.
    */
-  async snoozeReminder(id: string, until: Date, vertical?: string): Promise<Reminder | null> {
+  async snoozeReminder(id: string, until: Date, vertical?: string, dueAt?: Date): Promise<Reminder | null> {
     const { rows } = await this.db.query(
       `update reminders set
          due_at = case when recurrence is null then $2 else due_at end,
          snoozed_until = case when recurrence is null then null else $2 end,
          status = case when recurrence is null then 'pending' else status end,
          updated_at = now(), version = version + 1
-       where id = $1 and status = any($3) and ($4::text is null or vertical = $4) returning *`,
-      [uuidOrNil(id), until, OPEN_REMINDER, vertical ?? null],
+       where id = $1 and status = any($3) and ($4::text is null or vertical = $4) and ($5::timestamptz is null or due_at = $5) returning *`,
+      [uuidOrNil(id), until, OPEN_REMINDER, vertical ?? null, dueAt ?? null],
     );
     return rows[0] ? toReminder(rows[0]) : null;
   }

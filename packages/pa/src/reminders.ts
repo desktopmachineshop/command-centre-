@@ -41,6 +41,8 @@ export function describeReminder(r: Reminder, options: { id?: boolean } = {}): s
 
 export interface ReminderPush {
   reminder: Reminder;
+  /** The reminder's due time as stored after this send (its current occurrence). */
+  dueAt: Date;
   title: string;
   body: string;
 }
@@ -75,7 +77,7 @@ export async function deliverDueReminders(
     const late = now.getTime() - new Date(snoozeDue && !occurrenceDue ? r.snoozedUntil! : r.dueAt).getTime() > 15 * 60_000;
     const body = late ? `${r.text} (was due ${formatUk(new Date(occurrenceDue ? r.dueAt : r.snoozedUntil!), r.timeZone)})` : r.text;
     try {
-      await push({ reminder: r, title: "Reminder", body });
+      await push({ reminder: r, dueAt: next.dueAt, title: "Reminder", body });
     } catch (err) {
       // Recorded as sent already: a broken push channel must not resend it every minute.
       console.error("[reminders] push failed", err);

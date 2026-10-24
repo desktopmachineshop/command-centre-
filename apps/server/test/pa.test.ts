@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./helpers";
 
@@ -146,8 +147,44 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     const snooze = await ctx.server.app.request(urls.snooze, { method: "POST" });
     expect(snooze.status).toBe(200);
     expect(await snooze.json()).toMatchObject({ status: "pending" });
-    const done = await ctx.server.app.request(urls.done, { method: "POST" });
+    // The snooze moved this one-off, so the old Done link no longer matches its occurrence.
+    expect((await ctx.server.app.request(urls.done, { method: "POST" })).status).toBe(409);
+    await ctx.server.store.pool.query("update reminders set due_at = now() - interval '1 minute' where id = $1", [created.id]);
+    await ctx.server.deliverReminders();
+    const realert = ctx.notifier.sent.filter((n) => n.body.startsWith("Noah's swimming kit")).at(-1) as any;
+    const done = await ctx.server.app.request(realert.data.actionUrls.done, { method: "POST" });
     expect(await done.json()).toMatchObject({ status: "done" });
+  });
+
+  it("Done on a recurring reminder's push acknowledges this occurrence, not the series", async () => {
+    const created = (await ctx.api("/api/pa/reminders", { method: "POST", json: { text: "Take tablets", due: "2026-01-01T08:00", recurrence: "daily" } })).body;
+    await ctx.server.store.pool.query("update reminders set due_at = now() - interval '1 minute' where id = $1", [created.id]);
+    await ctx.server.deliverReminders();
+    const push = ctx.notifier.sent.filter((n) => n.body.startsWith("Take tablets")).at(-1) as any;
+    const urls = push.data.actionUrls as { done: string; snooze: string };
+    expect((await ctx.server.app.request(urls.snooze, { method: "POST" })).status).toBe(200);
+    const done = await ctx.server.app.request(urls.done, { method: "POST" });
+    expect(await done.json()).toMatchObject({ status: "pending", snoozedUntil: null });
+    const open = (await ctx.api("/api/pa/reminders?status=open")).body.filter((r: any) => r.id === created.id);
+    expect(open).toHaveLength(1);
+
+    // Tampered occurrence or expiry: the signature no longer matches.
+    expect((await ctx.server.app.request(urls.done.replace(/exp=\d+/, "exp=99999999999999"), { method: "POST" })).status).toBe(401);
+    const later = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    expect((await ctx.server.app.request(urls.done.replace(/dueAt=[^&]+/, `dueAt=${encodeURIComponent(later)}`), { method: "POST" })).status).toBe(401);
+
+    // The series moves on to a later occurrence: the old notification's links can't act on it.
+    await ctx.server.store.pool.query("update reminders set due_at = due_at + interval '1 day' where id = $1", [created.id]);
+    expect((await ctx.server.app.request(urls.done, { method: "POST" })).status).toBe(409);
+    expect((await ctx.server.app.request(urls.snooze, { method: "POST" })).status).toBe(409);
+  });
+
+  it("rejects an expired reminder push link", async () => {
+    const r = (await ctx.api("/api/pa/reminders", { method: "POST", json: { text: "Old one", due: "2026-01-01T08:00" } })).body;
+    const { reminderPushActions } = await import("../src/http/pa");
+    const secret = createHash("sha256").update(`pa-push:${ctx.config.adminToken}`).digest("hex");
+    const old = reminderPushActions(secret, r.id, new Date(r.dueAt), new Date(Date.now() - 8 * 86_400_000));
+    expect((await ctx.server.app.request(old.data.actionUrls.done, { method: "POST" })).status).toBe(410);
   });
 
   it("manages lists and items over the API", async () => {

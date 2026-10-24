@@ -20,17 +20,27 @@ export interface PaApiDeps {
   now?: () => Date;
 }
 
-/** HMAC for a reminder notification button, so the service worker can act without the admin token. */
-export function signReminderAction(secret: string, id: string, action: string): string {
-  return createHmac("sha256", secret).update(`pa-reminder:${id}:${action}`).digest("base64url");
+/** How long a reminder notification's buttons keep working. */
+const PUSH_LINK_TTL_MS = 7 * 86_400_000;
+
+/**
+ * HMAC for a reminder notification button, so the service worker can act without
+ * the admin token. Bound to the occurrence (`dueAt`, ISO) and an expiry (`exp`, ms).
+ */
+export function signReminderAction(secret: string, id: string, action: string, dueAt: string, exp: number): string {
+  return createHmac("sha256", secret).update(`pa-reminder:${id}:${action}:${dueAt}:${exp}`).digest("base64url");
 }
 
 /**
  * A reminder push's buttons ("Done", "Snooze 1h") and their pre-signed links in
  * `data.actionUrls`, which the service worker POSTs to (sw-notify.js `backgroundAction`).
+ * `dueAt` is the reminder's current occurrence: once it moves on, the links stop working.
  */
-export function reminderPushActions(secret: string, id: string) {
-  const link = (action: string) => `/api/pa/reminders/${id}/push/${action}?sig=${signReminderAction(secret, id, action)}`;
+export function reminderPushActions(secret: string, id: string, dueAt: Date, now: Date = new Date()) {
+  const due = dueAt.toISOString();
+  const exp = now.getTime() + PUSH_LINK_TTL_MS;
+  const link = (action: string) =>
+    `/api/pa/reminders/${id}/push/${action}?dueAt=${encodeURIComponent(due)}&exp=${exp}&sig=${signReminderAction(secret, id, action, due, exp)}`;
   return {
     actions: [
       { action: "done", title: "Done" },
@@ -58,9 +68,9 @@ export function paVoiceCalendar(calendar: CalendarService) {
   };
 }
 
-const sigOk = (secret: string, id: string, action: string, sig: string | undefined) => {
-  if (!sig) return false;
-  const want = Buffer.from(signReminderAction(secret, id, action));
+const sigOk = (secret: string, id: string, action: string, dueAt: string | undefined, exp: string | undefined, sig: string | undefined) => {
+  if (!sig || !dueAt || !exp || !/^\d+$/.test(exp)) return false;
+  const want = Buffer.from(signReminderAction(secret, id, action, dueAt, Number(exp)));
   const got = Buffer.from(sig);
   return want.length === got.length && timingSafeEqual(want, got);
 };
@@ -70,10 +80,17 @@ export function paPushRoutes(deps: PaApiDeps) {
   const app = new Hono();
   app.post("/pa/reminders/:id/push/:action", async (c) => {
     const { id, action } = c.req.param();
-    if (!["done", "snooze"].includes(action) || !sigOk(deps.signingSecret, id, action, c.req.query("sig"))) return c.json({ error: "unauthorized" }, 401);
+    const { dueAt, exp, sig } = c.req.query();
+    if (!["done", "snooze"].includes(action) || !sigOk(deps.signingSecret, id, action, dueAt, exp, sig)) return c.json({ error: "unauthorized" }, 401);
     const now = deps.now?.() ?? new Date();
-    const r = action === "done" ? await deps.store.completeReminder(id) : await deps.store.snoozeReminder(id, snoozeUntil("1h", now, deps.timeZone));
-    return r ? c.json(r) : c.json({ error: "reminder is not open" }, 409);
+    const due = new Date(dueAt!);
+    if (now.getTime() > Number(exp) || Number.isNaN(due.getTime())) return c.json({ error: "link expired" }, 410);
+    // Conditional on `dueAt`: an old notification can't act on a later occurrence.
+    const r =
+      action === "done"
+        ? await deps.store.acknowledgeReminder(id, due)
+        : await deps.store.snoozeReminder(id, snoozeUntil("1h", now, deps.timeZone), undefined, due);
+    return r ? c.json(r) : c.json({ error: "reminder is not open or has moved on" }, 409);
   });
   return app;
 }

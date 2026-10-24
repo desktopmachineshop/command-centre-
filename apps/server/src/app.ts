@@ -183,7 +183,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     : null;
   const paSigningSecret = createHash("sha256").update(`pa-push:${config.adminToken}`).digest("hex");
   const deliverReminders = () =>
-    deliverDueReminders(paStore, ({ reminder, title, body }) =>
+    deliverDueReminders(paStore, ({ reminder, dueAt, title, body }) =>
       notifier.notify({
         title,
         body,
@@ -193,7 +193,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         vertical: reminder.vertical,
         tag: `reminder-${reminder.id}`,
         renotify: true,
-        ...reminderPushActions(paSigningSecret, reminder.id),
+        ...reminderPushActions(paSigningSecret, reminder.id, dueAt),
       }),
     );
   // --- end pa ---
