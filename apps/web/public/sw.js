@@ -1,5 +1,5 @@
 // Service worker: offline app shell + web push notifications for approvals.
-const SHELL = "cc-shell-v1";
+const SHELL = "cc-shell-v2";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg"])));
@@ -34,12 +34,24 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("push", (event) => {
   const data = event.data ? event.data.json() : { title: "Command Centre", body: "" };
   event.waitUntil(
-    self.registration.showNotification(data.title, { body: data.body, icon: "/icon.svg", data: { url: data.url ?? "/" } }),
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: "/icon.svg",
+      tag: data.tag,
+      // Reminder buttons ("Done", "Snooze 1h"): each carries a pre-signed URL the click POSTs to.
+      actions: (data.actions ?? []).map((a) => ({ action: a.action, title: a.title })),
+      data: { url: data.url ?? "/", actions: data.actions ?? [] },
+    }),
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  const button = (event.notification.data?.actions ?? []).find((a) => a.action === event.action);
+  if (button) {
+    event.waitUntil(fetch(button.url, { method: "POST" }).catch(() => {}));
+    return;
+  }
   const target = event.notification.data?.url ?? "/";
   event.waitUntil(
     self.clients.matchAll({ type: "window" }).then((wins) => {

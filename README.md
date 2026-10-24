@@ -21,6 +21,7 @@ packages/agent-runtime AgentRunner harness + Claude Code adapter (+ API-key fall
 packages/brain         git-backed markdown brain + MCP server
 packages/email         IMAP inbox poller + email.reply / email.send executors
 packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/mcp/odoo), Odoo actions
+packages/pa            personal assistant: reminders, to-do lists, Google Calendar, MCP server (/mcp/pa)
 packages/social        social platform adapters, inbound watcher, social.* executors, scheduled posts
 packages/triage        triagers (rules, Jev, Haiku fallback) + accuracy eval
 packages/verticals     one manifest per business / life area

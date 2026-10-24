@@ -133,3 +133,13 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .thumb-x { position: absolute; top: 2px; right: 2px; padding: 0 6px; line-height: 1.3; border-radius: 999px; font-size: 14px; }
 .clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .account .row.wrap code { font-size: 12px; }
+
+/* --- pa: Today page (minimal; restyled later with the rest of the UI) --- */
+.today-page .quick-add { flex-wrap: wrap; align-items: flex-end; }
+.today-page .quick-add label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.today-page .quick-add input, .today-page form.row input { width: 100%; min-width: 0; }
+.today-page .quick-add p { flex-basis: 100%; margin: 0; }
+.today-page .item time { min-width: 6.5em; }
+.today-page .todo-list li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.today-page .todo-list input[type="checkbox"] { width: 22px; height: 22px; flex: none; }
+/* --- end pa --- */

@@ -114,6 +114,48 @@ export type ScheduledPost = {
 
 export type SocialEvent = Event & { taskId: string | null; taskStatus: string | null };
 
+// --- pa: the Today page (GET /api/pa/today etc.) ---
+export type CalendarEvent = {
+  accountId: string;
+  calendarId: string;
+  calendarName: string;
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string | null;
+  busy: boolean;
+  response: string | null;
+  url: string | null;
+};
+
+export type Reminder = {
+  id: string;
+  text: string;
+  dueAt: string;
+  recurrence: string | null;
+  vertical: string;
+  createdBy: "dave" | "agent";
+  status: "pending" | "sent" | "done" | "cancelled";
+  snoozedUntil: string | null;
+};
+
+export type TodoItem = { id: string; listId: string; text: string; done: boolean; dueDate: string | null; position: number };
+export type TodoList = { id: string; vertical: string; name: string; position: number; openCount: number; doneCount: number };
+
+export type TodayView = {
+  day: string;
+  timeZone: string;
+  calendarConfigured: boolean;
+  events: CalendarEvent[];
+  calendarErrors: string[];
+  reminders: Reminder[];
+  upcoming: Reminder[];
+  lists: (TodoList & { items: TodoItem[] })[];
+};
+// --- end pa ---
+
 export type Campaign = { title: string; posts: { accountId: string; content: PostContent }[]; publishAt?: string };
 
 export function createApi(conn: Connection) {
@@ -157,6 +199,17 @@ export function createApi(conn: Connection) {
     socialScheduled: () => call<ScheduledPost[]>("/social/scheduled"),
     cancelScheduled: (id: string) => post<ScheduledPost>(`/social/scheduled/${id}/cancel`),
     compose: (campaign: Campaign) => post<Proposal>("/social/compose", campaign),
+    // --- pa ---
+    today: (day?: string) => call<TodayView>(`/pa/today${day ? `?day=${day}` : ""}`),
+    completeReminder: (id: string) => post<Reminder>(`/pa/reminders/${id}/complete`),
+    snoozeReminder: (id: string, minutes: number) => post<Reminder>(`/pa/reminders/${id}/snooze`, { minutes }),
+    createList: (name: string) => post<TodoList>("/pa/lists", { name }),
+    renameList: (id: string, name: string) => call<TodoList>(`/pa/lists/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+    deleteList: (id: string) => call(`/pa/lists/${id}`, { method: "DELETE" }),
+    addItem: (listId: string, text: string) => post<TodoItem[]>(`/pa/lists/${listId}/items`, { text }),
+    setItemDone: (id: string, done: boolean) => call<TodoItem>(`/pa/items/${id}`, { method: "PATCH", body: JSON.stringify({ done }) }),
+    deleteItem: (id: string) => call(`/pa/items/${id}`, { method: "DELETE" }),
+    // --- end pa ---
     /** Uploads an image or video as the raw body; returns its public URL. */
     uploadMedia: async (file: File) => {
       const res = await fetch(`${base}/api/media`, {

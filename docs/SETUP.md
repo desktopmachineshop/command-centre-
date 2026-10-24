@@ -455,10 +455,15 @@ whole day. The Inbox's **Today** card shows the same numbers live. Any day's dig
 
 The personal vertical has a weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
 
-1. reads yesterday's digests and journal (Friday to Sunday on a Monday);
-2. lists pending approvals;
-3. works out today's priorities;
-4. sends you a 3–5 line push through a `notify` action.
+1. reads today's calendar, the reminders due today (and overdue ones) and the top to-dos, through
+   the `pa` tools (see "Personal assistant" below);
+2. reads yesterday's digests and journal (Friday to Sunday on a Monday);
+3. lists pending approvals;
+4. works out today's priorities;
+5. sends you a short push through a `notify` action.
+
+There is also a Sunday-to-Thursday 21:00 `evening-wrap`: tomorrow's calendar, open reminders and
+to-dos, and what's waiting for approval, in one push.
 
 `notify` is `auto-with-digest` for the personal vertical, so the brief arrives without an approval
 step and is listed in that evening's digest.
@@ -473,8 +478,121 @@ Proposals made with the admin token (no task) keep their policy too. (`ActionSer
 `apps/server/src/actions.ts`.)
 
 The brief is **off by default**. To turn it on, set `enabled: true` on the `morning-brief` line in
-`packages/verticals/src/personal.ts` and redeploy. It is an agent run, so it counts towards the
-budgets.
+`packages/verticals/src/personal.ts` and redeploy; the same goes for the `evening-wrap` line. Each
+is an agent run, so it counts towards the budgets.
+
+## Personal assistant
+
+`packages/pa` gives every vertical's agents a `pa` MCP server (`/mcp/pa`) for reminders and to-do
+lists, and the personal vertical a Google Calendar. The app's **Today** tab shows the day's agenda,
+the reminders due and your lists.
+
+### What it can do
+
+- **Reminders.** "Remind me to call the garage at 4pm", "every weekday at 08:00 remind me to…".
+  They are stored in Postgres and pushed to your devices when due, by a job that checks every
+  minute. One-off reminders stay open (marked *sent*) until you tick them off. Recurring ones
+  (`daily`, `weekdays`, `weekly:mon,thu`, `monthly:15`, or the RRULE forms `FREQ=DAILY`,
+  `FREQ=WEEKLY;BYDAY=…`, `FREQ=MONTHLY;BYMONTHDAY=n`) move to their next occurrence and keep
+  their local time through the clock changes. If the server was down, you get one alert, not a
+  backlog. The push has **Done** and **Snooze 1h** buttons (signed links, so they work from the
+  lock screen without signing in); the Today page has the same.
+- **Lists.** "Add milk and eggs to shopping", "put swimming bag on the Noah list". Lists (today,
+  shopping, home, Noah…) are created as they are used, and are per vertical. On the Today page you
+  tick items off, add, remove and rename.
+- **Calendar.** "What's on Thursday?", "when am I free next week?", "book the dentist next week".
+  Agents read events (recurring ones expanded) and free/busy across all your configured calendars.
+  To create, move or delete an event they propose `calendar.create`, `calendar.update` or
+  `calendar.delete`, which wait under Approvals (`draft` policy), whatever else is going on. Event
+  reminders can be set per event (`reminders: [{method: "popup", minutes: 60}]`, `"default"` or
+  `"none"`).
+- **Who may write.** Reminders and list items are internal, so a task you started (Chat) or a
+  schedule writes them straight away. A task started by outside input (email, webhook, social)
+  can't: its reminders and list changes become `pa.*` proposals that wait for your approval.
+- The **Today** tab's box sends what you type to the assistant in Chat, so it understands
+  "remind me…" and "add … to …" the same way.
+
+Without `CALENDAR_ACCOUNTS`, reminders and lists still work; the calendar tools say no calendar is
+connected.
+
+### Google Calendar
+
+Do this once, on your PC. The same OAuth client and refresh token are shared with Google Drive
+storage, so one run of `google:auth` covers both.
+
+1. **Cloud project.** At <https://console.cloud.google.com/> create a project (e.g. "Command
+   Centre"). Under **APIs & Services → Library**, enable the **Google Calendar API** (and the
+   **Google Drive API**, for Drive storage).
+2. **Consent screen** (**Google Auth Platform → Branding / Audience**, called "OAuth consent
+   screen" in older consoles). App name "Command Centre", your email as support and developer
+   contact.
+   - If your calendar is on Google Workspace (e.g. `@desktopmachineshop.com`), choose **Internal**:
+     no verification, no test users, and tokens don't expire after 7 days.
+   - For a personal `@gmail.com` account, choose **External** and add yourself under
+     **Test users**. **Important:** while the app's publishing status is **Testing**, Google
+     expires refresh tokens after 7 days
+     ([Google: refresh token expiration](https://developers.google.com/identity/protocols/oauth2#expiration)).
+     Once it works, press **Publish app** (status "In production"). You don't need to submit it
+     for verification for your own use: when you sign in, Google shows "Google hasn't verified
+     this app"; choose **Advanced → Go to Command Centre (unsafe)**. Unverified apps are limited
+     to 100 users, which is fine for one
+     ([Google: unverified apps](https://support.google.com/cloud/answer/7454865)).
+3. **Scopes** (Data access): `…/auth/calendar.events` (read and write events),
+   `…/auth/calendar.events.freebusy` (free/busy), `…/auth/calendar.calendarlist.readonly` (only so
+   `google:auth` can print your calendar ids), and `…/auth/drive.file` for Drive storage (only
+   files the app creates). See [Calendar API scopes](https://developers.google.com/workspace/calendar/api/auth).
+4. **OAuth client.** **Clients → Create client → Desktop app**. Copy the client id and secret.
+5. **Get the refresh token** with the loopback flow (PKCE, a random `127.0.0.1` port; see
+   [OAuth for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app)):
+
+   ```bash
+   GOOGLE_CLIENT_ID=<id> GOOGLE_CLIENT_SECRET=<secret> pnpm --filter @cc/pa google:auth
+   # optional: --scopes calendar.events,calendar.events.freebusy,drive.file
+   ```
+
+   It opens Google's consent page (or prints the URL), and when you allow it, prints
+   `GOOGLE_REFRESH_TOKEN=…`, the calendars the account can see with their ids, and a ready
+   `CALENDAR_ACCOUNTS` line. By default it asks for the calendar scopes plus `drive.file`.
+6. **Set on Railway:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, and
+   `CALENDAR_ACCOUNTS`, e.g.
+
+   ```json
+   [{"id":"google","provider":"google","vertical":"personal",
+     "calendars":["primary",{"id":"family0123@group.calendar.google.com","name":"Family"},
+                  {"id":"en.uk#holiday@group.v.calendar.google.com","name":"UK holidays","write":false}]}]
+   ```
+
+   - `calendars`: `primary` plus any shared or family calendars, by id (from `google:auth`, or
+     Google Calendar → the calendar's settings → **Integrate calendar → Calendar ID**). Every listed
+     calendar counts for free/busy. `write: false` for ones you can only read; new events go to the
+     first writable one unless the agent names another.
+   - `credentials` is optional: `{clientId, clientSecret, refreshToken}`, each defaulting to the
+     `GOOGLE_*` variables, or `"env:OTHER_VAR"`. Set it only for a second Google account.
+   - `vertical`: which vertical's agents use it. The personal vertical reads every account's events
+     (work commitments block personal time too); other verticals read and write only their own.
+   - Only `provider: "google"` is supported. Errors name the field, never the value.
+
+**If Google revokes the token** (you removed the app's access, changed your password, the app is
+still in Testing after 7 days, or it went unused for 6 months), calendar reads show "Google
+rejected the refresh token … run `pnpm --filter @cc/pa google:auth`", and you get one push a day
+saying so. Run step 5 again and update `GOOGLE_REFRESH_TOKEN`.
+
+### Enabling the morning brief and evening wrap
+
+Set `enabled: true` on `morning-brief` and/or `evening-wrap` in
+`packages/verticals/src/personal.ts` and redeploy (see "Morning brief" above). They use the
+`personal-assistant` skill (`skills/personal-assistant/SKILL.md`), which also covers how the agent
+handles "remind me…", "add … to shopping", "when am I free Thursday?" and "book the dentist next
+week" (it finds a slot, then proposes the event), and UK date and time conventions.
+
+### From other agents
+
+```bash
+claude mcp add --transport http pa https://<your-domain>/mcp/pa \
+  --header "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+With the admin token, writes are yours (`created_by` "dave") and you see every vertical.
 
 ## Odoo
 

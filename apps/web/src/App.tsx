@@ -11,6 +11,7 @@ import { Login } from "./pages/Login";
 import { Settings } from "./pages/Settings";
 import { Social } from "./pages/Social";
 import { TaskView } from "./pages/TaskView";
+import { Today } from "./pages/Today";
 import { go, useRoute } from "./router";
 
 export function App() {
@@ -38,6 +39,7 @@ export function App() {
 
 const NAV = [
   ["inbox", "Inbox"],
+  ["today", "Today"],
   ["approvals", "Approvals"],
   ["chat", "Chat"],
   ["social", "Social"],
@@ -64,6 +66,9 @@ function Shell({ conn, onSignOut }: { conn: Connection; onSignOut: () => void })
   switch (page) {
     case "task":
       body = <TaskView api={api} feed={feed} id={id!} />;
+      break;
+    case "today":
+      body = <Today api={api} feed={feed} />;
       break;
     case "approvals":
       body = <Approvals api={api} feed={feed} />;
