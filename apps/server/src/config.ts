@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
 import { type OdooEventsConfig, parseOdooEventsConfig } from "@cc/odoo";
+import { type CalendarAccount, parseCalendarAccounts } from "@cc/pa";
 import { parseSocialAccounts, type SocialAccount } from "@cc/social";
 import { Cron } from "croner";
 import { z } from "zod";
@@ -131,6 +132,11 @@ const Env = z.object({
   /** Language hint for transcription and the PWA's voices. */
   VOICE_LANGUAGE: z.string().default("en-GB"),
   // --- end voice ---
+  // --- Personal assistant (see docs/SETUP.md, "Personal assistant") ---
+  /** JSON array of Google Calendar accounts; see `GoogleCalendarAccount` in @cc/pa. */
+  CALENDAR_ACCOUNTS: z.string().optional(),
+  // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN are read by parseCalendarAccounts (shared with Drive).
+  // --- end pa ---
 });
 
 function odooConfig(e: z.infer<typeof Env>) {
@@ -172,6 +178,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
   }
   // --- end odoo events ---
+  let calendarAccounts: CalendarAccount[];
+  try {
+    calendarAccounts = parseCalendarAccounts(e.CALENDAR_ACCOUNTS, env);
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
   const dataDir = resolve(e.DATA_DIR);
   return {
     port: e.PORT,
@@ -237,6 +249,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       language: e.VOICE_LANGUAGE,
     },
     // --- end voice ---
+    pa: { calendarAccounts },
   };
 }
 

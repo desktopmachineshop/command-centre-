@@ -39,7 +39,7 @@ describe("the drafted org", () => {
   });
 
   it("rejects a root schedule that clashes with its home vertical", () => {
-    const home = defineVertical({ id: "personal", name: "P", description: "", brainFolder: "p", mcpServers: ["brain"], schedules: [{ id: "morning-brief", cron: "0 7 * * *", prompt: "x" }] });
+    const home = defineVertical({ id: "personal", name: "P", description: "", brainFolder: "p", mcpServers: ["brain", "pa"], schedules: [{ id: "morning-brief", cron: "0 7 * * *", prompt: "x" }] });
     expect(() => new VerticalRegistry([home])).toThrow(/clashes/);
   });
 
@@ -51,7 +51,7 @@ describe("the drafted org", () => {
     expect(reg.roleFor("dms", ROOT_ROLE_ID).id).toBe("shop-lead");
     expect(reg.mcpServersFor("dms", "customer-support")).toEqual(["brain", "odoo"]);
     expect(reg.mcpServersFor("3dpandme", "community-manager")).toEqual(["brain"]);
-    expect(reg.mcpServersFor("3dpandme", "content-lead")).toEqual(["brain", "odoo"]);
+    expect(reg.mcpServersFor("3dpandme", "content-lead")).toEqual(["brain", "odoo", "pa"]);
   });
 });
 

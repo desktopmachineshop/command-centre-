@@ -19,7 +19,7 @@ export default defineVertical({
     "new-order", "customer-message", "stock-low", "delivery-late", "review",
   ],
   skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-voice-dms", "social-platform-guide"],
-  mcpServers: ["brain", "odoo"],
+  mcpServers: ["brain", "odoo", "pa"],
   policies: { "brain.write": "auto" },
   roles: [
     {
@@ -85,7 +85,7 @@ export default defineVertical({
         "Handles the back office: supplier emails, stock and lead times, purchase prices, invoices and bills. Files each one in the brain, flags low stock early and keeps supplier notes current.",
       intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status"],
-      mcpServers: ["brain", "odoo"],
+      mcpServers: ["brain", "odoo", "pa"],
       actions: ["email.reply", "email.send", "odoo.message.post", "notify", "brain.write"],
       schedules: [
         // Turn on once the Odoo low_stock threshold is agreed.

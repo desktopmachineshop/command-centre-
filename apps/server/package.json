@@ -23,6 +23,7 @@
     "@cc/core": "workspace:*",
     "@cc/email": "workspace:*",
     "@cc/odoo": "workspace:*",
+    "@cc/pa": "workspace:*",
     "@cc/social": "workspace:*",
     "@cc/triage": "workspace:*",
     "@cc/verticals": "workspace:*",

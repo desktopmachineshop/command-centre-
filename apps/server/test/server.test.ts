@@ -42,8 +42,8 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     const request = runner.requests[0]!;
     expect(request.prompt).toBe("dms: what sold yesterday?");
     expect(request.systemPrompt).toContain("Desktop Machine Shop");
-    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "brain"]);
-    expect(request.allowedTools).toEqual(["Skill", "mcp__actions", "mcp__brain"]);
+    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "brain", "pa"]);
+    expect(request.allowedTools).toEqual(["Skill", "mcp__actions", "mcp__brain", "mcp__pa"]);
     expect(request.cwd).toMatch(/workspaces\/dms\/shop-lead$/);
   });
 

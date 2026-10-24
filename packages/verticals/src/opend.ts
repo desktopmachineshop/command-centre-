@@ -9,7 +9,7 @@ export default defineVertical({
   color: "#1f9a8a",
   intents: ["support", "bug", "feature-request", "billing"],
   skills: ["brain-notes", "email-triage-and-reply", "video-scriptwriter"],
-  mcpServers: ["brain"],
+  mcpServers: ["brain", "pa"],
   policies: { "brain.write": "auto" },
   roles: saasRoles("OpenD", { docsWriter: true }),
 });

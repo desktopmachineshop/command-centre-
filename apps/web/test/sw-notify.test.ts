@@ -55,4 +55,14 @@ describe("service worker notification logic", () => {
     expect(options.silent).toBe(false);
     expect(options.data.url).toBe("/");
   });
+
+  it("runs reminder Done/Snooze in the background through their signed links, and nothing else", () => {
+    const { backgroundAction } = self.CCNotify;
+    const data = { actionUrls: { done: "/api/pa/reminders/r1/push/done?sig=x", snooze: "/api/pa/reminders/r1/push/snooze?sig=y", evil: "https://evil.example/" } };
+    expect(backgroundAction(data, "done")).toBe("/api/pa/reminders/r1/push/done?sig=x");
+    expect(backgroundAction(data, "snooze")).toBe("/api/pa/reminders/r1/push/snooze?sig=y");
+    expect(backgroundAction(data, "evil")).toBeNull();
+    expect(backgroundAction(data, "")).toBeNull();
+    expect(backgroundAction({ proposalId: "p" }, "approve")).toBeNull();
+  });
 });

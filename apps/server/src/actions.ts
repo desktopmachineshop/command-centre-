@@ -143,7 +143,7 @@ export class ActionService {
    * The source of the event behind a task when it is not one Dave controls, else null.
    * Task-less proposals (admin MCP calls) are trusted; a task we can't trace back is not.
    */
-  private async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
+  async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
     if (!taskId) return null;
     const task = await this.store.getTask(taskId);
     const event = task ? await this.store.getEvent(task.eventId) : null;

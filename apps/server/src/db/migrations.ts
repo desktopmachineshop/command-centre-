@@ -1,3 +1,5 @@
+import { PA_MIGRATION_ID, PA_MIGRATION_SQL } from "@cc/pa";
+
 /**
  * Ordered schema migrations. Append new entries; never edit an applied one.
  * Kept in code (not .sql files) so the bundled server carries them.
@@ -313,4 +315,7 @@ export const migrations: { id: string; sql: string }[] = [
     `,
   },
   // --- end notifications ---
+  // --- pa: reminders, to-do lists and items (SQL lives in @cc/pa) ---
+  { id: PA_MIGRATION_ID, sql: PA_MIGRATION_SQL },
+  // --- end pa ---
 ];

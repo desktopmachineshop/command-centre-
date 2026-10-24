@@ -24,6 +24,17 @@
     return withNotification(url, id);
   }
 
+  /**
+   * A button that acts without opening the app: reminder Done/Snooze carry a
+   * pre-signed link in `data.actionUrls[action]`. Only same-origin
+   * `/api/pa/reminders/...` links are allowed. Null for every other click.
+   */
+  function backgroundAction(data, action) {
+    var urls = (data && data.actionUrls) || {};
+    var url = action ? urls[action] : null;
+    return typeof url === "string" && url.indexOf("/api/pa/reminders/") === 0 ? url : null;
+  }
+
   /** The PWA uses hash routes. */
   function appUrl(path) {
     return "/#" + path;
@@ -49,6 +60,6 @@
     return { title: p.title || "Command Centre", options: options };
   }
 
-  var api = { clickTarget: clickTarget, appUrl: appUrl, notificationOptions: notificationOptions };
+  var api = { clickTarget: clickTarget, appUrl: appUrl, notificationOptions: notificationOptions, backgroundAction: backgroundAction };
   root.CCNotify = api;
 })(typeof self !== "undefined" ? self : globalThis);

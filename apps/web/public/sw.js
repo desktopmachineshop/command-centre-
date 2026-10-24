@@ -1,6 +1,6 @@
 // Service worker: offline app shell + web push notifications.
 importScripts("/sw-notify.js"); // notifications
-const SHELL = "cc-shell-v2";
+const SHELL = "cc-shell-v3";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/sw-notify.js"])));
@@ -50,6 +50,12 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
+  // Reminder buttons (Done, Snooze 1h) act in the background through their pre-signed link.
+  const background = self.CCNotify.backgroundAction(event.notification.data, event.action);
+  if (background) {
+    event.waitUntil(fetch(background, { method: "POST" }).catch(() => {}));
+    return;
+  }
   // Approve/Reject open the confirm step in the app; nothing is approved from the lock screen.
   const target = self.CCNotify.appUrl(self.CCNotify.clickTarget(event.notification.data, event.action));
   event.waitUntil(

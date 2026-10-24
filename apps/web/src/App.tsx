@@ -15,6 +15,7 @@ import { Org } from "./pages/Org";
 import { Settings } from "./pages/Settings";
 import { Social } from "./pages/Social";
 import { TaskView } from "./pages/TaskView";
+import { Today } from "./pages/Today";
 import { go, routeQuery, useRoute } from "./router";
 
 // --- auth: cookie session (or a stored admin token), first-run setup, sign-in ---
@@ -89,6 +90,7 @@ export function App() {
 
 const NAV = [
   ["inbox", "Inbox"],
+  ["today", "Today"],
   ["approvals", "Approvals"],
   ["chat", "Chat"],
   ["social", "Social"],
@@ -120,6 +122,9 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   switch (page) {
     case "task":
       body = <TaskView api={api} feed={feed} id={id!} />;
+      break;
+    case "today":
+      body = <Today api={api} feed={feed} />;
       break;
     case "approvals":
       body = <Approvals api={api} feed={feed} id={id} />;

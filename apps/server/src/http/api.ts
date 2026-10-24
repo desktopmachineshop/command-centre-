@@ -17,6 +17,7 @@ import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
+import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
 import { type VoiceApiDeps, voiceApiRoutes } from "./voice";
 
@@ -40,6 +41,8 @@ export interface ApiDeps {
   voice?: VoiceApiDeps;
   /** Notification centre, preferences and devices (see ../notifications/routes.ts). */
   notifications?: NotificationService;
+  /** Today page API and reminder notification buttons (see ./pa.ts). */
+  pa?: PaApiDeps;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -74,6 +77,9 @@ export function apiRoutes(deps: ApiDeps) {
     });
     return c.json(result ?? { duplicate: true }, result ? 201 : 200);
   });
+
+  // Reminder notification buttons carry their own signature, so they sit before the admin check too.
+  if (deps.pa) app.route("/", paPushRoutes(deps.pa));
 
   // --- auth: /api/auth/* (sign-in, sessions, 2FA), then everything else needs a session cookie OR the admin Bearer token ---
   app.route("/auth", authRoutes(deps.auth.service, deps.auth.options));
@@ -207,6 +213,8 @@ export function apiRoutes(deps: ApiDeps) {
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
   // /voice/* and /tasks/:id/reply, behind the admin check above.
   if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
+  // /pa/*: the Today page.
+  if (deps.pa) app.route("/", paApiRoutes(deps.pa));
 
   return app;
 }

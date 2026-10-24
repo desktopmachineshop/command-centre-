@@ -47,6 +47,8 @@ export function startSystemJobs(options: {
   digest: () => Promise<unknown>;
   rollover: () => Promise<unknown>;
   socialPublish?: () => Promise<unknown>;
+  /** Delivers due PA reminders as pushes, every minute. */
+  paReminders?: () => Promise<unknown>;
 }): Cron[] {
   const job = (name: string, cron: string, fn: () => Promise<unknown>) =>
     new Cron(cron, { timezone: options.timezone, protect: true }, async () => {
@@ -55,5 +57,6 @@ export function startSystemJobs(options: {
   const jobs = [job("rollover", "1 0 * * *", options.rollover)];
   if (options.digestCron) jobs.push(job("digest", options.digestCron, options.digest));
   if (options.socialPublish) jobs.push(job("social-scheduled", "* * * * *", options.socialPublish));
+  if (options.paReminders) jobs.push(job("pa-reminders", "* * * * *", options.paReminders));
   return jobs;
 }
