@@ -27,6 +27,7 @@ import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
 import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
+import { type VideoMediaStore, VideoProductions, videoTtsFromEnv } from "./video";
 import { WorkerService } from "./workers";
 
 export interface Overrides {
@@ -37,6 +38,8 @@ export interface Overrides {
   verticals?: VerticalRegistry;
   /** IMAP connector for email ingress and Sent copies (tests use a MemoryMailbox). */
   imap?: ImapConnector;
+  /** Media store for video jobs' uploads (until the server's own media hosting is wired in). */
+  videoMedia?: VideoMediaStore;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -80,13 +83,27 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
   const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
 
+  const workers = new WorkerService(store, hub);
+
+  // --- video (packages/video): video.produce → worker capture/render jobs → social.campaign draft ---
+  const video: VideoProductions = new VideoProductions({
+    submit: (job) => workers.submit(job),
+    propose: (proposal, options) => actions.propose(proposal, options),
+    notify: (n) => notifier.notify(n),
+    hasAction: (type) => type in actions.executors,
+    media: overrides.videoMedia,
+    tts: videoTtsFromEnv(),
+  });
+  workers.onJobSettled((job) => video.onJobSettled(job));
+  // --- end video ---
+
   const executors = {
     ...builtinExecutors,
     ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
     ...(odoo ? createOdooExecutors(odoo) : {}),
+    ...video.executors(),
   };
-  const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
-  const workers = new WorkerService(store, hub);
+  const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
   const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;

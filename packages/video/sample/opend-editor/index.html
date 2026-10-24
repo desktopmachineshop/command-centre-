@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenD editor (sample stand-in)</title>
+<!--
+  A static stand-in for the OpenD web editor, used by the sample render and the
+  capture tests so no login or live site is needed. The flow mirrors the real
+  docs: "Edit and save a topic" and "Publish your changes" (docs.opend.app,
+  topics/editor/editor-edit and topics/editor/editor-publish). It is not the
+  real UI; real demos capture the live editor with a signed-in profile.
+-->
+<style>
+  :root { --bg:#f6f8fb; --panel:#fff; --ink:#0d1b2a; --muted:#5b6b7f; --line:#dde3ea; --blue:#1f6feb; --amber:#ffb703; --green:#1a7f37; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 16px/1.45 Inter, "DejaVu Sans", system-ui, sans-serif; color:var(--ink); background:var(--bg); }
+  header { display:flex; align-items:center; gap:24px; height:56px; padding:0 24px; background:#0d1b2a; color:#fff; }
+  header .logo { font-weight:800; font-size:20px; letter-spacing:.5px; }
+  header .logo span { color:var(--amber); }
+  header nav a { color:#c9d6e3; text-decoration:none; margin-right:18px; padding:6px 10px; border-radius:6px; cursor:pointer; }
+  header nav a.active { background:#1b3350; color:#fff; }
+  header .branch { margin-left:auto; font-size:13px; color:#c9d6e3; }
+  main { padding:24px; }
+  .page { display:none; } .page.on { display:block; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+  h1 { font-size:24px; margin:0 0 14px; }
+  .files li { list-style:none; display:flex; justify-content:space-between; padding:11px 14px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .files ul { margin:0; padding:0; }
+  .files li:hover { background:#eef4ff; }
+  .tag { font-size:12px; padding:2px 8px; border-radius:99px; background:#fff3cd; color:#7a5b00; }
+  .tabs { display:flex; gap:4px; margin-bottom:12px; }
+  .tabs button { border:1px solid var(--line); background:#fff; padding:7px 16px; border-radius:7px 7px 0 0; cursor:pointer; font:inherit; }
+  .tabs button.on { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .editor { display:grid; grid-template-columns: 1fr 260px; gap:16px; }
+  .field { width:100%; font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; margin:4px 0 12px; }
+  .title-in { font-size:22px; font-weight:700; }
+  .block { border:1px dashed #9db7e0; border-radius:6px; padding:8px 10px; margin:8px 0; }
+  .block label { font-size:12px; color:var(--muted); display:block; }
+  .settings h3 { margin:0 0 8px; font-size:15px; }
+  .settings select, .preview select { width:100%; padding:6px; margin-bottom:10px; font:inherit; }
+  .btn { background:var(--blue); color:#fff; border:0; border-radius:7px; padding:9px 18px; font:inherit; font-weight:600; cursor:pointer; }
+  .btn.secondary { background:#e8eef6; color:var(--ink); }
+  .row { display:flex; gap:10px; align-items:center; margin-top:10px; }
+  .status { color:var(--green); font-weight:600; }
+  .reader { border-left:4px solid var(--amber); padding:4px 12px; background:#fffaf0; }
+  .hidden-for { opacity:.35; text-decoration: line-through; }
+  .needs li { margin:4px 0; }
+  .ok { color:var(--green); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Open<span>D</span> editor</div>
+  <nav>
+    <a data-nav="files" class="active">Files</a>
+    <a data-nav="publish">Publish</a>
+  </nav>
+  <div class="branch" id="branch">branch: (none yet)</div>
+</header>
+<main>
+  <section class="page on" id="page-files">
+    <h1>Files</h1>
+    <div class="card files">
+      <ul>
+        <li data-file="install">topics/start/install-cli.dita <span></span></li>
+        <li data-file="preview">topics/start/preview.dita <span></span></li>
+        <li data-file="widget" id="file-widget">topics/help/widget.dita <span class="tag" id="widget-tag" hidden>changed</span></li>
+        <li data-file="oidc">topics/hosting/oidc.dita <span></span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="page" id="page-edit">
+    <div class="tabs">
+      <button data-tab="visual" class="on">Visual</button>
+      <button data-tab="source">Source</button>
+      <button data-tab="preview">Preview</button>
+    </div>
+    <div class="editor">
+      <div class="card">
+        <div id="tab-visual">
+          <input class="field title-in" id="topic-title" value="Embed the help widget">
+          <label>Short description</label>
+          <input class="field" id="shortdesc" value="Add context-sensitive help to your app.">
+          <div class="block" id="block-admin"><label>Shown to: audience = admin</label>Sign embed tokens in your backend before you load the widget.</div>
+          <div class="block"><label>Shown to everyone</label>Load the widget script and call <code>open()</code> with a context key.</div>
+        </div>
+        <div id="tab-source" hidden><pre>&lt;topic id="widget"&gt;&lt;title&gt;Embed the help widget&lt;/title&gt;…</pre></div>
+        <div id="tab-preview" class="preview" hidden>
+          <label>Show the page for: audience</label>
+          <select id="audience"><option value="">(everything)</option><option value="admin">admin</option><option value="reader">reader</option></select>
+          <button class="btn secondary" id="show">Show</button>
+          <div class="reader" id="preview-body">
+            <h2 id="pv-title">Embed the help widget</h2>
+            <p id="pv-short">Add context-sensitive help to your app.</p>
+            <p id="pv-admin">Sign embed tokens in your backend before you load the widget.</p>
+            <p>Load the widget script and call open() with a context key.</p>
+          </div>
+        </div>
+        <div class="row">
+          <input class="field" id="note" placeholder="Note about the change (optional)" style="margin:0">
+          <button class="btn" id="save">Save</button>
+          <span class="status" id="saved"></span>
+        </div>
+      </div>
+      <aside class="card settings">
+        <h3>Block settings</h3>
+        <label>audience</label>
+        <select><option>admin</option><option>reader</option></select>
+        <label>release</label>
+        <select><option>all</option><option>0.1</option></select>
+        <p style="font-size:13px;color:var(--muted)">Problems: none</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="page" id="page-publish">
+    <h1>Publish</h1>
+    <div class="card">
+      <h3>What publishing needs</h3>
+      <ul class="needs"><li class="ok">✓ No validation errors</li><li class="ok">✓ No conflicts with the main branch</li><li class="ok">✓ Branch protection on GitHub: no required reviews</li></ul>
+      <h3>Your changes</h3>
+      <ul id="changes"><li>(nothing saved yet)</li></ul>
+      <button class="btn" id="publish">Publish</button>
+      <p class="status" id="published"></p>
+    </div>
+  </section>
+</main>
+<script>
+  const $ = (s) => document.querySelector(s);
+  const show = (page) => {
+    document.querySelectorAll(".page").forEach((p) => p.classList.toggle("on", p.id === "page-" + page));
+    document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === page || (page === "edit" && a.dataset.nav === "files")));
+  };
+  document.querySelectorAll("[data-nav]").forEach((a) => a.addEventListener("click", () => show(a.dataset.nav)));
+  document.querySelectorAll("[data-file]").forEach((li) => li.addEventListener("click", () => show("edit")));
+  document.querySelectorAll("[data-tab]").forEach((b) =>
+    b.addEventListener("click", () => {
+      document.querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("on", x === b));
+      ["visual", "source", "preview"].forEach((t) => ($("#tab-" + t).hidden = t !== b.dataset.tab));
+      $("#pv-title").textContent = $("#topic-title").value;
+      $("#pv-short").textContent = $("#shortdesc").value;
+    }),
+  );
+  $("#show").addEventListener("click", () => $("#pv-admin").classList.toggle("hidden-for", $("#audience").value === "reader"));
+  $("#save").addEventListener("click", () => {
+    $("#saved").textContent = "Saved to your branch · 3f9c2e1";
+    $("#branch").textContent = "branch: dave/edit-widget";
+    $("#widget-tag").hidden = false;
+    $("#changes").innerHTML = "<li>topics/help/widget.dita</li>";
+  });
+  $("#publish").addEventListener("click", () => {
+    $("#published").textContent = "Published: your changes are merged and will go live after the build.";
+  });
+</script>
+</body>
+</html>

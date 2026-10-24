@@ -22,9 +22,11 @@ packages/brain         git-backed markdown brain + MCP server
 packages/email         IMAP inbox poller + email.reply / email.send executors
 packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/mcp/odoo), Odoo actions
 packages/triage        triagers (rules, Jev, Haiku fallback) + accuracy eval
+packages/video         VideoSpec, TTS adapters, Playwright capture, captions, ffmpeg compositor
 packages/verticals     one manifest per business / life area
 skills/                shared skills bank (Agent Skills format)
 ```
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and phased plan
 - [docs/SETUP.md](docs/SETUP.md): running locally and deploying to Railway
+- [docs/VIDEO.md](docs/VIDEO.md): the video pipeline for OpenV and OpenD content

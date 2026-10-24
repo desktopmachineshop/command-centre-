@@ -22,6 +22,7 @@
     "@cc/odoo": "workspace:*",
     "@cc/triage": "workspace:*",
     "@cc/verticals": "workspace:*",
+    "@cc/video": "workspace:*",
     "@hono/node-server": "^2.1.5",
     "@hono/node-ws": "^1.3.1",
     "@modelcontextprotocol/sdk": "^1.32.2",

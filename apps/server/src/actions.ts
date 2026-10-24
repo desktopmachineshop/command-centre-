@@ -69,7 +69,8 @@ export class ActionService {
     readonly executors: Record<string, ActionExecutor> = builtinExecutors,
   ) {}
 
-  async propose(input: NewProposal): Promise<Proposal> {
+  /** `forceDraft` (a reason) holds this proposal for approval whatever the vertical's policy says. */
+  async propose(input: NewProposal, options: { forceDraft?: string } = {}): Promise<Proposal> {
     const p = NewProposalSchema.parse(input);
     if (!this.executors[p.actionType]) {
       throw new Error(`Unknown action type "${p.actionType}". Known: ${Object.keys(this.executors).join(", ")}`);
@@ -80,6 +81,10 @@ export class ActionService {
     const untrusted = policy !== "draft" && !UNTRUSTED_AUTO_ALLOWED.has(p.actionType) ? await this.untrustedSource(p.taskId) : null;
     if (untrusted) {
       payload = { ...payload, policyDowngrade: { from: policy, reason: `task was triggered by untrusted ${untrusted} input` } };
+      policy = "draft";
+    }
+    if (options.forceDraft && policy !== "draft") {
+      payload = { ...payload, policyDowngrade: { from: policy, reason: options.forceDraft } };
       policy = "draft";
     }
     const proposal = await this.store.insertProposal({
