@@ -1,8 +1,9 @@
-// Service worker: offline app shell + web push notifications for approvals.
-const SHELL = "cc-shell-v1";
+// Service worker: offline app shell + web push notifications.
+importScripts("/sw-notify.js"); // notifications
+const SHELL = "cc-shell-v2";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg"])));
+  event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/sw-notify.js"])));
   self.skipWaiting();
 });
 
@@ -31,24 +32,34 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+// --- notifications: categories, tags, actions, badge (pure logic in sw-notify.js) ---
 self.addEventListener("push", (event) => {
-  const data = event.data ? event.data.json() : { title: "Command Centre", body: "" };
-  event.waitUntil(
-    self.registration.showNotification(data.title, { body: data.body, icon: "/icon.svg", data: { url: data.url ?? "/" } }),
-  );
+  let payload;
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: "Command Centre", body: event.data ? event.data.text() : "" };
+  }
+  const { title, options } = self.CCNotify.notificationOptions(payload);
+  const badge =
+    typeof payload.unread === "number" && self.navigator.setAppBadge
+      ? (payload.unread > 0 ? self.navigator.setAppBadge(payload.unread) : self.navigator.clearAppBadge()).catch(() => {})
+      : Promise.resolve();
+  event.waitUntil(Promise.all([self.registration.showNotification(title, options), badge]));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = event.notification.data?.url ?? "/";
+  // Approve/Reject open the confirm step in the app; nothing is approved from the lock screen.
+  const target = self.CCNotify.appUrl(self.CCNotify.clickTarget(event.notification.data, event.action));
   event.waitUntil(
-    self.clients.matchAll({ type: "window" }).then((wins) => {
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
       const existing = wins.find((w) => new URL(w.url).origin === self.location.origin);
       if (existing) {
-        existing.focus();
-        return existing.navigate(`/#${target}`);
+        return existing.focus().then((w) => (w || existing).navigate(target));
       }
-      return self.clients.openWindow(`/#${target}`);
+      return self.clients.openWindow(target);
     }),
   );
 });
+// --- end notifications ---

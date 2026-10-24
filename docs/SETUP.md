@@ -83,7 +83,7 @@ past shop emails into the same format.
 
 Open the Railway URL on your phone, sign in with the admin token, then **Add to Home Screen**.
 On iPhone, push notifications only work from the home-screen app. In the app, go to
-**Settings → Enable on this device** to get approval notifications.
+**Notifications → Notification settings → Enable on this device** (see "Notifications").
 
 ## Desktop app & worker
 
@@ -458,7 +458,7 @@ The personal vertical has a weekday 07:00 (Europe/London) `morning-brief` schedu
 1. reads yesterday's digests and journal (Friday to Sunday on a Monday);
 2. lists pending approvals;
 3. works out today's priorities;
-4. sends you a 3–5 line push through a `notify` action.
+4. sends you a 3–5 line `briefing` push through a `notify` action (see "Notifications").
 
 `notify` is `auto-with-digest` for the personal vertical, so the brief arrives without an approval
 step and is listed in that evening's digest.
@@ -475,6 +475,82 @@ Proposals made with the admin token (no task) keep their policy too. (`ActionSer
 The brief is **off by default**. To turn it on, set `enabled: true` on the `morning-brief` line in
 `packages/verticals/src/personal.ts` and redeploy. It is an agent run, so it counts towards the
 budgets.
+
+## Notifications
+
+Every notification is saved in the app's **notification centre** (the bell in the header, with
+the unread count; the same count shows on the app icon where the Badging API is supported). Each
+one has a **category**, and the category decides whether it reaches your devices as a push.
+Change it all under **Notifications → Notification settings** (`#/notification-settings`).
+
+### Categories and defaults
+
+| Category | What sends it | Default |
+| --- | --- | --- |
+| `approval` | an action waiting for approval | push, sound, high |
+| `briefing` | morning brief, evening wrap, quick briefing | push, silent |
+| `reminder` | personal-assistant reminders | push, sound, high |
+| `alert` | budget reached, a scheduled post failed | push, sound, urgent |
+| `digest` | the daily digest | push, silent, low |
+| `social` | social activity | batched into the next digest |
+| `orders` | Odoo/shop orders | batched into the next digest |
+| `system` | test pushes, system notices | in the app only |
+| `agent` | anything else an agent sends with `notify` | push, sound |
+
+For each category you can set: **on/off** (off: still listed in the centre, already marked read);
+**delivery** (push now, add to the next digest push, or in the app only); **sound** (off shows the
+push silently, with no sound or vibration); and its **priority**. **Per vertical** overrides change
+one category for one business, e.g. 3dpandme social off.
+
+- Approval requests share one notification (tag `approvals`) that is replaced by each new request,
+  says how many more are waiting, and has **Approve** / **Reject** buttons. The buttons don't act
+  from the lock screen: they open the app on that proposal and ask you to confirm. (The service
+  worker has no credentials, and a stray tap on a lock screen shouldn't send an email.) Deciding
+  a proposal marks its notification read.
+- Briefings open a briefing view (`#/briefing/<id>`).
+- **Rate limit:** at most 3 pushes per category per 10 minutes (configurable). Extras collapse into
+  one "and N more" notification per category, which updates in place. Urgent is never limited.
+- **Batched** notifications are added to the next daily-digest push as one line ("Also: 2 social,
+  1 orders"). If there is no digest that day they stay in the centre.
+
+Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`normal`/`low`),
+`vertical`, `tag`, `actions` and `data`; `{title, body, url}` alone still works, and the category
+is then guessed from the title and URL (else `agent`). The `notify` action takes
+`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`.
+
+### Quiet hours
+
+Default **22:00–07:00 Europe/London**, across midnight and following daylight saving. During quiet
+hours only `urgent` pushes (and approvals, if you tick **Let approvals through**). Everything else
+is held and, when quiet hours end, arrives as **one summary push** listing what came in.
+
+### Quick briefing
+
+Off by default. When on, at the set time (default 07:30) you get a `briefing` push with today's
+counts: approvals waiting, tasks so far, spend against budget, and unread notifications. It is a
+system job, not an agent run, so it costs nothing. The agent-written morning brief (above) is
+separate and is also sent as a `briefing`.
+
+### Devices
+
+**Notification settings → Enable on this device** subscribes the device and asks for a name
+("Dave's phone"). The device list shows each one's platform and last successful push, and lets you
+rename or remove it, choose what it gets (everything, high and up, or urgent only: e.g. urgent only
+on the phone, everything on the desktop), and **Send test**. Each category row also has a **Test**
+button, which sends a test push to every device that category reaches (ignoring quiet hours and
+the rate limit). Devices whose subscription has expired are removed automatically.
+
+- **iPhone/iPad (iOS 16.4+):** push only works from the home-screen app. In Safari, **Share → Add
+  to Home Screen**, open Command Centre from the home screen, sign in, then **Enable on this
+  device** and allow notifications. Focus modes can still silence it.
+- **Android (Chrome):** install the app (menu → **Install app**) or use it in Chrome, then **Enable
+  on this device**. If nothing arrives, check Android's notification settings for Chrome / the app.
+- **Windows/macOS:** Chrome or Edge, installed or in a tab. Pushes arrive while the browser runs.
+
+The server needs `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`; without them notifications are only
+in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifications/unread-count`,
+`POST /api/notifications/:id/read`, `POST /api/notifications/read-all`,
+`GET|PUT /api/notifications/prefs`, `/api/notifications/devices`, `POST /api/notifications/test`.
 
 ## Odoo
 

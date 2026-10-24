@@ -1,4 +1,5 @@
 import type { Event, Job, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun } from "@cc/core";
+import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
 
 /** Connection settings. The desktop app can point at a remote server; the PWA defaults to its own origin. */
 export interface Connection {
@@ -168,6 +169,31 @@ export function createApi(conn: Connection) {
       if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
       return body as { id: string; url: string; type: "image" | "video"; contentType: string; bytes: number };
     },
+    // --- notifications ---
+    notifications: (options: { category?: string; unread?: boolean; limit?: number } = {}) =>
+      call<{ items: StoredNotification[]; unread: number; unreadByCategory: Record<string, number> }>(
+        `/notifications?${new URLSearchParams(
+          Object.entries({ category: options.category, unread: options.unread ? "1" : undefined, limit: options.limit?.toString() }).filter(
+            ([, v]) => v,
+          ) as [string, string][],
+        )}`,
+      ),
+    notification: (id: string) => call<StoredNotification>(`/notifications/${id}`),
+    unreadCount: () => call<{ unread: number }>("/notifications/unread-count"),
+    markRead: (id: string) => post<{ unread: number }>(`/notifications/${id}/read`),
+    markAllRead: (category?: string) => post<{ changed: number; unread: number }>("/notifications/read-all", { category }),
+    notificationPrefs: () =>
+      call<{ prefs: NotificationPrefs; defaults: NotificationPrefs; categories: NotificationCategory[] }>("/notifications/prefs"),
+    saveNotificationPrefs: (patch: Partial<NotificationPrefs>) =>
+      call<{ prefs: NotificationPrefs }>("/notifications/prefs", { method: "PUT", body: JSON.stringify(patch) }),
+    devices: () => call<{ publicKey: string | null; devices: NotificationDevice[] }>("/notifications/devices"),
+    addDevice: (subscription: PushSubscriptionJSON, name?: string) => post<NotificationDevice>("/notifications/devices", { subscription, name }),
+    updateDevice: (id: string, patch: { name?: string; minPriority?: NotificationPriority }) =>
+      call<NotificationDevice>(`/notifications/devices/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    removeDevice: (id: string) => call<{ ok: true }>(`/notifications/devices/${id}`, { method: "DELETE" }),
+    testNotification: (options: { category?: NotificationCategory; deviceId?: string }) =>
+      post<{ notification: StoredNotification; pushConfigured: boolean }>("/notifications/test", options),
+    // --- end notifications ---
   };
 }
 
