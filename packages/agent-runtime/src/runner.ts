@@ -18,6 +18,11 @@ export interface AgentRunRequest {
   model?: string;
   /** Resume an earlier session of the same runner. */
   resumeSessionId?: string;
+  /**
+   * The prompt to use instead when the session can't be resumed (e.g. a fallback
+   * runner that doesn't have it): `prompt` with the earlier context spelled out.
+   */
+  promptWithoutResume?: string;
   signal?: AbortSignal;
 }
 

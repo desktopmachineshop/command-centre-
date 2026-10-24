@@ -303,6 +303,7 @@ export class Pipeline {
         {
           prompt: turn?.prompt ?? task.prompt,
           resumeSessionId: turn?.resumeSessionId,
+          promptWithoutResume: turn?.promptWithoutResume,
           systemPrompt: systemPrompt(vertical, this.deps.actions.executors, new Date(), brief),
           cwd,
           mcpServers,

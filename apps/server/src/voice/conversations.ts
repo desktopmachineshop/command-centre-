@@ -15,6 +15,8 @@ export interface ReplyTurn {
   replyId: string;
   prompt: string;
   resumeSessionId?: string;
+  /** With `resumeSessionId`: the prompt with the context spelled out, for a runner that can't resume it. */
+  promptWithoutResume?: string;
   voice: boolean;
 }
 
@@ -87,9 +89,6 @@ export class VoiceConversations {
     this.hub.broadcast({ type: "run.message", runId, taskId: task.id, message: { type: "system", text: `Dave replied: ${reply.text}` } });
 
     const answer = (text: string) => (reply.voice ? voicePrompt(text) : text);
-    if (reply.resume_session_id) {
-      return { replyId: reply.id, prompt: answer(`Dave replies: ${reply.text}`), resumeSessionId: reply.resume_session_id, voice: reply.voice };
-    }
     const last = await this.store.pool.query(
       "select result from agent_runs where task_id = $1 and id <> $2 and result is not null order by started_at desc limit 1",
       [task.id, runId],
@@ -104,6 +103,15 @@ export class VoiceConversations {
     ]
       .filter(Boolean)
       .join("\n\n");
+    if (reply.resume_session_id) {
+      return {
+        replyId: reply.id,
+        prompt: answer(`Dave replies: ${reply.text}`),
+        resumeSessionId: reply.resume_session_id,
+        promptWithoutResume: answer(context),
+        voice: reply.voice,
+      };
+    }
     return { replyId: reply.id, prompt: answer(context), voice: reply.voice };
   }
 

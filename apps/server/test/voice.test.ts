@@ -1,4 +1,4 @@
-import type { AgentRunner, AgentRunRequest, AgentRunResult } from "@cc/agent-runtime";
+import { FallbackRunner, type AgentRunner, type AgentRunRequest, type AgentRunResult } from "@cc/agent-runtime";
 import type { OutboundMessage } from "@cc/core";
 import { FakeSpeechToText, FakeTextToSpeech, voiceResponseLine } from "@cc/voice";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -213,5 +213,44 @@ describe("voice API without server providers", () => {
     expect(await (await app.request("/voice/config")).json()).toEqual({ stt: null, tts: null, maxUploadBytes: 1024, maxSeconds: 60, language: "en-GB", calendar: false });
     expect((await app.request("/voice/transcribe", { method: "POST", body: "x", headers: { "content-type": "audio/webm" } })).status).toBe(503);
     expect((await app.request("/voice/speak", { method: "POST", body: JSON.stringify({ text: "hi" }), headers: { "content-type": "application/json" } })).status).toBe(503);
+  });
+});
+
+describe.skipIf(!DB_URL)("a reply that falls back to the API-key runner", () => {
+  class Primary implements AgentRunner {
+    readonly name = "sub";
+    n = 0;
+    async run(_r: AgentRunRequest): Promise<AgentRunResult> {
+      if (++this.n === 1) return { status: "succeeded", result: "Which supplier do you mean?", error: null, costUsd: 0, sessionId: "sess-1" };
+      return { status: "failed", result: null, error: "Claude usage limit reached", costUsd: 0, sessionId: null };
+    }
+  }
+  class Api implements AgentRunner {
+    readonly name = "api";
+    readonly requests: AgentRunRequest[] = [];
+    async run(r: AgentRunRequest): Promise<AgentRunResult> {
+      this.requests.push(r);
+      return { status: "succeeded", result: "ok", error: null, costUsd: 0, sessionId: "sess-2" };
+    }
+  }
+  const primary = new Primary();
+  const api = new Api();
+  let ctx: Awaited<ReturnType<typeof makeServer>>;
+  beforeAll(async () => {
+    await resetDatabase(DB_URL!);
+    ctx = await makeServer({ runner: new FallbackRunner("claude-code", primary, api) });
+  });
+  afterAll(async () => ctx?.server.stop());
+
+  it("keeps the conversation's context when the session can't be resumed", async () => {
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "Order more 6mm end mills from the usual supplier", vertical: "dms" } });
+    await ctx.queue.drain();
+    expect((await ctx.api(`/api/tasks/${body.task.id}/reply`, { method: "POST", json: { text: "Yes, the second one" } })).status).toBe(202);
+    await ctx.queue.drain();
+    const req = api.requests.at(-1)!;
+    expect(req.resumeSessionId).toBeUndefined();
+    expect(req.prompt).toContain("end mills");
+    expect(req.prompt).toContain("Which supplier do you mean?");
+    expect(req.prompt).toContain("Dave replies: Yes, the second one");
   });
 });

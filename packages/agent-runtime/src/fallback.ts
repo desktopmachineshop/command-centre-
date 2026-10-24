@@ -19,6 +19,8 @@ export class FallbackRunner implements AgentRunner {
     const first = await this.primary.run(request, onMessage);
     if (!this.shouldFallback(first)) return first;
     onMessage?.({ type: "system", text: `${this.primary.name} hit a limit; retrying on ${this.fallback.name}` });
-    return this.fallback.run({ ...request, resumeSessionId: undefined }, onMessage);
+    // The fallback can't resume the primary's session, so it gets the prompt that carries the context.
+    const { promptWithoutResume, ...rest } = request;
+    return this.fallback.run({ ...rest, prompt: request.resumeSessionId ? (promptWithoutResume ?? request.prompt) : request.prompt, resumeSessionId: undefined }, onMessage);
   }
 }
