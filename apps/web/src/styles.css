@@ -2521,3 +2521,9 @@ a.stat:hover {
   align-items: center;
   gap: 6px;
 }
+
+/* --- Install banner (src/install.ts): phone only, one-time, dismissible --- */
+.install-banner { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.install-banner .grow { flex: 1; min-width: 0; }
+.install-banner > svg { flex: none; color: var(--accent); }
+/* --- end install banner --- */

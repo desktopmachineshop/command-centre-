@@ -46,7 +46,11 @@ can never send, post or change anything without your approval, whatever the sett
 ## Your setup checklist (in order)
 
 1. **Login: done.** Your account was created at 02:16 UTC. Optional: Settings → set up
-   two-factor and save the recovery codes. Add the app to your home screen.
+   two-factor and save the recovery codes.
+   **Install it on your phone:** in Chrome, tap **Install** on the card at the top of the
+   Inbox (or ⋮ → Install app). It becomes a proper Android app, with its own icon in the app
+   drawer, full screen, and long-press shortcuts to Approvals, Chat, Today and Drive mode.
+   See `docs/SETUP.md` → "Phone (PWA)".
 2. **Turn on Claude.** On your PC run `claude setup-token`, then in Railway set
    `CLAUDE_CODE_OAUTH_TOKEN` and change `AGENT_RUNNER` to `claude-code`. Then send the
    "First check after deploying" message from `docs/SETUP.md`. **This is the first real agent

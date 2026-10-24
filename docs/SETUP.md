@@ -185,14 +185,39 @@ past shop emails into the same format.
 
 ## Phone (PWA)
 
-Open the Railway URL on your phone and sign in with your email and password (and the code from
-your authenticator app, if two-factor is on). Then **Add to Home Screen** (iPhone: Share → Add to
-Home Screen; Android: ⋮ → Install app). You stay signed in for 30 days from the last time you
-used it. No token is stored on the phone; the session is an HttpOnly cookie.
+Open **https://command.desktopmachineshop.com** on your phone and sign in with your email and
+password (and the code from your authenticator app, if two-factor is on). You stay signed in for
+30 days from the last time you used it. No token is stored on the phone; the session is an
+HttpOnly cookie.
 
-On iPhone the home-screen app keeps its own cookies, separate from Safari, so sign in once more
-inside it after adding it. Push notifications on iPhone only work from the home-screen app. In
-the app, go to **Notifications → Notification settings → Enable on this device** (see "Notifications").
+### Install on Android
+
+1. In Chrome, tap **Install** on the "Install Command Centre" card at the top of the Inbox, or
+   **More → Install app**, or **Settings → App → Install app**. If none of these show, use
+   Chrome's **⋮ → Install app** (or **Add to Home screen → Install**).
+2. Chrome builds a real Android app (a WebAPK). It appears in the app drawer and in
+   **Settings → Apps** as "Command Centre", opens full screen with no browser bar, and handles
+   links to the domain. If you only get a home-screen shortcut with a small Chrome badge, it
+   wasn't installed as an app. Remove it, update Chrome, and try again.
+3. Long-press the icon for shortcuts: **Approvals**, **Chat**, **Today** and **Drive mode**.
+4. Open the app once and sign in again if asked. Then turn on push: **Notifications →
+   Notification settings → Enable on this device**, and allow notifications when Android asks.
+
+The app updates itself: new versions load the next time it opens. To remove it, uninstall it
+like any other app.
+
+### iPhone
+
+Safari → Share → **Add to Home Screen**. The home-screen app keeps its own cookies, separate
+from Safari, so sign in once more inside it. Push notifications on iPhone only work from the
+home-screen app (see "Notifications").
+
+### On a PC
+
+Chrome or Edge shows an install icon in the address bar, or use **Settings → App → Install app**.
+
+The icons are generated from `apps/web/public/icon.svg`. After changing the logo, run
+`node apps/web/scripts/icons.mjs`.
 
 ## Desktop app & worker
 

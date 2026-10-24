@@ -1,9 +1,9 @@
 // Service worker: offline app shell + web push notifications.
 importScripts("/sw-notify.js"); // notifications
-const SHELL = "cc-shell-v3";
+const SHELL = "cc-shell-v4";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/sw-notify.js"])));
+  event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/sw-notify.js"])));
   self.skipWaiting();
 });
 

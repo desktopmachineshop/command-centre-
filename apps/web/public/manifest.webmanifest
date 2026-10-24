@@ -1,12 +1,32 @@
 {
+  "id": "/",
   "name": "Command Centre",
   "short_name": "Command",
   "description": "Inbox, approvals, chat and the brain for Dave's businesses and life admin.",
-  "start_url": "/",
+  "start_url": "/#/inbox",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "orientation": "any",
   "background_color": "#0e1015",
   "theme_color": "#161920",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "categories": ["productivity", "business"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Approvals", "short_name": "Approvals", "url": "/#/approvals", "icons": [{ "src": "/icons/shortcut-approvals.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Chat", "short_name": "Chat", "url": "/#/chat", "icons": [{ "src": "/icons/shortcut-chat.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Today", "short_name": "Today", "url": "/#/today", "icons": [{ "src": "/icons/shortcut-today.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "Drive mode", "short_name": "Drive", "url": "/#/drive", "icons": [{ "src": "/icons/shortcut-drive.png", "sizes": "96x96", "type": "image/png" }] }
+  ],
+  "screenshots": [
+    { "src": "/screenshots/inbox-phone-light.png", "sizes": "585x1266", "type": "image/png", "form_factor": "narrow", "label": "Inbox with today's summary" },
+    { "src": "/screenshots/approvals-phone-light.png", "sizes": "585x1266", "type": "image/png", "form_factor": "narrow", "label": "Approve agent actions" },
+    { "src": "/screenshots/today-phone-dark.png", "sizes": "585x1266", "type": "image/png", "form_factor": "narrow", "label": "Today: agenda, reminders and lists" },
+    { "src": "/screenshots/inbox-desktop-light.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "Command Centre on desktop" }
+  ]
 }

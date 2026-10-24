@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useInstall } from "../install";
 import type { Api } from "../api";
 import { Icon } from "../icons";
 import { PageHead } from "../ui";
@@ -13,6 +14,7 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 }
 
 export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }) {
+  const install = useInstall();
   const [status, setStatus] = useState<string | null>(null);
 
   const enablePush = async () => {
@@ -33,6 +35,27 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
   return (
     <section className="settings-grid">
       <PageHead title="Settings" />
+      <div className="card">
+        <div className="card-head">
+          <Icon name="install" />
+          <h3>App</h3>
+        </div>
+        {install.installed ? (
+          <p className="small muted">Installed: you're using the Command Centre app.</p>
+        ) : install.canInstall ? (
+          <>
+            <p className="small muted">Install Command Centre as an app: its own icon in your app drawer, full screen, no browser bar.</p>
+            <button type="button" className="primary" onClick={() => void install.install()}>
+              <Icon name="install" /> Install app
+            </button>
+          </>
+        ) : (
+          <p className="small muted">
+            To install: on Android, open the Chrome menu (⋮) and tap <strong>Install app</strong>. On iPhone, tap Share, then{" "}
+            <strong>Add to Home Screen</strong>. On a PC, use the install icon in the address bar.
+          </p>
+        )}
+      </div>
       <div className="card">
         <div className="card-head">
           <Icon name="bell" />

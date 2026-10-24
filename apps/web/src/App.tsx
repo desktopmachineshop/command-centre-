@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useInstall } from "./install";
 import { ApiError, COOKIE_SESSION, type Connection, createApi, loadConnection, saveConnection } from "./api";
 import { usd } from "./format";
 import { LiveFeed, useLive, useLoad } from "./live";
@@ -153,6 +154,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   const [theme, setTheme] = useTheme();
   const phone = useMedia(PHONE);
   const [moreOpen, setMoreOpen] = useState(false);
+  const install = useInstall();
   const [verticals, setVerticals] = useState<Record<string, VerticalInfo>>({});
 
   useEffect(() => {
@@ -300,7 +302,24 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
               {phone ? <ThemeCycle value={theme} onChange={setTheme} /> : <ThemeToggle value={theme} onChange={setTheme} />}
             </div>
           </header>
-          <main className="main">{body}</main>
+          <main className="main">
+            {phone && install.showBanner && page !== "settings" && (
+              <div className="install-banner card" role="region" aria-label="Install app">
+                <Icon name="install" />
+                <div className="grow">
+                  <strong>Install Command Centre</strong>
+                  <div className="small muted">Its own icon, full screen, faster to open.</div>
+                </div>
+                <button type="button" className="primary small" onClick={() => void install.install()}>
+                  Install
+                </button>
+                <button type="button" className="ghost icon-btn" aria-label="Not now" onClick={install.dismissBanner}>
+                  <Icon name="close" />
+                </button>
+              </div>
+            )}
+            {body}
+          </main>
         </div>
         {phone && (
           <nav className="tabbar" aria-label="Main">
@@ -326,6 +345,14 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
               <span className="small muted">Theme</span>
               <ThemeToggle value={theme} onChange={setTheme} />
             </div>
+            {install.canInstall && (
+              <div className="sheet-row">
+                <span className="small muted">App</span>
+                <button type="button" className="primary small" onClick={() => void install.install()}>
+                  <Icon name="install" /> Install app
+                </button>
+              </div>
+            )}
           </MoreSheet>
         )}
       </div>
