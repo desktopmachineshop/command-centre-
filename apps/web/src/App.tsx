@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, COOKIE_SESSION, type Connection, createApi, loadConnection, saveConnection } from "./api";
 import { usd } from "./format";
 import { LiveFeed, useLive, useLoad } from "./live";
@@ -16,7 +16,10 @@ import { Settings } from "./pages/Settings";
 import { Social } from "./pages/Social";
 import { TaskView } from "./pages/TaskView";
 import { Today } from "./pages/Today";
-import { go, routeQuery, useRoute } from "./router";
+import { BrandMark, Icon, type IconName } from "./icons";
+import { routeQuery, useRoute } from "./router";
+import { useMedia, useTheme } from "./theme";
+import { ThemeCycle, ThemeToggle, type VerticalInfo, VerticalsContext } from "./ui";
 
 // --- auth: cookie session (or a stored admin token), first-run setup, sign-in ---
 type AuthState =
@@ -53,7 +56,10 @@ export function App() {
   if (auth.kind === "checking") {
     return (
       <div className="login">
-        <p className="muted">Loading…</p>
+        <div className="login-loading" aria-busy="true">
+          <BrandMark size={44} />
+          <p className="muted">Loading…</p>
+        </div>
       </div>
     );
   }
@@ -88,46 +94,97 @@ export function App() {
 }
 // --- end auth ---
 
-const NAV = [
-  ["inbox", "Inbox"],
-  ["today", "Today"],
-  ["approvals", "Approvals"],
-  ["chat", "Chat"],
-  ["social", "Social"],
-  ["org", "Org"],
-  ["brain", "Brain"],
-  ["devices", "Devices"],
-  ["settings", "Settings"],
-] as const;
+/**
+ * Navigation, data-driven: the sidebar (desktop), the bottom tab bar and its "More"
+ * sheet (phone) are all built from NAV. To add a page, add ONE entry here, e.g.
+ *
+ *   { key: "today", label: "Today", icon: "today", group: "Work", mobilePrimary: true },
+ *
+ * and a `case "today":` in Shell's switch below that renders the page. `key` is the
+ * hash route (#/today); `icon` is a name from icons.tsx (today, drive and bell exist
+ * already); `group` is the sidebar heading (groups appear in NAV order, a new name
+ * makes a new group); `mobilePrimary` puts it in the phone tab bar (at most 4, then
+ * "More"; everything else goes in the More sheet). A badge count goes in `badges`.
+ */
+export type NavItem = { key: string; label: string; icon: IconName; group: string; mobilePrimary?: boolean };
+
+export const NAV: NavItem[] = [
+  { key: "inbox", label: "Inbox", icon: "inbox", group: "Work", mobilePrimary: true },
+  { key: "today", label: "Today", icon: "today", group: "Work", mobilePrimary: true },
+  { key: "approvals", label: "Approvals", icon: "approvals", group: "Work", mobilePrimary: true },
+  { key: "chat", label: "Chat", icon: "chat", group: "Work", mobilePrimary: true },
+  { key: "notifications", label: "Notifications", icon: "bell", group: "Work" },
+  { key: "drive", label: "Drive", icon: "drive", group: "Work" },
+  { key: "social", label: "Social", icon: "social", group: "Business" },
+  { key: "org", label: "Org", icon: "org", group: "Business" },
+  { key: "brain", label: "Brain", icon: "brain", group: "Knowledge" },
+  { key: "devices", label: "Devices", icon: "devices", group: "System" },
+  { key: "settings", label: "Settings", icon: "settings", group: "System" },
+  { key: "notification-settings", label: "Notification settings", icon: "bell", group: "System" },
+];
+
+/** Routes without their own nav entry, and the entry they highlight. */
+const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications" };
+
+/** Routes that render their own full-screen layout: no sidebar, top bar or tab bar. */
+const FULL_SCREEN = new Set(["drive"]);
+
+const PHONE = "(max-width: 759.98px)";
+
+function NavLink({ item, active, badge, onClick }: { item: NavItem; active: boolean; badge?: number; onClick?: () => void }) {
+  return (
+    <a href={`#/${item.key}`} className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={onClick}>
+      <Icon name={item.icon} />
+      <span className="nav-text">{item.label}</span>
+      {badge ? (
+        <span className="badge" aria-label={`${badge} pending`}>
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
+    </a>
+  );
+}
 
 function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOut: () => void; onUnauthorized: () => void }) {
   const api = useMemo(() => createApi(conn, onUnauthorized), [conn]);
   const feed = useMemo(() => new LiveFeed(api), [api]);
   const [online, setOnline] = useState(false);
   const [page, id] = useRoute();
+  const [theme, setTheme] = useTheme();
+  const phone = useMedia(PHONE);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [verticals, setVerticals] = useState<Record<string, VerticalInfo>>({});
 
   useEffect(() => {
     feed.onStatus = setOnline;
     return () => feed.close();
   }, [feed]);
+  useEffect(() => {
+    api
+      .verticals()
+      .then((vs) => setVerticals(Object.fromEntries(vs.map((v) => [v.id, { id: v.id, name: v.name, color: v.color }]))))
+      .catch(() => {});
+  }, [api]);
+  // Close the "More" sheet on navigation.
+  useEffect(() => setMoreOpen(false), [page, id]);
 
   const stats = useLoad(api.stats, feed, (m) => m.type === "proposal.updated" || m.type === "task.updated");
   const pending = stats.data?.pendingApprovals ?? 0;
   const unread = useUnread(api, feed, page);
-
-  // Drive mode is full screen: no nav, nothing to read (see pages/Drive.tsx).
-  if (page === "drive") return <Drive api={api} feed={feed} />;
+  /**
+   * Badge counts by nav key. The notifications page adds its unread count here
+   * (`notifications: unread`), which also badges the header bell.
+   */
+  const badges: Record<string, number> = { approvals: pending, notifications: unread };
 
   let body;
   switch (page) {
-    case "task":
-      body = <TaskView api={api} feed={feed} id={id!} />;
-      break;
     case "today":
       body = <Today api={api} feed={feed} />;
       break;
-    case "approvals":
-      body = <Approvals api={api} feed={feed} id={id} />;
+    // Drive mode is full screen (FULL_SCREEN): no nav, nothing to read (see pages/Drive.tsx).
+    case "drive":
+      body = <Drive api={api} feed={feed} />;
       break;
     // --- notifications ---
     case "notifications":
@@ -140,6 +197,12 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
       body = <Briefing api={api} feed={feed} id={id} />;
       break;
     // --- end notifications ---
+    case "task":
+      body = <TaskView api={api} feed={feed} id={id!} />;
+      break;
+    case "approvals":
+      body = <Approvals api={api} feed={feed} id={id} />;
+      break;
     case "chat":
       body = <Chat api={api} feed={feed} />;
       break;
@@ -162,34 +225,157 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
       body = <Inbox api={api} feed={feed} />;
   }
 
+  const activeKey = PARENT[page ?? ""] ?? (NAV.some((n) => n.key === page) ? page! : "inbox");
+  const current = NAV.find((n) => n.key === activeKey);
+  const primary = NAV.filter((n) => n.mobilePrimary).slice(0, 4);
+  const rest = NAV.filter((n) => !primary.includes(n));
+  const groups = [...new Set(NAV.map((n) => n.group))];
+  const spend = stats.data ? usd(stats.data.costTodayUsd) : null;
+
+  if (FULL_SCREEN.has(page ?? "")) return <VerticalsContext.Provider value={verticals}>{body}</VerticalsContext.Provider>;
+
   return (
-    <div className="shell">
-      <header className="topbar">
-        <button className="brand" onClick={() => go("inbox")}>
-          Command Centre
-        </button>
-        <span className={`dot ${online ? "on" : ""}`} title={online ? "Live" : "Reconnecting"} />
-        <span className="muted small">{stats.data ? `today ${usd(stats.data.costTodayUsd)}` : ""}</span>
-        <a href="#/notifications" className={`bell ${page === "notifications" ? "active" : ""}`} aria-label={`Notifications, ${unread} unread`} title="Notifications">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-            <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-          </svg>
-          {unread > 0 && <span className="badge">{unread > 99 ? "99+" : unread}</span>}
-        </a>
-      </header>
-      <nav className="nav">
-        {NAV.map(([key, label]) => (
-          <a key={key} href={`#/${key}`} className={page === key || (key === "inbox" && page === "task") ? "active" : ""}>
-            {label}
-            {key === "approvals" && pending > 0 && <span className="badge">{pending}</span>}
-          </a>
-        ))}
-      </nav>
-      <main className="main">{body}</main>
+    <VerticalsContext.Provider value={verticals}>
+      <div className={`shell ${phone ? "is-phone" : "is-desktop"} page-${page || "inbox"}`}>
+        {!phone && (
+          <aside className="sidebar">
+            <a className="brand" href="#/inbox">
+              <BrandMark />
+              <span>Command Centre</span>
+            </a>
+            <nav className="nav" aria-label="Main">
+              {groups.map((g) => (
+                <div key={g} className="nav-group">
+                  <div className="nav-label">{g}</div>
+                  {NAV.filter((n) => n.group === g).map((n) => (
+                    <NavLink key={n.key} item={n} active={n.key === activeKey} badge={badges[n.key]} />
+                  ))}
+                </div>
+              ))}
+            </nav>
+            {spend && (
+              <div className="sidebar-foot small">
+                <span className="muted">Spent today</span>
+                <strong>{spend}</strong>
+              </div>
+            )}
+          </aside>
+        )}
+        <div className="column">
+          <header className="topbar">
+            {phone ? (
+              <a className="brand" href="#/inbox" aria-label="Command Centre, go to Inbox">
+                <BrandMark size={28} />
+                <span>{page === "task" ? "Task" : (current?.label ?? "Command Centre")}</span>
+              </a>
+            ) : (
+              <div className="crumbs small">
+                <span className="muted">{current?.group}</span>
+                <Icon name="chevron" size={14} className="muted" />
+                {page === "task" ? (
+                  <>
+                    <a href="#/inbox">Inbox</a>
+                    <Icon name="chevron" size={14} className="muted" />
+                    <strong>Task</strong>
+                  </>
+                ) : (
+                  <strong>{current?.label}</strong>
+                )}
+              </div>
+            )}
+            <div className="topbar-end">
+              <a
+                href="#/notifications"
+                className={`bell icon-link ${activeKey === "notifications" ? "active" : ""}`}
+                aria-label={`Notifications, ${unread} unread`}
+                title="Notifications"
+              >
+                <Icon name="bell" />
+                {unread > 0 && <span className="badge">{unread > 99 ? "99+" : unread}</span>}
+              </a>
+              <span className="live" title={online ? "Live" : "Reconnecting"} role="status" aria-label={online ? "Live" : "Reconnecting"}>
+                <span className={`dot ${online ? "on" : ""}`} />
+                {!phone && <span className="small muted">{online ? "Live" : "Reconnecting…"}</span>}
+              </span>
+              {phone ? <ThemeCycle value={theme} onChange={setTheme} /> : <ThemeToggle value={theme} onChange={setTheme} />}
+            </div>
+          </header>
+          <main className="main">{body}</main>
+        </div>
+        {phone && (
+          <nav className="tabbar" aria-label="Main">
+            {primary.map((n) => (
+              <NavLink key={n.key} item={n} active={!moreOpen && n.key === activeKey} badge={badges[n.key]} />
+            ))}
+            <button
+              type="button"
+              className={moreOpen || !primary.some((n) => n.key === activeKey) ? "active" : ""}
+              aria-expanded={moreOpen}
+              aria-haspopup="dialog"
+              onClick={() => setMoreOpen((o) => !o)}
+            >
+              <Icon name="more" />
+              <span className="nav-text">More</span>
+              {rest.some((n) => badges[n.key]) && <span className="badge dot-badge" aria-hidden="true" />}
+            </button>
+          </nav>
+        )}
+        {phone && moreOpen && (
+          <MoreSheet items={rest} activeKey={activeKey} badges={badges} onClose={() => setMoreOpen(false)}>
+            <div className="sheet-row">
+              <span className="small muted">Theme</span>
+              <ThemeToggle value={theme} onChange={setTheme} />
+            </div>
+          </MoreSheet>
+        )}
+      </div>
+    </VerticalsContext.Provider>
+  );
+}
+
+/** The phone's "More" sheet: every destination not in the tab bar. */
+function MoreSheet({
+  items,
+  activeKey,
+  badges,
+  onClose,
+  children,
+}: {
+  items: NavItem[];
+  activeKey: string;
+  badges: Record<string, number>;
+  onClose: () => void;
+  children?: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>(".sheet-grid a")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-label="More" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head">
+          <strong>More</strong>
+          <button type="button" className="ghost icon-btn" aria-label="Close" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <nav className="sheet-grid" aria-label="More pages">
+          {items.map((n) => (
+            <NavLink key={n.key} item={n} active={n.key === activeKey} badge={badges[n.key]} onClick={onClose} />
+          ))}
+        </nav>
+        {children}
+      </div>
     </div>
   );
 }
+
 
 // --- notifications ---
 /**

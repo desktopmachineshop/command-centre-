@@ -31,6 +31,24 @@ packages/voice         speech-to-text / text-to-speech clients (OpenAI, ElevenLa
 skills/                shared skills bank (Agent Skills format)
 ```
 
+## The app
+
+The PWA is phone-first with a bottom tab bar and a "More" sheet. On a PC it has a grouped sidebar.
+It comes in light and dark (System / Light / Dark in the header). The design tokens, components and
+the data-driven nav are documented at the top of `apps/web/src/styles.css`, `apps/web/src/ui.tsx`
+and `NAV` in `apps/web/src/App.tsx`. More screenshots are in [docs/screenshots](docs/screenshots).
+
+<p>
+  <img src="docs/screenshots/inbox-phone-light.png" alt="Inbox on a phone, light" width="220" />
+  <img src="docs/screenshots/approvals-phone-dark.png" alt="Approvals on a phone, dark" width="220" />
+  <img src="docs/screenshots/chat-phone-dark.png" alt="Chat on a phone, dark" width="220" />
+</p>
+
+![Inbox on a PC, light](docs/screenshots/inbox-desktop-light.png)
+![Org chart on a PC, dark](docs/screenshots/org-desktop-dark.png)
+
+## Docs
+
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and phased plan
 - [docs/SETUP.md](docs/SETUP.md): running locally and deploying to Railway
 - [docs/ORG.md](docs/ORG.md): the org chart of agent roles (Chief of Staff, leads, specialists), routing and handoffs

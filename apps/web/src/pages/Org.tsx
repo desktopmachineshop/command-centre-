@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type { Api } from "../api";
 import { usd } from "../format";
 import { type LiveFeed, useLoad } from "../live";
+import { ErrorBanner, PageHead, Skeleton, VTag } from "../ui";
 
 /** Wide screens start with every branch open; phones start collapsed. */
 const wide = () => typeof matchMedia === "function" && matchMedia("(min-width: 641px)").matches;
@@ -16,9 +17,9 @@ export function Org({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   return (
     <section className="org">
-      <h2>Org</h2>
-      <p className="muted small">Live numbers over the last {data?.windowDays ?? 7} days. Choose a role to see its tasks in the Inbox.</p>
-      {error && <p className="error">{error}</p>}
+      <PageHead title="Org" sub={`Live numbers over the last ${data?.windowDays ?? 7} days. Choose a role to see its tasks in the Inbox.`} />
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {!data && !error && <Skeleton rows={2} />}
       {data && (
         <ol className="org-tree">
           <li>
@@ -73,7 +74,7 @@ function RoleCard({ node }: { node: OrgRoleNode }) {
         <a className="title" href={inboxLink(node.vertical, node.id)} title="Show this role's tasks">
           {node.title}
         </a>
-        <span className="tag">{node.reportsTo === null ? "all verticals" : node.vertical}</span>
+        {node.reportsTo === null ? <span className="tag">all verticals</span> : <VTag id={node.vertical} />}
       </header>
       <Stats stats={node.stats} />
       <details>

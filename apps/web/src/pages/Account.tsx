@@ -2,6 +2,8 @@ import qrcode from "qrcode-generator";
 import { type FormEvent, useEffect, useState } from "react";
 import type { Api, Me, SessionInfo } from "../api";
 import { ago } from "../format";
+import { Icon } from "../icons";
+import { ErrorBanner } from "../ui";
 
 /**
  * Settings → account: password, two-factor and signed-in devices. With the admin
@@ -19,12 +21,15 @@ export function Account({ api }: { api: Api }) {
     void reload();
   }, [api]);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <ErrorBanner>{error}</ErrorBanner>;
   if (!me) return null;
   if (me.via === "token") {
     return (
       <div className="card">
-        <h3>Account</h3>
+        <div className="card-head">
+          <Icon name="key" />
+          <h3>Account</h3>
+        </div>
         <p className="muted small">You're signed in with the admin token, which has no account. Sign out and sign in with your email and password to manage it.</p>
       </div>
     );
@@ -32,9 +37,12 @@ export function Account({ api }: { api: Api }) {
   return (
     <>
       <div className="card">
-        <h3>Account</h3>
+        <div className="card-head">
+          <Icon name="key" />
+          <h3>Account</h3>
+        </div>
         <p className="small">
-          {me.user.name} · {me.user.email}
+          <strong>{me.user.name}</strong> <span className="muted">· {me.user.email}</span>
         </p>
       </div>
       <ChangePassword api={api} />
@@ -70,7 +78,10 @@ function ChangePassword({ api }: { api: Api }) {
 
   return (
     <form className="card form" onSubmit={submit}>
-      <h3>Change password</h3>
+      <div className="card-head">
+        <Icon name="key" />
+        <h3>Change password</h3>
+      </div>
       <p className="muted small">Other devices are signed out when you change it.</p>
       <label>
         Current password
@@ -137,7 +148,11 @@ function TwoFactor({ api, me, onChange }: { api: Api; me: Extract<Me, { via: "se
 
   return (
     <div className="card">
-      <h3>Two-factor authentication</h3>
+      <div className="card-head">
+        <Icon name="shield" />
+        <h3>Two-factor authentication</h3>
+        {me.user.totpEnabled && <span className="status done">On</span>}
+      </div>
       {recovery && (
         <>
           <p className="small">
@@ -155,13 +170,15 @@ function TwoFactor({ api, me, onChange }: { api: Api; me: Extract<Me, { via: "se
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
           </label>
           <div>
-            <button disabled={busy}>Turn off two-factor</button>
+            <button className="danger-text" disabled={busy}>
+              Turn off two-factor
+            </button>
           </div>
         </form>
       ) : pending ? (
         <form className="form" onSubmit={enable}>
           <p className="small">Scan this with your authenticator app (1Password, Google Authenticator, Authy...), then enter the code it shows.</p>
-          <img src={qrDataUrl(pending.otpauthUrl)} alt="QR code for your authenticator app" width={196} height={196} />
+          <img className="qr" src={qrDataUrl(pending.otpauthUrl)} alt="QR code for your authenticator app" width={196} height={196} />
           <p className="small">
             On this phone? <a href={pending.otpauthUrl}>Open in your authenticator app</a>, or enter the key by hand: <code>{pending.secret}</code>
           </p>
@@ -169,11 +186,11 @@ function TwoFactor({ api, me, onChange }: { api: Api; me: Extract<Me, { via: "se
             Code
             <input value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" required />
           </label>
-          <div className="row">
+          <div className="button-row">
             <button className="primary" disabled={busy}>
               Turn on
             </button>
-            <button type="button" onClick={() => setPending(null)}>
+            <button type="button" className="ghost" onClick={() => setPending(null)}>
               Cancel
             </button>
           </div>
@@ -186,7 +203,7 @@ function TwoFactor({ api, me, onChange }: { api: Api; me: Extract<Me, { via: "se
           </button>
         </>
       )}
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
     </div>
   );
 }
@@ -230,8 +247,11 @@ function Sessions({ api }: { api: Api }) {
   const others = sessions?.filter((s) => !s.current).length ?? 0;
   return (
     <div className="card">
-      <h3>Signed-in devices</h3>
-      {error && <p className="error">{error}</p>}
+      <div className="card-head">
+        <Icon name="devices" />
+        <h3>Signed-in devices</h3>
+      </div>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <ul className="list">
         {sessions?.map((s) => (
           <li key={s.id} className="row between">
@@ -243,14 +263,18 @@ function Sessions({ api }: { api: Api }) {
               </span>
             </span>
             {!s.current && (
-              <button onClick={() => revoke(s.id)} aria-label={`Sign out ${device(s.userAgent)}`}>
+              <button className="small" onClick={() => revoke(s.id)} aria-label={`Sign out ${device(s.userAgent)}`}>
                 Sign out
               </button>
             )}
           </li>
         ))}
       </ul>
-      {others > 1 && <button onClick={() => revoke("others")}>Sign out all other devices</button>}
+      {others > 1 && (
+        <button className="danger-text" style={{ marginTop: 8 }} onClick={() => revoke("others")}>
+          Sign out all other devices
+        </button>
+      )}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import type { Api } from "../api";
+import { Icon } from "../icons";
+import { PageHead } from "../ui";
 import { Account } from "./Account";
 
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
@@ -29,10 +31,13 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
   };
 
   return (
-    <section>
-      <h2>Settings</h2>
+    <section className="settings-grid">
+      <PageHead title="Settings" />
       <div className="card">
-        <h3>Notifications</h3>
+        <div className="card-head">
+          <Icon name="bell" />
+          <h3>Notifications</h3>
+        </div>
         <p className="muted small">Get a push notification when an action needs your approval.</p>
         <button className="primary" onClick={enablePush}>
           Enable on this device
@@ -41,9 +46,14 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
       </div>
       <Account api={api} />
       <div className="card">
-        <h3>Sign out</h3>
+        <div className="card-head">
+          <Icon name="logout" />
+          <h3>Sign out</h3>
+        </div>
         <p className="muted small">Signs this device out. Other devices stay signed in.</p>
-        <button onClick={onSignOut}>Sign out</button>
+        <button className="danger-text" onClick={onSignOut}>
+          Sign out
+        </button>
       </div>
     </section>
   );

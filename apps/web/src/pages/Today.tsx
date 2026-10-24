@@ -72,7 +72,7 @@ function QuickAdd({ api }: { api: Api }) {
     }
   };
   return (
-    <form className="card composer quick-add" onSubmit={submit}>
+    <form className="card quick-add" onSubmit={submit}>
       <label className="grow">
         <span className="muted small">Ask the assistant</span>
         <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Remind me to call the garage at 4pm · add milk to shopping" enterKeyHint="send" />

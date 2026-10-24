@@ -3,11 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#16181d" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#161920" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon.svg" />
     <title>Command Centre</title>
+    <script>
+      // Apply the saved theme before first paint (same logic as src/theme.ts).
+      (function () {
+        var pref = null;
+        try { pref = localStorage.getItem("cc.theme"); } catch (e) {}
+        if (pref !== "light" && pref !== "dark") return;
+        var root = document.documentElement;
+        root.setAttribute("data-theme", pref);
+        root.style.colorScheme = pref;
+        var metas = document.querySelectorAll('meta[name="theme-color"]');
+        for (var i = 0; i < metas.length; i++) metas[i].content = pref === "dark" ? "#161920" : "#ffffff";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

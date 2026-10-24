@@ -2,7 +2,8 @@ import type { AgentMessage, Task } from "@cc/core";
 import { type FormEvent, useEffect, useState } from "react";
 import type { Api } from "../api";
 import { type LiveFeed, useLive } from "../live";
-import { go } from "../router";
+import { Icon } from "../icons";
+import { Empty, ErrorBanner, PageHead, VTag } from "../ui";
 import { Transcript } from "./Transcript";
 
 type Turn = { text: string; task: Task; messages: AgentMessage[]; result?: string };
@@ -45,27 +46,25 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   return (
     <section className="chat">
-      <div className="row between">
-        <h2>Chat</h2>
+      <PageHead title="Chat" sub="Each message becomes a task for the command agent.">
         <a className="drive-link" href="#/drive" aria-label="Drive mode: talk hands-free">
-          <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">
-            <path
-              fill="currentColor"
-              d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.92V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.08A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 0 0 10 0Z"
-            />
-          </svg>
+          <Icon name="drive" size={20} />
           <span>Drive mode</span>
         </a>
-      </div>
+      </PageHead>
       <div className="turns">
-        {turns.length === 0 && <p className="muted">Ask the command agent anything. Start with a vertical name (e.g. "dms: …") or pick one below.</p>}
+        {turns.length === 0 && (
+          <Empty icon="chat">
+            Ask the command agent anything. Start with a vertical name (e.g. "dms: …") or pick one below.
+          </Empty>
+        )}
         {turns.map((t) => (
           <div key={t.task.id} className="turn">
             <div className="bubble me">{t.text}</div>
             <div className="bubble agent">
               <div className="row between small">
-                <span className="tag">{t.task.vertical}</span>
-                <a className={`status ${t.task.status}`} onClick={() => go(`task/${t.task.id}`)}>
+                <VTag id={t.task.vertical} />
+                <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
                   {t.task.status.replace("_", " ")}
                 </a>
               </div>
@@ -74,7 +73,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
           </div>
         ))}
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <form className="composer" onSubmit={send}>
         <select value={vertical} onChange={(e) => setVertical(e.target.value)} aria-label="Vertical">
           <option value="">auto</option>
@@ -96,7 +95,10 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             }
           }}
         />
-        <button className="primary">Send</button>
+        <button className="primary" aria-label="Send">
+          <Icon name="send" size={16} />
+          Send
+        </button>
       </form>
     </section>
   );
