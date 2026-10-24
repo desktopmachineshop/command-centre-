@@ -455,7 +455,8 @@ Instagram and Threads fetch media from a public URL when publishing, so the serv
 - `POST /api/media` (admin token): the file as the raw body with its `content-type`, or multipart
   with a `file` field. JPEG, PNG, GIF, WebP, MP4, MOV and WebM, up to `MEDIA_MAX_MB` (default 200).
   It returns `{url, type, ...}`, ready to use as a `media` entry.
-- Files are stored in `DATA_DIR/media/` (on the Railway volume) and served at
+- Files are stored in `DATA_DIR/media/` (on the Railway volume), or in Google Drive with
+  `STORAGE_BACKEND=gdrive` (see "Storage (Google Drive)"), and served at
   `GET /media/<random id>.<ext>` without auth. The 128-bit random name is what keeps them private
   until posted; there is no listing.
 - Set **`PUBLIC_BASE_URL`** to the server's public address, e.g.
@@ -508,6 +509,128 @@ under "Social: platform setup" below.
 
 With `SOCIAL_ACCOUNTS` empty or unset, social is off: no polling, no social actions, and the Social
 page says so.
+
+## Storage (Google Drive)
+
+The Railway volume is small, so large files (raw footage, video renders, media uploads,
+generated assets, big attachments) can live in **your Google Drive** instead
+(`packages/storage`). One `BlobStore` interface has two backends:
+
+- **`local`** (the default): files stay on the volume, exactly as before. `media` is
+  `DATA_DIR/media/`, other folders are `DATA_DIR/storage/<folder>/`.
+- **`gdrive`**: new files go to a **Command Centre** folder in your My Drive, with the subfolders
+  `media`, `renders`, `footage`, `attachments` and `assets`. The folders are created on first use
+  and their ids are remembered in Postgres.
+
+Postgres keeps a small index (`storage_files`, migration `0011_storage`) that maps each public id
+to its Drive file id (or its local file), with its name, size, type, folder and creation time.
+
+### What stays the same
+
+- **Public media URLs stay on our domain.** `GET /media/<32 hex>.<ext>` behaves as before:
+  - it returns the right content type, `nosniff` and byte ranges;
+  - there is no listing;
+  - unknown ids get a 404.
+
+  The server streams the bytes from the cache, or else from Drive. Drive links are never handed
+  out: Instagram and Threads can't fetch Drive share links, and the file stays private in your Drive.
+- **Files already on the volume keep working.** At boot, files in `DATA_DIR/media` are added to
+  the index and served from the volume. To move them to Drive, see "Migrating" below.
+
+### Set it up
+
+1. **Enable the Google Drive API** in the same Google Cloud project as Calendar (the PA setup):
+   *APIs & Services → Library → Google Drive API → Enable*.
+2. **Scope.** The app asks for `https://www.googleapis.com/auth/drive.file`. With it, the app can
+   only see files it created itself, never the rest of your Drive. Google classes it as
+   **non-sensitive**. For an app for personal use (fewer than 100 users), verification is not
+   required. Set the OAuth consent screen's publishing status to **In production**: in
+   **Testing**, refresh tokens expire after 7 days.
+3. **Credentials.** A single `google:auth` run (from the PA setup) grants both the Calendar scopes
+   and `drive.file`, and prints `GOOGLE_REFRESH_TOKEN`. If you authorised Calendar before Drive
+   was added, run it again so the token covers Drive too.
+4. **Set the variables** on Railway:
+
+   | Variable | Default | Meaning |
+   | --- | --- | --- |
+   | `STORAGE_BACKEND` | `local` | `gdrive` to store new files in Drive. It needs the three `GOOGLE_*` variables, or the server refuses to boot. |
+   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | | The same OAuth client and token as Calendar. |
+   | `STORAGE_CACHE_MB` | `2048` | The LRU cache of Drive files on the volume (`DATA_DIR/cache`). `0` turns it off. |
+   | `STORAGE_DRIVE_FOLDER` | `Command Centre` | Name of the top-level Drive folder. |
+   | `STORAGE_UPLOAD_MAX_MB` | `20480` | Largest direct upload. |
+   | `MEDIA_MAX_MB` | `200` | Largest `POST /api/media` upload (unchanged). |
+
+### The cache and its size
+
+- The first fetch of a Drive file streams it from Drive, honouring any byte range. The same fetch
+  also downloads the whole file into `DATA_DIR/cache` in the background.
+- Meta and YouTube often fetch the same media several times, and those repeat fetches are then
+  served from the volume.
+- When the cache is full, the least recently read file is evicted first.
+- A single file larger than a quarter of the cap is never cached, so one big render can't flush
+  everything else.
+- **Sizing:** leave room on the volume for the brain, the agent workspaces and the cache.
+  - On a 5 GB volume, 1024 to 2048 MB is sensible.
+  - The cache only needs to hold what is being published this week; everything is still in Drive.
+
+### Direct uploads (large files)
+
+Big files don't pass through `POST /api/media`. Upload them directly instead:
+
+1. **Start a session.** Call `POST /api/storage/upload-session` (session cookie or admin token)
+   with `{name, contentType, size, folder?}`. It returns
+   `{id, uploadUrl, chunkSize, backend, url}`.
+   - With `gdrive`, `uploadUrl` is a Drive resumable session URI. The bytes go straight to
+     Google, and the URI only allows uploading that one file.
+   - With `local`, `uploadUrl` is our own chunk endpoint (`PUT /api/storage/uploads/<id>?key=…`).
+     It speaks the same protocol, so clients don't need to know which backend is in use.
+2. **Upload the bytes.** PUT them in chunks of `chunkSize` (a multiple of 256 KiB; only the last
+   chunk may be smaller), with `Content-Range: bytes a-b/total`.
+   - A `308` reply's `Range` header says where to continue.
+   - After an error, an empty PUT with `Content-Range: bytes */total` asks how much arrived.
+3. **Register the file.** Call `POST /api/storage/complete` with `{id}`. The server checks with
+   Drive (or the volume) that every byte arrived, then returns the file and its public `/media`
+   URL. For types that `/media` doesn't serve (e.g. a PDF attachment), `url` is `null`.
+
+**Desktop workers** use `POST /api/worker/storage/upload-session` and
+`POST /api/worker/storage/complete` with `Authorization: Bearer <WORKER_TOKEN>`.
+- A worker can only upload, into `renders`, `media`, `footage` or `assets`. It can't list, read
+  or delete files.
+- In a job handler, call `ctx.storage.uploadFile(path, {folder})`
+  (`apps/worker/src/storage.ts`). It does all three steps, resumes after failures, and returns
+  `{id, url, size}`.
+- `ffmpeg.run` with `"upload": true` (and optionally `"uploadFolder"`) uploads its output and
+  returns `url` in the job result.
+
+### Seeing what's stored
+
+`GET /api/storage` (`?folder=`, `?limit=`) lists files with their URLs and shows:
+- usage per folder;
+- cache statistics;
+- with Drive, `drive.folderUrl`, a link to open the Command Centre folder in Drive, and your
+  Drive quota.
+
+`DELETE /api/storage/<id>` deletes a file from Drive, the cache and the index.
+
+### Migrating local media into Drive
+
+After switching to `gdrive`, call `POST /api/storage/migrate` with `{"deleteLocal": true}`:
+- Every local file is copied into Drive under the **same id**, so URLs already posted keep working.
+- With `deleteLocal`, each local copy then moves into the cache (or is deleted if it doesn't fit),
+  freeing the volume.
+- Without `deleteLocal`, it only copies.
+- The call is safe to run again: files that are already in Drive are skipped.
+
+### Drive quota and limits
+
+- **Storage quota.** A free Google account has 15 GB, shared between Drive, Gmail and Photos.
+  Raw footage fills that quickly, so a Google One plan is worth having if you keep footage. Files
+  count against **your** quota, because the app creates them in your Drive.
+- **Upload limits.** Drive accepts up to 750 GB of uploads per user per day, and files up to 5 TB.
+- **Rate limits.** Requests are limited per minute. The store retries 429, 5xx and rate-limit 403
+  responses with exponential backoff, as Google recommends.
+- **Resumable sessions.** A session URI expires after a week. An expired session must be started
+  again.
 
 ## Cost control and run guardrails
 

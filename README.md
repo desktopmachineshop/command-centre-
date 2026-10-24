@@ -22,6 +22,7 @@ packages/brain         git-backed markdown brain + MCP server
 packages/email         IMAP inbox poller + email.reply / email.send executors
 packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/mcp/odoo), Odoo actions
 packages/social        social platform adapters, inbound watcher, social.* executors, scheduled posts
+packages/storage       BlobStore: large files on the volume or Google Drive, LRU cache, resumable uploads
 packages/triage        triagers (rules, Jev, Haiku fallback) + accuracy eval
 packages/verticals     one manifest per business / life area
 skills/                shared skills bank (Agent Skills format)

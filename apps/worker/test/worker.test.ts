@@ -89,6 +89,19 @@ describe.skipIf(!DB_URL)("worker against a real server", () => {
     expect(await finished(echo.id)).toMatchObject({ status: "succeeded", result: { echo: "hi" } });
   });
 
+  it("uploads ffmpeg output to storage when asked and returns its public URL", async () => {
+    const job = await submit("ffmpeg.run", ["ffmpeg"], { args: ["-t", "1", "{output}"], outputName: "render.mp4", upload: true });
+    const done = await finished(job.id);
+    expect(done).toMatchObject({ status: "succeeded" });
+    const result = done.result as { url: string; bytes: number; upload: { id: string; folder: string } };
+    expect(result.upload.folder).toBe("renders");
+    expect(result.url).toMatch(/\/media\/[a-f0-9]{32}\.mp4$/);
+    const served = await ctx.server.app.request(new URL(result.url).pathname);
+    expect(served.status).toBe(200);
+    expect(served.headers.get("content-type")).toBe("video/mp4");
+    expect((await served.arrayBuffer()).byteLength).toBe(result.bytes);
+  });
+
   it("fails unknown kinds and invalid payloads cleanly, without running anything", async () => {
     const unknown = await submit("shell.exec", [], { cmd: "format c:" });
     const bad = await submit("ffmpeg.run", ["ffmpeg"], { args: ["-i", "C:\\Users\\dave\\secret.mp4", "{output}"], outputName: "x.mp4" });

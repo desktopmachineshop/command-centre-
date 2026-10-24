@@ -154,6 +154,9 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cc/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       zod:
         specifier: ^4.6.7
         version: 4.6.7
