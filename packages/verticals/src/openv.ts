@@ -7,6 +7,6 @@ export default defineVertical({
   brainFolder: "openv",
   intents: ["support", "bug", "feature-request", "billing"],
   skills: ["brain-notes", "email-triage-and-reply"],
-  mcpServers: ["brain"],
+  mcpServers: ["brain", "pa"],
   policies: { "brain.write": "auto" },
 });

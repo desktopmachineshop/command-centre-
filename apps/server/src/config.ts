@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
+import { type CalendarAccount, parseCalendarAccounts } from "@cc/pa";
 import { parseSocialAccounts, type SocialAccount } from "@cc/social";
 import { Cron } from "croner";
 import { z } from "zod";
@@ -99,6 +100,11 @@ const Env = z.object({
   ODOO_API_KEY: z.string().optional(),
   /** "jsonrpc" (default, Odoo 14+) or "json2" (Odoo 19+). */
   ODOO_API: z.enum(["jsonrpc", "json2"]).default("jsonrpc"),
+  // --- Personal assistant (see docs/SETUP.md, "Personal assistant") ---
+  /** JSON array of Google Calendar accounts; see `GoogleCalendarAccount` in @cc/pa. */
+  CALENDAR_ACCOUNTS: z.string().optional(),
+  // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN are read by parseCalendarAccounts (shared with Drive).
+  // --- end pa ---
 });
 
 function odooConfig(e: z.infer<typeof Env>) {
@@ -128,6 +134,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   try {
     // Shape and unique ids only: credentials are checked against the adapters the server runs (app.ts).
     socialAccounts = parseSocialAccounts(e.SOCIAL_ACCOUNTS, { checkCredentials: false });
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
+  let calendarAccounts: CalendarAccount[];
+  try {
+    calendarAccounts = parseCalendarAccounts(e.CALENDAR_ACCOUNTS, env);
   } catch (err) {
     throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
   }
@@ -175,6 +187,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
     social: { accounts: socialAccounts, defaultPollSeconds: e.SOCIAL_POLL_DEFAULT_SECONDS },
     media: { maxBytes: Math.round(e.MEDIA_MAX_MB * 1024 * 1024) },
+    pa: { calendarAccounts },
   };
 }
 

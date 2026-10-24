@@ -50,6 +50,9 @@ importers:
       '@cc/odoo':
         specifier: workspace:*
         version: link:../../packages/odoo
+      '@cc/pa':
+        specifier: workspace:*
+        version: link:../../packages/pa
       '@cc/social':
         specifier: workspace:*
         version: link:../../packages/social
@@ -216,6 +219,22 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  packages/pa:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.6.7)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
 
   packages/social:
     dependencies:

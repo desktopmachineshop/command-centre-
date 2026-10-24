@@ -9,7 +9,7 @@ import { bearer, tokenMatches } from "../auth";
 import type { RunScope, RunTokens } from "../run-tokens";
 
 /** Who is calling an MCP endpoint: an agent run (scoped) or Dave's admin token. */
-type Caller = { kind: "run"; scope: RunScope } | { kind: "admin" };
+export type Caller = { kind: "run"; scope: RunScope } | { kind: "admin" };
 
 function authenticate(header: string | undefined, adminToken: string, runTokens: RunTokens): Caller | null {
   const token = bearer(header);
@@ -83,8 +83,8 @@ export function mcpRoutes(deps: {
   /** Run tokens may only reach the servers their vertical's manifest lists in `mcpServers` (plus actions). */
   verticals: VerticalRegistry;
   adminToken: string;
-  /** Extra servers mounted at /<name> with the same auth, e.g. odoo. A fresh server per request. */
-  servers?: Record<string, () => McpServer>;
+  /** Extra servers mounted at /<name> with the same auth, e.g. odoo. A fresh server per request, told who is calling (pa scopes by it). */
+  servers?: Record<string, (caller: Caller) => McpServer>;
 }) {
   const app = new Hono<{ Variables: { caller: Caller } }>();
 
@@ -102,6 +102,6 @@ export function mcpRoutes(deps: {
 
   app.all("/brain", (c) => handle(createBrainMcpServer(deps.brain), c.req.raw));
   app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller")), c.req.raw));
-  for (const [name, create] of Object.entries(deps.servers ?? {})) app.all(`/${name}`, (c) => handle(create(), c.req.raw));
+  for (const [name, create] of Object.entries(deps.servers ?? {})) app.all(`/${name}`, (c) => handle(create(c.get("caller")), c.req.raw));
   return app;
 }

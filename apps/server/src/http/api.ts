@@ -12,6 +12,7 @@ import type { DigestService } from "../digest";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
+import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
 
 export interface ApiDeps {
@@ -28,6 +29,8 @@ export interface ApiDeps {
   webhookSecret?: string;
   /** Social page API and media uploads (see ./social.ts). */
   social?: SocialApiDeps;
+  /** Today page API and reminder notification buttons (see ./pa.ts). */
+  pa?: PaApiDeps;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -62,6 +65,9 @@ export function apiRoutes(deps: ApiDeps) {
     });
     return c.json(result ?? { duplicate: true }, result ? 201 : 200);
   });
+
+  // Reminder notification buttons carry their own signature, so they sit before the admin check too.
+  if (deps.pa) app.route("/", paPushRoutes(deps.pa));
 
   app.use("*", async (c, next) => {
     if (!tokenMatches(bearer(c.req.header("authorization")), deps.adminToken)) return c.json({ error: "unauthorized" }, 401);
@@ -165,6 +171,8 @@ export function apiRoutes(deps: ApiDeps) {
 
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
+  // /pa/*: the Today page.
+  if (deps.pa) app.route("/", paApiRoutes(deps.pa));
 
   return app;
 }

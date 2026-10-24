@@ -7,6 +7,6 @@ export default defineVertical({
   brainFolder: "dms",
   intents: ["presales-question", "order-status", "return-warranty", "supplier", "invoice-admin", "spam"],
   skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "social-voice-dms", "social-platform-guide"],
-  mcpServers: ["brain", "odoo"],
+  mcpServers: ["brain", "odoo", "pa"],
   policies: { "brain.write": "auto" },
 });

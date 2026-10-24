@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
 import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient } from "@cc/odoo";
+import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
 import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
@@ -30,7 +32,8 @@ import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { wsHandler } from "./http/ws";
 import { Hub } from "./hub";
-import { mcpRoutes } from "./mcp/endpoints";
+import { reminderPushActions } from "./http/pa";
+import { type Caller, mcpRoutes } from "./mcp/endpoints";
 import { Pipeline } from "./pipeline";
 import { type Notifier, WebPushNotifier } from "./push";
 import { PgBossTaskQueue, type TaskQueue } from "./queue";
@@ -49,6 +52,8 @@ export interface Overrides {
   imap?: ImapConnector;
   /** Social platform adapters (tests use fakes). */
   socialAdapters?: AdapterMap;
+  /** fetch for Google Calendar and its token endpoint (tests use a fake). */
+  calendarFetch?: typeof fetch;
 }
 
 export function createRunner(config: Config): AgentRunner {
@@ -114,15 +119,58 @@ export function createServer(config: Config, overrides: Overrides = {}) {
 
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
   const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
-  const extraMcpServers: Record<string, () => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
+  const extraMcpServers: Record<string, (caller: Caller) => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
+
+  // --- PA: reminders and lists (always), Google Calendar when CALENDAR_ACCOUNTS is set; /mcp/pa below ---
+  const paStore = new PgPaStore(pool);
+  for (const a of config.pa.calendarAccounts) verticals.require(a.vertical);
+  const authAlerted = new Set<string>();
+  const calendar = config.pa.calendarAccounts.length
+    ? new CalendarService(config.pa.calendarAccounts, {
+        timeZone: config.timezone,
+        fetch: overrides.calendarFetch,
+        // A revoked or expired refresh token: one push per account per server day, saying how to fix it.
+        onAuthError: (err) => {
+          const key = `${err.accountId}:${new Date().toISOString().slice(0, 10)}`;
+          if (authAlerted.has(key)) return;
+          authAlerted.add(key);
+          void notifier.notify({ title: "Calendar disconnected", body: err.message.slice(0, 300), url: "/today" }).catch(() => {});
+        },
+      })
+    : null;
+  const paSigningSecret = createHash("sha256").update(`pa-push:${config.adminToken}`).digest("hex");
+  const deliverReminders = () =>
+    deliverDueReminders(paStore, ({ reminder, title, body }) =>
+      notifier.notify({ title, body, url: "/today", tag: `reminder-${reminder.id}`, actions: reminderPushActions(paSigningSecret, reminder.id) }),
+    );
+  // --- end pa ---
 
   const executors = {
     ...builtinExecutors,
+    ...createPaExecutors(paStore, { timeZone: config.timezone }),
+    ...(calendar ? createCalendarExecutors(calendar) : {}),
     ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
     ...(odoo ? createOdooExecutors(odoo) : {}),
     ...socialExecutors,
   };
   const actions = new ActionService(store, hub, verticals, { brain, notifier }, executors);
+  // pa: Dave writes directly; a run writes directly only if its task came from chat/cron/system, else it proposes.
+  extraMcpServers.pa = (caller) =>
+    createPaMcpServer({
+      store: paStore,
+      calendar,
+      timeZone: config.timezone,
+      caller:
+        caller.kind === "admin"
+          ? { createdBy: "dave", untrustedSource: async () => null }
+          : {
+              vertical: caller.scope.vertical,
+              taskId: caller.scope.taskId,
+              createdBy: "agent",
+              untrustedSource: () => actions.untrustedSource(caller.scope.taskId),
+            },
+      propose: (p) => actions.propose(p),
+    });
   const workers = new WorkerService(store, hub);
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
@@ -170,7 +218,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     timeZone: config.timezone,
     media: { dir: mediaDir, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
   };
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social }));
+  const pa = { store: paStore, calendar, timeZone: config.timezone, signingSecret: paSigningSecret };
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, pa }));
   app.route("/mcp", mcpRoutes({ brain, actions, runTokens, verticals, adminToken: config.adminToken, servers: extraMcpServers }));
   // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.
   app.route("/media", mediaRoutes(mediaDir));
@@ -204,6 +253,10 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     digests,
     rollover,
     publishScheduledPosts,
+    paStore,
+    calendar,
+    /** Sends due reminders; the every-minute system job calls this. */
+    deliverReminders,
     async start() {
       await migrate(pool);
       await store.markAllNodesOffline();
@@ -221,6 +274,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         digest: () => digests.deliver(),
         rollover,
         socialPublish: socialAccounts.length ? publishScheduledPosts : undefined,
+        paReminders: deliverReminders,
       });
       if (config.schedulesEnabled) crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e)));
       if (emailAccounts.length) {

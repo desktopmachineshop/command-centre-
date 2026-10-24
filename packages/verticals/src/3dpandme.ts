@@ -7,6 +7,6 @@ export default defineVertical({
   brainFolder: "3dpandme",
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
   skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide"],
-  mcpServers: ["brain", "odoo"],
+  mcpServers: ["brain", "odoo", "pa"],
   policies: { "brain.write": "auto" },
 });

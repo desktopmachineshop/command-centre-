@@ -1,9 +1,20 @@
 import webpush from "web-push";
 import type { Store } from "./db/store";
 
+export interface PushMessage {
+  title: string;
+  body: string;
+  /** App route opened on click, e.g. "/approvals". */
+  url?: string;
+  /** Notification buttons. The service worker POSTs to `url` (a pre-signed link) without opening the app. */
+  actions?: { action: string; title: string; url: string }[];
+  /** Same tag replaces an earlier notification instead of stacking. */
+  tag?: string;
+}
+
 export interface Notifier {
   readonly publicKey: string | null;
-  notify(n: { title: string; body: string; url?: string }): Promise<void>;
+  notify(n: PushMessage): Promise<void>;
 }
 
 /** Web Push to every subscribed device (the installed PWA on phone and desktop). */
@@ -18,7 +29,7 @@ export class WebPushNotifier implements Notifier {
     if (vapid) webpush.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
   }
 
-  async notify(n: { title: string; body: string; url?: string }): Promise<void> {
+  async notify(n: PushMessage): Promise<void> {
     if (!this.publicKey) return;
     const payload = JSON.stringify(n);
     for (const sub of await this.store.listPushSubscriptions()) {

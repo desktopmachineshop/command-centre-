@@ -8,6 +8,8 @@ import type { Notifier } from "./push";
 export interface ExecutorContext {
   brain: Brain;
   notifier: Notifier;
+  /** The proposal's vertical, so an executor writes where the proposal came from (e.g. calendar.*, pa.*). */
+  vertical?: string;
 }
 
 export interface ActionExecutor {
@@ -107,7 +109,7 @@ export class ActionService {
    * The source of the event behind a task when it is not one Dave controls, else null.
    * Task-less proposals (admin MCP calls) are trusted; a task we can't trace back is not.
    */
-  private async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
+  async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
     if (!taskId) return null;
     const task = await this.store.getTask(taskId);
     const event = task ? await this.store.getEvent(task.eventId) : null;
@@ -141,7 +143,7 @@ export class ActionService {
     let final: Proposal | null;
     try {
       if (!executor) throw new Error(`No executor for ${approved.actionType}`);
-      const result = await executor.execute(approved.payload, this.ctx);
+      const result = await executor.execute(approved.payload, { ...this.ctx, vertical: approved.vertical });
       final = await this.store.transitionProposal(id, ["approved"], "executed", { ok: true, result: result ?? null });
     } catch (err) {
       final = await this.store.transitionProposal(id, ["approved"], "failed", { ok: false, error: (err as Error).message });
