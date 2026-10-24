@@ -29,7 +29,7 @@ describe.skipIf(!DB_URL)("reminders (Postgres)", () => {
     expect(await deliverDueReminders(store, push, new Date("2026-10-23T07:59:00Z"))).toEqual([]);
     const sent = await deliverDueReminders(store, push, new Date("2026-10-23T08:00:30Z"));
     expect(sent.map((s) => s.id)).toEqual([r.id]);
-    expect(pushes).toEqual([{ reminder: expect.objectContaining({ id: r.id }), title: "Reminder", body: "Call the garage" }]);
+    expect(pushes).toEqual([{ reminder: expect.objectContaining({ id: r.id }), dueAt: new Date(r.dueAt), title: "Reminder", body: "Call the garage" }]);
     expect(await store.getReminder(r.id)).toMatchObject({ status: "sent", sentCount: 1, lastSentAt: "2026-10-23T08:00:30.000Z" });
 
     expect(await deliverDueReminders(store, push, new Date("2026-10-23T08:05:00Z"))).toEqual([]);
