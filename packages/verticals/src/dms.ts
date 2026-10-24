@@ -13,8 +13,12 @@ export default defineVertical({
   description: "Online retail of CNC accessories and kits, hosted on Odoo Online.",
   brainFolder: "dms",
   color: "#d9822b",
-  intents: ["presales-question", "order-status", "return-warranty", "supplier", "invoice-admin", "spam"],
-  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "social-voice-dms", "social-platform-guide"],
+  intents: [
+    "presales-question", "order-status", "return-warranty", "supplier", "invoice-admin", "spam",
+    // Odoo events (rules triager, see @cc/triage odoo.ts)
+    "new-order", "customer-message", "stock-low", "delivery-late", "review",
+  ],
+  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-voice-dms", "social-platform-guide"],
   mcpServers: ["brain", "odoo"],
   policies: { "brain.write": "auto" },
   roles: [
@@ -38,8 +42,8 @@ export default defineVertical({
       aliases: ["support"],
       mission:
         "Answers customers the way Dave would: pre-sales and compatibility questions, where an order is, returns and warranty claims. Works from live Odoo data and the brain, never from memory, and keeps each customer's history in the brain.",
-      intents: ["presales-question", "order-status", "return-warranty"],
-      skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "social-platform-guide", "social-voice-dms"],
+      intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review"],
+      skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
       mcpServers: ["brain", "odoo"],
       actions: ["email.reply", "odoo.message.post", "social.reply", "social.dm", "brain.write"],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
@@ -79,10 +83,10 @@ export default defineVertical({
       aliases: ["ops"],
       mission:
         "Handles the back office: supplier emails, stock and lead times, purchase prices, invoices and bills. Files each one in the brain, flags low stock early and keeps supplier notes current.",
-      intents: ["supplier", "invoice-admin"],
-      skills: ["brain-notes", "email-triage-and-reply"],
+      intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late"],
+      skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status"],
       mcpServers: ["brain", "odoo"],
-      actions: ["email.reply", "odoo.message.post", "notify", "brain.write"],
+      actions: ["email.reply", "email.send", "odoo.message.post", "notify", "brain.write"],
       schedules: [
         // Turn on once the Odoo low_stock threshold is agreed.
         { id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", prompt: LOW_STOCK_CHECK, enabled: false },

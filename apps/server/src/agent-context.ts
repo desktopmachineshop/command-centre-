@@ -1,6 +1,7 @@
 import type { McpServerConfig } from "@cc/agent-runtime";
 import { type Event, ROOT_ROLE_ID, type VerticalManifest } from "@cc/core";
 import { emailPrompt } from "@cc/email";
+import { odooPrompt } from "@cc/odoo";
 import { socialPrompt } from "@cc/social";
 import type { OrgRole, VerticalRegistry } from "@cc/verticals";
 import type { ActionExecutor } from "./actions";
@@ -16,6 +17,8 @@ export function taskPrompt(event: Event): string {
   if (handoff) return handoff;
   // Social: the message as quoted data plus a ready social.reply payload (see @cc/social socialPrompt).
   if (event.source === "social") return socialPrompt(p);
+  // Odoo: a human title, the record as quoted (untrusted) data and ready action payloads (see @cc/odoo odooPrompt).
+  if (event.source === "odoo") return odooPrompt(event);
   return [
     `New ${event.source} event "${event.kind}": ${event.title}`,
     "",

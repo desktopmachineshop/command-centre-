@@ -4,6 +4,7 @@ import { DEFAULT_VERTICAL, type VerticalRegistry } from "@cc/verticals";
 import type { BudgetService } from "./budget";
 import type { Store } from "./db/store";
 import { dayRange, localDay } from "./days";
+import { type OdooDigest, odooHeadline, renderOdooDigest, summariseOdooEvents } from "./odoo-digest";
 import type { Notifier } from "./push";
 
 export interface Digest {
@@ -22,6 +23,8 @@ export interface Digest {
   /** Pending approvals as of now, whatever the date. */
   pendingApprovals: { id: string; actionType: string; summary: string }[];
   jobs: { id: string; kind: string; status: string }[];
+  /** Orders, revenue, low stock and late deliveries from the day's Odoo events; null if there were none. */
+  odoo: OdooDigest | null;
   /** One line with the headline numbers, used for the push notification. */
   headline: string;
   markdown: string;
@@ -67,6 +70,9 @@ export class DigestService {
       store.listJobsUpdatedBetween(start, end),
       store.costByVertical(start, end),
     ]);
+    // --- Odoo events ---
+    const odoo = summariseOdooEvents(await store.listOdooEventsBetween(vertical.id, start, end));
+    // --- end odoo events ---
     const myJobs = jobs.filter((j) => jobVertical(j) === vertical.id && (j.status === "succeeded" || j.status === "failed"));
     const digest: Omit<Digest, "headline" | "markdown"> = {
       vertical: vertical.id,
@@ -89,6 +95,7 @@ export class DigestService {
       autoActions: auto.map((p: Proposal) => ({ id: p.id, actionType: p.actionType, summary: p.summary, status: p.status })),
       pendingApprovals: pending.map((p) => ({ id: p.id, actionType: p.actionType, summary: p.summary })),
       jobs: myJobs.map((j) => ({ id: j.id, kind: j.kind, status: j.status })),
+      odoo,
     };
     return { ...digest, headline: headline(digest), markdown: render(digest) };
   }
@@ -143,7 +150,7 @@ function jobVertical(job: Job): string {
 
 function isActive(d: Digest): boolean {
   const c = d.counts;
-  return c.done + c.failed + c.deferred + c.autoActions + c.pendingApprovals + c.jobs > 0 || d.costUsd > 0;
+  return c.done + c.failed + c.deferred + c.autoActions + c.pendingApprovals + c.jobs > 0 || d.costUsd > 0 || d.odoo !== null;
 }
 
 function headline(d: Omit<Digest, "headline" | "markdown">): string {
@@ -154,6 +161,7 @@ function headline(d: Omit<Digest, "headline" | "markdown">): string {
   if (c.autoActions) parts.push(`${c.autoActions} auto`);
   if (c.pendingApprovals) parts.push(`${c.pendingApprovals} to approve`);
   if (c.jobs) parts.push(`${c.jobs} jobs`);
+  parts.push(...odooHeadline(d.odoo)); // Odoo events
   parts.push(usd(d.costUsd));
   return `${d.name}: ${parts.join(", ")}`;
 }
@@ -180,5 +188,6 @@ function render(d: Omit<Digest, "headline" | "markdown">): string {
   section("Auto actions (auto-with-digest)", d.autoActions.map((a) => `${a.status}: ${a.actionType}: ${a.summary}`));
   section("Awaiting approval", d.pendingApprovals.map((p) => `${p.actionType}: ${p.summary}`));
   section("Jobs", d.jobs.map((j) => `${j.kind}: ${j.status}`));
+  lines.push(...renderOdooDigest(d.odoo)); // Odoo events
   return `${lines.join("\n")}\n`;
 }

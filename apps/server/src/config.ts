@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
+import { type OdooEventsConfig, parseOdooEventsConfig } from "@cc/odoo";
 import { parseSocialAccounts, type SocialAccount } from "@cc/social";
 import { Cron } from "croner";
 import { z } from "zod";
@@ -101,6 +102,8 @@ const Env = z.object({
   ODOO_API_KEY: z.string().optional(),
   /** "jsonrpc" (default, Odoo 14+) or "json2" (Odoo 19+). */
   ODOO_API: z.enum(["jsonrpc", "json2"]).default("jsonrpc"),
+  /** Odoo inbound events (only with Odoo configured): unset/"on", "off", a source list, or JSON options. See @cc/odoo events.ts. */
+  ODOO_EVENTS: z.string().optional(),
 });
 
 function odooConfig(e: z.infer<typeof Env>) {
@@ -133,6 +136,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   } catch (err) {
     throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
   }
+  // --- Odoo events: off without Odoo ---
+  const odoo = odooConfig(e);
+  let odooEvents: OdooEventsConfig | undefined;
+  try {
+    odooEvents = odoo ? (parseOdooEventsConfig(e.ODOO_EVENTS) ?? undefined) : undefined;
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
+  // --- end odoo events ---
   const dataDir = resolve(e.DATA_DIR);
   return {
     port: e.PORT,
@@ -174,7 +186,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         ? { publicKey: e.VAPID_PUBLIC_KEY, privateKey: e.VAPID_PRIVATE_KEY, subject: e.VAPID_SUBJECT }
         : undefined,
     email: { accounts: emailAccounts, pollIntervalMs: e.EMAIL_POLL_INTERVAL_SECONDS * 1000 },
-    odoo: odooConfig(e),
+    odoo,
+    odooEvents,
     publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
     social: { accounts: socialAccounts, defaultPollSeconds: e.SOCIAL_POLL_DEFAULT_SECONDS },
     media: { maxBytes: Math.round(e.MEDIA_MAX_MB * 1024 * 1024) },

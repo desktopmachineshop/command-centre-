@@ -59,6 +59,20 @@ What to say:
 
 Never invent tracking numbers, dates or stock figures.
 
+## New orders from the Odoo poller
+
+Each new confirmed order arrives as an `order.created` event. It's normally only filed (a journal
+line plus the daily digest, with no agent). An agent gets one only when the poller flagged it, for
+example over the `bigOrderThreshold` in `ODOO_EVENTS`. In that case, check it rather than answer
+anyone:
+
+- every line is in stock (`get_product`);
+- the delivery method suits the weight and destination;
+- a first-time customer is placing a large order (`get_customer_history`).
+
+Raise anything odd with an internal note on the order and a `notify`. Don't contact the customer
+unless something needs fixing. Late deliveries (`delivery.late`) follow the `dms-ops` skill.
+
 ## 4. Flag problems to Dave
 
 If the order looks stuck, propose an internal note on the order so it shows in Odoo:
