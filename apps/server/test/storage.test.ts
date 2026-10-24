@@ -104,6 +104,66 @@ describe.skipIf(!DB_URL)("storage on the local backend", () => {
     expect(list.body.byFolder).toEqual(expect.arrayContaining([expect.objectContaining({ folder: "renders", files: 3, bytes: data.length + 80 })]));
     expect((await ctx.api("/api/storage/migrate", { method: "POST", json: {} })).status).toBe(409);
   });
+
+  it("one-shot PUT is one-shot even while an upload is in flight; a failed upload can be retried", async () => {
+    const slow = (byte: number) => {
+      let i = 0;
+      return new ReadableStream<Uint8Array>({
+        async pull(ctrl) {
+          if (i++ >= 20) return ctrl.close();
+          await new Promise((r) => setTimeout(r, 5));
+          ctrl.enqueue(new Uint8Array(1024).fill(byte));
+        },
+      });
+    };
+    const media = videoMediaFromStorage(ctx.server.storage, "https://cc.test");
+    const up = await media.createUpload("spec-2/final.mp4", "video/mp4");
+    const put = new URL(up.putUrl);
+    const path = `${put.pathname}${put.search}`;
+
+    // A body that fails part-way: a generic 500 (no paths or internals), and the reservation stays usable.
+    let pulls = 0;
+    const failing = new ReadableStream<Uint8Array>({
+      pull(ctrl) {
+        if (pulls++ === 0) ctrl.enqueue(new Uint8Array(10));
+        else ctrl.error(new Error("boom at /srv/secret/data"));
+      },
+    });
+    const failed = await ctx.server.app.request(path, { method: "PUT", body: failing, duplex: "half" } as RequestInit);
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: "internal error" });
+
+    const send = (b: number) => ctx.server.app.request(path, { method: "PUT", body: slow(b), duplex: "half" } as RequestInit);
+    const statuses = (await Promise.all([send(0x41), send(0x42)])).map((r) => r.status).sort();
+    expect(statuses).toEqual([201, 404]);
+    const body = new Uint8Array(await (await ctx.server.app.request(new URL(up.publicUrl).pathname)).arrayBuffer());
+    expect(body.length).toBe(20 * 1024);
+    expect(new Set(body).size).toBe(1); // one writer's bytes, not an interleaving
+    expect((await ctx.server.app.request(path, { method: "PUT", body: "x" })).status).toBe(404);
+  });
+
+  it("chunked uploads take one request at a time", async () => {
+    const session = await ctx.api("/api/storage/upload-session", { method: "POST", json: { name: "c.mp4", contentType: "video/mp4", size: 20 * 1024, folder: "renders" } });
+    const u = new URL(session.body.uploadUrl);
+    const path = `${u.pathname}${u.search}`;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const held = new ReadableStream<Uint8Array>({
+      async start(ctrl) {
+        ctrl.enqueue(new Uint8Array(1024).fill(1));
+        await gate;
+        ctrl.close();
+      },
+    });
+    const first = ctx.server.app.request(path, { method: "PUT", headers: { "content-range": `bytes 0-1023/${20 * 1024}` }, body: held, duplex: "half" } as RequestInit);
+    await new Promise((r) => setTimeout(r, 50));
+    const second = await ctx.server.app.request(path, { method: "PUT", headers: { "content-range": `bytes 0-1023/${20 * 1024}` }, body: new Uint8Array(1024).fill(2) });
+    expect(second.status).toBe(409);
+    release();
+    expect((await first).status).toBe(308);
+    // Released again: the next request goes through.
+    expect((await ctx.server.app.request(path, { method: "PUT", headers: { "content-range": `bytes */${20 * 1024}` } })).headers.get("range")).toBe("bytes=0-1023");
+  });
 });
 
 describe.skipIf(!DB_URL)("storage on Google Drive (fake)", () => {

@@ -107,8 +107,12 @@ export class Storage implements BlobStore {
     return { id, putUrl };
   }
 
-  /** The reservation for `id`, if `key` matches and it is still unused (one week). */
-  async reservation(id: string, key: string): Promise<{ name: string; contentType: string; folder: Folder } | null> {
+  /**
+   * Claims the reservation for `id`, if `key` matches and it is still unused (one week):
+   * atomically, so of concurrent PUTs only one gets it. Hand it back with
+   * `releaseReservation` if the upload fails, so a retry works.
+   */
+  async claimReservation(id: string, key: string): Promise<{ name: string; contentType: string; folder: Folder } | null> {
     if (!isBlobId(id)) return null;
     const row = await this.index.get(id);
     if (!row || row.status !== "pending" || !row.uploadUrl?.includes("/api/storage/put/")) return null;
@@ -116,7 +120,13 @@ export class Storage implements BlobStore {
     const expected = Buffer.from(new URL(row.uploadUrl).searchParams.get("key") ?? "");
     const given = Buffer.from(key);
     if (!expected.length || expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+    if (!(await this.index.transition(id, "pending", "uploading"))) return null;
     return { name: row.name, contentType: row.contentType, folder: row.folder };
+  }
+
+  /** Puts a claimed reservation back to pending (its upload failed). */
+  async releaseReservation(id: string): Promise<void> {
+    await this.index.transition(id, "uploading", "pending");
   }
 
   async completeUpload(id: string): Promise<BlobInfo> {

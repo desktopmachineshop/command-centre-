@@ -10,8 +10,8 @@ export interface BlobRecord {
   size: number;
   contentType: string;
   folder: Folder;
-  /** "pending" while a direct upload is in flight. */
-  status: "pending" | "ready";
+  /** "pending" while a direct upload is open; "uploading" while one request holds it. */
+  status: "pending" | "uploading" | "ready";
   /** Resumable session URI (Drive) or our own chunk URL (local), only while pending. */
   uploadUrl: string | null;
   /** The local file (local backend) or warm cache copy (gdrive), if any. */
@@ -32,6 +32,8 @@ export interface BlobIndex {
   /** Insert or replace. */
   put(record: BlobRecord): Promise<void>;
   update(id: string, patch: Partial<Omit<BlobRecord, "id" | "createdAt">>): Promise<void>;
+  /** Atomically moves `id` from status `from` to `to`; the updated row, or null if it wasn't `from`. */
+  transition(id: string, from: BlobRecord["status"], to: BlobRecord["status"]): Promise<BlobRecord | null>;
   delete(id: string): Promise<void>;
   list(filter?: { folder?: Folder; backend?: BackendKind; status?: BlobRecord["status"]; limit?: number }): Promise<BlobRecord[]>;
   usage(): Promise<UsageRow[]>;
@@ -53,6 +55,12 @@ export class MemoryBlobIndex implements BlobIndex {
   async update(id: string, patch: Partial<BlobRecord>) {
     const r = this.rows.get(id);
     if (r) this.rows.set(id, { ...r, ...patch });
+  }
+  async transition(id: string, from: BlobRecord["status"], to: BlobRecord["status"]) {
+    const r = this.rows.get(id);
+    if (!r || r.status !== from) return null;
+    this.rows.set(id, { ...r, status: to });
+    return { ...r, status: to };
   }
   async delete(id: string) {
     this.rows.delete(id);
@@ -142,6 +150,11 @@ export class PgBlobIndex implements BlobIndex {
     if (!entries.length) return;
     const sets = entries.map(([k], i) => `${COLUMNS[k as keyof typeof COLUMNS]} = $${i + 2}`);
     await this.db.query(`update storage_files set ${sets.join(", ")} where id = $1`, [id, ...entries.map(([, v]) => v)]);
+  }
+
+  async transition(id: string, from: BlobRecord["status"], to: BlobRecord["status"]) {
+    const { rows } = await this.db.query("update storage_files set status = $3 where id = $1 and status = $2 returning *", [id, from, to]);
+    return rows[0] ? fromRow(rows[0]) : null;
   }
 
   async delete(id: string) {

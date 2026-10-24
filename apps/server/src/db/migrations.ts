@@ -343,5 +343,13 @@ export const migrations: { id: string; sql: string }[] = [
   );
 `,
   },
+  {
+    // "uploading": a direct upload claimed by one request (one-shot PUT, or a chunk in flight).
+    id: "0012_storage_uploading",
+    sql: `
+  alter table storage_files drop constraint if exists storage_files_status_check;
+  alter table storage_files add constraint storage_files_status_check check (status in ('pending', 'uploading', 'ready'));
+`,
+  },
   // --- end storage ---
 ];

@@ -98,8 +98,9 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
   app.onError((err, c) => {
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof UploadIncompleteError) return c.json({ error: err.message }, 400);
+    // Unauthenticated routes: the detail (paths, backend errors) stays in the log.
     console.error("[storage]", err);
-    return c.json({ error: err.message }, 500);
+    return c.json({ error: "internal error" }, 500);
   });
 
   const worker = new Hono();
@@ -114,7 +115,14 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
   app.put("/storage/uploads/:id", async (c) => {
     const row = await deps.storage.local.pendingUpload(c.req.param("id"), c.req.query("key") ?? "");
     if (!row) return c.json({ error: "not found" }, 404);
-    const out = await deps.storage.local.receiveChunk(row, c.req.header("content-range"), c.req.raw.body);
+    // One chunk at a time: they all append to the same partial file.
+    if (!(await deps.storage.index.transition(row.id, "pending", "uploading"))) return c.json({ error: "another request for this upload is in progress" }, 409);
+    let out: Awaited<ReturnType<typeof deps.storage.local.receiveChunk>>;
+    try {
+      out = await deps.storage.local.receiveChunk(row, c.req.header("content-range"), c.req.raw.body);
+    } finally {
+      await deps.storage.index.transition(row.id, "uploading", "pending");
+    }
     if (out.done) return c.json(withUrl(c, deps, out.info), 201);
     return c.body(null, 308, out.received > 0 ? { range: `bytes=0-${out.received - 1}` } : {});
   });
@@ -122,10 +130,10 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
   /** One-shot whole-file PUT for a reservation (video jobs), streamed into the configured backend. */
   app.put("/storage/put/:id", async (c) => {
     const id = c.req.param("id");
-    const r = await deps.storage.reservation(id, c.req.query("key") ?? "");
     const body = c.req.raw.body;
-    if (!r) return c.json({ error: "not found" }, 404);
     if (!body) return c.json({ error: "empty body" }, 400);
+    const r = await deps.storage.claimReservation(id, c.req.query("key") ?? "");
+    if (!r) return c.json({ error: "not found" }, 404);
     let seen = 0;
     const limit = new Transform({
       transform(chunk: Buffer, _e, done) {
@@ -135,8 +143,14 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
     });
     const source = Readable.fromWeb(body as import("node:stream/web").ReadableStream);
     limit.on("error", () => source.destroy());
-    const info = await deps.storage.put(source.pipe(limit), { id, ...r });
-    return c.json(withUrl(c, deps, info), 201);
+    source.on("error", (err) => limit.destroy(err)); // a broken request body fails the upload instead of hanging it
+    try {
+      const info = await deps.storage.put(source.pipe(limit), { id, ...r });
+      return c.json(withUrl(c, deps, info), 201);
+    } catch (err) {
+      await deps.storage.releaseReservation(id);
+      throw err;
+    }
   });
 
   return app;

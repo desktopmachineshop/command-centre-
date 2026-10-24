@@ -77,12 +77,14 @@ export class LocalBlobStore implements BlobStore {
     const folder = options.folder ?? "media";
     const id = options.id ?? newBlobId(options.name);
     const path = this.pathFor(id, folder);
+    // Unique per write, so two writers of the same id never share (and interleave) a temp file.
+    const tmp = `${path}.${randomBytes(8).toString("hex")}.tmp`;
     await mkdir(this.dirFor(folder), { recursive: true });
     try {
-      await pipeline(toReadable(source), createWriteStream(`${path}.part`));
-      await rename(`${path}.part`, path);
+      await pipeline(toReadable(source), createWriteStream(tmp));
+      await rename(tmp, path);
     } catch (err) {
-      await rm(`${path}.part`, { force: true });
+      await rm(tmp, { force: true });
       throw err;
     }
     const { size } = await stat(path);
@@ -164,11 +166,11 @@ export class LocalBlobStore implements BlobStore {
     return this.options.uploadTtlMs ?? 7 * 86_400_000;
   }
 
-  /** The pending upload `id`, if `key` is the one its upload URL carries. */
+  /** The open upload `id` (pending, or with a chunk in flight), if `key` is the one its upload URL carries. */
   async pendingUpload(id: string, key: string): Promise<BlobRecord | null> {
     if (!isBlobId(id)) return null;
     const row = await this.options.index.get(id);
-    if (!row || row.status !== "pending" || row.backend !== "local" || !row.uploadUrl) return null;
+    if (!row || row.status === "ready" || row.backend !== "local" || !row.uploadUrl) return null;
     if (Date.now() - row.createdAt.getTime() > this.ttl) return null;
     const expected = Buffer.from(new URL(row.uploadUrl).searchParams.get("key") ?? "");
     const given = Buffer.from(key);
@@ -233,6 +235,7 @@ export class LocalBlobStore implements BlobStore {
     const row = await this.options.index.get(id);
     if (!row || row.backend !== "local") throw new UploadIncompleteError(`no upload ${id}`);
     if (row.status === "ready") return toInfo(row);
+    if (row.status === "uploading") throw new UploadIncompleteError(`upload ${id} has a chunk in flight`);
     const have = (await stat(`${this.pathFor(id, row.folder)}.part`).catch(() => null))?.size ?? 0;
     if (have !== row.size || row.size === 0) throw new UploadIncompleteError(`upload ${id} has ${have} of ${row.size} bytes`, have);
     return this.finish(row);
