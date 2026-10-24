@@ -72,6 +72,30 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(note?.body).toContain("Checked ER11 stock");
   });
 
+  it("doesn't mark a task done over a reply that re-queued it while its approval settled", async () => {
+    calls.push({
+      server: "actions",
+      tool: "propose_action",
+      args: { actionType: "brain.journal", summary: "Log the tool order", payload: { text: "Ordered ER16 collets" } },
+    });
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "log that I ordered collets" } });
+    await ctx.queue.drain();
+    const [proposal] = (await ctx.api(`/api/proposals?status=pending`)).body.filter((p: any) => p.taskId === body.task.id);
+    const store = ctx.server.store;
+    const original = store.listProposals.bind(store);
+    // A reply lands between settleTask reading the task and updating it.
+    store.listProposals = async (...args: Parameters<typeof original>) => {
+      if (args[0]?.taskId === body.task.id) await store.pool.query("update tasks set status = 'queued' where id = $1", [body.task.id]);
+      return original(...args);
+    };
+    try {
+      expect((await ctx.api(`/api/proposals/${proposal.id}/approve`, { method: "POST" })).body.status).toBe("executed");
+    } finally {
+      store.listProposals = original;
+    }
+    expect((await ctx.api(`/api/tasks/${body.task.id}`)).body.task.status).toBe("queued");
+  });
+
   it("executes auto-policy actions straight away", async () => {
     calls.push({
       server: "actions",

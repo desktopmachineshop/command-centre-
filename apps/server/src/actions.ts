@@ -202,7 +202,10 @@ export class ActionService {
     const task = await this.store.getTask(proposal.taskId);
     if (task?.status !== "awaiting_approval") return;
     const pending = await this.store.listProposals({ taskId: task.id, status: "pending" });
-    if (pending.length === 0) this.hub.broadcast({ type: "task.updated", task: await this.store.setTaskStatus(task.id, "done") });
+    if (pending.length > 0) return;
+    // Conditional: a reply may have re-queued the task since it was read.
+    const done = await this.store.setTaskStatusIf(task.id, ["awaiting_approval"], "done");
+    if (done) this.hub.broadcast({ type: "task.updated", task: done });
   }
 }
 

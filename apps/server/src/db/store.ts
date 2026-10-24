@@ -221,6 +221,15 @@ export class Store {
     return toTask(rows[0]);
   }
 
+  /** `setTaskStatus`, only if the task is still in one of `from` (null: it has moved on). */
+  async setTaskStatusIf(id: string, from: TaskStatus[], status: TaskStatus, note: string | null = null): Promise<Task | null> {
+    const { rows } = await this.pool.query(
+      "update tasks set status = $3, note = $4, updated_at = now() where id = $1 and status = any($2::text[]) returning *",
+      [id, from, status, note],
+    );
+    return rows[0] ? toTask(rows[0]) : null;
+  }
+
   /**
    * Takes a run slot for a task, allowing at most `max` running tasks per vertical.
    * A per-vertical advisory lock makes the count-then-update atomic across workers
