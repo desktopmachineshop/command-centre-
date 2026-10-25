@@ -126,6 +126,45 @@ describe("reddit auth", () => {
   });
 });
 
+describe("reddit auth with a refresh token (Accounts page sign-in)", () => {
+  const REFRESH = "refresh-TOKEN-perm";
+  const connected = (): SocialAccount => ({
+    ...account(),
+    handle: "u/3dpandme",
+    credentials: { clientId: "cid123", clientSecret: SECRET, refreshToken: REFRESH },
+  });
+
+  it("accepts {clientId, clientSecret, refreshToken} and still requires a password without one", () => {
+    const adapter = createRedditAdapter();
+    expect(adapter.credentials.safeParse(connected().credentials).success).toBe(true);
+    const bad = adapter.credentials.safeParse({ clientId: "cid123", clientSecret: SECRET, username: "x" });
+    expect(bad.success).toBe(false);
+    expect(bad.error!.issues.map((i) => i.path.join("."))).toEqual(expect.arrayContaining(["password", "userAgent"]));
+  });
+
+  it("uses grant_type=refresh_token, a default User-Agent and the handle as the username", async () => {
+    const { fetch, calls } = api({
+      "POST /api/compose": () => json({ json: { errors: [] } }),
+      "GET /message/sent": () => json({ data: { children: [{ kind: "t4", data: { name: "t4_m1", id: "m1" } }] } }),
+    });
+    await createRedditAdapter().sendDm!(connected(), "someone", "hello", makeCtx(fetch).ctx);
+    const grant = calls.find((c) => c.url.endsWith("/access_token"))!;
+    expect(Object.fromEntries(grant.form!)).toEqual({ grant_type: "refresh_token", refresh_token: REFRESH });
+    expect(grant.headers["User-Agent"]).toBe("web:command-centre:1.0 (by /u/3dpandme)");
+    const compose = calls.find((c) => c.url.endsWith("/api/compose"))!;
+    expect(compose.form!.get("subject")).toBe("Message from u/3dpandme");
+  });
+
+  it("says to reconnect on the Accounts page when the refresh token is revoked", async () => {
+    const { fetch } = mockFetch(() => json({ error: "invalid_grant" }, 400));
+    const err = await createRedditAdapter()
+      .publish(connected(), { text: "b", title: "t", target: "hobbycnc" }, makeCtx(fetch).ctx)
+      .then(unexpected, (e: Error) => e);
+    expect(err.message).toMatch(/Accounts page/);
+    for (const s of [SECRET, REFRESH]) expect(err.message).not.toContain(s);
+  });
+});
+
 describe("reddit publish, reply, DM", () => {
   it("submits a self post with flair and returns the permalink", async () => {
     const { fetch, calls } = api({ "POST /api/submit": () => submitted() });

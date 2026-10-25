@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import type { AdapterContext } from "../../types";
 
 /**
- * Minimal Reddit Data API client for a "script" app (one account, password grant).
+ * Minimal Reddit Data API client for one account: a "web app" signed in on the Accounts page
+ * (refresh-token grant), or a "script" app (password grant).
  * - Token: POST https://www.reddit.com/api/v1/access_token (Basic client_id:client_secret,
- *   grant_type=password); tokens last an hour and are refreshed 5 minutes early.
+ *   grant_type=refresh_token or password); tokens last an hour and are refreshed 5 minutes early.
  * - Calls: https://oauth.reddit.com with `Authorization: bearer <token>` and the account's
  *   User-Agent (`<platform>:<app id>:<version> (by /u/<username>)`).
  * - Rate limit: honours X-Ratelimit-Remaining / X-Ratelimit-Reset.
@@ -20,8 +22,12 @@ const MAX_RATE_WAIT_MS = 60_000;
 export interface RedditCredentials {
   clientId: string;
   clientSecret: string;
+  /** The account's name (without u/); from the account's handle when signed in with Connect. */
   username: string;
-  password: string;
+  /** Password grant (script app). */
+  password?: string;
+  /** Refresh-token grant (web app, from the Accounts page sign-in). Wins over the password. */
+  refreshToken?: string;
   userAgent: string;
 }
 
@@ -54,7 +60,8 @@ export class RedditClient {
   constructor(private readonly sleep: Sleep = realSleep) {}
 
   private key(c: RedditCredentials): string {
-    return `${c.clientId}:${c.username.toLowerCase()}`;
+    if (c.username) return `${c.clientId}:${c.username.toLowerCase()}`;
+    return `${c.clientId}:rt:${createHash("sha256").update(c.refreshToken ?? "").digest("hex").slice(0, 16)}`;
   }
 
   /** A valid access token, from cache when it has more than 5 minutes left. */
@@ -74,7 +81,9 @@ export class RedditClient {
   }
 
   private async grant(ctx: AdapterContext, c: RedditCredentials): Promise<string> {
-    const body = new URLSearchParams({ grant_type: "password", username: c.username, password: c.password });
+    const body = c.refreshToken
+      ? new URLSearchParams({ grant_type: "refresh_token", refresh_token: c.refreshToken })
+      : new URLSearchParams({ grant_type: "password", username: c.username, password: c.password ?? "" });
     const res = await ctx.fetch(REDDIT_TOKEN_URL, {
       method: "POST",
       headers: {
@@ -93,11 +102,13 @@ export class RedditClient {
     if (!res.ok || !data.access_token) {
       const reason = typeof data.error === "string" || typeof data.error === "number" ? String(data.error) : `HTTP ${res.status}`;
       let hint = "";
-      if (res.status === 401) hint = " - check clientId/clientSecret (the script app at reddit.com/prefs/apps)";
+      if (res.status === 401) hint = ` - check clientId/clientSecret (the ${c.refreshToken ? "web" : "script"} app at reddit.com/prefs/apps)`;
       else if (reason === "invalid_grant") {
-        hint = " - check username/password; the password grant doesn't work for accounts with two-factor auth";
+        hint = c.refreshToken
+          ? " - the sign-in was revoked or has expired; reconnect it on the Accounts page"
+          : " - check username/password; the password grant doesn't work for accounts with two-factor auth";
       } else if (res.status === 429) hint = " - rate limited; try again later";
-      throw new RedditApiError(`Reddit login failed for u/${c.username}: ${reason}${hint}`, res.status);
+      throw new RedditApiError(`Reddit login failed for ${c.username ? `u/${c.username}` : "the account"}: ${reason}${hint}`, res.status);
     }
     const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 3600;
     this.tokens.set(this.key(c), { token: data.access_token, expiresAt: ctx.now().getTime() + expiresIn * 1000 });

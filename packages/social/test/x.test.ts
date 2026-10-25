@@ -118,6 +118,20 @@ describe("OAuth 1.0a signing", () => {
       'OAuth oauth_consumer_key="xvz1evFS4wEEPTGEFPHBog", oauth_nonce="kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg", oauth_signature="hCtSmYh%2BiHYCEqBWrE7C7hYmtUk%3D", oauth_signature_method="HMAC-SHA1", oauth_timestamp="1318622958", oauth_token="370773112-GmHxMAgYyLbNEtIKZeRNFsMKPR9EyMZeS9weJAEb", oauth_version="1.0"',
     );
   });
+
+  it("signs a request_token call: oauth_callback signed, no oauth_token", () => {
+    const callback = "https://cc.example.com/oauth/x/callback";
+    const reqToken = { method: "POST", url: "https://api.x.com/oauth/request_token" };
+    const header = authorizationHeader(
+      reqToken,
+      { consumerKey: "ck", consumerSecret: "cs", token: "", tokenSecret: "" },
+      { nonce: "n", timestamp: 1, extra: { oauth_callback: callback } },
+    );
+    expect(header).toContain(`oauth_callback="${percentEncode(callback)}"`);
+    expect(header).not.toContain("oauth_token");
+    const params = { oauth_callback: callback, oauth_consumer_key: "ck", oauth_nonce: "n", oauth_signature_method: "HMAC-SHA1", oauth_timestamp: "1", oauth_version: "1.0" };
+    expect(header).toContain(`oauth_signature="${percentEncode(sign(signatureBaseString(reqToken, params), "cs", ""))}"`);
+  });
 });
 
 describe("weighted length", () => {

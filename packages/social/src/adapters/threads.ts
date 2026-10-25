@@ -41,8 +41,7 @@ const DEFAULT_RECENT_THREADS = 10;
 const RENEW_HINT =
   "Threads long-lived tokens last 60 days and must be refreshed before they lapse " +
   "(GET graph.threads.com/refresh_access_token, grant_type=th_refresh_token). Once expired they cannot be refreshed: " +
-  "generate a new token (Meta App Dashboard > Threads use case > User Token Generator, or the OAuth flow) " +
-  "and update this account's accessToken in SOCIAL_ACCOUNTS. See docs/SETUP.md, Social > Platform setup > Threads.";
+  "reconnect it on the Accounts page (Threads → Connect). The server renews tokens daily before they lapse.";
 
 export const ThreadsCredentials = z.object({
   /** Long-lived Threads user access token (60 days, refreshable). */

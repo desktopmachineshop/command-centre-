@@ -23,9 +23,9 @@ export interface GoogleOAuthCredentials {
 
 /** How Dave gets a new refresh token, quoted in every auth failure. */
 export const REAUTH_HINT =
-  'On your PC run "pnpm --filter @cc/pa google:auth" (with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set), set GOOGLE_REFRESH_TOKEN (or the account\'s refreshToken in CALENDAR_ACCOUNTS) to the token it prints, and redeploy. If the OAuth consent screen is still in "Testing", Google expires refresh tokens after 7 days: publish the app to stop that (docs/SETUP.md, "Personal assistant").';
+  'Reconnect it on the Accounts page (Google account → Connect). If the OAuth consent screen is still in "Testing", Google expires refresh tokens after 7 days: publish the app to stop that (docs/SETUP.md, "Personal assistant").';
 
-/** Google refused the credentials: a revoked or expired refresh token, or a wrong client. Re-run google:auth. */
+/** Google refused the credentials: a revoked or expired refresh token, or a wrong client. Reconnect on the Accounts page. */
 export class GoogleAuthError extends Error {
   constructor(
     message: string,
@@ -81,7 +81,7 @@ export function createGoogleTokenProvider(options: GoogleOAuthCredentials & { fe
       }
       if (body.error === "invalid_client" || body.error === "unauthorized_client") {
         throw new GoogleAuthError(
-          `Google rejected the OAuth client${label} (${why}). Check the client id and secret (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET); the refresh token must come from that same client. ${REAUTH_HINT}`,
+          `Google rejected the OAuth client${label} (${why}). Check the client id and secret (Accounts page → Developer apps → Google OAuth client); the refresh token must come from that same client. ${REAUTH_HINT}`,
           body.error,
         );
       }

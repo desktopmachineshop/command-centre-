@@ -49,19 +49,24 @@ export function sign(baseString: string, consumerSecret: string, tokenSecret: st
   return createHmac("sha1", key).update(baseString).digest("base64");
 }
 
-/** Builds the `Authorization: OAuth ...` header value. `nonce` and `timestamp` are injectable for tests. */
+/**
+ * Builds the `Authorization: OAuth ...` header value. `nonce` and `timestamp` are injectable for tests.
+ * `extra` adds signed OAuth params for the 3-legged sign-in (`oauth_callback` on request_token,
+ * `oauth_verifier` on access_token); an empty `token` (request_token) leaves `oauth_token` out.
+ */
 export function authorizationHeader(
   req: OAuth1Request,
   creds: OAuth1Credentials,
-  opts: { nonce?: string; timestamp?: number } = {},
+  opts: { nonce?: string; timestamp?: number; extra?: Record<string, string> } = {},
 ): string {
   const oauth: Record<string, string> = {
     oauth_consumer_key: creds.consumerKey,
     oauth_nonce: opts.nonce ?? randomBytes(16).toString("hex"),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: String(opts.timestamp ?? Math.floor(Date.now() / 1000)),
-    oauth_token: creds.token,
+    ...(creds.token ? { oauth_token: creds.token } : {}),
     oauth_version: "1.0",
+    ...opts.extra,
   };
   const all: Record<string, string> = {
     ...oauth,
