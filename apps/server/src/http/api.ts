@@ -17,6 +17,7 @@ import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
+import { type IntegrationService, integrationRoutes } from "../integrations";
 import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
 import { type StorageApiDeps, storageApiRoutes } from "./storage";
@@ -46,6 +47,8 @@ export interface ApiDeps {
   notifications?: NotificationService;
   /** Today page API and reminder notification buttons (see ./pa.ts). */
   pa?: PaApiDeps;
+  /** Accounts page: platform credentials (see ../integrations). */
+  integrations?: IntegrationService;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -219,6 +222,7 @@ export function apiRoutes(deps: ApiDeps) {
   if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
+  if (deps.integrations) app.route("/", integrationRoutes(deps.integrations));
 
   return app;
 }

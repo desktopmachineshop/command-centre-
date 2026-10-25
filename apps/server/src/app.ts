@@ -52,6 +52,7 @@ import { VoiceConversations } from "./voice/conversations";
 import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
 import { WorkerService } from "./workers";
+import { IntegrationService, IntegrationStore, SecretBox } from "./integrations";
 
 export interface Overrides {
   runner?: AgentRunner;
@@ -120,6 +121,15 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // A test notifier sees every notify() call as made; the service still stores and routes it.
   const notifier: Notifier = overrides.notifier ? teeNotifier(notifications, overrides.notifier) : notifications;
   // --- end notifications ---
+
+  // --- integrations: the Accounts page's credentials, applied over the env config in start() ---
+  let secretBox: SecretBox | undefined;
+  const integrationStore = new IntegrationStore(pool, () => {
+    if (!secretBox) throw new Error("the credentials key isn't loaded yet");
+    return secretBox;
+  });
+  const integrations = new IntegrationService(integrationStore, config, { verticals: () => verticals.all().map((v) => v.id) });
+  // --- end integrations ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---
   const emailAccounts = config.email.accounts;
@@ -323,7 +333,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const pa = { store: paStore, calendar, timeZone: config.timezone, signingSecret: paSigningSecret };
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -378,8 +388,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     /** Sends due reminders; the every-minute system job calls this. */
     deliverReminders,
     storage,
+    integrations,
     async start() {
       await migrate(pool);
+      secretBox = await SecretBox.load({ key: config.credentialsKey, keyFile: join(config.dataDir, "credentials.key") }); // integrations
+      await integrations.load(); // integrations: saved accounts over the env config, before anything polls
       await auth.warm();
       await store.markAllNodesOffline();
       await brain.init();

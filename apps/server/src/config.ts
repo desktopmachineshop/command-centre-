@@ -39,10 +39,14 @@ const Env = z.object({
   WEB_DIST_DIR: z.string().optional(),
   /** Base URL agents use to reach this server's MCP endpoints. */
   INTERNAL_BASE_URL: z.string().optional(),
+  /** 64 hex chars encrypting Accounts-page secrets; unset = a key generated into DATA_DIR/credentials.key. */
+  CREDENTIALS_KEY: z.string().regex(/^[0-9a-f]{64}$/i, "must be 64 hex characters").optional(),
 
   /** "claude-code" (default) or "echo" to run without any model. */
   AGENT_RUNNER: z.enum(["claude-code", "echo"]).default("claude-code"),
   CLAUDE_BIN: z.string().default("claude"),
+  /** Claude subscription token (`claude setup-token`); the Accounts page can hold it instead. */
+  CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
   /** Optional API key used only when the subscription hits its usage limit. */
   ANTHROPIC_FALLBACK_API_KEY: z.string().optional(),
   AGENT_MAX_TURNS: z.coerce.number().int().positive().default(30),
@@ -212,9 +216,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     skillsDir: resolve(e.SKILLS_DIR ?? "../../skills"),
     webDistDir: e.WEB_DIST_DIR ? resolve(e.WEB_DIST_DIR) : undefined,
     internalBaseUrl: e.INTERNAL_BASE_URL ?? `http://127.0.0.1:${e.PORT}`,
+    credentialsKey: e.CREDENTIALS_KEY,
+    /** ODOO_EVENTS as given, for when Odoo is first set up on the Accounts page. */
+    odooEventsRaw: e.ODOO_EVENTS,
     agent: {
       runner: e.AGENT_RUNNER,
       claudeBin: e.CLAUDE_BIN,
+      oauthToken: e.CLAUDE_CODE_OAUTH_TOKEN || undefined,
       fallbackApiKey: e.ANTHROPIC_FALLBACK_API_KEY || undefined,
       maxTurns: e.AGENT_MAX_TURNS,
       timeoutMs: e.AGENT_TIMEOUT_MS,

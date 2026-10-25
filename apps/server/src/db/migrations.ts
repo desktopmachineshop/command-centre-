@@ -352,4 +352,39 @@ export const migrations: { id: string; sql: string }[] = [
 `,
   },
   // --- end storage ---
+  // --- integrations: credentials managed on the Accounts page (src/integrations) ---
+  {
+    id: "0013_integrations",
+    sql: `
+  create table integration_entries (
+    kind text not null,
+    id text not null,
+    -- Non-secret fields (handles, hosts, verticals, calendar picks).
+    data jsonb not null default '{}',
+    -- Secret fields as one AES-256-GCM blob (src/integrations/secrets.ts); never sent to the browser.
+    secrets_enc text,
+    -- Status the server keeps: last test, expiry, connected account name.
+    meta jsonb not null default '{}',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    primary key (kind, id)
+  );
+  create table integration_audit (
+    id bigserial primary key,
+    at timestamptz not null default now(),
+    actor text not null,
+    kind text not null,
+    entry_id text not null,
+    action text not null
+  );
+  create table oauth_states (
+    state text primary key,
+    provider text not null,
+    actor text not null,
+    data jsonb not null default '{}',
+    expires_at timestamptz not null
+  );
+`,
+  },
+  // --- end integrations ---
 ];
