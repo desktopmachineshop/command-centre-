@@ -47,6 +47,10 @@ can never send, post or change anything without your approval, whatever the sett
 
 ## Your setup checklist (in order)
 
+**New: everything below that says "set X in Railway" can now be done on the Accounts page**
+(More → Accounts): paste keys, or press **Connect** to sign in to Google, YouTube, Instagram,
+Threads, X and Reddit. Changes apply straight away. See `docs/SETUP.md` → "Accounts page".
+
 1. **Login: done.** Your account was created at 02:16 UTC. Optional: Settings → set up
    two-factor and save the recovery codes.
    **Install it on your phone:** in Chrome, tap **Install** on the card at the top of the

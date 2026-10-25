@@ -151,6 +151,52 @@ journal entry saying the command centre is live.`
 The task should show brain tool calls in its transcript, and a `brain.journal` proposal should
 appear under Approvals. If the run fails, its error is on the task page.
 
+## Accounts page (sign-ins for every platform)
+
+**Accounts** (sidebar → System → Accounts; on the phone **More → Accounts**) is where every
+platform sign-in lives: Claude, the Anthropic API, Jev, OpenAI, ElevenLabs, Odoo, email inboxes,
+Google (Calendar and Drive), Instagram, Threads, X, Reddit, YouTube and Discord. Saving applies
+straight away; only the changed integration restarts, and nothing redeploys.
+
+- **Secrets are encrypted** in the database (AES-256-GCM). The key is generated into
+  `DATA_DIR/credentials.key` on the Railway volume the first time, or set `CREDENTIALS_KEY`
+  (64 hex characters, `openssl rand -hex 32`) to keep it in Railway instead. The page only
+  ever shows `••••1234`; leave a secret field blank when editing to keep what's stored.
+- **Values already in Railway** show as *From Railway*. Press **Move into app** (or just
+  **Edit**), check it still works, then delete the variable from Railway.
+- **Test** checks a sign-in against the real service and records the result on the card.
+- **Connect** buttons sign in with the platform instead of pasting tokens. Each needs a one-time
+  developer app (the **Developer apps** section on the page). Register these redirect addresses,
+  using your `PUBLIC_BASE_URL` (e.g. `https://command.desktopmachineshop.com`):
+
+  | Platform | Developer app | Redirect address |
+  |---|---|---|
+  | Google (Calendar + Drive) | Google Cloud Console → Credentials → OAuth client, type **Web application** | `/oauth/google/callback` |
+  | YouTube | the same Google client (enable YouTube Data API v3) | `/oauth/youtube/callback` |
+  | Instagram | Meta app → Instagram → API setup with Instagram login → Business login settings | `/oauth/instagram/callback` |
+  | Threads | Meta app → Threads use case → Settings | `/oauth/threads/callback` |
+  | X | developer.x.com → app → User authentication settings: OAuth 1.0a, Read and write | `/oauth/x/callback` |
+  | Reddit | reddit.com/prefs/apps → create a **web app** | `/oauth/reddit/callback` |
+
+  Google: set the consent screen to **In production**, or the sign-in expires after 7 days.
+  The old desktop-type client from `google:auth` can't be used for Connect; create a Web
+  application client (the old refresh token keeps working until you reconnect).
+- **Instagram and Threads** tokens last 60 days. The server renews them every night once they
+  have under 15 days left, and sends an alert if renewal fails or a week is left.
+- **Claude:** run `claude setup-token` on your PC and paste the token into the Claude card, and
+  switch **Agents** from `echo` to `claude-code`.
+- **Stays in Railway:** `DATABASE_URL`, `ADMIN_TOKEN`, `WORKER_TOKEN`, `WEBHOOK_SECRET`,
+  `PUBLIC_BASE_URL`, the push (`VAPID_*`) keys, `BRAIN_REMOTE_URL` and `CREDENTIALS_KEY`: the server
+  needs them before it can read the database. The page lists them read-only.
+- Every change is recorded (who, what, when) in the `integration_audit` table.
+- Switching **file storage** between the volume and Drive takes effect after the next restart
+  (Railway → server → Restart); a new Google sign-in for Drive applies at once.
+
+Agents never see these credentials: the Claude process gets only its own token and basic system
+variables, not the server's environment.
+
+The env-var instructions in the sections below still work and are the fallback.
+
 ## Triage
 
 Every event goes through a chain of triagers, cheapest first. The first answer at or above
@@ -368,6 +414,9 @@ Or run it locally over stdio against a clone: `BRAIN_DIR=~/brain pnpm --filter @
 
 ## Email
 
+> **Easiest:** Accounts page → Business → Email inboxes → Add email inbox (Gmail preset included). The variables below are the alternative.
+
+
 Inboxes feed the command centre over IMAP, and replies go out over SMTP, so any provider works:
 Gmail, Google Workspace, Microsoft 365 / Outlook.com, or Odoo's own mail server.
 
@@ -425,6 +474,9 @@ Set `EMAIL_ACCOUNTS` to a one-line JSON array (an example is in `.env.example`):
 - **Odoo mail or any other host:** use the IMAP/SMTP settings the provider gives you.
 
 ## Social
+
+> **Easiest:** Accounts page → Social → Add account → Connect. The variables below are the alternative.
+
 
 The command centre watches and posts to social accounts on Discord, Instagram, Threads, X,
 Reddit and YouTube (`packages/social`). Each platform is an adapter behind one interface, so the rest of the
@@ -553,6 +605,9 @@ With `SOCIAL_ACCOUNTS` empty or unset, social is off: no polling, no social acti
 page says so.
 
 ## Storage (Google Drive)
+
+> **Easiest:** Accounts page → Google → Connect, then Settings → File storage → gdrive. The variables below are the alternative.
+
 
 The Railway volume is small, so large files (raw footage, video renders, media uploads,
 generated assets, big attachments) can live in **your Google Drive** instead
@@ -797,6 +852,9 @@ connected.
 
 ### Google Calendar
 
+> **Easiest:** Accounts page → Google → Add account → Connect, then Calendars. The variables below are the alternative.
+
+
 Do this once, on your PC. The same OAuth client and refresh token are shared with Google Drive
 storage, so one run of `google:auth` covers both.
 
@@ -952,6 +1010,9 @@ in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifica
 
 ## Odoo
 
+> **Easiest:** Accounts page → Business → Odoo → Set up. The variables below are the alternative.
+
+
 The server talks to Odoo Online through its external API. No custom modules are needed. When
 Odoo is configured, the DMS and 3dpandme agents get the read-only `odoo` MCP server (products,
 stock, orders, customers, chatter, websites and blogs). They also get three actions, all `draft`
@@ -1055,6 +1116,9 @@ defaults, or set:
   ids are skipped.
 
 ## Social: platform setup
+
+> **Easiest:** Accounts page → Social → Add account (the developer-app steps are in "Accounts page" above). The variables below are the alternative.
+
 
 Each social account is one entry in the `SOCIAL_ACCOUNTS` JSON array, with
 `credentials` (secrets) and `options` (per-platform settings).
@@ -1672,6 +1736,9 @@ with "There's more on screen when you're parked". Nothing outward-facing happens
 readback and an explicit "yes, approve". Use it only where hands-free phone use is legal.
 
 ### Optional server voices
+
+> **Easiest:** Accounts page → AI → OpenAI / ElevenLabs, and Settings → Voice settings. The variables below are the alternative.
+
 
 With nothing configured, Drive mode uses the browser's own speech: free, quick, with an en-GB
 voice where the device has one. Server providers are an upgrade for quality, and a fallback for
