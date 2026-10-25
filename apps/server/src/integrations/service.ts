@@ -63,7 +63,12 @@ export class IntegrationService {
   constructor(
     private readonly store: IntegrationStore,
     private readonly base: Config,
-    private readonly options: { verticals: () => string[]; tests?: Record<string, CredentialTest> } = { verticals: () => [] },
+    private readonly options: {
+      verticals: () => string[];
+      tests?: Record<string, CredentialTest>;
+      /** Server-side rules applyEntries can't see (e.g. a platform adapter's credential format); a message means unusable. */
+      check?: (config: Config, entry: EntryInput) => string | undefined;
+    } = { verticals: () => [] },
   ) {
     this.effective = base;
   }
@@ -140,8 +145,9 @@ export class IntegrationService {
       // Would it make a working account? Check before saving.
       const candidate: EntryInput = { kind, id: entryId, data, secrets };
       const others = (await this.inputs()).filter((e) => !(e.kind === kind && e.id === entryId));
-      const trial = applyEntries(this.base, [...others, candidate]).errors.find((e) => e.kind === kind && e.id === entryId);
-      if (trial && !(def.oauth && !Object.keys(secrets).length)) throw new IntegrationError(trial.message);
+      const trialRun = applyEntries(this.base, [...others, candidate]);
+      const trial = trialRun.errors.find((e) => e.kind === kind && e.id === entryId)?.message ?? this.options.check?.(trialRun.config, candidate);
+      if (trial && !(def.oauth && !Object.keys(secrets).length)) throw new IntegrationError(trial);
 
       await this.store.put({ kind, id: entryId, data, secrets, meta: { ...existing.meta, ...meta } }, actor, existing.stored ? "updated" : existing.fromRailway ? "moved from Railway" : "created");
       return this.recompute(this.effective, def.affects);
@@ -238,6 +244,12 @@ export class IntegrationService {
   private async recompute(previous: Config, hint: readonly Group[] = GROUPS) {
     const { config, errors } = applyEntries(this.base, await this.inputs());
     const changed = GROUPS.filter((g) => fingerprint(previous, g) !== fingerprint(config, g));
+    const inputs = await this.inputs();
+    for (const e of inputs) {
+      if (errors.some((x) => x.kind === e.kind && x.id === e.id)) continue;
+      const message = this.options.check?.(config, e);
+      if (message) errors.push({ kind: e.kind, id: e.id, message });
+    }
     this.errors = errors;
     let failed: Partial<Record<Group, string>> = {};
     if (changed.length) {

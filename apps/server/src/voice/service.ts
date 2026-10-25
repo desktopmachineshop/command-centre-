@@ -214,8 +214,9 @@ export class VoiceService {
   }
 }
 
+/** `proposals` come newest first from the database (microsecond order); reversing first keeps that order for same-millisecond ties. */
 function oldestFirst(proposals: Proposal[]): Proposal[] {
-  return [...proposals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return [...proposals].reverse().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 /** "email.reply" → "email reply", "social.campaign" → "social campaign". */

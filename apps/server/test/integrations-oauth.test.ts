@@ -46,7 +46,7 @@ function fakeProviders() {
       case "GET openidconnect.googleapis.com/v1/userinfo":
         return json({ email: "dave.personal@gmail.com", email_verified: true });
       case "GET www.googleapis.com/youtube/v3/channels":
-        return json({ items: [{ id: "UC123abc", snippet: { title: "3D P and Me", customUrl: "@3dpandme" } }] });
+        return json({ items: [{ id: "UCabcdefghijklmnopqrstuv", snippet: { title: "3D P and Me", customUrl: "@3dpandme" } }] });
       case "GET www.googleapis.com/calendar/v3/users/me/calendarList":
         return json({ items: [{ id: "primary-id@gmail.com", summary: "Dave", primary: true, accessRole: "owner" }, { id: "family@group.calendar.google.com", summary: "Family", accessRole: "reader" }] });
       case "POST api.instagram.com/oauth/access_token":
@@ -198,9 +198,9 @@ describe.skipIf(!DB_URL)("Accounts page sign-ins (OAuth)", () => {
     expect(url.searchParams.get("code_challenge")).toBeTruthy();
     expect(Object.fromEntries(await callback("youtube", { code: "yt-code", state: stateOf(res.body.url) }))).toEqual({ connected: "youtube", id: "3dp-youtube" });
     const e = await entry("youtube", "3dp-youtube");
-    expect(e.data).toMatchObject({ vertical: "3dpandme", channelId: "UC123abc", handle: "@3dpandme", displayName: "3D P and Me", inbound: false });
+    expect(e.data).toMatchObject({ vertical: "3dpandme", channelId: "UCabcdefghijklmnopqrstuv", handle: "@3dpandme", displayName: "3D P and Me", inbound: false });
     const account = ctx.server.integrations.current().social.accounts.find((a) => a.id === "3dp-youtube");
-    expect(account?.credentials).toMatchObject({ clientId: "123-abc.apps.googleusercontent.com", clientSecret: G_SECRET, refreshToken: YT_REFRESH, channelId: "UC123abc" });
+    expect(account?.credentials).toMatchObject({ clientId: "123-abc.apps.googleusercontent.com", clientSecret: G_SECRET, refreshToken: YT_REFRESH, channelId: "UCabcdefghijklmnopqrstuv" });
   });
 
   it("Instagram: swaps for a long-lived token, stores the expiry and the exact user id", async () => {

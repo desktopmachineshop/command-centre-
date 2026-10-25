@@ -221,17 +221,24 @@ describe.skipIf(!DB_URL)("integrations reload live", () => {
     expect(ctx.server.actions.executors["social.campaign"]).toBeDefined();
     await waitFor(async () => discord.state.listening.has("dms-discord"));
 
-    // The adapter rejects this token: the reload fails, the working account stays, the page shows why.
+    // The adapter rejects this token: refused on save, nothing stored, the working account carries on.
     const bad = await save("dms-discord-2", "bad-token-0123456789");
-    expect(bad.status).toBe(200);
-    expect(bad.body.failed.social).toMatch(/bot token was rejected/);
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/bot token was rejected/);
     expect((await ctx.api("/api/social/accounts")).body.map((a: { id: string }) => a.id)).toEqual(["dms-discord"]);
     expect(discord.state.listening.has("dms-discord")).toBe(true);
-    expect((await ctx.api("/api/integrations")).body.groups.social).toMatch(/bot token was rejected/);
+    const list = (await ctx.api("/api/integrations")).body;
+    expect(list.groups.social).toBeNull();
+    expect(list.entries.some((e: { id: string }) => e.id === "dms-discord-2")).toBe(false);
 
-    // Fixing it clears the error.
-    expect((await ctx.api("/api/integrations/discord/dms-discord-2", { method: "DELETE" })).body.failed).toEqual({});
-    expect((await ctx.api("/api/integrations")).body.groups.social).toBeNull();
+    // An already-saved account that stops passing (here: changed straight in the database) is left out on its own.
+    await ctx.server.store.pool.query("insert into integration_entries (kind, id, data) values ('discord', 'dms-broken', '{\"vertical\":\"nope\"}')");
+    expect((await save("dms-discord", "good-token-0123456789")).status).toBe(200);
+    const after = (await ctx.api("/api/integrations")).body;
+    expect(after.entries.find((e: { id: string }) => e.id === "dms-broken").error).toBeTruthy();
+    expect(after.groups.social).toBeNull();
+    expect((await ctx.api("/api/social/accounts")).body.map((a: { id: string }) => a.id)).toEqual(["dms-discord"]);
+    await ctx.server.store.pool.query("delete from integration_entries where id = 'dms-broken'");
   });
 
   it("connects a calendar live; a storage switch waits for a restart, then applies at start-up", async () => {

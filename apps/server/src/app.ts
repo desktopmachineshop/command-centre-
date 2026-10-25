@@ -13,6 +13,7 @@ import {
   platformLabel,
   publishDueScheduledPosts,
   SocialInbound,
+  type SocialAccount,
   validateSocialCredentials,
 } from "@cc/social";
 import type { Triager } from "@cc/triage";
@@ -164,6 +165,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const integrations = new IntegrationService(integrationStore, config, {
     verticals: () => verticals.all().map((v) => v.id),
     tests: credentialTests({ fetch: overrides.integrationsFetch, imap: overrides.imap }), // --- integrations oauth ---
+    // A social account the platform adapter would reject: refused on save, and left out (not the whole group) on reload.
+    check: (c, e) => {
+      const account = c.social.accounts.find((a) => a.id === e.id && a.platform === e.kind);
+      return account ? socialProblem(account) : undefined;
+    },
   });
   // --- end integrations ---
 
@@ -184,9 +190,25 @@ export function createServer(config: Config, overrides: Overrides = {}) {
 
   // --- Social: accounts checked against the adapters, executors, media, scheduled posts; inbound starts in start() ---
   const socialAdapters = overrides.socialAdapters ?? socialPlatformAdapters;
-  const buildSocial = (c: Config) => {
-    const accounts = validateSocialCredentials(c.social.accounts, socialAdapters);
-    for (const a of accounts) verticals.require(a.vertical);
+  function socialProblem(account: SocialAccount): string | undefined {
+    try {
+      validateSocialCredentials([account], socialAdapters);
+      verticals.require(account.vertical);
+      return undefined;
+    } catch (err) {
+      return (err as Error).message.replace(/^SOCIAL_ACCOUNTS is invalid: /, "");
+    }
+  }
+  /** `strict` (boot, Railway's SOCIAL_ACCOUNTS only): a bad account stops the server, as before. */
+  const buildSocial = (c: Config, strict = false) => {
+    // On reload, one unusable account (shown on the Accounts page) mustn't take the others down with it.
+    const usable = strict ? c.social.accounts : c.social.accounts.filter((a) => {
+      const problem = socialProblem(a);
+      if (problem) console.warn(`[social] skipping ${a.id}: ${problem}`);
+      return !problem;
+    });
+    const accounts = validateSocialCredentials(usable, socialAdapters);
+    if (strict) for (const a of accounts) verticals.require(a.vertical);
     return {
       accounts,
       executors: accounts.length ? createSocialExecutors(accounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone }) : {},
@@ -195,7 +217,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         : undefined,
     };
   };
-  const social = new Live(buildSocial(config), { start: (v) => v.inbound?.start(), stop: (v) => v.inbound?.stop() });
+  const social = new Live(buildSocial(config, true), { start: (v) => v.inbound?.start(), stop: (v) => v.inbound?.stop() });
   /** Publishes due scheduled posts; the every-minute system job calls this (a no-op with no accounts). */
   const publishScheduledPosts = async () => {
     const accounts = social.current.accounts;
