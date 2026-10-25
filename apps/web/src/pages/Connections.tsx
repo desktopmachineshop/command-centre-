@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { type Api, ApiError } from "../api";
 import { ago } from "../format";
 import { Icon, type IconName } from "../icons";
@@ -47,7 +47,8 @@ type DialogState =
   | { type: "add"; kinds: KindDef[]; title: string; vertical?: string }
   | { type: "needsApp"; def: KindDef; app: KindDef }
   | { type: "remove"; def: KindDef; entry: EntryView }
-  | { type: "calendars"; entry: EntryView };
+  | { type: "calendars"; entry: EntryView }
+  | { type: "claude" };
 
 interface Ctx {
   api: Api;
@@ -456,9 +457,14 @@ function EntryCard({ ctx, def, entry, id, highlight, social }: { ctx: Ctx; def: 
             <Icon name="link" /> {entry && entryStatus(entry, def).label !== "Not connected" ? "Reconnect" : "Connect"}
           </button>
         )}
+        {def.connect === "claude" && (
+          <button type="button" className={entry?.secrets.oauthToken ? "" : "primary"} disabled={busy} onClick={() => ctx.open({ type: "claude" })}>
+            <Icon name="link" /> {entry?.secrets.oauthToken ? "Reconnect" : "Connect"}
+          </button>
+        )}
         {!entry && !def.oauth && (
-          <button type="button" className="primary" onClick={() => ctx.open({ type: "edit", def })}>
-            <Icon name="plus" /> Set up
+          <button type="button" className={def.connect ? "" : "primary"} onClick={() => ctx.open({ type: "edit", def })}>
+            <Icon name={def.connect ? "key" : "plus"} /> {def.connect ? "Paste a token" : "Set up"}
           </button>
         )}
         {entry && (
@@ -639,7 +645,104 @@ function DialogFor({ ctx, dialog, close, openApps }: { ctx: Ctx; dialog: DialogS
       return <RemoveDialog ctx={ctx} def={dialog.def} entry={dialog.entry} close={close} />;
     case "calendars":
       return <CalendarDialog ctx={ctx} entry={dialog.entry} close={close} />;
+    case "claude":
+      return <ClaudeDialog ctx={ctx} close={close} />;
   }
+}
+
+/**
+ * Connect Claude: the server runs `claude setup-token`. Step 1 opens its claude.ai sign-in link
+ * in a new tab; claude.ai then shows a code, which step 2 sends back. The token never reaches
+ * the browser: the server saves it and switches agents to Claude.
+ */
+function ClaudeDialog({ ctx, close }: { ctx: Ctx; close: () => void }) {
+  const [setup, setSetup] = useState<{ setupId: string; url: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
+  const [code, setCode] = useState("");
+  const [working, setWorking] = useState(false);
+  const finished = useRef(false);
+  const setupId = useRef<string | null>(null);
+
+  useEffect(() => {
+    ctx.api.claudeSetupStart().then(
+      (s) => {
+        setupId.current = s.setupId;
+        setSetup(s);
+      },
+      (e: Error) => setError(e.message),
+    );
+    // Closing without finishing stops the CLI on the server.
+    return () => {
+      if (setupId.current && !finished.current) void ctx.api.claudeSetupCancel(setupId.current).catch(() => {});
+    };
+  }, []);
+
+  const finish = async () => {
+    if (!setup) return;
+    setWorking(true);
+    finished.current = true;
+    await ctx.run("claude:setup", "Claude connected: agents now run on your subscription", () => ctx.api.claudeSetupCode(setup.setupId, code));
+    close();
+  };
+
+  return (
+    <Dialog
+      title="Connect Claude"
+      onClose={close}
+      footer={
+        <>
+          <button type="button" onClick={close}>
+            Cancel
+          </button>
+          <button type="button" className="primary" disabled={!setup || !code.trim() || working} onClick={finish}>
+            {working ? "Connecting…" : "Finish"}
+          </button>
+        </>
+      }
+    >
+      {error && (
+        <ErrorBanner>
+          {error} You can still use <strong>Paste a token</strong> from <code>claude setup-token</code> on a computer.
+        </ErrorBanner>
+      )}
+      {!setup && !error && (
+        <>
+          <p className="muted small">Starting Claude's sign-in on the server…</p>
+          <Skeleton rows={2} />
+        </>
+      )}
+      {setup && (
+        <ol className="acc-steps">
+          <li>
+            <p>Sign in with the Claude account whose subscription the agents should use.</p>
+            <a className={`button-link ${opened ? "" : "primary"}`} href={setup.url} target="_blank" rel="noopener noreferrer" onClick={() => setOpened(true)}>
+              <Icon name="external" /> Open Claude sign-in
+            </a>
+          </li>
+          <li>
+            <label className="acc-field" htmlFor="claude-code">
+              <span>Paste the code the sign-in page shows</span>
+              <input
+                id="claude-code"
+                className="mono"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                placeholder="Code from claude.ai"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && code.trim() && !working) void finish();
+                }}
+              />
+            </label>
+          </li>
+        </ol>
+      )}
+      <p className="muted small">The sign-in link works for 10 minutes. The token is saved encrypted on the server; it never comes to this page.</p>
+    </Dialog>
+  );
 }
 
 function RemoveDialog({ ctx, def, entry, close }: { ctx: Ctx; def: KindDef; entry: EntryView; close: () => void }) {
@@ -1046,7 +1149,7 @@ function CalendarDialog({ ctx, entry, close }: { ctx: Ctx; entry: EntryView; clo
   useEffect(() => {
     ctx.api.googleCalendars(entry.id).then(
       (r) => {
-        setList(r.calendars);
+        setList(r.calendars.map((c) => ({ ...c, name: c.name ?? c.summary })));
         // "primary" is an alias: tick the real primary calendar instead.
         const primary = r.calendars.find((c) => c.primary);
         if (primary && chosen.has("primary")) setChosen((s) => new Set([...s].filter((x) => x !== "primary").concat(primary.id)));

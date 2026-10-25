@@ -55,6 +55,7 @@ import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
 import { WorkerService } from "./workers";
 import { type Group, IntegrationService, IntegrationStore, Live, SecretBox } from "./integrations";
+import { ClaudeSetup } from "./integrations/claude-setup";
 import { integrationOAuth } from "./integrations/oauth"; // --- integrations oauth ---
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
@@ -83,6 +84,8 @@ export interface Overrides {
   videoMedia?: VideoMediaStore;
   /** fetch for Google Calendar and its token endpoint (tests use a fake). */
   calendarFetch?: typeof fetch;
+  /** The CLI "Connect Claude" runs `setup-token` with (tests use a fake). */
+  claudeSetupBin?: string;
   /** fetch for Google APIs (tests use a fake Drive). */
   googleFetch?: typeof fetch;
   // --- integrations oauth ---
@@ -170,6 +173,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       const account = c.social.accounts.find((a) => a.id === e.id && a.platform === e.kind);
       return account ? socialProblem(account) : undefined;
     },
+  });
+  // "Connect Claude": `claude setup-token` with a bare environment (no server secrets, no tokens).
+  const claudeSetup = new ClaudeSetup({
+    bin: overrides.claudeSetupBin ?? config.agent.claudeBin,
+    env: agentEnv({ ...config, agent: { ...config.agent, oauthToken: undefined, fallbackApiKey: undefined } }, "subscription"),
   });
   // --- end integrations ---
 
@@ -509,7 +517,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -635,6 +643,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await odoo.start();
     },
     async stop() {
+      await claudeSetup.cancel();
       for (const c of crons) c.stop();
       for (const c of notificationCrons) c.stop();
       await email.stop();

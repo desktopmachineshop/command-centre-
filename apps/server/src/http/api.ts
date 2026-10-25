@@ -18,6 +18,7 @@ import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import type { WorkerService } from "../workers";
 import { type IntegrationService, integrationRoutes } from "../integrations";
+import type { ClaudeSetup } from "../integrations/claude-setup";
 import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
 import { type StorageApiDeps, storageApiRoutes } from "./storage";
@@ -49,6 +50,8 @@ export interface ApiDeps {
   pa?: PaApiDeps;
   /** Accounts page: platform credentials (see ../integrations). */
   integrations?: IntegrationService;
+  /** "Connect Claude" (runs `claude setup-token` on the server). */
+  claudeSetup?: ClaudeSetup;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -222,7 +225,7 @@ export function apiRoutes(deps: ApiDeps) {
   if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
-  if (deps.integrations) app.route("/", integrationRoutes(deps.integrations));
+  if (deps.integrations) app.route("/", integrationRoutes(deps.integrations, deps.claudeSetup));
 
   return app;
 }

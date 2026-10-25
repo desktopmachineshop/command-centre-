@@ -3150,4 +3150,22 @@ a.button-link:hover {
 .acc-cal-tag {
   margin-left: var(--sp-2);
 }
+/* Connect Claude: numbered steps */
+.acc-steps {
+  margin: 0;
+  padding-left: 1.4em;
+  display: grid;
+  gap: var(--sp-4);
+}
+.acc-steps > li > p {
+  margin: 0 0 var(--sp-2);
+}
+a.button-link.primary {
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: var(--on-accent);
+}
+a.button-link.primary:hover {
+  background: var(--accent-solid-hover);
+}
 /* --- end accounts page --- */

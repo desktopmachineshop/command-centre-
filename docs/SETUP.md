@@ -183,8 +183,10 @@ straight away; only the changed integration restarts, and nothing redeploys.
   application client (the old refresh token keeps working until you reconnect).
 - **Instagram and Threads** tokens last 60 days. The server renews them every night once they
   have under 15 days left, and sends an alert if renewal fails or a week is left.
-- **Claude:** run `claude setup-token` on your PC and paste the token into the Claude card, and
-  switch **Agents** from `echo` to `claude-code`.
+- **Claude:** press **Connect** on the Claude card (works from the phone). The server runs
+  `claude setup-token`; open the sign-in link, sign in to claude.ai, and paste the code it shows
+  back into the dialog. The token is saved encrypted and agents switch from `echo` to
+  `claude-code`. Alternatively run `claude setup-token` on a computer and use **Paste a token**.
 - **Stays in Railway:** `DATABASE_URL`, `ADMIN_TOKEN`, `WORKER_TOKEN`, `WEBHOOK_SECRET`,
   `PUBLIC_BASE_URL`, the push (`VAPID_*`) keys, `BRAIN_REMOTE_URL` and `CREDENTIALS_KEY`: the server
   needs them before it can read the database. The page lists them read-only.

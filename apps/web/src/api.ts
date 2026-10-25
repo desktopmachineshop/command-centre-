@@ -396,7 +396,13 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     startOAuth: (provider: string, body: { id: string; vertical?: string; data?: Record<string, unknown> }) =>
       post<{ url: string }>(`/integrations/oauth/${encodeURIComponent(provider)}/start`, body),
     googleCalendars: (id: string) =>
-      call<{ calendars: { id: string; name?: string; primary?: boolean; accessRole?: string }[] }>(`/integrations/google/${encodeURIComponent(id)}/calendars`),
+      call<{ calendars: { id: string; name?: string; summary?: string; primary?: boolean; accessRole?: string }[] }>(`/integrations/google/${encodeURIComponent(id)}/calendars`),
+    /** Connect Claude: the server runs `claude setup-token` and returns its sign-in link. */
+    claudeSetupStart: () => post<{ setupId: string; url: string }>("/integrations/claude/setup"),
+    /** The code claude.ai shows after signing in; the server saves the token it gets back. */
+    claudeSetupCode: (setupId: string, code: string) =>
+      post<SaveResult & { runner: string }>(`/integrations/claude/setup/${encodeURIComponent(setupId)}/code`, { code }),
+    claudeSetupCancel: (setupId: string) => call<{ ok: true }>(`/integrations/claude/setup/${encodeURIComponent(setupId)}`, { method: "DELETE" }),
     // --- end integrations ---
   };
 }

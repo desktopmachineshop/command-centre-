@@ -29,6 +29,8 @@ export interface KindDef {
   multi: boolean;
   fields: FieldDef[];
   oauth?: string;
+  /** "claude": Connect runs `claude setup-token` on the server (ClaudeDialog). */
+  connect?: "claude";
   needsApp?: string;
   affects: Group[];
   helpUrl?: string;

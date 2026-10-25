@@ -22,8 +22,9 @@ RUN pnpm --filter @cc/server deploy --prod --legacy /out
 
 FROM node:22-slim
 # git: the brain is a git repo. ca-certificates: HTTPS for git and the Claude API.
+# bsdutils: `script`, the terminal "Connect Claude" runs `claude setup-token` in.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates bsdutils \
   && rm -rf /var/lib/apt/lists/*
 # Claude Code CLI, the agent driver. Pin with --build-arg CLAUDE_CODE_VERSION=x.y.z.
 ARG CLAUDE_CODE_VERSION=latest

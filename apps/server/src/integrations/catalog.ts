@@ -34,6 +34,8 @@ export interface KindDef {
   fields: readonly Field[];
   /** A "Connect" button signs in instead of typing the fromOAuth fields. */
   oauth?: OAuthProvider;
+  /** A server-run sign-in other than OAuth ("claude": `claude setup-token` on the server). */
+  connect?: "claude";
   /** Developer app kind whose keys the sign-in needs. */
   needsApp?: string;
   /** Config groups to reload when an entry of this kind changes. */
@@ -56,8 +58,9 @@ export const CATALOG: readonly KindDef[] = [
     kind: "claude",
     label: "Claude (subscription)",
     section: "ai",
-    description: "Runs every agent on your Claude subscription. On your PC run `claude setup-token` and paste the token.",
+    description: "Runs every agent on your Claude subscription. Press Connect to sign in with your Claude account (or paste a token from `claude setup-token`).",
     multi: false,
+    connect: "claude",
     fields: [
       { key: "runner", label: "Agents", type: "select", options: ["claude-code", "echo"], default: "claude-code", help: "echo = no AI calls (testing)." },
       { key: "oauthToken", label: "Subscription token", type: "secret", placeholder: "sk-ant-oat01-…" },

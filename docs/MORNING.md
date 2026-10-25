@@ -57,10 +57,10 @@ Threads, X and Reddit. Changes apply straight away. See `docs/SETUP.md` → "Acc
    Inbox (or ⋮ → Install app). It becomes a proper Android app, with its own icon in the app
    drawer, full screen, and long-press shortcuts to Approvals, Chat, Today and Drive mode.
    See `docs/SETUP.md` → "Phone (PWA)".
-2. **Turn on Claude.** On your PC run `claude setup-token`, then in Railway set
-   `CLAUDE_CODE_OAUTH_TOKEN` and change `AGENT_RUNNER` to `claude-code`. Then send the
-   "First check after deploying" message from `docs/SETUP.md`. **This is the first real agent
-   run; nothing tonight could test it.**
+2. **Turn on Claude.** Accounts → Claude → **Connect**: open the sign-in link, sign in to
+   claude.ai, paste the code back. That saves the token and switches agents to Claude. Then send
+   the "First check after deploying" message from `docs/SETUP.md`. **This is the first real
+   agent run; nothing here could test it.**
 3. **Notifications:** bell → Notification settings → Enable on this device. Consider turning on
    "Let approvals through" during quiet hours.
 4. **Google (Calendar + Drive, one sign-in):** follow `docs/SETUP.md` → "Personal assistant".
