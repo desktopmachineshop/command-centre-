@@ -21,12 +21,12 @@ describe.skipIf(!DB_URL)("system jobs", () => {
     ctx = await makeServer({ env: { SCHEDULES_ENABLED: "false" } });
     expect(scheduler.startSchedules).not.toHaveBeenCalled();
     expect(scheduler.startSystemJobs).toHaveBeenCalledWith(expect.objectContaining({ timezone: "Europe/London", digestCron: "30 18 * * *" }));
-    expect(vi.mocked(scheduler.startSystemJobs).mock.results[0]!.value).toHaveLength(4); // rollover, digest, social-scheduled (a no-op without accounts), pa-reminders
+    expect(vi.mocked(scheduler.startSystemJobs).mock.results[0]!.value).toHaveLength(5); // rollover, digest, social-scheduled (a no-op without accounts), pa-reminders, integrations-refresh
   });
 
   it("keeps the rollover but drops the digest with DIGEST_CRON=off", async () => {
     await resetDatabase(DB_URL!);
     ctx = await makeServer({ env: { SCHEDULES_ENABLED: "false", DIGEST_CRON: "off" } });
-    expect(vi.mocked(scheduler.startSystemJobs).mock.results[0]!.value).toHaveLength(3); // rollover, social-scheduled, pa-reminders
+    expect(vi.mocked(scheduler.startSystemJobs).mock.results[0]!.value).toHaveLength(4); // rollover, social-scheduled, pa-reminders, integrations-refresh
   });
 });

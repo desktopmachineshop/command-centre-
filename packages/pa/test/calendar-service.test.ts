@@ -162,7 +162,7 @@ describe("CalendarService", () => {
     const seen: string[] = [];
     const s = new CalendarService(parseCalendarAccounts(JSON.stringify([account()])), { timeZone: TZ, fetch: google.fetch, onAuthError: (e) => seen.push(e.accountId) });
     const { errors } = await s.listEvents(new Date(), new Date(Date.now() + 1000));
-    expect(errors[0]).toMatch(/google:auth/);
+    expect(errors[0]).toMatch(/Accounts page/);
     expect(seen.length).toBeGreaterThan(0);
   });
 });

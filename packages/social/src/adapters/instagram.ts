@@ -45,8 +45,7 @@ const DEFAULT_RECENT_MEDIA = 10;
 const RENEW_HINT =
   "Instagram long-lived tokens last 60 days and must be refreshed before they lapse " +
   "(GET graph.instagram.com/refresh_access_token, grant_type=ig_refresh_token). Once expired they cannot be refreshed: " +
-  "generate a new token in the Meta App Dashboard (Instagram > API setup with Instagram login > Generate token) " +
-  "and update this account's accessToken in SOCIAL_ACCOUNTS. See docs/SETUP.md, Social > Platform setup > Instagram.";
+  "reconnect it on the Accounts page (Instagram → Connect). The server renews tokens daily before they lapse.";
 
 export const InstagramCredentials = z.object({
   /** Long-lived Instagram User access token (60 days, refreshable). */

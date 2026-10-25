@@ -21,13 +21,13 @@ describe("createGoogleTokenProvider (shared with Drive storage)", () => {
     expect(google.tokenCount).toBe(3);
   });
 
-  it("says to re-run google:auth on invalid_grant, and keeps other failures distinct", async () => {
+  it("says to reconnect on the Accounts page on invalid_grant, and keeps other failures distinct", async () => {
     const google = new FakeGoogle();
     google.tokenResponses = [{ status: 400, json: { error: "invalid_grant", error_description: "Token has been expired or revoked." } }];
     const err = await createGoogleTokenProvider({ ...creds, fetch: google.fetch, label: "Drive storage" }).getAccessToken().catch((e) => e);
     expect(err).toBeInstanceOf(GoogleAuthError);
     expect(err.code).toBe("invalid_grant");
-    expect(err.message).toMatch(/for Drive storage.*expired or been revoked.*google:auth/s);
+    expect(err.message).toMatch(/for Drive storage.*expired or been revoked.*Reconnect it on the Accounts page/s);
     expect(err.message).not.toContain(creds.refreshToken);
 
     const down = new FakeGoogle();

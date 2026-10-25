@@ -49,6 +49,8 @@ export function startSystemJobs(options: {
   socialPublish?: () => Promise<unknown>;
   /** Delivers due PA reminders as pushes, every minute. */
   paReminders?: () => Promise<unknown>;
+  /** Renews expiring Accounts-page sign-ins (Instagram, Threads), daily. */
+  integrationsRefresh?: () => Promise<unknown>;
 }): Cron[] {
   const job = (name: string, cron: string, fn: () => Promise<unknown>) =>
     new Cron(cron, { timezone: options.timezone, protect: true }, async () => {
@@ -58,5 +60,6 @@ export function startSystemJobs(options: {
   if (options.digestCron) jobs.push(job("digest", options.digestCron, options.digest));
   if (options.socialPublish) jobs.push(job("social-scheduled", "* * * * *", options.socialPublish));
   if (options.paReminders) jobs.push(job("pa-reminders", "* * * * *", options.paReminders));
+  if (options.integrationsRefresh) jobs.push(job("integrations-refresh", "17 4 * * *", options.integrationsRefresh));
   return jobs;
 }

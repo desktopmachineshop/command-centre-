@@ -329,7 +329,7 @@ describe("instagram errors and tokens", () => {
     expect(err).toBeInstanceOf(MetaApiError);
     expect(err.kind).toBe("auth");
     expect(err.message).toMatch(/^Instagram access token has expired \(code 190, subcode 463\)\. Instagram long-lived tokens last 60 days/);
-    expect(err.message).toContain("SOCIAL_ACCOUNTS");
+    expect(err.message).toContain("Accounts page");
     expect(err.message).not.toContain(TOKEN);
     expect(JSON.stringify(err)).not.toContain(TOKEN);
   });
@@ -388,6 +388,6 @@ describe("instagram errors and tokens", () => {
       { method: "GET", url: "https://graph.instagram.com/refresh_access_token", query: { grant_type: "ig_refresh_token", ...T }, status: 400, body: { error: { message: "Session has expired", code: 190, error_subcode: 463 } } },
     ]);
     const err = await caught(() => instagramAdapter.refreshCredentials(account, m.ctx));
-    expect(err.message).toMatch(/access token has expired .*Generate token/);
+    expect(err.message).toMatch(/access token has expired .*reconnect it on the Accounts page/);
   });
 });

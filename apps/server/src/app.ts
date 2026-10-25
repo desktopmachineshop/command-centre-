@@ -54,6 +54,9 @@ import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
 import { WorkerService } from "./workers";
 import { type Group, IntegrationService, IntegrationStore, Live, SecretBox } from "./integrations";
+import { integrationOAuth } from "./integrations/oauth"; // --- integrations oauth ---
+import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
+import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 
 export interface Overrides {
   runner?: AgentRunner;
@@ -81,6 +84,10 @@ export interface Overrides {
   calendarFetch?: typeof fetch;
   /** fetch for Google APIs (tests use a fake Drive). */
   googleFetch?: typeof fetch;
+  // --- integrations oauth ---
+  /** fetch for Accounts-page sign-ins, connection tests and token renewal (tests use a fake provider). */
+  integrationsFetch?: typeof fetch;
+  // --- end integrations oauth ---
 }
 
 /** What the claude child process may see of the server's environment: enough to run, reach the network and find its own settings. */
@@ -154,7 +161,10 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (!secretBox) throw new Error("the credentials key isn't loaded yet");
     return secretBox;
   });
-  const integrations = new IntegrationService(integrationStore, config, { verticals: () => verticals.all().map((v) => v.id) });
+  const integrations = new IntegrationService(integrationStore, config, {
+    verticals: () => verticals.all().map((v) => v.id),
+    tests: credentialTests({ fetch: overrides.integrationsFetch, imap: overrides.imap }), // --- integrations oauth ---
+  });
   // --- end integrations ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---
@@ -445,6 +455,12 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const wsSessions = { fromUpgrade: (c: Context) => sessionFromUpgrade(c, auth, authHttp), onRevoke: auth.onRevoke.bind(auth) };
   // --- end auth ---
 
+  // --- integrations oauth: "Connect" sign-ins (start + calendars under /api, provider callbacks at /oauth) ---
+  const oauth = integrationOAuth({ service: integrations, store: integrationStore, auth, authHttp, publicBaseUrl: () => config.publicBaseUrl, verticals: () => verticals.all().map((v) => v.id), fetch: overrides.integrationsFetch });
+  app.route("/api", oauth.api);
+  app.route("/oauth", oauth.callbacks);
+  // --- end integrations oauth ---
+
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken, sessions: wsSessions }));
   const socialDeps = {
     store,
@@ -578,6 +594,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         rollover,
         socialPublish: publishScheduledPosts, // a no-op until a social account is set up
         paReminders: deliverReminders,
+        integrationsRefresh: () => refreshExpiringTokens({ service: integrations, notifier, fetch: overrides.integrationsFetch }), // --- integrations oauth ---
       });
       notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
       if (config.schedulesEnabled) {

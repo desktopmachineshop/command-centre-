@@ -10,8 +10,15 @@ import type { Entry, EntryMeta, IntegrationStore } from "./store";
  */
 export type Reloader = (config: Config, groups: Group[]) => Promise<Partial<Record<Group, string>>>;
 
-/** Checks an entry's credentials against the real service. Registered per kind in tests.ts. */
-export type CredentialTest = (entry: EntryInput, config: Config) => Promise<{ ok: boolean; message: string; account?: string }>;
+/**
+ * Checks an entry's credentials against the real service. Registered per kind in tests.ts.
+ * `app(kind)` gives a developer-app entry's values (e.g. the X consumer keys), or undefined.
+ */
+export type CredentialTest = (
+  entry: EntryInput,
+  config: Config,
+  ctx: { app: (kind: string) => Promise<Record<string, string> | undefined> },
+) => Promise<{ ok: boolean; message: string; account?: string }>;
 
 export class IntegrationError extends Error {
   constructor(
@@ -170,7 +177,7 @@ export class IntegrationService {
     if (!entry) throw new IntegrationError(`${def.label} ${id} isn't set up`, 404);
     let result: { ok: boolean; message: string; account?: string };
     try {
-      result = await run(entry, this.effective);
+      result = await run(entry, this.effective, { app: (k) => this.appValues(k) });
     } catch (err) {
       result = { ok: false, message: (err as Error).message };
     }
@@ -182,6 +189,22 @@ export class IntegrationService {
   /** The stored entry (secrets decrypted) for server-side use, e.g. by the token refresh job. */
   async entry(kind: string, id: string): Promise<Entry | null> {
     return this.store.get(kind, id);
+  }
+
+  /** The entry as in use: the readable stored one, else the Railway (env) one. */
+  async resolved(kind: string, id: string = DEFAULT_ID): Promise<EntryInput | null> {
+    const stored = await this.store.get(kind, id);
+    if (stored && !stored.unreadable) return stored;
+    return railwayEntries(this.base).find((e) => e.kind === kind && e.id === id) ?? null;
+  }
+
+  /** A single-entry kind's field values (data and secrets, trimmed, non-empty), e.g. a developer app's keys. */
+  async appValues(kind: string): Promise<Record<string, string> | undefined> {
+    const e = await this.resolved(kind);
+    if (!e) return undefined;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries({ ...e.data, ...e.secrets })) if (typeof v === "string" && v.trim()) out[k] = v.trim();
+    return out;
   }
 
   async entries(kind?: string): Promise<Entry[]> {

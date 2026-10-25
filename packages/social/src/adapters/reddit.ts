@@ -12,7 +12,10 @@ import {
 import { type RedditCredentials as Creds, RedditApiError, RedditClient, type Sleep } from "./reddit/client";
 
 /**
- * Reddit: Dave's own account through a "script" app (password grant).
+ * Reddit: Dave's own account, signed in on the Accounts page through a "web app" (refresh-token
+ * grant: credentials {clientId, clientSecret, refreshToken, userAgent?}, the username from the
+ * account's handle), or through a "script" app (password grant: {clientId, clientSecret,
+ * username, password, userAgent}).
  *
  * Publish (`POST /api/submit`) to the subreddit in `content.target` (with or without "r/"):
  * - `content.link` -> link post. If `text` is also given it is added as the author's first
@@ -33,16 +36,28 @@ import { type RedditCredentials as Creds, RedditApiError, RedditClient, type Sle
  * rejects a post the adapter surfaces the reason (flair required, link posts not allowed, etc).
  */
 
-export const RedditCredentials = z.object({
-  clientId: z.string().min(1, "clientId is required"),
-  clientSecret: z.string().min(1, "clientSecret is required"),
-  username: z.string().min(1, "username is required"),
-  password: z.string().min(1, "password is required"),
-  userAgent: z
-    .string()
-    .min(1, "userAgent is required")
-    .regex(/\(by \/?u\/[A-Za-z0-9_-]+\)/, "userAgent must look like '<platform>:<app id>:<version> (by /u/<username>)'"),
-});
+const USER_AGENT = /\(by \/?u\/[A-Za-z0-9_-]+\)/;
+const USER_AGENT_HINT = "userAgent must look like '<platform>:<app id>:<version> (by /u/<username>)'";
+
+export const RedditCredentials = z
+  .object({
+    clientId: z.string().min(1, "clientId is required"),
+    clientSecret: z.string().min(1, "clientSecret is required"),
+    /** Refresh-token grant (Accounts page sign-in). Without it, username + password (script app). */
+    refreshToken: z.string().min(1).optional(),
+    username: z.string().min(1).optional(),
+    password: z.string().min(1).optional(),
+    /** Required for the password grant; defaults to "web:command-centre:1.0 (by /u/<name>)" with a refresh token. */
+    userAgent: z.string().min(1).optional(),
+  })
+  .superRefine((c, ctx) => {
+    if (!c.refreshToken) {
+      if (!c.username) ctx.addIssue({ code: "custom", path: ["username"], message: "username is required" });
+      if (!c.password) ctx.addIssue({ code: "custom", path: ["password"], message: "password is required" });
+      if (!c.userAgent) ctx.addIssue({ code: "custom", path: ["userAgent"], message: "userAgent is required" });
+    }
+    if (c.userAgent && !USER_AGENT.test(c.userAgent)) ctx.addIssue({ code: "custom", path: ["userAgent"], message: USER_AGENT_HINT });
+  });
 
 export const RedditOptions = z.object({
   /** Subject for DMs sent with sendDm. */
@@ -117,7 +132,17 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
       // zod messages only name the field, never echo the value.
       throw new Error(`Reddit credentials for ${account.id} are invalid: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
     }
-    return parsed.data;
+    const c = parsed.data;
+    // Signed in with Connect: the name comes from the account's handle ("u/name").
+    const username = c.username ?? stripUser((account.handle ?? "").replace(/^@/, ""));
+    return {
+      clientId: c.clientId,
+      clientSecret: c.clientSecret,
+      username,
+      password: c.password,
+      refreshToken: c.refreshToken,
+      userAgent: c.userAgent ?? `web:command-centre:1.0 (by /u/${username || "command-centre"})`,
+    };
   };
 
   const comment = async (ctx: AdapterContext, c: Creds, thingId: string, text: string): Promise<PublishResult> => {

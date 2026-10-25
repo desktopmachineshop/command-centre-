@@ -55,7 +55,7 @@ describe("Google Calendar: tokens", () => {
     expect(err).toBeInstanceOf(CalendarAuthError);
     expect(err.accountId).toBe("google");
     expect(err.message).toContain("Token has been expired or revoked");
-    expect(err.message).toContain("pnpm --filter @cc/pa google:auth");
+    expect(err.message).toContain("Reconnect it on the Accounts page");
     expect(err.message).toContain("7 days");
     for (const secret of Object.values(creds)) expect(err.message).not.toContain(secret);
   });
