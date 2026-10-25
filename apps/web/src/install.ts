@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 type InstallPromptEvent = Event & { prompt(): Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 let deferred: InstallPromptEvent | null = null;
+let swError: string | null = null;
 let installed = isStandalone();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
@@ -29,6 +30,20 @@ if (typeof window !== "undefined") {
     installed = true;
     notify();
   });
+}
+
+/** The service worker didn't register (e.g. an invalid HTTPS certificate), so Chrome can't install the app. */
+export function serviceWorkerFailed(e: unknown) {
+  swError = e instanceof Error ? e.message : String(e);
+  notify();
+}
+
+/** Why installing can't work here, if it can't: Chrome only installs from a valid HTTPS page. */
+function blockedReason(): string | null {
+  if (typeof window === "undefined") return null;
+  if (!window.isSecureContext) return "This page isn't on a secure (https://) connection.";
+  if (swError) return `The app's background script couldn't start (${swError}). This usually means the site's HTTPS certificate isn't valid.`;
+  return null;
 }
 
 const DISMISS_KEY = "cc.installBannerDismissed";
@@ -52,6 +67,8 @@ export function useInstall() {
     /** Chrome has offered the install and the app isn't installed yet. */
     canInstall: !!deferred && !installed,
     installed,
+    /** Set when installing is impossible on this connection, with the reason. */
+    blocked: installed ? null : blockedReason(),
     /** Show the one-time banner? (installable and not dismissed before) */
     showBanner: !!deferred && !installed && !dismissed,
     async install() {

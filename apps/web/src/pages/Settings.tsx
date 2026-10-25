@@ -42,6 +42,11 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
         </div>
         {install.installed ? (
           <p className="small muted">Installed: you're using the Command Centre app.</p>
+        ) : install.blocked ? (
+          <p className="error small">
+            Can't install from here: {install.blocked} Open{" "}
+            <a href="https://command.desktopmachineshop.com">https://command.desktopmachineshop.com</a> and check Chrome shows a padlock.
+          </p>
         ) : install.canInstall ? (
           <>
             <p className="small muted">Install Command Centre as an app: its own icon in your app drawer, full screen, no browser bar.</p>

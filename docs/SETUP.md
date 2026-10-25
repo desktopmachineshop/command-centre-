@@ -199,6 +199,11 @@ HttpOnly cookie.
    **Settings → Apps** as "Command Centre", opens full screen with no browser bar, and handles
    links to the domain. If you only get a home-screen shortcut with a small Chrome badge, it
    wasn't installed as an app. Remove it, update Chrome, and try again.
+   **No padlock, no install:** Chrome only installs from a page with a valid HTTPS certificate.
+   If the address bar says "Not secure", or Settings → App says it can't install, fix the
+   certificate first. In Railway → server → Settings → Networking, the custom domain must show
+   a valid certificate. With Cloudflare, the simplest setup is the `command` record **Proxied**
+   (orange cloud) with SSL/TLS mode **Full**.
 3. Long-press the icon for shortcuts: **Approvals**, **Chat**, **Today** and **Drive mode**.
 4. Open the app once and sign in again if asked. Then turn on push: **Notifications →
    Notification settings → Enable on this device**, and allow notifications when Android asks.

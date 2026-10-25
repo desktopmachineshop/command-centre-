@@ -1,11 +1,13 @@
 # Good morning: overnight summary (24 Oct 2026)
 
 Everything below is merged to `ccr-fa6f7f74-51z3o9`, tested (typecheck + every package's tests
-+ builds, green), pushed, and deployed to Railway. Use **https://command.desktopmachineshop.com**
-(you already signed in there from your phone at 02:16 UTC). Railway's dashboard still shows the
-certificate as "issue failed" from the earlier Let's Encrypt rate limit, but the domain is
-serving fine. If browsers ever complain, re-run the certificate from Railway → server →
-Settings → Networking. `https://server-production-d0c1.up.railway.app` always works too.
++ builds, green), pushed, and deployed to Railway.
+
+**HTTPS on command.desktopmachineshop.com is not working yet.** Railway never got a certificate
+for it (Let's Encrypt rate-limited the earlier attempts), so Chrome shows it as not secure and
+won't install the app from it. Fix: in Cloudflare → DNS, set the `command` record to **Proxied**
+(orange cloud), and in SSL/TLS → Overview choose **Full** (not Flexible, not Full strict). Until
+then use **https://server-production-d0c1.up.railway.app**, which has a valid certificate.
 
 It is running in **echo mode** (no Claude runs, no cost) until you add your Claude token
 (step 2 below).
