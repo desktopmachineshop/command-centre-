@@ -6,8 +6,9 @@
  *   <Empty icon="inbox">text</Empty>                   empty state
  *   <Skeleton rows={3} />                              loading placeholder
  *   <ErrorBanner>{error}</ErrorBanner>                 error banner (a p.error)
+ *   <Dialog title="…" onClose={…}>body</Dialog>        modal: bottom sheet on phones, centred on desktop
  */
-import { createContext, type CSSProperties, type ReactNode, useContext } from "react";
+import { createContext, type CSSProperties, type ReactNode, useContext, useEffect, useId, useRef } from "react";
 import { Icon, type IconName } from "./icons";
 import type { ThemePref } from "./theme";
 
@@ -119,6 +120,82 @@ export function ThemeToggle({ value, onChange }: { value: ThemePref; onChange: (
           <Icon name={t.icon} size={18} />
         </button>
       ))}
+    </div>
+  );
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * A modal dialog styled like the phone's More sheet: a bottom sheet on phones, a centred panel on
+ * desktop. Focus moves to the first field in the body, Tab stays inside, Escape and the backdrop
+ * close it, and focus goes back to whatever opened it.
+ */
+export function Dialog({
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  title: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  /** Buttons pinned under the scrolling body. */
+  footer?: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    const el = ref.current!;
+    const body = el.querySelector<HTMLElement>(".dialog-body");
+    const first =
+      body?.querySelector<HTMLElement>('input:not([disabled]):not([type="checkbox"]):not([type="radio"]), select:not([disabled]), textarea:not([disabled])') ??
+      body?.querySelector<HTMLElement>(FOCUSABLE) ??
+      el;
+    first.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        closeRef.current();
+      } else if (e.key === "Tab") {
+        const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.offsetParent !== null);
+        if (!items.length) return;
+        const a = items[0]!;
+        const b = items[items.length - 1]!;
+        if (e.shiftKey && (document.activeElement === a || document.activeElement === el)) {
+          e.preventDefault();
+          b.focus();
+        } else if (!e.shiftKey && document.activeElement === b) {
+          e.preventDefault();
+          a.focus();
+        }
+      }
+    };
+    addEventListener("keydown", onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+      if (opener?.isConnected) opener.focus();
+    };
+  }, []);
+  return (
+    <div className="sheet-backdrop dialog-backdrop" onClick={onClose}>
+      <div ref={ref} className="sheet dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head dialog-head">
+          <strong id={titleId}>{title}</strong>
+          <button type="button" className="ghost icon-btn" aria-label="Close" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="dialog-body">{children}</div>
+        {footer && <div className="dialog-foot">{footer}</div>}
+      </div>
     </div>
   );
 }

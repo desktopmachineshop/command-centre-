@@ -1,5 +1,6 @@
 import type { Event, Job, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
 import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
+import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
 
 /**
  * Connection settings. Normally `token` is null: the server set an HttpOnly session
@@ -379,6 +380,24 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     testNotification: (options: { category?: NotificationCategory; deviceId?: string }) =>
       post<{ notification: StoredNotification; pushConfigured: boolean }>("/notifications/test", options),
     // --- end notifications ---
+
+    // --- integrations (the Accounts page; types in integrations.ts) ---
+    integrations: () => call<IntegrationsView>("/integrations"),
+    /** Single kinds use id "default". */
+    saveIntegration: (kind: string, id: string, patch: SavePatch) =>
+      call<SaveResult>(`/integrations/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(patch) }),
+    testIntegration: (kind: string, id: string) =>
+      post<{ ok: boolean; message: string; account?: string }>(`/integrations/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/test`),
+    importIntegration: (kind: string, id: string) =>
+      post<SaveResult>(`/integrations/${encodeURIComponent(kind)}/${encodeURIComponent(id)}/import`),
+    removeIntegration: (kind: string, id: string) =>
+      call<SaveResult>(`/integrations/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    /** Starts a sign-in; the browser then goes to `url` and comes back to #/accounts?connected=… */
+    startOAuth: (provider: string, body: { id: string; vertical?: string; data?: Record<string, unknown> }) =>
+      post<{ url: string }>(`/integrations/oauth/${encodeURIComponent(provider)}/start`, body),
+    googleCalendars: (id: string) =>
+      call<{ calendars: { id: string; name?: string; primary?: boolean; accessRole?: string }[] }>(`/integrations/google/${encodeURIComponent(id)}/calendars`),
+    // --- end integrations ---
   };
 }
 

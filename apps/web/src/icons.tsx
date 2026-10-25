@@ -36,6 +36,18 @@ const PATHS = {
   shield: "M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z",
   key: "M15 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M10.5 11.5L4 18v2h3v-2h2v-2h2l1.5-1.5",
   spark: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z",
+  // --- accounts page ---
+  link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
+  copy: "M9 9h11v11H9z M5 15H4V4h11v1",
+  edit: "M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4",
+  trash: "M4 7h16 M10 11v6 M14 11v6 M6 7l1 13h10l1-13 M9 7V4h6v3",
+  briefcase: "M4 8h16v11H4z M9 8V5h6v3 M4 13h16",
+  globe: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z",
+  code: "M8 8l-5 4 5 4 M16 8l5 4-5 4 M14 5l-4 14",
+  server: "M4 4h16v6H4z M4 14h16v6H4z M8 7h.01 M8 17h.01",
+  mail: "M3 6h18v12H3z M3 7l9 6 9-6",
+  sliders: "M4 6h9 M17 6h3 M4 12h3 M11 12h9 M4 18h11 M19 18h1 M15 4v4 M9 10v4 M17 16v4",
+  pulse: "M3 12h4l3-7 4 14 3-7h4",
 } as const;
 
 export type IconName = keyof typeof PATHS;
