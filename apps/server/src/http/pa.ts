@@ -13,6 +13,7 @@ import { z } from "zod";
 
 export interface PaApiDeps {
   store: PgPaStore;
+  /** Read per request (a getter in app.ts): the Accounts page can connect or swap the calendar live. */
   calendar: CalendarService | null;
   timeZone: string;
   /** Signs reminder notification buttons; derived from the admin token. */
@@ -100,7 +101,7 @@ const ItemInput = z.object({ text: z.string().trim().min(1).max(500), due: z.str
 
 /** Admin API for the Today page (mounted under /api after the admin check). */
 export function paApiRoutes(deps: PaApiDeps) {
-  const { store, calendar, timeZone } = deps;
+  const { store, timeZone } = deps;
   const now = () => deps.now?.() ?? new Date();
   const app = new Hono();
   const notFound = { error: "not found" };
@@ -108,6 +109,7 @@ export function paApiRoutes(deps: PaApiDeps) {
   app.get("/pa/today", async (c) => {
     const day = c.req.query("day");
     if (day && !isDate(day)) return c.json({ error: "day must be YYYY-MM-DD" }, 400);
+    const calendar = deps.calendar;
     return c.json({ ...(await buildToday({ store, calendar, timeZone }, { day, now: now() })), accounts: calendar?.publicAccounts() ?? [] });
   });
 

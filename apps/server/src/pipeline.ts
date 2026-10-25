@@ -27,8 +27,8 @@ export interface PipelineDeps {
   skillsDir: string;
   internalBaseUrl: string;
   maxTurns: number;
-  /** MCP servers mounted at /mcp/<name> that manifests may list. Default: brain. */
-  mcpServers?: string[];
+  /** MCP servers mounted at /mcp/<name> that manifests may list, or a function giving them at run time (odoo comes and goes). Default: brain. */
+  mcpServers?: string[] | (() => string[]);
   budget: BudgetService;
   guards: RunGuards;
   /** Most handoffs in one chain of tasks (default MAX_HANDOFF_DEPTH). */
@@ -291,7 +291,7 @@ export class Pipeline {
       const role = verticals.roleFor(vertical.id, task.role);
       token = runTokens.issue({ taskId, runId: run.id, vertical: vertical.id, role: role.id });
       const cwd = await prepareWorkspace(this.deps.dataDir, this.deps.skillsDir, vertical, role);
-      const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token, this.deps.mcpServers, role.mcpServers ?? vertical.mcpServers);
+      const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token, typeof this.deps.mcpServers === "function" ? this.deps.mcpServers() : this.deps.mcpServers, role.mcpServers ?? vertical.mcpServers);
       const brief = roleBrief(verticals, vertical.id, role.id, this.maxHandoffDepth - handoffDepth(event));
       // --- voice: a reply from Dave continues the task, resuming the earlier session (./voice/conversations.ts) ---
       const turn = (await this.deps.voice?.beforeRun(task, run.id)) ?? null;

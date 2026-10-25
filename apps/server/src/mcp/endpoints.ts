@@ -112,8 +112,8 @@ export function mcpRoutes(deps: {
   /** Run tokens may only reach the servers their vertical's manifest lists in `mcpServers` (plus actions). */
   verticals: VerticalRegistry;
   adminToken: string;
-  /** Extra servers mounted at /<name> with the same auth, e.g. odoo. A fresh server per request. */
-  servers?: Record<string, (caller: Caller) => McpServer>;
+  /** Extra servers mounted at /<name> with the same auth, e.g. odoo. A fresh server per request; looked up per request, so one added or removed on a reload applies at once. */
+  servers?: Record<string, (caller: Caller) => McpServer> | (() => Record<string, (caller: Caller) => McpServer>);
   /** Enables the handoff_to_role tool for runs. */
   handoff?: Handoff;
 }) {
@@ -137,6 +137,11 @@ export function mcpRoutes(deps: {
 
   app.all("/brain", (c) => handle(createBrainMcpServer(deps.brain), c.req.raw));
   app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller"), deps.handoff), c.req.raw));
-  for (const [name, create] of Object.entries(deps.servers ?? {})) app.all(`/${name}`, (c) => handle(create(c.get("caller")), c.req.raw));
+  app.all("/:name", (c) => {
+    const servers = (typeof deps.servers === "function" ? deps.servers() : deps.servers) ?? {};
+    const name = c.req.param("name");
+    if (!Object.hasOwn(servers, name)) return c.notFound();
+    return handle(servers[name]!(c.get("caller")), c.req.raw);
+  });
   return app;
 }

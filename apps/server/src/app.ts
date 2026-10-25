@@ -17,6 +17,7 @@ import {
 } from "@cc/social";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
+import { createGoogleTokenProvider, type GoogleTokenProvider } from "@cc/storage";
 import { createVoiceProviders, type SpeechToText, type TextToSpeech } from "@cc/voice";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -25,7 +26,7 @@ import { type Context, Hono } from "hono";
 import { sessionFromUpgrade } from "./accounts/http";
 import type { ScryptParams } from "./accounts/password";
 import { AuthService } from "./accounts/service";
-import { ActionService, builtinExecutors } from "./actions";
+import { type ActionExecutor, ActionService, builtinExecutors } from "./actions";
 import { BudgetService } from "./budget";
 import type { Config } from "./config";
 import { addDays } from "./days";
@@ -52,7 +53,7 @@ import { VoiceConversations } from "./voice/conversations";
 import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
 import { WorkerService } from "./workers";
-import { IntegrationService, IntegrationStore, SecretBox } from "./integrations";
+import { type Group, IntegrationService, IntegrationStore, Live, SecretBox } from "./integrations";
 
 export interface Overrides {
   runner?: AgentRunner;
@@ -82,19 +83,42 @@ export interface Overrides {
   googleFetch?: typeof fetch;
 }
 
+/** What the claude child process may see of the server's environment: enough to run, reach the network and find its own settings. */
+const AGENT_ENV = new Set([
+  "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TMPDIR", "TERM", "SHELL",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+  "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
+]);
+const SECRET_NAME = /TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL/i;
+
+/**
+ * The environment for an agent run. Allowlisted, never the server's whole env: agents run
+ * untrusted-input tasks and must not see ODOO_API_KEY, EMAIL_ACCOUNTS, DATABASE_URL, ADMIN_TOKEN...
+ * Claude Code's own CLAUDE_* settings pass through (not tokens); the credential comes from
+ * config: the subscription token for the subscription run, the API key for the fallback run.
+ * Each gets only its own, or Claude Code would bill the key instead of the subscription.
+ */
+export function agentEnv(config: Config, kind: "subscription" | "api", source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value === undefined) continue;
+    if (AGENT_ENV.has(name) || (name.startsWith("CLAUDE_") && !SECRET_NAME.test(name))) env[name] = value;
+  }
+  if (kind === "subscription" && config.agent.oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = config.agent.oauthToken;
+  if (kind === "api" && config.agent.fallbackApiKey) env.ANTHROPIC_API_KEY = config.agent.fallbackApiKey;
+  return env;
+}
+
 export function createRunner(config: Config): AgentRunner {
   if (config.agent.runner === "echo") return new ScriptedRunner("echo");
 
-  // The subscription run must not see an API key, or Claude Code would bill the key instead.
-  const { ANTHROPIC_API_KEY: _key, ...env } = process.env;
-  const subscription = new ClaudeCodeRunner({ bin: config.agent.claudeBin, env, timeoutMs: config.agent.timeoutMs });
+  const subscription = new ClaudeCodeRunner({ bin: config.agent.claudeBin, env: agentEnv(config, "subscription"), timeoutMs: config.agent.timeoutMs });
   if (!config.agent.fallbackApiKey) return subscription;
 
-  const { CLAUDE_CODE_OAUTH_TOKEN: _oauth, ...apiEnv } = env;
   const api = new ClaudeCodeRunner({
     name: "claude-code-api",
     bin: config.agent.claudeBin,
-    env: { ...apiEnv, ANTHROPIC_API_KEY: config.agent.fallbackApiKey },
+    env: agentEnv(config, "api"),
     timeoutMs: config.agent.timeoutMs,
   });
   return new FallbackRunner("claude-code", subscription, api);
@@ -123,6 +147,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- end notifications ---
 
   // --- integrations: the Accounts page's credentials, applied over the env config in start() ---
+  // Each integration below is built from `config` here, then rebuilt live (a Live holder) when the
+  // Accounts page changes its group; consumers read the current one at call time. Reloader below.
   let secretBox: SecretBox | undefined;
   const integrationStore = new IntegrationStore(pool, () => {
     if (!secretBox) throw new Error("the credentials key isn't loaded yet");
@@ -132,23 +158,41 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- end integrations ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---
-  const emailAccounts = config.email.accounts;
-  for (const a of emailAccounts) verticals.require(a.vertical);
-  let emailPoller: EmailPoller | undefined;
+  const buildEmail = (c: Config) => {
+    const accounts = c.email.accounts;
+    for (const a of accounts) verticals.require(a.vertical);
+    return {
+      accounts,
+      executors: accounts.length ? createEmailExecutors(accounts, { connect: overrides.imap }) : {},
+      poller: accounts.length
+        ? new EmailPoller({ accounts, store, ingest: (e) => pipeline.ingest(e), pollIntervalMs: c.email.pollIntervalMs, connect: overrides.imap })
+        : undefined,
+    };
+  };
+  const email = new Live(buildEmail(config), { start: (v) => v.poller?.start(), stop: (v) => v.poller?.stop() });
   // --- end email ---
 
   // --- Social: accounts checked against the adapters, executors, media, scheduled posts; inbound starts in start() ---
   const socialAdapters = overrides.socialAdapters ?? socialPlatformAdapters;
-  const socialAccounts = validateSocialCredentials(config.social.accounts, socialAdapters);
-  for (const a of socialAccounts) verticals.require(a.vertical);
-  const socialExecutors = socialAccounts.length
-    ? createSocialExecutors(socialAccounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone })
-    : {};
-  /** Publishes due scheduled posts; the every-minute system job calls this. */
-  const publishScheduledPosts = () =>
-    publishDueScheduledPosts({
+  const buildSocial = (c: Config) => {
+    const accounts = validateSocialCredentials(c.social.accounts, socialAdapters);
+    for (const a of accounts) verticals.require(a.vertical);
+    return {
+      accounts,
+      executors: accounts.length ? createSocialExecutors(accounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone }) : {},
+      inbound: accounts.length
+        ? new SocialInbound({ accounts, adapters: socialAdapters, store, ingest: (e) => pipeline.ingest(e), defaultPollSeconds: c.social.defaultPollSeconds })
+        : undefined,
+    };
+  };
+  const social = new Live(buildSocial(config), { start: (v) => v.inbound?.start(), stop: (v) => v.inbound?.stop() });
+  /** Publishes due scheduled posts; the every-minute system job calls this (a no-op with no accounts). */
+  const publishScheduledPosts = async () => {
+    const accounts = social.current.accounts;
+    if (!accounts.length) return { published: 0, failed: 0 };
+    return publishDueScheduledPosts({
       store,
-      accounts: socialAccounts,
+      accounts,
       adapters: socialAdapters,
       onFailure: (post, error) =>
         notifier.notify({
@@ -160,37 +204,83 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           vertical: post.vertical,
         }),
     });
-  let socialInbound: SocialInbound | undefined;
+  };
   // --- end social ---
 
   // --- storage: media and large files on the volume or Google Drive (packages/storage) ---
-  const storage = createStorage(config, pool, { fetch: overrides.googleFetch });
+  // Live reload: every file's row records its backend, so reads never depend on the setting, but
+  // a running backend has state (resumable Drive uploads, the disk cache) that a switch would cut
+  // off. So before start() the saved setting replaces the backend outright; after that a new
+  // Google refresh token applies at once (Drive asks this provider for every access token), and
+  // a switch of backend, Drive folder or cache size reports that it waits for a restart.
+  const googleTokens = (c: Config) => (c.storage.google ? createGoogleTokenProvider({ ...c.storage.google, fetch: overrides.googleFetch }) : undefined);
+  let driveTokens = googleTokens(config);
+  const liveDriveTokens: GoogleTokenProvider = {
+    getAccessToken: async (o) => {
+      if (!driveTokens) throw new Error("Google Drive isn't connected");
+      return driveTokens.getAccessToken(o);
+    },
+  };
+  let storageConfig = config.storage;
+  let storageServing = false;
+  const reloadStorage = (c: Config): string | undefined => {
+    const prev = storageConfig;
+    const sameBackend =
+      prev.backend === c.storage.backend && !prev.google === !c.storage.google && prev.driveFolder === c.storage.driveFolder && prev.cacheBytes === c.storage.cacheBytes;
+    if (storageServing && !sameBackend) return "Switching file storage takes effect after the next restart";
+    if (!storageServing) storage.replaceBackends(createStorage(c, pool, { fetch: overrides.googleFetch, tokens: liveDriveTokens }));
+    driveTokens = googleTokens(c);
+    storageConfig = c.storage;
+    return undefined;
+  };
+  const storage = createStorage(config, pool, { fetch: overrides.googleFetch, tokens: liveDriveTokens });
   const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerToken: config.workerToken };
   // --- end storage ---
 
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
-  const odoo = config.odoo ? new OdooClient(config.odoo) : undefined;
-  const extraMcpServers: Record<string, (caller: Caller) => McpServer> = odoo ? { odoo: () => createOdooMcpServer(odoo) } : {};
+  // Its event poller (orders, messages, stock, deliveries, reviews) starts in start().
+  const buildOdoo = (c: Config) => {
+    if (!c.odoo) return { client: undefined, executors: {}, events: undefined };
+    const client = new OdooClient(c.odoo);
+    const eventsConfig = c.odooEvents;
+    if (eventsConfig) for (const v of [eventsConfig.defaultVertical, ...Object.values(eventsConfig.websites)]) verticals.require(v);
+    const events = eventsConfig?.sources.length
+      ? new OdooEventPoller({ client, store, config: eventsConfig, instance: c.odoo.db, baseUrl: c.odoo.url, ingest: (e) => pipeline.ingest(e) })
+      : undefined;
+    return { client, executors: createOdooExecutors(client), events };
+  };
+  const odoo = new Live(buildOdoo(config), { start: (v) => v.events?.start(), stop: (v) => v.events?.stop() });
 
   // --- PA: reminders and lists (always), Google Calendar when CALENDAR_ACCOUNTS is set; /mcp/pa below ---
   const paStore = new PgPaStore(pool);
-  for (const a of config.pa.calendarAccounts) verticals.require(a.vertical);
   const authAlerted = new Set<string>();
-  const calendar = config.pa.calendarAccounts.length
-    ? new CalendarService(config.pa.calendarAccounts, {
-        timeZone: config.timezone,
-        fetch: overrides.calendarFetch,
-        // A revoked or expired refresh token: one push per account per server day, saying how to fix it.
-        onAuthError: (err) => {
-          const key = `${err.accountId}:${new Date().toISOString().slice(0, 10)}`;
-          if (authAlerted.has(key)) return;
-          authAlerted.add(key);
-          void notifier
-            .notify({ title: "Calendar disconnected", body: err.message.slice(0, 300), url: "/today", category: "alert", vertical: "personal", tag: `calendar-auth-${err.accountId}` })
-            .catch(() => {});
-        },
-      })
-    : null;
+  const buildCalendar = (c: Config) => {
+    for (const a of c.pa.calendarAccounts) verticals.require(a.vertical);
+    const service = c.pa.calendarAccounts.length
+      ? new CalendarService(c.pa.calendarAccounts, {
+          timeZone: config.timezone,
+          fetch: overrides.calendarFetch,
+          // A revoked or expired refresh token: one push per account per server day, pointing at the Accounts page.
+          onAuthError: (err) => {
+            const key = `${err.accountId}:${new Date().toISOString().slice(0, 10)}`;
+            if (authAlerted.has(key)) return;
+            authAlerted.add(key);
+            void notifier
+              .notify({
+                title: "Calendar disconnected",
+                body: `${err.message.slice(0, 240)} Reconnect it on the Accounts page.`,
+                url: "/accounts",
+                category: "alert",
+                vertical: "personal",
+                tag: `calendar-auth-${err.accountId}`,
+              })
+              .catch(() => {});
+          },
+        })
+      : null;
+    return { service, executors: service ? createCalendarExecutors(service) : {} };
+  };
+  const calendar = new Live(buildCalendar(config));
   const paSigningSecret = createHash("sha256").update(`pa-push:${config.adminToken}`).digest("hex");
   const deliverReminders = () =>
     deliverDueReminders(paStore, ({ reminder, dueAt, title, body }) =>
@@ -208,22 +298,15 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     );
   // --- end pa ---
 
-  // --- Odoo events: polls Odoo for orders, messages, stock, deliveries, reviews; starts in start() ---
-  const odooEventsConfig = odoo && config.odoo ? config.odooEvents : undefined;
-  if (odooEventsConfig) for (const v of [odooEventsConfig.defaultVertical, ...Object.values(odooEventsConfig.websites)]) verticals.require(v);
-  const odooEvents =
-    odoo && config.odoo && odooEventsConfig?.sources.length
-      ? new OdooEventPoller({
-          client: odoo,
-          store,
-          config: odooEventsConfig,
-          instance: config.odoo.db,
-          baseUrl: config.odoo.url,
-          ingest: (e) => pipeline.ingest(e),
-        })
-      : undefined;
-  // --- end odoo events ---
   const workers = new WorkerService(store, hub);
+
+  // --- Voice keys: server speech providers (optional) and the video narration keys ---
+  const buildVoice = (c: Config) => ({
+    ...(overrides.voiceProviders ?? createVoiceProviders(c.voice.providers)),
+    videoTts: videoTtsFromConfig(c.voice.providers),
+  });
+  const voice = new Live(buildVoice(config));
+  // --- end voice keys ---
 
   // --- video (packages/video): video.produce → worker capture/render jobs → social.campaign draft ---
   const video: VideoProductions = new VideoProductions({
@@ -232,27 +315,42 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     notify: (n) => notifier.notify(n),
     hasAction: (type) => type in actions.executors,
     media: overrides.videoMedia ?? (config.publicBaseUrl ? videoMediaFromStorage(storage, config.publicBaseUrl) : undefined), // storage
-    tts: videoTtsFromConfig(config.voice.providers),
+    get tts() {
+      return voice.current.videoTts; // read per job: VideoProductions keeps this object
+    },
   });
   workers.onJobSettled((job) => video.onJobSettled(job));
   // --- end video ---
 
-  const executors = {
-    ...builtinExecutors,
-    ...createPaExecutors(paStore, { timeZone: config.timezone }),
-    ...(calendar ? createCalendarExecutors(calendar) : {}),
-    ...(emailAccounts.length ? createEmailExecutors(emailAccounts, { connect: overrides.imap }) : {}),
-    ...(odoo ? createOdooExecutors(odoo) : {}),
-    ...socialExecutors,
-    ...video.executors(),
+  // Resolved when a proposal is made or approved, so one approved after a reload uses the new credentials.
+  const paExecutors = createPaExecutors(paStore, { timeZone: config.timezone });
+  const videoExecutors = video.executors();
+  let executorCache: { from: unknown[]; executors: Record<string, ActionExecutor> } | undefined;
+  const executors = () => {
+    const from = [calendar.current, email.current, odoo.current, social.current];
+    if (!executorCache || from.some((v, i) => v !== executorCache!.from[i])) {
+      executorCache = {
+        from,
+        executors: {
+          ...builtinExecutors,
+          ...paExecutors,
+          ...calendar.current.executors,
+          ...email.current.executors,
+          ...odoo.current.executors,
+          ...social.current.executors,
+          ...videoExecutors,
+        },
+      };
+    }
+    return executorCache.executors;
   };
   const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
   // pa: Dave writes directly; a run writes directly only if its task came from chat/cron/system, else it proposes.
-  extraMcpServers.pa = (caller) =>
+  const paMcpServer = (caller: Caller) =>
     createPaMcpServer({
       store: paStore,
-      calendar,
+      calendar: calendar.current.service,
       timeZone: config.timezone,
       caller:
         caller.kind === "admin"
@@ -265,6 +363,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
             },
       propose: (p) => actions.propose(p),
     });
+  /** The servers at /mcp/<name> besides brain and actions; odoo only while Odoo is configured. */
+  const extraMcpServers = (): Record<string, (caller: Caller) => McpServer> => {
+    const client = odoo.current.client;
+    return { ...(client ? { odoo: () => createOdooMcpServer(client) } : {}), pa: paMcpServer };
+  };
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
   const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;
@@ -272,23 +375,44 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
   const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone);
   // --- Voice: server speech providers (optional), briefing, task conversations ---
-  const voiceProviders = overrides.voiceProviders ?? createVoiceProviders(config.voice.providers);
   const voiceConversations = new VoiceConversations(store, hub, queue);
+  // Getters: VoiceService reads these per request, so a reloaded key or calendar applies at once.
   const voiceService = new VoiceService(store, verticals, budget, {
-    ...voiceProviders,
-    calendar: overrides.voiceCalendar ?? (calendar ? paVoiceCalendar(calendar) : undefined),
+    get stt() {
+      return voice.current.stt;
+    },
+    get tts() {
+      return voice.current.tts;
+    },
+    get calendar() {
+      const service = calendar.current.service;
+      return overrides.voiceCalendar ?? (service ? paVoiceCalendar(service) : undefined);
+    },
     maxUploadBytes: config.voice.maxUploadBytes,
     maxSeconds: config.voice.maxSeconds,
     language: config.voice.language,
     timezone: config.timezone,
   });
   // --- end voice ---
+  // Runner and triager: delegates to the current instance, so a new token or key applies to the next run.
+  const runner = new Live<AgentRunner>(overrides.runner ?? createRunner(config));
+  const triager = new Live<Triager>(overrides.triager ?? createTriager(config));
   const pipeline = new Pipeline({
     store,
     hub,
-    triager: overrides.triager ?? createTriager(config),
+    triager: {
+      get name() {
+        return triager.current.name;
+      },
+      triage: (event, context) => triager.current.triage(event, context),
+    },
     verticals,
-    runner: overrides.runner ?? createRunner(config),
+    runner: {
+      get name() {
+        return runner.current.name;
+      },
+      run: (request, onMessage) => runner.current.run(request, onMessage),
+    },
     queue,
     brain,
     actions,
@@ -304,7 +428,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       staleRunSeconds,
       dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
     },
-    mcpServers: ["brain", ...Object.keys(extraMcpServers)],
+    mcpServers: () => ["brain", ...Object.keys(extraMcpServers())],
     voice: voiceConversations,
   });
 
@@ -322,18 +446,27 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- end auth ---
 
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken, sessions: wsSessions }));
-  const social = {
+  const socialDeps = {
     store,
     actions,
-    accounts: socialAccounts,
+    get accounts() {
+      return social.current.accounts;
+    },
     adapters: socialAdapters,
     timeZone: config.timezone,
     media: { blobs: storage, maxBytes: config.media.maxBytes, publicBaseUrl: config.publicBaseUrl },
   };
-  const pa = { store: paStore, calendar, timeZone: config.timezone, signingSecret: paSigningSecret };
+  const pa = {
+    store: paStore,
+    get calendar() {
+      return calendar.current.service;
+    },
+    timeZone: config.timezone,
+    signingSecret: paSigningSecret,
+  };
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -356,6 +489,33 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     // Single-page app: unknown paths get index.html so client-side routes work on reload.
     app.get("*", async (c) => c.html(await readFile(join(root, "index.html"), "utf8")));
   }
+
+  // --- integrations: rebuild what a saved or removed account changed (see integrations/live.ts) ---
+  const swaps: Record<Group, (c: Config) => Promise<string | undefined> | string | undefined> = {
+    runner: (c) => (overrides.runner ? undefined : runner.swap(() => createRunner(c))),
+    triage: (c) => (overrides.triager ? undefined : triager.swap(() => createTriager(c))),
+    voice: (c) => voice.swap(() => buildVoice(c)),
+    odoo: (c) => odoo.swap(() => buildOdoo(c)),
+    email: (c) => email.swap(() => buildEmail(c)),
+    social: (c) => social.swap(() => buildSocial(c)),
+    calendar: (c) => calendar.swap(() => buildCalendar(c)),
+    storage: (c) => reloadStorage(c),
+  };
+  integrations.setReloader(async (next, groups) => {
+    const failed: Partial<Record<Group, string>> = {};
+    for (const group of groups) {
+      try {
+        const error = await swaps[group](next);
+        if (error) failed[group] = error;
+      } catch (err) {
+        failed[group] = err instanceof Error ? err.message : String(err);
+      }
+      if (failed[group]) console.warn(`[integrations] ${group} kept its previous setup: ${failed[group]}`);
+    }
+    return failed;
+  });
+  integrations.onChange(() => hub.broadcast({ type: "integrations.updated" }));
+  // --- end integrations reload ---
 
   let crons: ReturnType<typeof startSchedules> = [];
   let notificationCrons: ReturnType<typeof startNotificationJobs> = [];
@@ -382,9 +542,15 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     rollover,
     publishScheduledPosts,
     auth,
-    odooEvents,
+    /** The current Odoo event poller (none unless Odoo and its events are set up). */
+    get odooEvents() {
+      return odoo.current.events;
+    },
     paStore,
-    calendar,
+    /** The current Google Calendar service, or null. */
+    get calendar() {
+      return calendar.current.service;
+    },
     /** Sends due reminders; the every-minute system job calls this. */
     deliverReminders,
     storage,
@@ -397,6 +563,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await store.markAllNodesOffline();
       await brain.init();
       await storage.init(); // storage: index media from before the index, load the cache
+      storageServing = true; // storage: from here a backend switch waits for a restart
       if (queue instanceof PgBossTaskQueue) await queue.start();
       await queue.work((taskId) => pipeline.runTask(taskId));
       // Tasks committed just before a crash but never enqueued.
@@ -409,7 +576,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         digestCron: config.digestCron,
         digest: () => digests.deliver(),
         rollover,
-        socialPublish: socialAccounts.length ? publishScheduledPosts : undefined,
+        socialPublish: publishScheduledPosts, // a no-op until a social account is set up
         paReminders: deliverReminders,
       });
       notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
@@ -418,34 +585,17 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
         crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e), root));
       }
-      if (emailAccounts.length) {
-        emailPoller = new EmailPoller({
-          accounts: emailAccounts,
-          store,
-          ingest: (e) => pipeline.ingest(e),
-          pollIntervalMs: config.email.pollIntervalMs,
-          connect: overrides.imap,
-        });
-        emailPoller.start();
-      }
-      if (socialAccounts.length) {
-        socialInbound = new SocialInbound({
-          accounts: socialAccounts,
-          adapters: socialAdapters,
-          store,
-          ingest: (e) => pipeline.ingest(e),
-          defaultPollSeconds: config.social.defaultPollSeconds,
-        });
-        socialInbound.start();
-      }
-      odooEvents?.start();
+      // Pollers: whatever is current now (the env config with saved accounts applied); later reloads start their own.
+      await email.start();
+      await social.start();
+      await odoo.start();
     },
     async stop() {
       for (const c of crons) c.stop();
       for (const c of notificationCrons) c.stop();
-      await emailPoller?.stop();
-      await socialInbound?.stop();
-      await odooEvents?.stop();
+      await email.stop();
+      await social.stop();
+      await odoo.stop();
       await queue.stop();
       await pool.end();
     },

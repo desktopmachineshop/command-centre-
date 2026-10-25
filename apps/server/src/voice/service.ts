@@ -67,7 +67,9 @@ export class VoiceService {
     private readonly budget: BudgetService,
     options: VoiceServiceOptions,
   ) {
-    this.options = { cacheMaxChars: 300, cacheEntries: 200, ...options };
+    // Kept as given (not copied), so getters for stt/tts/calendar are read at call time:
+    // app.ts swaps them when the Accounts page changes the voice keys or the calendar.
+    this.options = options;
   }
 
   get stt() {
@@ -101,9 +103,9 @@ export class VoiceService {
       return { ...hit, cached: true };
     }
     const { audio, mime } = await tts.synthesize(text, { voice, format: "mp3", language: this.options.language });
-    if (text.length <= this.options.cacheMaxChars!) {
+    if (text.length <= (this.options.cacheMaxChars ?? 300)) {
       this.cache.set(key, { audio, mime });
-      while (this.cache.size > this.options.cacheEntries!) this.cache.delete(this.cache.keys().next().value!);
+      while (this.cache.size > (this.options.cacheEntries ?? 200)) this.cache.delete(this.cache.keys().next().value!);
     }
     return { audio, mime, cached: false };
   }

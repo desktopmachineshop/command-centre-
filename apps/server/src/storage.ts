@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
   createGoogleTokenProvider,
   DiskCache,
+  type GoogleTokenProvider,
   GoogleDriveBlobStore,
   LocalBlobStore,
   PgBlobIndex,
@@ -16,7 +17,12 @@ import type { VideoMediaStore } from "./video";
  * (with an LRU cache on DATA_DIR/cache); otherwise everything stays on the volume.
  * Either way, files already on the volume keep being served from it.
  */
-export function createStorage(config: Config, pool: Pool, options: { fetch?: typeof fetch } = {}): Storage {
+export function createStorage(
+  config: Config,
+  pool: Pool,
+  /** `tokens`: Drive's access tokens; default from config.storage.google (app.ts passes one that follows the Accounts page). */
+  options: { fetch?: typeof fetch; tokens?: GoogleTokenProvider } = {},
+): Storage {
   const index = new PgBlobIndex(pool);
   const local = new LocalBlobStore({ dataDir: config.dataDir, index });
   const { google } = config.storage;
@@ -29,7 +35,7 @@ export function createStorage(config: Config, pool: Pool, options: { fetch?: typ
         })
       : undefined;
   const drive = new GoogleDriveBlobStore({
-    tokens: createGoogleTokenProvider({ ...google, fetch: options.fetch }),
+    tokens: options.tokens ?? createGoogleTokenProvider({ ...google, fetch: options.fetch }),
     index,
     fetch: options.fetch,
     cache,

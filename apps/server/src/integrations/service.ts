@@ -222,7 +222,8 @@ export class IntegrationService {
       // A group that failed keeps its old instance, so keep its old config section too.
       this.effective = mergeFailed(config, previous, failed);
     }
-    for (const g of changed) {
+    // An unchanged group already runs what's saved (e.g. the entry that failed was removed), so its error is stale.
+    for (const g of GROUPS) {
       if (failed[g]) this.groupErrors[g] = failed[g];
       else delete this.groupErrors[g];
     }

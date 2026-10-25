@@ -53,6 +53,8 @@ export const OutboundMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run.response"), runId: z.string(), taskId: z.string(), response: VoiceResponse }),
   // notifications: the notification centre's unread count changed
   z.object({ type: z.literal("notifications.updated"), unread: z.number().int() }),
+  // integrations: the Accounts page saved or removed credentials (refetch /api/integrations)
+  z.object({ type: z.literal("integrations.updated") }),
 ]);
 export type OutboundMessage = z.infer<typeof OutboundMessage>;
 

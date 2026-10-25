@@ -37,6 +37,7 @@ export const MEDIA_FILE = new RegExp(`^[a-f0-9]{32}\\.(${Object.keys(BY_EXT).joi
 export interface SocialApiDeps {
   store: Store;
   actions: ActionService;
+  /** Read per request (a getter in app.ts), so accounts saved on the Accounts page show at once. */
   accounts: SocialAccount[];
   adapters: AdapterMap;
   timeZone: string;
@@ -60,10 +61,10 @@ export function publicOrigin(c: Context, configured?: string): string {
  * accounts, recent events, scheduled posts, the composer, and media uploads.
  */
 export function socialApiRoutes(deps: SocialApiDeps) {
-  const { store, actions, accounts, adapters } = deps;
+  const { store, actions, adapters } = deps;
   const app = new Hono();
 
-  app.get("/social/accounts", (c) => c.json(accounts.map((a) => publicAccount(a, adapters))));
+  app.get("/social/accounts", (c) => c.json(deps.accounts.map((a) => publicAccount(a, adapters))));
 
   app.get("/social/events", async (c) => {
     const limit = z.coerce.number().int().min(1).max(200).default(50).parse(c.req.query("limit"));
@@ -87,7 +88,7 @@ export function socialApiRoutes(deps: SocialApiDeps) {
     const body = CampaignPayload.extend({ summary: z.string().trim().min(1).optional() }).parse(await c.req.json());
     const verticals = new Set<string>();
     for (const post of body.posts) {
-      const account = accounts.find((a) => a.id === post.accountId);
+      const account = deps.accounts.find((a) => a.id === post.accountId);
       if (!account) return c.json({ error: `Unknown social account "${post.accountId}"` }, 400);
       verticals.add(account.vertical);
     }
@@ -98,7 +99,7 @@ export function socialApiRoutes(deps: SocialApiDeps) {
         taskId: null,
         vertical: [...verticals][0]!,
         actionType: "social.campaign",
-        summary: summary ?? campaignSummary(payload, accounts, deps.timeZone),
+        summary: summary ?? campaignSummary(payload, deps.accounts, deps.timeZone),
         payload,
       });
       return c.json(proposal, 201);

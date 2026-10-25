@@ -84,8 +84,14 @@ export class ActionService {
     private readonly hub: Hub,
     private readonly verticals: VerticalRegistry,
     private readonly ctx: ExecutorContext,
-    readonly executors: Record<string, ActionExecutor> = builtinExecutors,
+    /** The executors, or a function giving the current ones (they change when the Accounts page reloads an integration). */
+    private readonly executorSource: Record<string, ActionExecutor> | (() => Record<string, ActionExecutor>) = builtinExecutors,
   ) {}
+
+  /** The executors in use now: a proposal approved after a reload runs with the new credentials. */
+  get executors(): Record<string, ActionExecutor> {
+    return typeof this.executorSource === "function" ? this.executorSource() : this.executorSource;
+  }
 
   /** `forceDraft` (a reason) holds this proposal for approval whatever the vertical's policy says. */
   async propose(input: NewProposal, options: { forceDraft?: string } = {}): Promise<Proposal> {

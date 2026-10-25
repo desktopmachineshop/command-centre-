@@ -35,14 +35,29 @@ export interface StorageOptions {
 export class Storage implements BlobStore {
   readonly index: BlobIndex;
   readonly local: LocalBlobStore;
-  readonly drive?: GoogleDriveBlobStore;
-  readonly cache?: DiskCache;
+  private backends: { drive?: GoogleDriveBlobStore; cache?: DiskCache };
 
   constructor(o: StorageOptions) {
     this.index = o.index;
     this.local = o.local;
-    this.drive = o.drive;
-    this.cache = o.cache;
+    this.backends = { drive: o.drive, cache: o.cache };
+  }
+
+  get drive(): GoogleDriveBlobStore | undefined {
+    return this.backends.drive;
+  }
+
+  get cache(): DiskCache | undefined {
+    return this.backends.cache;
+  }
+
+  /**
+   * Takes another Storage's Drive backend and cache (same index and volume). Only safe
+   * before init() and before anything is served: in-flight Drive uploads and cached files
+   * belong to the backend that started them.
+   */
+  replaceBackends(other: Storage): void {
+    this.backends = { drive: other.drive, cache: other.cache };
   }
 
   get kind(): BackendKind {
