@@ -8,6 +8,7 @@ import { Briefing, Notifications } from "./pages/Notifications";
 import { Approvals } from "./pages/Approvals";
 import { Brain } from "./pages/Brain";
 import { Chat } from "./pages/Chat";
+import { Connections } from "./pages/Connections";
 import { Devices } from "./pages/Devices";
 import { Drive } from "./pages/Drive";
 import { Inbox } from "./pages/Inbox";
@@ -119,6 +120,7 @@ export const NAV: NavItem[] = [
   { key: "social", label: "Social", icon: "social", group: "Business" },
   { key: "org", label: "Org", icon: "org", group: "Business" },
   { key: "brain", label: "Brain", icon: "brain", group: "Knowledge" },
+  { key: "accounts", label: "Accounts", icon: "link", group: "System" },
   { key: "devices", label: "Devices", icon: "devices", group: "System" },
   { key: "settings", label: "Settings", icon: "settings", group: "System" },
   { key: "notification-settings", label: "Notification settings", icon: "bell", group: "System" },
@@ -216,6 +218,9 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
       break;
     case "org":
       body = <Org api={api} feed={feed} />;
+      break;
+    case "accounts":
+      body = <Connections api={api} feed={feed} />;
       break;
     case "devices":
       body = <Devices api={api} feed={feed} />;

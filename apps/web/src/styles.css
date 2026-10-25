@@ -2527,3 +2527,627 @@ a.stat:hover {
 .install-banner .grow { flex: 1; min-width: 0; }
 .install-banner > svg { flex: none; color: var(--accent); }
 /* --- end install banner --- */
+
+/* --- accounts page (pages/Connections.tsx) and the shared Dialog (ui.tsx) --- */
+/* Dialog: the More sheet on phones; a centred panel from 760px. */
+.dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+  max-height: 92dvh;
+  padding-left: 0;
+  padding-right: 0;
+  outline: none;
+}
+.dialog-head {
+  padding: var(--sp-1) var(--sp-4) var(--sp-2);
+  gap: var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.dialog-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--sp-4);
+}
+.dialog-body > p:first-child {
+  margin-top: 0;
+}
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) 0;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 759.98px) {
+  .dialog-foot > button {
+    flex: 1 1 0;
+  }
+}
+@media (min-width: 760px) {
+  .dialog-backdrop {
+    align-items: center;
+    justify-content: center;
+    padding: var(--sp-6);
+  }
+  .dialog {
+    width: min(560px, 100%);
+    max-height: min(760px, 100%);
+    border-radius: var(--r-xl);
+    padding-top: var(--sp-3);
+    padding-bottom: var(--sp-4);
+    animation: dialog-in var(--dur-2) var(--ease);
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* A link that looks like a secondary button. */
+a.button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-h);
+  padding: 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+a.button-link:hover {
+  text-decoration: none;
+  background: var(--surface-2);
+}
+
+.accounts {
+  padding-bottom: var(--sp-6);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.acc-notice {
+  --s: var(--success);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-4);
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  background: color-mix(in srgb, var(--s) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--s) 32%, var(--surface));
+}
+.acc-notice.bad {
+  --s: var(--danger);
+}
+.acc-notice > .icon {
+  flex: none;
+  color: var(--s);
+}
+.acc-notice .icon-btn {
+  width: 32px;
+  min-height: 32px;
+}
+
+/* Section titles with an icon tile */
+.acc-section-title h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-lg);
+}
+.acc-section-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.acc-section-icon .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Cards */
+.acc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+.acc-grid.one {
+  grid-template-columns: 1fr;
+}
+.acc-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  scroll-margin: calc(var(--topbar-h) + var(--sp-4));
+  transition:
+    box-shadow var(--dur-2) var(--ease),
+    border-color var(--dur-2) var(--ease);
+}
+.acc-card.unset {
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+  box-shadow: none;
+}
+.acc-card.hl {
+  border-color: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent);
+}
+.acc-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+.acc-name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.acc-card-head .meta {
+  margin-top: 2px;
+}
+.acc-id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.acc-desc {
+  margin: 0;
+  line-height: var(--lh);
+}
+.acc-desc code,
+.acc-kind-head code {
+  font-size: 0.92em;
+}
+.acc-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  font-weight: 550;
+}
+.acc-detail {
+  margin: 0;
+}
+
+/* Status pills (sentence case, unlike task statuses) */
+.status.acc-pill {
+  flex: none;
+  text-transform: none;
+  margin-top: 2px;
+}
+.status.acc-pill .icon {
+  margin-left: -2px;
+}
+.status.acc-pill.has-icon::before {
+  display: none;
+}
+.status.acc-ok {
+  --s: var(--success);
+}
+.status.acc-info {
+  --s: var(--info);
+}
+.status.acc-warn {
+  --s: var(--warn);
+}
+.status.acc-bad {
+  --s: var(--danger);
+}
+.status.acc-none-pill {
+  --s: var(--text-2);
+}
+
+/* Facts: label / value rows */
+.acc-facts {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.acc-facts > div {
+  display: grid;
+  grid-template-columns: minmax(96px, min(38%, 11rem)) 1fr;
+  gap: var(--sp-2);
+  align-items: baseline;
+  min-width: 0;
+}
+.acc-facts dt {
+  color: var(--text-2);
+}
+.acc-facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.acc-facts dd.mono {
+  font-size: var(--fs-xs);
+}
+.acc-test {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.acc-test .icon {
+  flex: none;
+  margin-top: 3px;
+}
+.acc-test.ok {
+  color: var(--success);
+}
+.acc-test.bad {
+  color: var(--danger);
+}
+.acc-test span {
+  color: var(--text-2);
+}
+
+/* Redirect addresses with Copy */
+.acc-redirects {
+  display: grid;
+  gap: 6px;
+}
+.acc-redirect {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.acc-redirect code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-xs);
+  background: none;
+  padding: 0;
+}
+.acc-redirect-label {
+  flex: none;
+  font-weight: 600;
+}
+.acc-redirect-missing {
+  margin: 0;
+}
+
+/* Actions sit at the bottom so cards in a row line up. */
+.acc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: auto;
+  padding-top: var(--sp-1);
+}
+.acc-actions .acc-remove {
+  margin-left: auto;
+  padding: 0 10px;
+}
+
+/* Multi-entry kinds (email, Google, social by business) */
+.acc-kind {
+  margin: var(--sp-3) 0 var(--sp-5);
+}
+.acc-kind-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+.acc-kind-head h4 {
+  margin: 0 0 2px;
+  font-size: var(--fs-md);
+}
+.acc-kind-head p {
+  margin: 0;
+}
+.acc-vertical-head .tag {
+  font-size: var(--fs-sm);
+  padding: 2px 12px;
+}
+.acc-none {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+}
+@media (max-width: 759.98px) {
+  .acc-kind-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .acc-kind-head > button {
+    align-self: flex-start;
+  }
+}
+
+/* Platform dot (social) */
+.acc-platform {
+  --p: var(--text-2);
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--p);
+}
+.chip .acc-platform {
+  margin-top: 0;
+}
+.acc-platform.p-instagram { --p: var(--p-instagram); }
+.acc-platform.p-threads { --p: var(--p-threads); }
+.acc-platform.p-x { --p: var(--p-x); }
+.acc-platform.p-reddit { --p: var(--p-reddit); }
+.acc-platform.p-youtube { --p: var(--p-youtube); }
+.acc-platform.p-discord { --p: var(--p-discord); }
+
+/* Developer apps: collapsed */
+.acc-apps {
+  margin: var(--sp-6) 0 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+.acc-apps > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--r-lg);
+}
+.acc-apps > summary::-webkit-details-marker {
+  display: none;
+}
+.acc-apps > summary:hover {
+  background: var(--surface-2);
+}
+.acc-apps > summary:focus-visible {
+  box-shadow: var(--focus);
+  outline: none;
+}
+.acc-summary-title {
+  display: block;
+  font-weight: 650;
+  font-size: var(--fs-lg);
+}
+.acc-summary-sub {
+  display: block;
+}
+.acc-chevron {
+  flex: none;
+  color: var(--text-2);
+  transition: transform var(--dur-2) var(--ease);
+}
+.acc-apps[open] .acc-chevron {
+  transform: rotate(90deg);
+}
+.acc-apps[open] > summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+.acc-apps > :not(summary) {
+  margin-left: var(--sp-4);
+  margin-right: var(--sp-4);
+}
+.acc-apps-intro {
+  margin-top: var(--sp-3);
+  max-width: 70ch;
+}
+.acc-apps .acc-grid {
+  margin-bottom: var(--sp-4);
+}
+.acc-apps .acc-card {
+  box-shadow: none;
+}
+
+/* Set in Railway */
+.acc-railway > p {
+  margin-top: 0;
+}
+.acc-railway .list > li.row {
+  gap: var(--sp-3);
+}
+.acc-rw-label {
+  display: block;
+  font-weight: 550;
+}
+.acc-rw-name {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  background: none;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Forms in dialogs */
+.acc-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.acc-form > p {
+  margin: 0;
+}
+.acc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.acc-field > label,
+.acc-field > legend {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 0;
+}
+.acc-field > legend {
+  margin-bottom: 6px;
+}
+.acc-field input:not([type="checkbox"]):not([type="radio"]),
+.acc-field select,
+.acc-field textarea {
+  width: 100%;
+}
+.acc-field [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.acc-req {
+  color: var(--danger);
+}
+.acc-secret {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.acc-secret input {
+  flex: 1;
+  min-width: 0;
+}
+.acc-secret button {
+  min-height: var(--control-h);
+  flex: none;
+}
+.acc-preset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+}
+.acc-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+}
+.acc-hint.warn,
+.acc-hint.info {
+  --s: var(--warn);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--s) 10%, var(--surface));
+  color: var(--text);
+}
+.acc-hint.info {
+  --s: var(--info);
+}
+.acc-hint .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--s);
+}
+.acc-platforms .chip {
+  position: relative;
+  font-weight: 600;
+}
+.acc-platforms .chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Toggle switch: a real checkbox with role=switch */
+.acc-switch-row {
+  gap: 2px;
+}
+.acc-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 36px;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.acc-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  cursor: pointer;
+}
+.acc-switch-track {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  transition: background-color var(--dur-1) var(--ease);
+}
+.acc-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-1) var(--ease);
+}
+.acc-switch input:checked + .acc-switch-track {
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+}
+.acc-switch input:checked + .acc-switch-track::after {
+  transform: translateX(16px);
+}
+.acc-switch input:focus-visible + .acc-switch-track {
+  box-shadow: var(--focus);
+}
+
+/* Calendar picker */
+.acc-cals > li + li {
+  border-top: 1px solid var(--border);
+}
+.acc-cal {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 48px;
+  cursor: pointer;
+}
+.acc-cal-tag {
+  margin-left: var(--sp-2);
+}
+/* --- end accounts page --- */

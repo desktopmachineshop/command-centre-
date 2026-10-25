@@ -63,6 +63,16 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
       </div>
       <div className="card">
         <div className="card-head">
+          <Icon name="link" />
+          <h3>Accounts</h3>
+        </div>
+        <p className="muted small">AI, Odoo, email, Google and social sign-ins, managed here instead of in Railway's variables.</p>
+        <a className="button-link" href="#/accounts">
+          Manage accounts <Icon name="chevron" size={16} />
+        </a>
+      </div>
+      <div className="card">
+        <div className="card-head">
           <Icon name="bell" />
           <h3>Notifications</h3>
         </div>

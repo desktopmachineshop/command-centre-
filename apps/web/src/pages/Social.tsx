@@ -16,7 +16,7 @@ export function Social({ api, feed }: { api: Api; feed: LiveFeed }) {
       {!accounts.data && !accounts.error && <Skeleton rows={2} />}
       {accounts.data?.length === 0 && (
         <Empty icon="social">
-          No social accounts yet. Add them to <code>SOCIAL_ACCOUNTS</code> on the server (see docs/SETUP.md, "Social").
+          No social accounts yet. <a href="#/accounts">Connect Instagram, Threads, X, Reddit, YouTube or Discord</a> in Accounts.
         </Empty>
       )}
       {accounts.data && accounts.data.length > 0 && (
@@ -38,6 +38,9 @@ function Accounts({ accounts }: { accounts: SocialAccount[] }) {
     <>
       <div className="section-title">
         <h3>Accounts</h3>
+        <a href="#/accounts" className="small">
+          Manage
+        </a>
       </div>
       <ul className="list">
         {accounts.map((a) => {

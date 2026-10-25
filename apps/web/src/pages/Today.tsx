@@ -94,7 +94,9 @@ function Agenda({ view }: { view: TodayView }) {
   return (
     <section className="card" aria-labelledby="agenda-h">
       <h3 id="agenda-h">Agenda</h3>
-      {!view.calendarConfigured && <p className="muted small">No calendar connected. See “Personal assistant” in docs/SETUP.md.</p>}
+      {!view.calendarConfigured && <p className="muted small">
+          No calendar connected. <a href="#/accounts">Connect a Google account</a> in Accounts.
+        </p>}
       {view.calendarErrors.map((e) => (
         <p key={e} className="error small">
           {e}
