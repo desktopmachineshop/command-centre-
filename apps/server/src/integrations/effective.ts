@@ -57,6 +57,7 @@ function json<T>(v: unknown, fallback: T): T {
 export function validateFields(def: KindDef, data: Record<string, unknown>, secrets: Record<string, string>): string[] {
   const errors: string[] = [];
   const all = { ...data, ...secrets };
+  if (JSON.stringify(all).includes("\\u0000")) errors.push("Fields can't contain control characters");
   for (const f of def.fields) {
     const v = all[f.key];
     const empty = v === undefined || v === null || v === "";
@@ -105,6 +106,11 @@ function mergeById<T extends { id: string }>(base: T[], extra: T[]): T[] {
   return [...base.filter((a) => !ids.has(a.id)), ...extra];
 }
 
+function plainObject(v: unknown, label: string): Record<string, unknown> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new Error(`${label} must be a JSON object, e.g. {}`);
+  return v as Record<string, unknown>;
+}
+
 export function emailAccountOf(e: EntryInput): EmailAccount {
   const v = values(e);
   const address = str(v.address);
@@ -148,7 +154,7 @@ export function socialAccountOf(e: EntryInput, entries: EntryInput[]): SocialAcc
     displayName: str(e.data.displayName),
     inbound: bool(e.data.inbound, true),
     credentials,
-    options: json<Record<string, unknown>>(e.data.options, {}),
+    options: plainObject(json<unknown>(e.data.options, {}), "Advanced options"),
   };
 }
 
@@ -193,7 +199,7 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
   const claude = single(entries, "claude");
   if (claude) {
     agent.runner = claude.data.runner === "echo" ? "echo" : "claude-code";
-    agent.oauthToken = str(claude.secrets.oauthToken) ?? base.agent.oauthToken;
+    agent.oauthToken = str(claude.secrets.oauthToken);
   }
   const anthropic = single(entries, "anthropic");
   if (anthropic) agent.fallbackApiKey = str(anthropic.secrets.fallbackApiKey);

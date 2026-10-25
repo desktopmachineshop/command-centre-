@@ -23,6 +23,16 @@ describe("SecretBox", () => {
     expect(() => SecretBox.fromKey("b".repeat(64)).open(sealed)).toThrow(/can't be decrypted/);
   });
 
+  it("binds a blob to its entry and refuses short tags", () => {
+    const box = SecretBox.fromKey(key);
+    const sealed = box.seal({ apiKey: "k" }, "openai/default");
+    expect(box.open(sealed, "openai/default")).toEqual({ apiKey: "k" });
+    expect(() => box.open(sealed, "odoo/default")).toThrow(/can't be decrypted/);
+    const [v, iv, tag, ct] = sealed.split(":");
+    const short = Buffer.from(tag!, "base64").subarray(0, 4).toString("base64");
+    expect(() => box.open([v, iv, short, ct].join(":"), "openai/default")).toThrow(/can't be decrypted/);
+  });
+
   it("generates a private key file once and reuses it", async () => {
     const keyFile = join(mkdtempSync(join(tmpdir(), "cc-key-")), "credentials.key");
     const a = await SecretBox.load({ keyFile });
@@ -109,6 +119,33 @@ describe.skipIf(!DB_URL)("Accounts page API", () => {
     expect(res.status).toBe(200);
     expect(ctx.server.integrations.current().odoo).toBeUndefined();
     expect((await ctx.api("/api/integrations/odoo/default", { method: "DELETE" })).status).toBe(404);
+  });
+
+  it("keeps social account names unique across platforms", async () => {
+    const put = (kind: string) => ctx.api(`/api/integrations/${kind}/shop`, { method: "PUT", json: { data: { vertical: "dms" }, secrets: { accessToken: "t".repeat(20), accessTokenSecret: "s".repeat(20), botToken: "b".repeat(60) } } });
+    const first = await ctx.api("/api/integrations/discord/shop", { method: "PUT", json: { data: { vertical: "dms" }, secrets: { botToken: "b".repeat(60) } } });
+    expect(first.status).not.toBe(409);
+    const clash = await put("x");
+    expect(clash.status).toBe(409);
+    expect(clash.body.error).toMatch(/already used by a Discord account/);
+    await ctx.server.store.pool.query("delete from integration_entries where id = 'shop'");
+  });
+
+  it("refuses options that aren't a JSON object, control characters, and huge bodies", async () => {
+    const options = await ctx.api("/api/integrations/discord/d1", { method: "PUT", json: { data: { vertical: "dms", options: "null" }, secrets: { botToken: "b".repeat(60) } } });
+    expect(options.status).toBe(400);
+    expect(options.body.error).toMatch(/must be a JSON object/);
+    const nul = await ctx.api("/api/integrations/odoo", { method: "PUT", json: { data: { url: "https://x.odoo.com", db: "a\u0000b", username: "d@example.com" }, secrets: { apiKey: "k" } } });
+    expect(nul.status).toBe(400);
+    expect(JSON.stringify(nul.body)).not.toContain("x.odoo.com");
+    const huge = await ctx.api("/api/integrations/odoo", { method: "PUT", json: { data: { db: "x".repeat(100_000) } } });
+    expect(huge.status).toBe(413);
+  });
+
+  it("clearing the Claude token doesn't fall back to Railway's", async () => {
+    await ctx.api("/api/integrations/claude", { method: "PUT", json: { data: { runner: "echo" }, secrets: { oauthToken: "sk-ant-oat01-abcdefghijklmnop" } } });
+    await ctx.api("/api/integrations/claude", { method: "PUT", json: { secrets: { oauthToken: null } } });
+    expect(ctx.server.integrations.current().agent.oauthToken).toBeUndefined();
   });
 
   it("needs credentials", async () => {

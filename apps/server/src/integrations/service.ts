@@ -51,6 +51,8 @@ export interface EntryView {
 }
 
 const ID = /^[a-z0-9][a-z0-9_-]{0,62}$/i;
+/** Social accounts share one id space (executors and inbound checkpoints key on the id alone). */
+const SOCIAL_KINDS = new Set(["discord", "instagram", "threads", "x", "reddit", "youtube"]);
 
 export class IntegrationService {
   private effective: Config;
@@ -119,10 +121,16 @@ export class IntegrationService {
   }
 
   /** Creates or updates an entry, then reloads what it affects. Invalid input saves nothing. */
-  async save(kind: string, id: string, patch: SavePatch, actor: string, meta?: Partial<EntryMeta>) {
+  /** `ifUpdatedAt`: only if the stored entry hasn't changed since (the refresh job vs a reconnect). */
+  async save(kind: string, id: string, patch: SavePatch, actor: string, meta?: Partial<EntryMeta>, options: { ifUpdatedAt?: Date } = {}) {
     const def = this.def(kind);
     const entryId = this.checkId(def, id);
     return this.serial(async () => {
+      await this.checkSocialId(kind, entryId);
+      if (options.ifUpdatedAt) {
+        const stored = await this.store.get(kind, entryId);
+        if (stored?.updatedAt.getTime() !== options.ifUpdatedAt.getTime()) throw new IntegrationError(`${def.label} ${entryId} changed meanwhile`, 409);
+      }
       const existing = await this.current_(def, entryId);
       const data = { ...existing.data };
       for (const [k, v] of Object.entries(patch.data ?? {})) {
@@ -161,6 +169,7 @@ export class IntegrationService {
       const env = railwayEntries(this.base).find((e) => e.kind === kind && e.id === id);
       if (!env) throw new IntegrationError(`${def.label} ${id} isn't set in Railway`, 404);
       if (await this.store.get(kind, id)) throw new IntegrationError(`${def.label} ${id} is already in the app`, 409);
+      await this.checkSocialId(kind, id);
       await this.store.put({ ...env, meta: {} }, actor, "moved from Railway");
       return this.recompute(this.effective, def.affects);
     });
@@ -294,6 +303,12 @@ export class IntegrationService {
     }
     if (!ID.test(id)) throw new IntegrationError("Name must be letters, digits, - or _ (e.g. dms-instagram)");
     return id;
+  }
+
+  private async checkSocialId(kind: string, id: string): Promise<void> {
+    if (!SOCIAL_KINDS.has(kind)) return;
+    const taken = [...(await this.store.list()), ...railwayEntries(this.base)].find((e) => e.id === id && e.kind !== kind && SOCIAL_KINDS.has(e.kind));
+    if (taken) throw new IntegrationError(`The name "${id}" is already used by a ${KINDS.get(taken.kind)?.label ?? taken.kind} account; pick another`, 409);
   }
 
   /** One change at a time, so two saves can't reload over each other. */

@@ -34,20 +34,26 @@ export class SecretBox {
     return SecretBox.fromKey(await readFile(options.keyFile, "utf8"));
   }
 
-  seal(values: Record<string, string>): string {
+  /** `bind` (e.g. "odoo/default") is authenticated with the blob, so it can't be copied onto another entry. */
+  seal(values: Record<string, string>, bind = ""): string {
     const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", this.key, iv);
+    const cipher = createCipheriv("aes-256-gcm", this.key, iv, { authTagLength: 16 });
+    cipher.setAAD(Buffer.from(bind, "utf8"));
     const ct = Buffer.concat([cipher.update(JSON.stringify(values), "utf8"), cipher.final()]);
-    return ["v1", iv.toString("base64"), cipher.getAuthTag().toString("base64"), ct.toString("base64")].join(":");
+    return ["v2", iv.toString("base64"), cipher.getAuthTag().toString("base64"), ct.toString("base64")].join(":");
   }
 
-  /** Throws SecretsUnreadable when the blob was sealed with another key or was tampered with. */
-  open(blob: string): Record<string, string> {
+  /** Throws SecretsUnreadable when the blob was sealed with another key, for another entry, or was tampered with. */
+  open(blob: string, bind = ""): Record<string, string> {
     const [version, iv, tag, ct] = blob.split(":");
-    if (version !== "v1" || !iv || !tag || ct === undefined) throw new SecretsUnreadable();
+    if ((version !== "v1" && version !== "v2") || !iv || !tag || ct === undefined) throw new SecretsUnreadable();
+    const tagBytes = Buffer.from(tag, "base64");
+    if (tagBytes.length !== 16) throw new SecretsUnreadable();
     try {
-      const decipher = createDecipheriv("aes-256-gcm", this.key, Buffer.from(iv, "base64"));
-      decipher.setAuthTag(Buffer.from(tag, "base64"));
+      const decipher = createDecipheriv("aes-256-gcm", this.key, Buffer.from(iv, "base64"), { authTagLength: 16 });
+      // v1 (the first deploy) had no binding.
+      if (version === "v2") decipher.setAAD(Buffer.from(bind, "utf8"));
+      decipher.setAuthTag(tagBytes);
       const json = Buffer.concat([decipher.update(Buffer.from(ct, "base64")), decipher.final()]).toString("utf8");
       return JSON.parse(json) as Record<string, string>;
     } catch {

@@ -37,7 +37,14 @@ export class Live<T> {
       this.value = next;
       if (this.started) {
         await this.stopOne(old);
-        this.hooks.start?.(next);
+        try {
+          this.hooks.start?.(next);
+        } catch (err) {
+          // The new one won't run: put the old one back so the server and the config agree.
+          this.value = old;
+          this.hooks.start?.(old);
+          return err instanceof Error ? err.message : String(err);
+        }
       }
       return undefined;
     });

@@ -52,7 +52,7 @@ export class IntegrationStore {
   }
 
   async put(entry: { kind: string; id: string; data: Record<string, unknown>; secrets: Record<string, string>; meta?: EntryMeta }, actor: string, action = "saved"): Promise<void> {
-    const secrets = Object.keys(entry.secrets).length ? this.box().seal(entry.secrets) : null;
+    const secrets = Object.keys(entry.secrets).length ? this.box().seal(entry.secrets, `${entry.kind}/${entry.id}`) : null;
     await this.pool.query(
       `insert into integration_entries (kind, id, data, secrets_enc, meta) values ($1, $2, $3, $4, $5)
        on conflict (kind, id) do update set data = excluded.data, secrets_enc = excluded.secrets_enc, meta = excluded.meta, updated_at = now()`,
@@ -107,7 +107,7 @@ export class IntegrationStore {
     let unreadable = false;
     if (r.secrets_enc) {
       try {
-        secrets = this.box().open(r.secrets_enc);
+        secrets = this.box().open(r.secrets_enc, `${r.kind}/${r.id}`);
       } catch (err) {
         if (!(err instanceof SecretsUnreadable)) throw err;
         unreadable = true;

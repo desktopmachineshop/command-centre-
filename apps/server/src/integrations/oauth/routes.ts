@@ -6,7 +6,7 @@ import { type AuthHttpOptions, clientIp, readSessionToken, requireApiAuth } from
 import type { AuthService } from "../../accounts/service";
 import { CATALOG, KINDS, type KindDef, type OAuthProvider } from "../catalog";
 import { validateFields } from "../effective";
-import { actorOf } from "../routes";
+import { actorOf, integrationBodyLimit } from "../routes";
 import { IntegrationError, type IntegrationService } from "../service";
 import type { IntegrationStore } from "../store";
 import { google, youtube } from "./google";
@@ -91,6 +91,7 @@ export function integrationOAuth(deps: OAuthDeps) {
   const requireAuth = requireApiAuth(deps.auth, deps.authHttp);
 
   const api = new Hono();
+  api.use("/integrations/*", integrationBodyLimit);
   api.onError((err, c) => {
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof IntegrationError) return c.json({ error: err.message, fields: err.fields }, err.status);

@@ -1,4 +1,5 @@
 import { type Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { IntegrationError, type IntegrationService } from "./service";
 
@@ -8,6 +9,9 @@ export function actorOf(c: Context): string {
   return p?.kind === "user" ? p.user.email : "admin token";
 }
 
+/** Credentials and settings are small; refuse anything bigger before parsing it. */
+export const integrationBodyLimit = bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "too large" }, 413) });
+
 const Patch = z.object({
   data: z.record(z.string(), z.unknown()).optional(),
   secrets: z.record(z.string(), z.string().max(8192).nullable()).optional(),
@@ -16,6 +20,7 @@ const Patch = z.object({
 /** /integrations/*: the Accounts page. Mounted behind /api's auth; responses never contain secrets. */
 export function integrationRoutes(service: IntegrationService) {
   const app = new Hono();
+  app.use("/integrations/*", integrationBodyLimit);
   app.onError((err, c) => {
     if (err instanceof IntegrationError) return c.json({ error: err.message, fields: err.fields }, err.status);
     throw err;

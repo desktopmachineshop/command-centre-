@@ -1,7 +1,7 @@
 import { type AdapterContext, refreshInstagramToken, refreshThreadsToken } from "@cc/social";
 import type { Notifier } from "../push";
 import { KINDS } from "./catalog";
-import type { IntegrationService } from "./service";
+import { IntegrationError, type IntegrationService } from "./service";
 
 const DAY_MS = 86_400_000;
 /** Renew Meta tokens this close to expiry (they last 60 days; a refresh needs one at least a day old). */
@@ -53,10 +53,12 @@ export async function refreshExpiringTokens(options: {
       if (expiresAt > now().getTime()) {
         try {
           const t = await REFRESHERS[kind]!(token, ctx);
-          await options.service.save(kind, entry.id, { secrets: { accessToken: t.accessToken } }, "system", { expiresAt: t.expiresAt, refreshError: undefined });
+          await options.service.save(kind, entry.id, { secrets: { accessToken: t.accessToken } }, "system", { expiresAt: t.expiresAt, refreshError: undefined }, { ifUpdatedAt: entry.updatedAt });
           newExpiry = Date.parse(t.expiresAt);
           result.refreshed.push(key);
         } catch (err) {
+          // Reconnected while this ran: the new sign-in wins; nothing to renew or report.
+          if (err instanceof IntegrationError && err.status === 409) continue;
           error = (err as Error).message;
           result.failed.push(key);
           await options.service.patchMeta(kind, entry.id, { refreshError: error.slice(0, 300) }).catch(() => {});

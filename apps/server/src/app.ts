@@ -174,8 +174,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- end integrations ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---
-  const buildEmail = (c: Config) => {
-    const accounts = c.email.accounts;
+  /** `strict` at boot (Railway's EMAIL_ACCOUNTS stops the server, as before); on reload a mailbox for a missing business is left out alone. */
+  const buildEmail = (c: Config, strict = false) => {
+    const accounts = strict ? c.email.accounts : c.email.accounts.filter((a) => {
+      const known = verticals.all().some((v) => v.id === a.vertical);
+      if (!known) console.warn(`[email] skipping ${a.id}: business "${a.vertical}" doesn't exist`);
+      return known;
+    });
     for (const a of accounts) verticals.require(a.vertical);
     return {
       accounts,
@@ -185,7 +190,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         : undefined,
     };
   };
-  const email = new Live(buildEmail(config), { start: (v) => v.poller?.start(), stop: (v) => v.poller?.stop() });
+  const email = new Live(buildEmail(config, true), { start: (v) => v.poller?.start(), stop: (v) => v.poller?.stop() });
   // --- end email ---
 
   // --- Social: accounts checked against the adapters, executors, media, scheduled posts; inbound starts in start() ---
