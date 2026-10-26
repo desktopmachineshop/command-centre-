@@ -5,7 +5,7 @@
  */
 
 export interface SpeakableOptions {
-  /** Cut at a sentence boundary near this length (default 600 characters, about 40 seconds). */
+  /** Cut at a sentence boundary near this length (default 4000 characters, about four minutes: read everything but a runaway answer). */
   maxChars?: number;
   /** Appended when the text was cut. */
   more?: string;
@@ -15,7 +15,7 @@ const DEFAULT_MORE = "There's more on screen when you're parked.";
 
 export function speakable(input: string | null | undefined, options: SpeakableOptions = {}): string {
   if (!input) return "";
-  const max = options.maxChars ?? 600;
+  const max = options.maxChars ?? 4000;
   let t = input.replace(/\r\n?/g, "\n");
   t = t.replace(/```[\s\S]*?```/g, " "); // code blocks
   t = t.replace(/`([^`]*)`/g, "$1");

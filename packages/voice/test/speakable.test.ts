@@ -28,6 +28,11 @@ describe("speakable", () => {
     expect(spokenUsd(0.001)).toBe("less than a cent");
   });
 
+  it("reads a long answer in full by default", () => {
+    const long = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} is here.`).join(" ");
+    expect(speakable(long)).toBe(long);
+  });
+
   it("cuts long text at a sentence", () => {
     const long = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} is here.`).join(" ");
     const out = speakable(long, { maxChars: 100 });

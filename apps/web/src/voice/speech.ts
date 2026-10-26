@@ -238,12 +238,17 @@ export function pickVoice<V extends VoiceLike>(voices: V[], lang = "en-GB"): V |
   return ranked[0]?.[1] ?? null;
 }
 
-/** Sentence-sized chunks: Chrome stops long utterances after about 15 seconds. */
-export function chunkForSpeech(text: string, max = 220): string[] {
+/**
+ * Sentence-sized chunks of at most `max` characters: Chrome (Android especially) stops a single
+ * utterance after about 15 seconds, so a sentence longer than `max` is split at a comma, colon
+ * or semicolon, else between words.
+ */
+export function chunkForSpeech(text: string, max = 160): string[] {
   const sentences = text.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) ?? [text];
+  const pieces = sentences.map((x) => x.trim()).filter(Boolean).flatMap((s) => splitLong(s, max));
   const chunks: string[] = [];
   let current = "";
-  for (const s of sentences.map((x) => x.trim()).filter(Boolean)) {
+  for (const s of pieces) {
     if ((current + " " + s).trim().length > max && current) {
       chunks.push(current);
       current = s;
@@ -251,6 +256,21 @@ export function chunkForSpeech(text: string, max = 220): string[] {
   }
   if (current) chunks.push(current);
   return chunks;
+}
+
+function splitLong(sentence: string, max: number): string[] {
+  if (sentence.length <= max) return [sentence];
+  const out: string[] = [];
+  let rest = sentence;
+  while (rest.length > max) {
+    const head = rest.slice(0, max);
+    const clause = Math.max(head.lastIndexOf(", "), head.lastIndexOf("; "), head.lastIndexOf(": "), head.lastIndexOf(" - "));
+    const at = clause > max * 0.4 ? clause + 1 : head.lastIndexOf(" ") > 0 ? head.lastIndexOf(" ") : max;
+    out.push(rest.slice(0, at).trim());
+    rest = rest.slice(at).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
 }
 
 export function hasSynthesis(): boolean {
@@ -291,12 +311,24 @@ export class BrowserSpeaker implements Speaker {
         u.lang = this.voice?.lang ?? this.lang;
         if (this.voice) u.voice = this.voice;
         u.rate = this.rate;
-        // Some engines never fire `end`; don't hang the loop on them.
-        const guard = setTimeout(resolve, 4000 + chunk.length * 90);
-        u.onend = u.onerror = () => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
           clearTimeout(guard);
+          clearInterval(poll);
           resolve();
         };
+        u.onend = u.onerror = finish;
+        // Some engines never fire `end`. Don't hang on them, but don't move on (and open the mic,
+        // which stops the voice) while it is still talking either: after a generous estimate,
+        // wait for the engine to go quiet.
+        let poll: ReturnType<typeof setInterval> | undefined;
+        const guard = setTimeout(() => {
+          poll = setInterval(() => {
+            if (!speechSynthesis.speaking && !speechSynthesis.pending) finish();
+          }, 250);
+        }, 3000 + chunk.length * 120);
         speechSynthesis.speak(u);
       });
     }
@@ -320,16 +352,28 @@ export class ServerSpeaker implements Speaker {
   async speak(text: string): Promise<void> {
     this.cancel();
     const gen = ++this.generation;
-    const blob = await this.synthesize(text);
-    if (gen !== this.generation) return;
-    this.url = URL.createObjectURL(blob);
-    this.audio.src = this.url;
-    await new Promise<void>((resolve, reject) => {
-      this.audio.onended = () => resolve();
-      this.audio.onpause = () => resolve();
-      this.audio.onerror = () => reject(new Error("Couldn't play the server voice"));
-      this.audio.play().catch(reject);
-    });
+    // The server speaks up to 2000 characters at a time; longer answers go in parts, the next
+    // one fetched while the current one plays.
+    const parts = chunkForSpeech(text, 1500);
+    let next = this.synthesize(parts[0]!);
+    for (let i = 0; i < parts.length; i++) {
+      const blob = await next;
+      if (gen !== this.generation) return;
+      if (i + 1 < parts.length) {
+        next = this.synthesize(parts[i + 1]!);
+        next.catch(() => {}); // handled when awaited
+      }
+      if (this.url) URL.revokeObjectURL(this.url);
+      this.url = URL.createObjectURL(blob);
+      this.audio.src = this.url;
+      await new Promise<void>((resolve, reject) => {
+        this.audio.onended = () => resolve();
+        this.audio.onpause = () => resolve();
+        this.audio.onerror = () => reject(new Error("Couldn't play the server voice"));
+        this.audio.play().catch(reject);
+      });
+      if (gen !== this.generation) return;
+    }
   }
 
   cancel() {

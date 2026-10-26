@@ -22,4 +22,15 @@ describe("chunkForSpeech", () => {
     expect(chunkForSpeech(text, 20)).toEqual(["One two three.", "Four five six!", "Seven eight nine?"]);
     expect(chunkForSpeech(text)).toEqual([text]);
   });
+
+  it("splits an overlong sentence at clauses, then words, and loses nothing", () => {
+    const long = `${Array.from({ length: 12 }, (_, i) => `the order for customer number ${i} shipped today`).join(", ")} and that is all.`;
+    const chunks = chunkForSpeech(long);
+    expect(chunks.length).toBeGreaterThan(3);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(160);
+    expect(chunks.join(" ")).toBe(long);
+    const words = chunkForSpeech("word ".repeat(100).trim(), 50);
+    for (const c of words) expect(c.length).toBeLessThanOrEqual(50);
+    expect(words.join(" ")).toBe("word ".repeat(100).trim());
+  });
 });
