@@ -17,6 +17,8 @@ export interface ListenOptions {
   onInterim?: (text: string) => void;
   /** Silence after speech that ends Dave's turn (default 2.5 s). */
   endOfTurnMs?: number;
+  /** Longest a turn can last, so background chatter can't keep it open (default 60 s; Send ends it any time). */
+  maxTurnMs?: number;
 }
 
 export interface Listener {
@@ -71,7 +73,7 @@ export class BrowserListener implements Listener {
    * short pause mid-sentence doesn't send half an answer. Gives up after `timeoutMs` if he says
    * nothing. Android may end a continuous session by itself; before any speech it is restarted.
    */
-  listen({ lang, timeoutMs, onInterim, endOfTurnMs = 2500 }: ListenOptions): Promise<string | null> {
+  listen({ lang, timeoutMs, onInterim, endOfTurnMs = 2500, maxTurnMs = 60_000 }: ListenOptions): Promise<string | null> {
     const Ctor = recognitionCtor();
     if (!Ctor) return Promise.reject(new Error("Speech recognition isn't available in this browser"));
     this.stop();
@@ -89,6 +91,7 @@ export class BrowserListener implements Listener {
         settled = true;
         clearTimeout(timer);
         clearTimeout(endTimer);
+        clearTimeout(cap);
         if (this.current === rec) this.current = null;
         this.stopTurn = null;
         try {
@@ -102,6 +105,7 @@ export class BrowserListener implements Listener {
       const timer = setTimeout(() => {
         if (!heard) finish(null);
       }, timeoutMs);
+      const cap = setTimeout(() => finish(text() || null), maxTurnMs);
       const armEnd = () => {
         clearTimeout(endTimer);
         endTimer = setTimeout(() => finish(text() || null), endOfTurnMs);

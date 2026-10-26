@@ -94,6 +94,23 @@ describe("BrowserListener", () => {
     expect(await p).toBe("yes approve");
   });
 
+  it("background chatter can't keep a turn open: it ends after a minute, and Send ends it any time", async () => {
+    const l = setup();
+    let result: string | null | undefined;
+    void l.listen({ lang: "en-GB", timeoutMs: 8000 }).then((r) => (result = r));
+    for (let i = 0; i < 30; i++) {
+      FakeRecognition.last.say(`chatter ${i}`);
+      await vi.advanceTimersByTimeAsync(2000); // never a 2.5 s pause
+    }
+    expect(result).toMatch(/^chatter 0 chatter 1 .* chatter 29$/);
+
+    const p = l.listen({ lang: "en-GB", timeoutMs: 8000 });
+    FakeRecognition.last.say("I'm done");
+    FakeRecognition.last.say("radio noise");
+    l.stop();
+    expect(await p).toBe("I'm done radio noise");
+  });
+
   it("gives up with nothing heard after the timeout, even if the engine stops early", async () => {
     const l = setup();
     let result: string | null | undefined;
