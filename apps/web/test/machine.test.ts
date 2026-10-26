@@ -112,4 +112,27 @@ describe("drive state machine", () => {
     expect(barged.phase).toBe("listening");
     expect(barged.seq).toBeGreaterThan(speaking.seq);
   });
+
+  it("reads an answer in full: a headset press or another message doesn't cut it off", () => {
+    const speaking = run(initialDriveState("conversational"), converse);
+    expect(run(speaking, { type: "press", source: "headset" })).toBe(speaking);
+    const queued = run(speaking, { type: "say", text: "I couldn't load the approvals.", expect: "none" });
+    expect(queued).toMatchObject({ phase: "speaking", utterance: "Which supplier?", pending: { text: "I couldn't load the approvals." } });
+    // The queued message is spoken once the answer has finished.
+    const after = run(queued, { type: "spoken" });
+    expect(after).toMatchObject({ phase: "speaking", utterance: "I couldn't load the approvals." });
+  });
+
+  it("the screen button interrupts speech; while listening a press sends", () => {
+    const speaking = run(initialDriveState("conversational"), converse);
+    const interrupted = run(speaking, { type: "press", source: "screen" });
+    expect(interrupted.phase).toBe("listening");
+    expect(run(interrupted, { type: "press", source: "headset" }).phase).toBe("idle");
+  });
+
+  it("conversation mode only listens once speech has finished", () => {
+    const s = run(initialDriveState("conversational"), converse);
+    expect(s.phase).toBe("speaking");
+    expect(run(s, { type: "spoken" }).phase).toBe("listening");
+  });
 });

@@ -46,9 +46,18 @@ const STILL_WORKING = "Still working on it.";
 const CUE_EVERY_MS = 20_000;
 const POLL_EVERY_MS = 4_000;
 
+/** The main button: Interrupt while it talks, Send when it's Dave's turn. */
+const PTT_LABEL: Record<DriveState["phase"], string> = {
+  idle: "Talk",
+  listening: "Send",
+  sending: "Sending…",
+  waiting: "Talk",
+  speaking: "Interrupt",
+};
+
 const PHASE_LABEL: Record<DriveState["phase"], string> = {
   idle: "Tap to talk",
-  listening: "Listening…",
+  listening: "Your turn: speak, then pause or tap Send",
   sending: "One moment…",
   waiting: "Working on it…",
   speaking: "Speaking…",
@@ -383,20 +392,24 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   }, [state.phase, state.seq, state.utterance]);
 
   // ----- input -----
-  const press = useCallback(() => {
+  /** The main button: Talk, Interrupt while speaking, Send while listening. */
+  const press = useCallback((source: "screen" | "headset" = "screen") => {
     setNotice(null);
     if (!headsetRef.current) {
-      headsetRef.current = new HeadsetButton(() => pressRef.current());
+      headsetRef.current = new HeadsetButton(() => pressRef.current("headset"));
     }
     // Started from a tap, as autoplay rules require; then the headset button works too.
     if (!headsetRef.current.active) void headsetRef.current.start().then(() => setHeadset(headsetRef.current?.active ?? false));
     const s = stateRef.current;
     if (s.phase === "listening") {
-      listenerRef.current?.stop(); // finish now; what was heard is still used
+      listenerRef.current?.stop(); // Send: finish now; what was heard is still used
       return;
     }
     if (s.phase === "sending") return;
-    dispatch({ type: "press" });
+    // The phone pauses media (firing the headset handler) when it starts talking: never let
+    // that cut an answer off. Interrupting is the screen button's job.
+    if (s.phase === "speaking" && source === "headset") return;
+    dispatch({ type: "press", source });
   }, []);
   const pressRef = useRef(press);
   pressRef.current = press;
@@ -466,11 +479,14 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
       <button
         type="button"
         className={`drive-ptt ${state.phase}`}
-        onClick={press}
+        onClick={() => press("screen")}
         disabled={busy}
-        aria-label={state.phase === "listening" ? "Stop listening" : state.phase === "speaking" ? "Interrupt and talk" : "Talk"}
+        aria-label={PTT_LABEL[state.phase]}
       >
-        <MicIcon />
+        <span className="drive-ptt-inner">
+          {state.phase === "speaking" ? <StopIcon /> : state.phase === "listening" ? <SendIcon /> : <MicIcon />}
+          <span className="drive-ptt-label">{PTT_LABEL[state.phase]}</span>
+        </span>
       </button>
 
       <p className="drive-caption" aria-live="polite">
@@ -549,9 +565,25 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   );
 }
 
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z" />
+    </svg>
+  );
+}
+
 function MicIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="40%" height="40%" aria-hidden="true" focusable="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
         fill="currentColor"
         d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.92V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.08A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 0 0 10 0Z"

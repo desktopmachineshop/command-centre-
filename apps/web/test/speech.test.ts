@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { chunkForSpeech, pickVoice } from "../src/voice/speech";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { BrowserListener, chunkForSpeech, pickVoice } from "../src/voice/speech";
 
 const v = (name: string, lang: string, localService = true) => ({ name, lang, localService, default: false });
 
@@ -32,5 +32,76 @@ describe("chunkForSpeech", () => {
     const words = chunkForSpeech("word ".repeat(100).trim(), 50);
     for (const c of words) expect(c.length).toBeLessThanOrEqual(50);
     expect(words.join(" ")).toBe("word ".repeat(100).trim());
+  });
+});
+
+/** A stand-in for the Web Speech API recognition object. */
+class FakeRecognition {
+  static last: FakeRecognition;
+  lang = "";
+  continuous = false;
+  interimResults = false;
+  maxAlternatives = 1;
+  onresult: ((e: unknown) => void) | null = null;
+  onerror: ((e: unknown) => void) | null = null;
+  onend: (() => void) | null = null;
+  onspeechstart: (() => void) | null = null;
+  results: { isFinal: boolean; 0: { transcript: string } }[] = [];
+  constructor() {
+    FakeRecognition.last = this;
+  }
+  start() {}
+  stop() {
+    this.onend?.();
+  }
+  abort() {}
+  say(transcript: string) {
+    this.results.push({ isFinal: true, 0: { transcript } });
+    this.onresult?.({ resultIndex: this.results.length - 1, results: this.results });
+  }
+}
+
+describe("BrowserListener", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+  const setup = () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { SpeechRecognition: FakeRecognition });
+    vi.stubGlobal("SpeechRecognition", FakeRecognition);
+    return new BrowserListener();
+  };
+
+  it("keeps listening through a short pause and ends the turn after 2.5 s of quiet", async () => {
+    const l = setup();
+    let result: string | null | undefined;
+    void l.listen({ lang: "en-GB", timeoutMs: 8000 }).then((r) => (result = r));
+    FakeRecognition.last.say("order more collets");
+    await vi.advanceTimersByTimeAsync(1000);
+    FakeRecognition.last.say("from the usual supplier");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(result).toBe("order more collets from the usual supplier");
+  });
+
+  it("Send ends the turn at once with what was heard", async () => {
+    const l = setup();
+    const p = l.listen({ lang: "en-GB", timeoutMs: 8000 });
+    FakeRecognition.last.say("yes approve");
+    l.stop();
+    expect(await p).toBe("yes approve");
+  });
+
+  it("gives up with nothing heard after the timeout, even if the engine stops early", async () => {
+    const l = setup();
+    let result: string | null | undefined;
+    void l.listen({ lang: "en-GB", timeoutMs: 8000 }).then((r) => (result = r));
+    FakeRecognition.last.onend?.(); // Android ends the session by itself: it restarts
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(result).toBeNull();
   });
 });

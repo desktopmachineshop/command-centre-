@@ -69,8 +69,11 @@ export interface Say {
 export type DriveAction =
   | { type: "mode"; mode: VoiceMode }
   | { type: "followUp"; on: boolean }
-  /** Push-to-talk button, screen tap or headset play/pause. */
-  | { type: "press" }
+  /**
+   * The main button (screen) or a headset / steering-wheel button. While speaking only the
+   * screen button interrupts: the phone itself fires media "pause" when it starts talking.
+   */
+  | { type: "press"; source?: "screen" | "headset" }
   | { type: "heard"; text: string }
   /** Listening ended with nothing heard. */
   | { type: "silence" }
@@ -141,8 +144,10 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
 
     case "press":
       switch (state.phase) {
+        case "speaking": // Interrupt (screen only)
+          if (action.source === "headset") return state;
+          return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, stillThereAsked: false, error: null };
         case "idle":
-        case "speaking": // barge in
         case "waiting": // speak over a long run (e.g. "cancel")
           return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, stillThereAsked: false, error: null };
         case "listening":
@@ -174,8 +179,9 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
 
     case "say": {
       const { type: _type, background, ...say } = action;
-      // Don't talk over Dave, and let an agent answer that arrives late wait its turn.
-      const busy = state.phase === "listening" || (background && (state.phase === "sending" || state.phase === "speaking"));
+      // Don't talk over Dave, never cut off what is being said (it is read in full), and let an
+      // agent answer that arrives while a request is being sent wait its turn.
+      const busy = state.phase === "listening" || state.phase === "speaking" || (background && state.phase === "sending");
       if (busy) return { ...state, pending: say };
       return speak(state, say);
     }
@@ -207,6 +213,9 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
 }
 
 /** How long to listen before treating it as silence. */
+/** How long a pause ends Dave's turn (he can also tap Send). */
+export const END_OF_TURN_MS = 2500;
+
 export function listenTimeoutMs(state: DriveState): number {
   if (state.mode === "push") return 10_000;
   return state.expect === "command" ? 5_000 : 8_000;

@@ -15,6 +15,8 @@ export interface ListenOptions {
   timeoutMs: number;
   /** Called with partial transcripts while Dave speaks. */
   onInterim?: (text: string) => void;
+  /** Silence after speech that ends Dave's turn (default 2.5 s). */
+  endOfTurnMs?: number;
 }
 
 export interface Listener {
@@ -64,70 +66,106 @@ export class BrowserListener implements Listener {
   readonly kind = "browser";
   private current: Recognition | null = null;
 
-  listen({ lang, timeoutMs, onInterim }: ListenOptions): Promise<string | null> {
+  /**
+   * Listens until Dave pauses for `endOfTurnMs` after speaking (or Send calls `stop()`), so a
+   * short pause mid-sentence doesn't send half an answer. Gives up after `timeoutMs` if he says
+   * nothing. Android may end a continuous session by itself; before any speech it is restarted.
+   */
+  listen({ lang, timeoutMs, onInterim, endOfTurnMs = 2500 }: ListenOptions): Promise<string | null> {
     const Ctor = recognitionCtor();
     if (!Ctor) return Promise.reject(new Error("Speech recognition isn't available in this browser"));
     this.stop();
-    const rec = new Ctor();
-    this.current = rec;
-    rec.lang = lang;
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.maxAlternatives = 1;
     return new Promise((resolve, reject) => {
       let finalText = "";
       let interim = "";
       let heard = false;
       let settled = false;
+      let stopping = false;
+      let rec: Recognition;
+      let endTimer: ReturnType<typeof setTimeout> | undefined;
+      const text = () => `${finalText} ${interim}`.replace(/\s+/g, " ").trim();
       const finish = (value: string | null, error?: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearTimeout(endTimer);
         if (this.current === rec) this.current = null;
+        this.stopTurn = null;
+        try {
+          rec.abort();
+        } catch {
+          // already ended
+        }
         if (error) reject(error);
         else resolve(value?.trim() ? value.trim() : null);
       };
       const timer = setTimeout(() => {
-        if (!heard) {
-          rec.abort();
-          finish(null);
-        }
+        if (!heard) finish(null);
       }, timeoutMs);
-      rec.onspeechstart = () => {
-        heard = true;
+      const armEnd = () => {
+        clearTimeout(endTimer);
+        endTimer = setTimeout(() => finish(text() || null), endOfTurnMs);
       };
-      rec.onresult = (e) => {
-        heard = true;
-        interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const r = e.results[i]!;
-          if (r.isFinal) finalText += r[0]!.transcript;
-          else interim += r[0]!.transcript;
-        }
-        onInterim?.(`${finalText}${interim}`);
-        if (finalText) {
-          finish(finalText);
-          rec.stop();
-        }
+      // Send: end the turn now with what was heard.
+      this.stopTurn = () => {
+        stopping = true;
+        finish(text() || null);
       };
-      rec.onerror = (e) => {
-        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-          finish(null, new VoicePermissionError("Microphone or speech recognition permission was refused"));
-        } else if (e.error === "no-speech" || e.error === "aborted") finish(`${finalText}${interim}` || null);
-        else if (e.error === "network") finish(null, new Error("Speech recognition needs a network connection"));
-        else finish(null, new Error(`Speech recognition failed (${e.error})`));
-      };
-      rec.onend = () => finish(`${finalText}${interim}` || null);
-      try {
+      const start = () => {
+        rec = new Ctor();
+        this.current = rec;
+        rec.lang = lang;
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.maxAlternatives = 1;
+        rec.onspeechstart = () => {
+          heard = true;
+        };
+        rec.onresult = (e) => {
+          heard = true;
+          interim = "";
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            const r = e.results[i]!;
+            if (r.isFinal) finalText = `${finalText} ${r[0]!.transcript}`;
+            else interim += r[0]!.transcript;
+          }
+          onInterim?.(text());
+          armEnd();
+        };
+        rec.onerror = (e) => {
+          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+            finish(null, new VoicePermissionError("Microphone or speech recognition permission was refused"));
+          } else if (e.error === "network") finish(null, new Error("Speech recognition needs a network connection"));
+          else if (e.error !== "no-speech" && e.error !== "aborted") finish(null, new Error(`Speech recognition failed (${e.error})`));
+        };
+        rec.onend = () => {
+          if (settled || stopping) return;
+          // The engine stopped by itself: after speech, that's the end of the turn; before
+          // any, keep listening until the timeout.
+          if (heard) finish(text() || null);
+          else {
+            try {
+              start();
+            } catch (err) {
+              finish(null, err as Error);
+            }
+          }
+        };
         rec.start();
+      };
+      try {
+        start();
       } catch (err) {
         finish(null, err as Error);
       }
     });
   }
 
+  private stopTurn: (() => void) | null = null;
+
   stop() {
-    this.current?.stop();
+    if (this.stopTurn) this.stopTurn();
+    else this.current?.stop();
   }
 }
 
@@ -144,7 +182,7 @@ export class RecorderListener implements Listener {
     private readonly maxSeconds = 30,
   ) {}
 
-  async listen({ lang, timeoutMs }: ListenOptions): Promise<string | null> {
+  async listen({ lang, timeoutMs, endOfTurnMs = 2500 }: ListenOptions): Promise<string | null> {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -185,7 +223,7 @@ export class RecorderListener implements Listener {
         quietSince = now;
       }
       if (!heardAt && now - started > timeoutMs) stop();
-      if (heardAt && now - quietSince > 1300) stop();
+      if (heardAt && now - quietSince > endOfTurnMs) stop();
       if (now - started > this.maxSeconds * 1000) stop();
     }, 100);
 
