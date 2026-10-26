@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useInstall } from "../install";
+import { useUpdate } from "../update";
 import type { Api } from "../api";
 import { Icon } from "../icons";
 import { PageHead } from "../ui";
@@ -15,6 +16,8 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }) {
   const install = useInstall();
+  const update = useUpdate();
+  const [checking, setChecking] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   const enablePush = async () => {
@@ -60,6 +63,28 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
             <strong>Add to Home Screen</strong>. On a PC, use the install icon in the address bar.
           </p>
         )}
+        <div className="row between acc-version">
+          <span className="small muted">
+            Version <code>{update.version.slice(0, 7)}</code>
+            {checking && ` · ${checking}`}
+          </span>
+          {update.available ? (
+            <button type="button" className="primary small" onClick={update.update}>
+              <Icon name="refresh" /> Update now
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="small"
+              onClick={async () => {
+                setChecking("Checking…");
+                setChecking((await update.check()) ? "Update ready" : "Up to date");
+              }}
+            >
+              <Icon name="refresh" /> Check for updates
+            </button>
+          )}
+        </div>
       </div>
       <div className="card">
         <div className="card-head">

@@ -1,6 +1,6 @@
 // Service worker: offline app shell + web push notifications.
 importScripts("/sw-notify.js"); // notifications
-const SHELL = "cc-shell-v4";
+const SHELL = "cc-shell-v5";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/maskable-512.png", "/sw-notify.js"])));
@@ -17,7 +17,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.origin !== self.location.origin) return;
-  if (["/api", "/ws", "/mcp", "/media"].some((p) => url.pathname.startsWith(p))) return;
+  if (["/api", "/ws", "/mcp", "/media", "/oauth", "/version.json"].some((p) => url.pathname.startsWith(p))) return;
   // Network first so deploys show up immediately; cache is the offline fallback.
   event.respondWith(
     fetch(event.request)

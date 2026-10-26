@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useInstall } from "./install";
+import { checkForUpdate, useUpdate } from "./update";
 import { ApiError, COOKIE_SESSION, type Connection, createApi, loadConnection, saveConnection } from "./api";
 import { usd } from "./format";
 import { LiveFeed, useLive, useLoad } from "./live";
@@ -157,10 +158,15 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   const phone = useMedia(PHONE);
   const [moreOpen, setMoreOpen] = useState(false);
   const install = useInstall();
+  const update = useUpdate();
   const [verticals, setVerticals] = useState<Record<string, VerticalInfo>>({});
 
   useEffect(() => {
-    feed.onStatus = setOnline;
+    feed.onStatus = (connected) => {
+      setOnline(connected);
+      // A deploy restarts the server, so a reconnect is the moment a new version may be out.
+      if (connected) void checkForUpdate();
+    };
     return () => feed.close();
   }, [feed]);
   useEffect(() => {
@@ -308,6 +314,18 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
             </div>
           </header>
           <main className="main">
+            {update.available && (
+              <div className="install-banner card" role="region" aria-label="Update available">
+                <Icon name="refresh" />
+                <div className="grow">
+                  <strong>A new version of Command Centre is ready</strong>
+                  <div className="small muted">Update to get the latest changes.</div>
+                </div>
+                <button type="button" className="primary small" onClick={update.update}>
+                  Update
+                </button>
+              </div>
+            )}
             {phone && install.showBanner && page !== "settings" && (
               <div className="install-banner card" role="region" aria-label="Install app">
                 <Icon name="install" />

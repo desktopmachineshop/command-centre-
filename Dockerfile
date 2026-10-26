@@ -17,6 +17,8 @@ COPY packages/verticals/package.json packages/verticals/
 COPY packages/video/package.json packages/video/
 RUN pnpm install --frozen-lockfile
 COPY . .
+# Railway passes the commit being built; it becomes the web build id (dist/version.json).
+ARG RAILWAY_GIT_COMMIT_SHA
 RUN pnpm --filter @cc/web build && pnpm --filter @cc/server build
 RUN pnpm --filter @cc/server deploy --prod --legacy /out
 

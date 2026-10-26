@@ -536,9 +536,17 @@ export function createServer(config: Config, overrides: Overrides = {}) {
 
   if (config.webDistDir) {
     const root = config.webDistDir;
+    // The entry points must never be cached, or an installed app keeps running an old build.
+    app.use("/*", async (c, next) => {
+      await next();
+      const p = c.req.path;
+      if (p === "/sw.js" || p === "/version.json" || c.res.headers.get("content-type")?.startsWith("text/html")) {
+        c.res.headers.set("cache-control", "no-store");
+      }
+    });
     app.use("/*", serveStatic({ root }));
     // Single-page app: unknown paths get index.html so client-side routes work on reload.
-    app.get("*", async (c) => c.html(await readFile(join(root, "index.html"), "utf8")));
+    app.get("*", async (c) => c.html(await readFile(join(root, "index.html"), "utf8"), 200, { "cache-control": "no-store" }));
   }
 
   // --- integrations: rebuild what a saved or removed account changed (see integrations/live.ts) ---
