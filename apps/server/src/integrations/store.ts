@@ -61,6 +61,16 @@ export class IntegrationStore {
     await this.audit(actor, entry.kind, entry.id, action);
   }
 
+  /** Replaces data and secrets without an audit row (token rotation). */
+  async putQuietly(entry: { kind: string; id: string; data: Record<string, unknown>; secrets: Record<string, string> }): Promise<void> {
+    await this.pool.query("update integration_entries set data = $3, secrets_enc = $4, updated_at = now() where kind = $1 and id = $2", [
+      entry.kind,
+      entry.id,
+      entry.data,
+      this.box().seal(entry.secrets, `${entry.kind}/${entry.id}`),
+    ]);
+  }
+
   /** Merges into meta only (test results, expiry); no audit row. */
   async patchMeta(kind: string, id: string, meta: Partial<EntryMeta>): Promise<void> {
     await this.pool.query("update integration_entries set meta = meta || $3 where kind = $1 and id = $2", [kind, id, meta]);

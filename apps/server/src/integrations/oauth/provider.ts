@@ -1,4 +1,5 @@
 import { IG_GRAPH_BASE, REDDIT_API, REDDIT_TOKEN_URL, THREADS_BASE, X_API_BASE } from "@cc/social";
+import { MICROSOFT_LOGIN } from "@cc/email";
 import type { OAuthProvider } from "../catalog";
 
 /**
@@ -24,6 +25,8 @@ export interface Endpoints {
   redditAuthorize: string;
   redditToken: string;
   redditApi: string;
+  /** login.microsoftonline.com: /{tenant}/oauth2/v2.0/authorize and /token. */
+  microsoftLogin: string;
 }
 
 export const DEFAULT_ENDPOINTS: Endpoints = {
@@ -39,6 +42,7 @@ export const DEFAULT_ENDPOINTS: Endpoints = {
   redditAuthorize: "https://www.reddit.com/api/v1/authorize",
   redditToken: REDDIT_TOKEN_URL,
   redditApi: REDDIT_API,
+  microsoftLogin: MICROSOFT_LOGIN,
 };
 
 export interface ProviderDeps {

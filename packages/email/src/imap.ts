@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import type { EmailAccount } from "./accounts";
+import { imapAuth } from "./oauth";
 
 /**
  * The few IMAP operations the poller and executors need. `imapflowConnector`
@@ -33,7 +34,7 @@ export const imapflowConnector: ImapConnector = async (account) => {
     host: account.imap.host,
     port: account.imap.port,
     secure: account.imap.secure,
-    auth: { user: account.imap.user, pass: account.imap.pass },
+    auth: await imapAuth(account),
     logger: false,
   });
   // Without a listener an 'error' event would crash the process.

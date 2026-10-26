@@ -10,12 +10,13 @@ import { actorOf, integrationBodyLimit } from "../routes";
 import { IntegrationError, type IntegrationService } from "../service";
 import type { IntegrationStore } from "../store";
 import { google, youtube } from "./google";
+import { microsoft } from "./microsoft";
 import { instagram, threads } from "./meta";
 import { DEFAULT_ENDPOINTS, type Endpoints, OAuthFlowError, type ProviderDef, type ProviderDeps } from "./provider";
 import { reddit } from "./reddit";
 import { x } from "./x";
 
-export const PROVIDERS: Record<OAuthProvider, ProviderDef> = { google, youtube, instagram, threads, x, reddit };
+export const PROVIDERS: Record<OAuthProvider, ProviderDef> = { google, youtube, instagram, threads, x, reddit, microsoft };
 
 /** Sign-ins expire after 10 minutes. */
 const STATE_TTL_SECONDS = 600;

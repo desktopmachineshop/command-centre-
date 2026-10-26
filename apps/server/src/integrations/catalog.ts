@@ -9,7 +9,7 @@ export const GROUPS: readonly Group[] = ["runner", "triage", "voice", "odoo", "e
 
 export type Section = "ai" | "business" | "google" | "social" | "apps" | "settings";
 
-export type OAuthProvider = "google" | "youtube" | "instagram" | "threads" | "x" | "reddit";
+export type OAuthProvider = "google" | "youtube" | "instagram" | "threads" | "x" | "reddit" | "microsoft";
 
 export interface Field {
   key: string;
@@ -153,6 +153,24 @@ export const CATALOG: readonly KindDef[] = [
     ],
     affects: ["email"],
     helpUrl: "https://myaccount.google.com/apppasswords",
+  },
+  {
+    kind: "outlook",
+    label: "Outlook / Hotmail inbox",
+    section: "business",
+    description: "An Outlook.com, Hotmail, Live or Microsoft 365 mailbox. Microsoft only allows sign-in (no passwords), so press Connect. Replies always need your approval.",
+    multi: true,
+    oauth: "microsoft",
+    needsApp: "microsoft-app",
+    fields: [
+      vertical,
+      { key: "address", label: "Signed in as", type: "email", fromOAuth: true },
+      displayName,
+      { key: "refreshToken", label: "Refresh token", type: "secret", fromOAuth: true },
+      { key: "mailbox", label: "Folder", type: "text", default: "INBOX" },
+      { key: "ignoreFrom", label: "Ignore senders", type: "list", help: "Addresses or @domain, one per line." },
+    ],
+    affects: ["email"],
   },
   // --- Google ---
   {
@@ -304,6 +322,20 @@ export const CATALOG: readonly KindDef[] = [
     ],
     affects: ["social"],
     helpUrl: "https://www.reddit.com/prefs/apps",
+  },
+  {
+    kind: "microsoft-app",
+    label: "Microsoft app",
+    section: "apps",
+    description: "An app registration in Microsoft Entra (Azure portal → App registrations → New registration, \"Personal Microsoft accounts and work accounts\", platform Web). Used by Outlook / Hotmail sign-in.",
+    multi: false,
+    fields: [
+      { key: "clientId", label: "Application (client) ID", type: "text", required: true },
+      { key: "clientSecret", label: "Client secret (value)", type: "secret", required: true },
+      { key: "tenant", label: "Tenant", type: "text", default: "common", help: "\"common\" for Outlook.com/Hotmail and most work accounts." },
+    ],
+    affects: ["email"],
+    helpUrl: "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
   },
   // --- Settings (no secrets) ---
   {

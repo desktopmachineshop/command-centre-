@@ -6,7 +6,18 @@ const Server = z.object({
   /** true for implicit TLS (IMAP 993, SMTP 465); false uses STARTTLS when offered. */
   secure: z.boolean(),
   user: z.string().min(1),
-  pass: z.string().min(1),
+  /** Not used by OAuth mailboxes (`oauth`). */
+  pass: z.string().min(1).optional(),
+});
+
+/** Microsoft mailboxes (Outlook.com, Hotmail, Microsoft 365) sign in with OAuth; see oauth.ts. */
+const OAuth = z.object({
+  provider: z.literal("microsoft"),
+  clientId: z.string().min(1),
+  clientSecret: z.string().min(1).optional(),
+  /** "common" for personal and work accounts, or a tenant id. */
+  tenant: z.string().min(1).default("common"),
+  refreshToken: z.string().min(1),
 });
 
 export const EmailAccount = z.object({
@@ -26,7 +37,8 @@ export const EmailAccount = z.object({
    * which files SMTP-sent mail itself.
    */
   saveSent: z.boolean().optional(),
-});
+  oauth: OAuth.optional(),
+}).refine((a) => a.oauth || (a.imap.pass && a.smtp.pass), { message: "imap.pass and smtp.pass are needed (or oauth)", path: ["imap", "pass"] });
 export type EmailAccount = z.infer<typeof EmailAccount>;
 export type EmailAccountInput = z.input<typeof EmailAccount>;
 
@@ -53,6 +65,8 @@ export function parseEmailAccounts(json: string | undefined): EmailAccount[] {
 
 export function shouldSaveSent(account: EmailAccount): boolean {
   if (account.saveSent !== undefined) return account.saveSent;
+  // Gmail and Microsoft file SMTP-sent mail in Sent themselves.
+  if (account.oauth?.provider === "microsoft") return false;
   return !/(^|\.)(gmail|googlemail)\.com$/i.test(account.smtp.host);
 }
 

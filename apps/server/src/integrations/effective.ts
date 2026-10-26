@@ -127,6 +127,30 @@ export function emailAccountOf(e: EntryInput): EmailAccount {
   });
 }
 
+/** Personal Microsoft accounts send through smtp-mail.outlook.com; work (Microsoft 365) ones through smtp.office365.com. */
+const PERSONAL_MICROSOFT = /@(outlook|hotmail|live|msn|passport)\.[a-z.]+$/i;
+
+export function outlookAccountOf(e: EntryInput, entries: EntryInput[]): EmailAccount {
+  const app = single(entries, "microsoft-app");
+  const clientId = app ? str(app.data.clientId) : undefined;
+  if (!clientId) throw new Error("needs the Microsoft app (Developer apps → Microsoft app)");
+  const refreshToken = str(e.secrets.refreshToken);
+  const address = str(e.data.address);
+  if (!refreshToken || !address) throw new Error("not connected yet: press Connect");
+  const smtpHost = PERSONAL_MICROSOFT.test(address) ? "smtp-mail.outlook.com" : "smtp.office365.com";
+  return EmailAccount.parse({
+    id: e.id,
+    vertical: e.data.vertical,
+    address,
+    displayName: str(e.data.displayName),
+    imap: { host: "outlook.office365.com", port: 993, secure: true, user: address },
+    smtp: { host: smtpHost, port: 587, secure: false, user: address },
+    mailbox: str(e.data.mailbox) ?? "INBOX",
+    ignoreFrom: Array.isArray(e.data.ignoreFrom) ? e.data.ignoreFrom : [],
+    oauth: { provider: "microsoft", clientId, clientSecret: str(app!.secrets.clientSecret), tenant: str(app!.data.tenant) ?? "common", refreshToken },
+  });
+}
+
 export function socialAccountOf(e: EntryInput, entries: EntryInput[]): SocialAccount {
   const platform = e.kind as Platform;
   const def = KINDS.get(e.kind)!;
@@ -252,10 +276,10 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
   }
 
   // --- email ---
-  const emailEntries = entries.filter((e) => e.kind === "email");
+  const emailEntries = entries.filter((e) => e.kind === "email" || e.kind === "outlook");
   const emailAccounts = mergeById(
     base.email.accounts,
-    emailEntries.flatMap((e) => attempt(e, () => emailAccountOf(e)) ?? []),
+    emailEntries.flatMap((e) => attempt(e, () => (e.kind === "outlook" ? outlookAccountOf(e, entries) : emailAccountOf(e))) ?? []),
   );
 
   // --- social ---
@@ -373,6 +397,10 @@ export function railwayEntries(base: Config): EntryInput[] {
   if (p.elevenlabsApiKey) add("elevenlabs", DEFAULT_ID, {}, { apiKey: p.elevenlabsApiKey });
   if (base.odoo) add("odoo", DEFAULT_ID, { url: base.odoo.url, db: base.odoo.db, username: base.odoo.username, api: base.odoo.api }, { apiKey: base.odoo.apiKey });
   for (const m of base.email.accounts) {
+    if (m.oauth) {
+      add("outlook", m.id, { vertical: m.vertical, address: m.address, displayName: m.displayName, mailbox: m.mailbox, ignoreFrom: m.ignoreFrom }, { refreshToken: m.oauth.refreshToken });
+      continue;
+    }
     add(
       "email",
       m.id,

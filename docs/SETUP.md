@@ -177,6 +177,7 @@ straight away; only the changed integration restarts, and nothing redeploys.
   | Threads | Meta app → Threads use case → Settings | `/oauth/threads/callback` |
   | X | developer.x.com → app → User authentication settings: OAuth 1.0a, Read and write | `/oauth/x/callback` |
   | Reddit | reddit.com/prefs/apps → create a **web app** | `/oauth/reddit/callback` |
+  | Outlook / Hotmail | Azure portal → Microsoft Entra ID → App registrations → New registration: *Accounts in any organizational directory and personal Microsoft accounts*, platform **Web**. Then Certificates & secrets → New client secret (copy the **Value**), and API permissions → Add → APIs my organization uses → **Office 365 Exchange Online** → Delegated → `IMAP.AccessAsUser.All` and `SMTP.Send` | `/oauth/microsoft/callback` |
 
   Google: set the consent screen to **In production**, or the sign-in expires after 7 days.
   The old desktop-type client from `google:auth` can't be used for Connect; create a Web
@@ -416,7 +417,13 @@ Or run it locally over stdio against a clone: `BRAIN_DIR=~/brain pnpm --filter @
 
 ## Email
 
-> **Easiest:** Accounts page → Business → Email inboxes → Add email inbox (Gmail preset included). The variables below are the alternative.
+> **Easiest:** Accounts page → Business → Email inboxes → Add email inbox (Gmail preset included).
+> **Outlook.com / Hotmail / Live / Microsoft 365:** Microsoft no longer accepts passwords or app
+> passwords for IMAP and SMTP, so use Accounts page → Business → Outlook / Hotmail inbox →
+> Connect (after the one-time Microsoft app; see "Accounts page"). It reads over IMAP
+> (outlook.office365.com) and sends over SMTP (smtp-mail.outlook.com, or smtp.office365.com for
+> work accounts) with OAuth; Microsoft files sent mail in Sent itself.
+> The variables below are the alternative.
 
 
 Inboxes feed the command centre over IMAP, and replies go out over SMTP, so any provider works:

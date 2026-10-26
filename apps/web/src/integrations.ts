@@ -282,6 +282,7 @@ export const APP_PROVIDERS: Record<string, string[]> = {
   "threads-app": ["threads"],
   "x-app": ["x"],
   "reddit-app": ["reddit"],
+  "microsoft-app": ["microsoft"],
 };
 
 export function redirectUri(publicBaseUrl: string | null, provider: string): string | null {

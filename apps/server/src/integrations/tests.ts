@@ -1,4 +1,4 @@
-import { type EmailAccount, type ImapConnector, imapflowConnector } from "@cc/email";
+import { type EmailAccount, type ImapConnector, imapflowConnector, smtpAuth } from "@cc/email";
 import { OdooClient } from "@cc/odoo";
 import { createGoogleTokenProvider } from "@cc/pa";
 import { IG_GRAPH_BASE, REDDIT_API, REDDIT_TOKEN_URL, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
@@ -80,7 +80,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
 }
 
 const defaultSmtpVerify = async (account: EmailAccount): Promise<void> => {
-  const transport = nodemailer.createTransport({ host: account.smtp.host, port: account.smtp.port, secure: account.smtp.secure, auth: { user: account.smtp.user, pass: account.smtp.pass } });
+  const transport = nodemailer.createTransport({ host: account.smtp.host, port: account.smtp.port, secure: account.smtp.secure, auth: await smtpAuth(account) });
   try {
     await transport.verify();
   } finally {
@@ -118,6 +118,26 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
     const me = await json<{ username?: string; user_id?: string | number; id?: string }>(res);
     const account = me.username ? `@${me.username}` : String(me[idKey] ?? "");
     return ok(`${label} accepted the token${account ? ` (${account})` : ""}`, account || undefined);
+  };
+
+  /** IMAP login and open the folder, then an SMTP login: what the poller and replies need. */
+  const mailboxTest = async (account: EmailAccount, secrets: string[]) => {
+    try {
+      const session = await withTimeout((deps.imap ?? imapflowConnector)(account), timeoutMs, "IMAP login");
+      try {
+        await session.open(account.mailbox);
+      } finally {
+        await session.close().catch(() => {});
+      }
+    } catch (err) {
+      return fail(redact(`IMAP (${account.imap.host}): ${(err as Error).message}`, secrets).slice(0, 300));
+    }
+    try {
+      await withTimeout((deps.smtpVerify ?? defaultSmtpVerify)(account), timeoutMs, "SMTP login");
+    } catch (err) {
+      return fail(redact(`IMAP works, but SMTP (${account.smtp.host}): ${(err as Error).message}`, secrets).slice(0, 300));
+    }
+    return ok(`Signed in to IMAP and SMTP as ${account.imap.user}`, account.address);
   };
 
   const tests: Record<string, CredentialTest> = {
@@ -188,23 +208,13 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       } catch {
         return fail("The mailbox settings are incomplete");
       }
-      const secrets = [account.imap.pass, account.smtp.pass];
-      try {
-        const session = await withTimeout((deps.imap ?? imapflowConnector)(account), timeoutMs, "IMAP login");
-        try {
-          await session.open(account.mailbox);
-        } finally {
-          await session.close().catch(() => {});
-        }
-      } catch (err) {
-        return fail(redact(`IMAP (${account.imap.host}): ${(err as Error).message}`, secrets).slice(0, 300));
-      }
-      try {
-        await withTimeout((deps.smtpVerify ?? defaultSmtpVerify)(account), timeoutMs, "SMTP login");
-      } catch (err) {
-        return fail(redact(`IMAP works, but SMTP (${account.smtp.host}): ${(err as Error).message}`, secrets).slice(0, 300));
-      }
-      return ok(`Signed in to IMAP and SMTP as ${account.imap.user}`, account.address);
+      return mailboxTest(account, [account.imap.pass ?? "", account.smtp.pass ?? ""]);
+    },
+
+    async outlook(entry, config) {
+      const account = config.email.accounts.find((a) => a.id === entry.id && a.oauth);
+      if (!account) return fail("Not connected yet: press Connect (and add the Microsoft app's keys first)");
+      return mailboxTest(account, [account.oauth?.refreshToken ?? "", account.oauth?.clientSecret ?? ""]);
     },
 
     async google(entry, _config, ctx) {

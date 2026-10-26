@@ -3,6 +3,7 @@ import MailComposer from "nodemailer/lib/mail-composer";
 import { z } from "zod";
 import { type EmailAccount, shouldSaveSent } from "./accounts";
 import { type ImapConnector, imapflowConnector } from "./imap";
+import { smtpAuth } from "./oauth";
 
 /** Same shape as the server's `ActionExecutor`; the context is not needed here. */
 export interface EmailActionExecutor {
@@ -85,7 +86,7 @@ export function createEmailExecutors(
       host: a.smtp.host,
       port: a.smtp.port,
       secure: a.smtp.secure,
-      auth: { user: a.smtp.user, pass: a.smtp.pass },
+      auth: await smtpAuth(a),
     });
     try {
       const info = await transport.sendMail({ envelope: node.getEnvelope(), raw });

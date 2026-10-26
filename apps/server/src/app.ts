@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { Brain } from "@cc/brain";
-import { createEmailExecutors, EmailPoller, type ImapConnector } from "@cc/email";
+import { configureEmailOAuth, createEmailExecutors, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
 import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
 import {
@@ -84,6 +84,8 @@ export interface Overrides {
   videoMedia?: VideoMediaStore;
   /** fetch for Google Calendar and its token endpoint (tests use a fake). */
   calendarFetch?: typeof fetch;
+  /** SMTP login check behind the Accounts page's Test (tests use a fake). */
+  smtpVerify?: (account: EmailAccount) => Promise<void>;
   /** The CLI "Connect Claude" runs `setup-token` with (tests use a fake). */
   claudeSetupBin?: string;
   /** fetch for Google APIs (tests use a fake Drive). */
@@ -167,7 +169,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   const integrations = new IntegrationService(integrationStore, config, {
     verticals: () => verticals.all().map((v) => v.id),
-    tests: credentialTests({ fetch: overrides.integrationsFetch, imap: overrides.imap }), // --- integrations oauth ---
+    tests: credentialTests({ fetch: overrides.integrationsFetch, imap: overrides.imap, smtpVerify: overrides.smtpVerify }), // --- integrations oauth ---
     // A social account the platform adapter would reject: refused on save, and left out (not the whole group) on reload.
     check: (c, e) => {
       const account = c.social.accounts.find((a) => a.id === e.id && a.platform === e.kind);
@@ -179,6 +181,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     bin: overrides.claudeSetupBin ?? config.agent.claudeBin,
     env: agentEnv({ ...config, agent: { ...config.agent, oauthToken: undefined, fallbackApiKey: undefined } }, "subscription"),
   });
+  // Microsoft renews a mailbox's refresh token on every use: keep the newest (integrations/service.ts).
+  configureEmailOAuth({ onRotate: (id, token) => void integrations.rotateSecret("outlook", id, "refreshToken", token).catch((err) => console.error("[email] saving a renewed Microsoft sign-in failed", err)) });
   // --- end integrations ---
 
   // --- Email: executors for configured accounts; the poller starts in start() ---

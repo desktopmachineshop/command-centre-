@@ -53,6 +53,8 @@ export interface EntryView {
 const ID = /^[a-z0-9][a-z0-9_-]{0,62}$/i;
 /** Social accounts share one id space (executors and inbound checkpoints key on the id alone). */
 const SOCIAL_KINDS = new Set(["discord", "instagram", "threads", "x", "reddit", "youtube"]);
+/** Mailboxes share one id space too (the poller's checkpoints and email actions key on it). */
+const MAIL_KINDS = new Set(["email", "outlook"]);
 
 export class IntegrationService {
   private effective: Config;
@@ -227,6 +229,23 @@ export class IntegrationService {
     return kind ? all.filter((e) => e.kind === kind) : all;
   }
 
+  /**
+   * A provider rotated a token (Microsoft does on every refresh): store the new one without a
+   * reload or an audit row, and update the config in use so the next change doesn't see a
+   * difference and restart the integration for nothing.
+   */
+  async rotateSecret(kind: string, id: string, key: string, value: string): Promise<void> {
+    await this.serial(async () => {
+      const stored = await this.store.get(kind, id);
+      if (!stored || stored.unreadable || stored.secrets[key] === value) return;
+      await this.store.putQuietly({ ...stored, secrets: { ...stored.secrets, [key]: value } });
+      if (kind === "outlook" && key === "refreshToken") {
+        const accounts = this.effective.email.accounts.map((a) => (a.id === id && a.oauth ? { ...a, oauth: { ...a.oauth, refreshToken: value } } : a));
+        this.effective = { ...this.effective, email: { ...this.effective.email, accounts } };
+      }
+    });
+  }
+
   /** Records status (expiry, account name) without a reload. */
   async patchMeta(kind: string, id: string, meta: Partial<EntryMeta>): Promise<void> {
     await this.store.patchMeta(kind, id, meta);
@@ -306,8 +325,9 @@ export class IntegrationService {
   }
 
   private async checkSocialId(kind: string, id: string): Promise<void> {
-    if (!SOCIAL_KINDS.has(kind)) return;
-    const taken = [...(await this.store.list()), ...railwayEntries(this.base)].find((e) => e.id === id && e.kind !== kind && SOCIAL_KINDS.has(e.kind));
+    const family = SOCIAL_KINDS.has(kind) ? SOCIAL_KINDS : MAIL_KINDS.has(kind) ? MAIL_KINDS : null;
+    if (!family) return;
+    const taken = [...(await this.store.list()), ...railwayEntries(this.base)].find((e) => e.id === id && e.kind !== kind && family.has(e.kind));
     if (taken) throw new IntegrationError(`The name "${id}" is already used by a ${KINDS.get(taken.kind)?.label ?? taken.kind} account; pick another`, 409);
   }
 
