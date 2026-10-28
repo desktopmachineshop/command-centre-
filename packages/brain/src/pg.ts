@@ -115,7 +115,7 @@ export class PgBrain implements Brain {
 
   /** Every note, for the git mirror. */
   async all(): Promise<StoredNote[]> {
-    const { rows } = await this.pool.query("select path, frontmatter, body, version, updated_by, updated_at from brain_notes order by path");
+    const { rows } = await this.pool.query(`select path, frontmatter, body, version, updated_by, updated_at from brain_notes order by path collate "C"`);
     return rows.map(toNote);
   }
 
@@ -182,7 +182,7 @@ export class PgBrain implements Brain {
   async list(folder = ""): Promise<string[]> {
     const prefix = folderPrefix(folder);
     const { rows } = await this.pool.query(
-      "select path from brain_notes where $1 = '' or left(path, length($1)) = $1 order by path",
+      `select path from brain_notes where $1 = '' or left(path, length($1)) = $1 order by path collate "C"`,
       [prefix],
     );
     return rows.map((r) => r.path);
@@ -196,7 +196,7 @@ export class PgBrain implements Brain {
       `with q as (select to_tsquery('english', $1) as q)
        select path, title, body, ts_rank(search, q.q) as score from brain_notes, q
        where search @@ q.q and ($2 = '' or left(path, length($2)) = $2)
-       order by score desc, path limit $3`,
+       order by score desc, path collate "C" limit $3`,
       [terms.map((t) => `${t}:*`).join(" | "), folderPrefix(options.folder ?? ""), options.limit ?? 10],
     );
     return rows.map((r) => ({ path: r.path, title: r.title, score: Number(r.score), snippet: snippet(r.body, terms) }));
