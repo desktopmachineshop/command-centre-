@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { CalendarService } from "./calendar/service";
 import type { CalendarEvent } from "./calendar/types";
-import { addReminder, describeReminder, resolveReminder } from "./reminders";
+import { addReminder, changeReminder, describeReminder, resolveReminder } from "./reminders";
 import type { CreatedBy, PgPaStore, ReminderStatus, TodoItem } from "./store";
 import { addDays, dayBounds, formatUk, formatUkDate, isDate, isTime, localDate, localTime, weekdayOf } from "./time";
 
@@ -248,6 +248,44 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
       } catch (err) {
         return fail((err as Error).message);
       }
+    },
+  );
+
+  server.registerTool(
+    "update_reminder",
+    {
+      description:
+        "Change an open reminder by id (from add_reminder or list_reminders): its text, its time (due, UK local YYYY-MM-DDTHH:MM) and/or its recurrence (\"none\" makes it a one-off). Give only what changes. Use this rather than adding a second reminder.",
+      inputSchema: { id: z.string().min(1), text: z.string().optional(), due: z.string().optional(), recurrence: z.string().optional() },
+    },
+    async ({ id, ...change }) => {
+      if (change.text === undefined && change.due === undefined && change.recurrence === undefined) return fail("Give text, due or recurrence to change.");
+      const existing = await store.getReminder(id, caller.vertical);
+      if (!existing || !["pending", "sent"].includes(existing.status)) return fail(`No open reminder ${id}. Use list_reminders for ids.`);
+      try {
+        // Validate before proposing, so a bad time fails now rather than on approval.
+        if (change.due) resolveReminder({ text: existing.text, due: change.due }, timeZone, now());
+        const summary = `Change reminder "${existing.text}": ${Object.entries(change).map(([k, v]) => `${k} ${v}`).join(", ")}`.slice(0, 200);
+        return await write({ actionType: "pa.reminder.update", vertical: existing.vertical, summary, payload: { id, ...change } }, async () => {
+          const r = await changeReminder(store, id, change, { vertical: caller.vertical, now: now() });
+          return r ? `Reminder changed: ${describeReminder(r)}` : "It is no longer open.";
+        });
+      } catch (err) {
+        return fail((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "cancel_reminder",
+    { description: "Cancel an open reminder (for a recurring one, the whole series) without marking it done.", inputSchema: { id: z.string().min(1) } },
+    async ({ id }) => {
+      const existing = await store.getReminder(id, caller.vertical);
+      if (!existing || !["pending", "sent"].includes(existing.status)) return fail(`No open reminder ${id}. Use list_reminders for ids.`);
+      return write({ actionType: "pa.reminder.cancel", vertical: existing.vertical, summary: `Cancel reminder: ${existing.text}`, payload: { id } }, async () => {
+        const r = await store.cancelReminder(id, caller.vertical);
+        return r ? `Cancelled: ${r.text}` : "It is no longer open.";
+      });
     },
   );
 

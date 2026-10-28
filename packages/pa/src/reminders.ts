@@ -1,6 +1,6 @@
 import { describeRecurrence, firstOccurrence, nextOccurrence, parseRecurrence, type Recurrence } from "./recurrence";
 import type { CreatedBy, PgPaStore, Reminder } from "./store";
-import { formatUk, localTime, parseInstant } from "./time";
+import { formatUk, localDate, localTime, parseInstant } from "./time";
 
 export interface NewReminderInput {
   text: string;
@@ -29,6 +29,35 @@ export async function addReminder(
 ): Promise<Reminder> {
   const resolved = resolveReminder(input, ctx.timeZone, ctx.now ?? new Date());
   return store.addReminder({ ...resolved, vertical: ctx.vertical, createdBy: ctx.createdBy, taskId: ctx.taskId ?? null });
+}
+
+export interface ReminderChange {
+  text?: string;
+  /** New time, as for `NewReminderInput.due`. For a recurring one it sets the next occurrence and the time of day. */
+  due?: string;
+  /** New recurrence; "none" (or empty) makes it a one-off. Omit to keep it. */
+  recurrence?: string | null;
+}
+
+/**
+ * Changes an open reminder (null if there is none with that id). Changing only
+ * the recurrence keeps its time of day; changing only the text keeps its schedule.
+ */
+export async function changeReminder(
+  store: PgPaStore,
+  id: string,
+  change: ReminderChange,
+  ctx: { vertical?: string; now?: Date },
+): Promise<Reminder | null> {
+  const existing = await store.getReminder(id, ctx.vertical);
+  if (!existing || !["pending", "sent"].includes(existing.status)) return null;
+  const text = change.text?.trim() || existing.text;
+  if (change.due === undefined && change.recurrence === undefined) return store.updateReminder(id, { text }, ctx.vertical);
+  const r = change.recurrence;
+  const recurrence = r === undefined ? existing.recurrence : !r?.trim() || /^none$/i.test(r.trim()) ? null : r;
+  const due = change.due ?? `${localDate(new Date(existing.dueAt), existing.timeZone)}T${existing.localTime}`;
+  const resolved = resolveReminder({ text, due, recurrence }, existing.timeZone, ctx.now ?? new Date());
+  return store.updateReminder(id, { text, schedule: resolved }, ctx.vertical);
 }
 
 /** One line for agents and notifications: "Thu 23 Oct, 09:00 · Call the garage (weekdays) [id]". */
