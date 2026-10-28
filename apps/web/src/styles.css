@@ -1510,9 +1510,80 @@ a.status:hover {
   margin: 0;
 }
 .transcript .msg.text {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.6;
+}
+
+/* Markdown (agent replies) */
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md blockquote,
+.md .md-table {
+  margin: 0 0 0.6em;
+}
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  margin: 0.9em 0 0.35em;
+  font-size: 1em;
+  line-height: 1.35;
+}
+.md h3 {
+  font-size: 1.1em;
+}
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+.md li > p {
+  margin: 0;
+}
+.md li + li {
+  margin-top: 0.2em;
+}
+.md li > ul,
+.md li > ol {
+  margin: 0.2em 0 0;
+}
+.md li > input[type="checkbox"] {
+  margin: 0 0.4em 0 0;
+  vertical-align: -0.1em;
+}
+.md blockquote {
+  padding-left: 0.8em;
+  border-left: 3px solid var(--border);
+  color: var(--text-2);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.8em 0;
+}
+.md .md-table {
+  overflow-x: auto;
+}
+.md table {
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.md th,
+.md td {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  background: var(--surface-2);
 }
 .transcript .tool {
   border: 1px solid var(--border);

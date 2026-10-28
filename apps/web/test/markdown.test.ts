@@ -1,0 +1,56 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { Markdown } from "../src/markdown";
+
+const html = (text: string) => renderToStaticMarkup(createElement(Markdown, { text }));
+
+describe("Markdown", () => {
+  it("renders emphasis, code and strikethrough inline", () => {
+    expect(html("**bold** and *it* and `x*y*` and ~~gone~~")).toBe(
+      '<div class="md"><p><strong>bold</strong> and <em>it</em> and <code>x*y*</code> and <del>gone</del></p></div>',
+    );
+  });
+
+  it("keeps snake_case identifiers literal", () => {
+    expect(html("call get_order_lines now")).toContain("get_order_lines");
+  });
+
+  it("renders headings, lists and nested lists", () => {
+    const out = html("## Plan\n\n1. First\n2. Second\n   - sub a\n   - sub b\n\n- [x] done\n- [ ] todo");
+    expect(out).toContain("<h4>Plan</h4>");
+    expect(out).toContain("<ol><li>First</li><li><p>Second</p><ul><li>sub a</li><li>sub b</li></ul></li></ol>");
+    expect(out).toContain('readOnly="" checked=""/>done');
+  });
+
+  it("renders fenced code verbatim", () => {
+    expect(html("```ts\nconst a = **1**;\n```")).toContain('<pre><code class="lang-ts">const a = **1**;</code></pre>');
+  });
+
+  it("renders tables", () => {
+    const out = html("| SKU | Qty |\n|---|--:|\n| A1 | 3 |");
+    expect(out).toContain("<th>SKU</th>");
+    expect(out).toContain('<td style="text-align:right">3</td>');
+  });
+
+  it("renders blockquotes and rules", () => {
+    expect(html("> note\n\n---")).toBe('<div class="md"><blockquote><p>note</p></blockquote><hr/></div>');
+  });
+
+  it("keeps single newlines as line breaks", () => {
+    expect(html("line one\nline two")).toContain("line one<br/>line two");
+  });
+
+  it("links web URLs and refuses script URLs", () => {
+    expect(html("[docs](https://example.com) https://a.b/c.")).toContain(
+      '<a href="https://example.com" target="_blank" rel="noreferrer noopener">docs</a> <a href="https://a.b/c" target="_blank" rel="noreferrer noopener">https://a.b/c</a>.',
+    );
+    expect(html("[x](javascript:alert(1))")).not.toContain("<a");
+    expect(html("[x](//evil.com)")).not.toContain("<a");
+    expect(html("[task](#/task/1)")).toContain('<a href="#/task/1">task</a>');
+  });
+
+  it("never emits raw HTML from the text", () => {
+    expect(html("<img src=x onerror=alert(1)>")).toContain("&lt;img");
+  });
+});
