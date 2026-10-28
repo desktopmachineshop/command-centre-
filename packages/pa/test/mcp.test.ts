@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { CalendarService, createPaExecutors, createPaMcpServer, type PaCaller, parseCalendarAccounts, type PgPaStore, resolveDay } from "../src";
+import { CalendarService, createPaExecutors, createPaMcpServer, deliverDueReminders, type PaCaller, parseCalendarAccounts, type PgPaStore, resolveDay } from "../src";
 import { DB_URL, freshStore } from "./db";
 import { FakeGoogle } from "./fake-google";
 
@@ -99,8 +99,8 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     const mcp = new Client({ name: "t", version: "0" });
     await mcp.connect(c);
     expect((await mcp.listTools()).tools.map((t) => t.name).sort()).toEqual([
-      "add_items", "add_reminder", "complete_item", "complete_reminder", "find_free_time", "list_calendars",
-      "list_events", "list_items", "list_lists", "list_reminders",
+      "add_items", "add_reminder", "cancel_reminder", "complete_item", "complete_reminder", "find_free_time", "list_calendars",
+      "list_events", "list_items", "list_lists", "list_reminders", "update_reminder",
     ]);
   });
 
@@ -141,6 +141,34 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     expect(proposals).toEqual([]);
   });
 
+  it("changes and cancels a reminder in place", async () => {
+    const call = await connect();
+    const id = /id ([0-9a-f-]{36})/.exec((await call("add_reminder", { text: "Call the garage", due: "2026-10-22T17:00" })).text)![1]!;
+    // "make it 6 instead": the same reminder moves, no second one appears.
+    expect((await call("update_reminder", { id, due: "2026-10-22T18:00" })).text).toBe(`Reminder changed: Thu 22 Oct, 18:00 · Call the garage (id ${id})`);
+    expect((await call("update_reminder", { id, text: "Call the garage about the MOT" })).text).toContain("Thu 22 Oct, 18:00 · Call the garage about the MOT");
+    expect((await call("update_reminder", { id, recurrence: "weekdays" })).text).toContain("Thu 22 Oct, 18:00 · Call the garage about the MOT (weekdays)");
+    expect((await call("update_reminder", { id, recurrence: "none" })).text).not.toContain("weekdays");
+    expect(await store.listReminders()).toHaveLength(1);
+
+    expect((await call("update_reminder", { id })).isError).toBe(true);
+    expect((await call("update_reminder", { id, due: "6pm" })).isError).toBe(true);
+    expect((await call("update_reminder", { id: "nope", due: "2026-10-22T18:00" })).isError).toBe(true);
+
+    expect((await call("cancel_reminder", { id })).text).toBe("Cancelled: Call the garage about the MOT");
+    expect((await call("update_reminder", { id, due: "2026-10-22T19:00" })).isError).toBe(true);
+    expect(await store.listReminders()).toEqual([]);
+  });
+
+  it("re-arms a sent reminder when its time changes", async () => {
+    const call = await connect();
+    const id = /id ([0-9a-f-]{36})/.exec((await call("add_reminder", { text: "Bins", due: "2026-10-22T07:00" })).text)![1]!;
+    await deliverDueReminders(store, async () => {}, NOW);
+    expect((await store.getReminder(id))!.status).toBe("sent");
+    await call("update_reminder", { id, due: "2026-10-22T19:00" });
+    expect(await store.getReminder(id)).toMatchObject({ status: "pending", dueAt: "2026-10-22T18:00:00.000Z" });
+  });
+
   it("manages lists and items", async () => {
     const call = await connect();
     expect((await call("add_items", { list: "shopping", items: ["milk", { text: "nappies", due: "2026-10-24" }] })).text).toMatch(/^Added to shopping:\n- \[ \] milk/);
@@ -175,6 +203,24 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
 
     // Reads still work.
     expect((await call("list_lists")).text).toContain("today");
+  });
+
+  it("proposes a change from an untrusted task, and applies it on approval", async () => {
+    const r = await (await connect())("add_reminder", { text: "Pay supplier", due: "2026-10-23T09:00" });
+    const id = /id ([0-9a-f-]{36})/.exec(r.text)![1]!;
+    const call = await connect({ untrustedSource: async () => "email" });
+    expect((await call("update_reminder", { id, due: "2026-10-23T18:00" })).text).toMatch(/proposal prop-1/);
+    expect((await call("cancel_reminder", { id })).text).toMatch(/proposal prop-2/);
+    expect(proposals.map((p) => [p.actionType, p.payload])).toEqual([
+      ["pa.reminder.update", { id, due: "2026-10-23T18:00" }],
+      ["pa.reminder.cancel", { id }],
+    ]);
+    expect((await store.getReminder(id))!.dueAt).toBe("2026-10-23T08:00:00.000Z");
+
+    const executors = createPaExecutors(store, { timeZone: TZ, now: () => NOW });
+    expect(await executors["pa.reminder.update"]!.execute(proposals[0]!.payload, { vertical: "personal" })).toContain("Fri 23 Oct, 18:00 · Pay supplier");
+    await executors["pa.reminder.cancel"]!.execute(proposals[1]!.payload, { vertical: "personal" });
+    expect((await store.getReminder(id))!.status).toBe("cancelled");
   });
 
   it("only shows a run its own vertical's reminders and lists", async () => {

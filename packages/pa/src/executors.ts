@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { CalendarService } from "./calendar/service";
 import type { EventInput, EventPatch, EventReminder } from "./calendar/types";
-import { addReminder, describeReminder } from "./reminders";
+import { addReminder, changeReminder, describeReminder } from "./reminders";
 import type { PgPaStore } from "./store";
 import { addDays, formatUk, isDate, parseInstant } from "./time";
 
@@ -160,6 +160,7 @@ export function createCalendarExecutors(calendar: CalendarService): Record<strin
 }
 
 const ReminderAdd = z.object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().optional().nullable() });
+const ReminderUpdate = z.object({ id: z.string().min(1), text: z.string().optional(), due: z.string().optional(), recurrence: z.string().optional().nullable() });
 const ById = z.object({ id: z.string().min(1) });
 const ItemsAdd = z.object({
   list: z.string().min(1),
@@ -192,6 +193,29 @@ export function createPaExecutors(store: PgPaStore, options: { timeZone: string;
       },
       async execute(payload, ctx) {
         const r = await store.completeReminder(parse(ById, payload).id, vertical(ctx));
+        if (!r) throw new Error("no open reminder with that id");
+        return describeReminder(r);
+      },
+    },
+    "pa.reminder.update": {
+      description: "Change a reminder's text, time or recurrence. payload: { id, text?, due?, recurrence? (\"none\" for a one-off) }",
+      validate(payload) {
+        parse(ReminderUpdate, payload);
+      },
+      async execute(payload, ctx) {
+        const { id, ...change } = parse(ReminderUpdate, payload);
+        const r = await changeReminder(store, id, change, { vertical: vertical(ctx), now: options.now?.() });
+        if (!r) throw new Error("no open reminder with that id");
+        return describeReminder(r);
+      },
+    },
+    "pa.reminder.cancel": {
+      description: "Cancel a reminder. payload: { id }",
+      validate(payload) {
+        parse(ById, payload);
+      },
+      async execute(payload, ctx) {
+        const r = await store.cancelReminder(parse(ById, payload).id, vertical(ctx));
         if (!r) throw new Error("no open reminder with that id");
         return describeReminder(r);
       },

@@ -191,6 +191,31 @@ export class PgPaStore {
     return rows[0] ? toReminder(rows[0]) : null;
   }
 
+  /**
+   * Changes an open reminder's text and/or timing. With `schedule` the reminder
+   * moves there and is pending again (any snooze cleared); without it only the text changes.
+   */
+  async updateReminder(
+    id: string,
+    patch: { text: string; schedule?: { dueAt: Date; recurrence: Recurrence | null; localTime: string } },
+    vertical?: string,
+  ): Promise<Reminder | null> {
+    const s = patch.schedule;
+    const { rows } = await this.db.query(
+      `update reminders set
+         text = $2,
+         due_at = coalesce($3, due_at),
+         recurrence = case when $6 then $4 else recurrence end,
+         local_time = coalesce($5, local_time),
+         status = case when $6 then 'pending' else status end,
+         snoozed_until = case when $6 then null else snoozed_until end,
+         updated_at = now(), version = version + 1
+       where id = $1 and status = any($7) and ($8::text is null or vertical = $8) returning *`,
+      [uuidOrNil(id), patch.text, s?.dueAt ?? null, s?.recurrence ? formatRecurrence(s.recurrence) : null, s?.localTime ?? null, !!s, OPEN_REMINDER, vertical ?? null],
+    );
+    return rows[0] ? toReminder(rows[0]) : null;
+  }
+
   async cancelReminder(id: string, vertical?: string): Promise<Reminder | null> {
     const { rows } = await this.db.query(
       `update reminders set status = 'cancelled', snoozed_until = null, updated_at = now(), version = version + 1
