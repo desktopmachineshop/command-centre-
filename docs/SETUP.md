@@ -172,6 +172,7 @@ straight away; only the changed integration restarts, and nothing redeploys.
   | Platform | Developer app | Redirect address |
   |---|---|---|
   | Google (Calendar + Drive) | Google Cloud Console → Credentials → OAuth client, type **Web application** | `/oauth/google/callback` |
+  | Gmail inbox | the same Google client (enable the **Gmail API**) | `/oauth/gmail/callback` |
   | YouTube | the same Google client (enable YouTube Data API v3) | `/oauth/youtube/callback` |
   | Instagram | Meta app → Instagram → API setup with Instagram login → Business login settings | `/oauth/instagram/callback` |
   | Threads | Meta app → Threads use case → Settings | `/oauth/threads/callback` |
@@ -417,7 +418,14 @@ Or run it locally over stdio against a clone: `BRAIN_DIR=~/brain pnpm --filter @
 
 ## Email
 
-> **Easiest:** Accounts page → Business → Email inboxes → Add email inbox (Gmail preset included).
+> **Gmail / Google Workspace:** Accounts page → Business → **Gmail inbox → Add → Connect**. Sign
+> in and allow "Read, compose, send and permanently delete all your email": nothing to paste, no
+> app password. It reads over IMAP and sends through the Gmail API with that one sign-in (so
+> Railway's SMTP block doesn't matter). Needs the one-time Google OAuth client (Developer apps)
+> with the **Gmail API** enabled and `/oauth/gmail/callback` among its redirect URIs. Google shows
+> "this app isn't verified" for a private app: Advanced → Continue.
+> **Other mailboxes:** Accounts page → Business → Other email inbox (Gmail app-password preset
+> still there).
 > **Sending on Railway:** Railway blocks outgoing SMTP below the Pro plan, so replies can't go
 > out over SMTP there. Gmail inboxes send through the **Gmail API** instead: also connect the same
 > address under Accounts → Google (Add account → Connect; the sign-in asks to "send email on your

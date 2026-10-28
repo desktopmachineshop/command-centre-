@@ -69,6 +69,8 @@ const latestRefresh = new Map<string, { configured: string; refreshToken: string
 export async function accessTokenFor(account: EmailAccount, resource: MicrosoftResource = "outlook"): Promise<string> {
   const oauth = account.oauth;
   if (!oauth) throw new Error(`${account.id} doesn't use OAuth`);
+  // Gmail: one token (https://mail.google.com/) covers IMAP and the Gmail API; Google doesn't rotate it.
+  if (oauth.provider === "google") return googleAccessToken(account, oauth);
   let latest = latestRefresh.get(account.id);
   if (!latest || latest.configured !== oauth.refreshToken) {
     latest = { configured: oauth.refreshToken, refreshToken: oauth.refreshToken };
@@ -137,30 +139,34 @@ export async function smtpAuth(account: EmailAccount): Promise<{ user: string; p
 
 const googleCache = new Map<string, { accessToken: string; expiresAt: number }>();
 
-/** A Gmail API access token from the account's Google sign-in (`send`). */
-export async function gmailAccessToken(account: EmailAccount): Promise<string> {
-  const send = account.send;
-  if (!send) throw new Error(`${account.id} doesn't send through Gmail`);
-  const key = `${account.id}|${send.refreshToken}`;
+async function googleAccessToken(account: EmailAccount, creds: { clientId: string; clientSecret: string; refreshToken: string }): Promise<string> {
+  const key = `${account.id}|${creds.refreshToken}`;
   const hit = googleCache.get(key);
   if (hit && Date.now() < hit.expiresAt - 60_000) return hit.accessToken;
   const res = await options.fetch(options.googleToken, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-    body: new URLSearchParams({ client_id: send.clientId, client_secret: send.clientSecret, refresh_token: send.refreshToken, grant_type: "refresh_token" }).toString(),
+    body: new URLSearchParams({ client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: creds.refreshToken, grant_type: "refresh_token" }).toString(),
   });
   const body = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !body.access_token) {
     const why = body.error === "invalid_grant" ? "the Google sign-in has expired or was revoked; reconnect it on the Accounts page" : (body.error ?? `HTTP ${res.status}`);
-    throw new EmailAuthError(`Google sign-in for sending from ${account.address} failed: ${why}`);
+    throw new EmailAuthError(`Google sign-in for ${account.address} failed: ${why}`);
   }
   googleCache.set(key, { accessToken: body.access_token, expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000 });
   return body.access_token;
 }
 
+/** A Gmail API access token: the mailbox's own Google sign-in, or the one linked for sending (`send`). */
+export async function gmailAccessToken(account: EmailAccount): Promise<string> {
+  if (account.oauth?.provider === "google") return googleAccessToken(account, account.oauth);
+  if (!account.send) throw new Error(`${account.id} doesn't send through Gmail`);
+  return googleAccessToken(account, account.send);
+}
+
 /** How this account sends: the Gmail API, Microsoft Graph, or SMTP. */
 export function sendRoute(account: EmailAccount): "gmail" | "graph" | "smtp" {
-  if (account.send?.via === "gmail") return "gmail";
+  if (account.send?.via === "gmail" || account.oauth?.provider === "google") return "gmail";
   if (account.oauth?.provider === "microsoft") return "graph";
   return "smtp";
 }

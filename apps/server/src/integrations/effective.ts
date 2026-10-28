@@ -149,6 +149,25 @@ export function emailAccountOf(e: EntryInput, base?: Config, entries: EntryInput
 /** Personal Microsoft accounts send through smtp-mail.outlook.com; work (Microsoft 365) ones through smtp.office365.com. */
 const PERSONAL_MICROSOFT = /@(outlook|hotmail|live|msn|passport)\.[a-z.]+$/i;
 
+export function gmailInboxOf(e: EntryInput, base: Config, entries: EntryInput[]): EmailAccount {
+  const { clientId, clientSecret } = googleApp(base, entries);
+  if (!clientId || !clientSecret) throw new Error("needs the Google OAuth client (Developer apps → Google OAuth client)");
+  const refreshToken = str(e.secrets.refreshToken);
+  const address = str(e.data.address);
+  if (!refreshToken || !address) throw new Error("not connected yet: press Connect");
+  return EmailAccount.parse({
+    id: e.id,
+    vertical: e.data.vertical,
+    address,
+    displayName: str(e.data.displayName),
+    imap: { host: "imap.gmail.com", port: 993, secure: true, user: address },
+    smtp: { host: "smtp.gmail.com", port: 465, secure: true, user: address },
+    mailbox: str(e.data.mailbox) ?? "INBOX",
+    ignoreFrom: Array.isArray(e.data.ignoreFrom) ? e.data.ignoreFrom : [],
+    oauth: { provider: "google", clientId, clientSecret, refreshToken },
+  });
+}
+
 export function outlookAccountOf(e: EntryInput, entries: EntryInput[]): EmailAccount {
   const app = single(entries, "microsoft-app");
   const clientId = app ? str(app.data.clientId) : undefined;
@@ -295,10 +314,10 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
   }
 
   // --- email ---
-  const emailEntries = entries.filter((e) => e.kind === "email" || e.kind === "outlook");
+  const emailEntries = entries.filter((e) => e.kind === "email" || e.kind === "outlook" || e.kind === "gmail");
   const emailAccounts = mergeById(
     base.email.accounts,
-    emailEntries.flatMap((e) => attempt(e, () => (e.kind === "outlook" ? outlookAccountOf(e, entries) : emailAccountOf(e, base, entries))) ?? []),
+    emailEntries.flatMap((e) => attempt(e, () => (e.kind === "outlook" ? outlookAccountOf(e, entries) : e.kind === "gmail" ? gmailInboxOf(e, base, entries) : emailAccountOf(e, base, entries))) ?? []),
   );
 
   // --- social ---
@@ -416,6 +435,10 @@ export function railwayEntries(base: Config): EntryInput[] {
   if (p.elevenlabsApiKey) add("elevenlabs", DEFAULT_ID, {}, { apiKey: p.elevenlabsApiKey });
   if (base.odoo) add("odoo", DEFAULT_ID, { url: base.odoo.url, db: base.odoo.db, username: base.odoo.username, api: base.odoo.api }, { apiKey: base.odoo.apiKey });
   for (const m of base.email.accounts) {
+    if (m.oauth?.provider === "google") {
+      add("gmail", m.id, { vertical: m.vertical, address: m.address, displayName: m.displayName, mailbox: m.mailbox, ignoreFrom: m.ignoreFrom }, { refreshToken: m.oauth.refreshToken });
+      continue;
+    }
     if (m.oauth) {
       add("outlook", m.id, { vertical: m.vertical, address: m.address, displayName: m.displayName, mailbox: m.mailbox, ignoreFrom: m.ignoreFrom }, { refreshToken: m.oauth.refreshToken });
       continue;

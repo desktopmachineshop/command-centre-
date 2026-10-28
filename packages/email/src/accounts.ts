@@ -10,15 +10,26 @@ const Server = z.object({
   pass: z.string().min(1).optional(),
 });
 
-/** Microsoft mailboxes (Outlook.com, Hotmail, Microsoft 365) sign in with OAuth; see oauth.ts. */
-const OAuth = z.object({
-  provider: z.literal("microsoft"),
-  clientId: z.string().min(1),
-  clientSecret: z.string().min(1).optional(),
-  /** "common" for personal and work accounts, or a tenant id. */
-  tenant: z.string().min(1).default("common"),
-  refreshToken: z.string().min(1),
-});
+/**
+ * Mailboxes that sign in with OAuth instead of a password (see oauth.ts): Microsoft (Outlook.com,
+ * Hotmail, Microsoft 365) and Google (Gmail with the full-mail scope: IMAP and the Gmail API).
+ */
+const OAuth = z.discriminatedUnion("provider", [
+  z.object({
+    provider: z.literal("microsoft"),
+    clientId: z.string().min(1),
+    clientSecret: z.string().min(1).optional(),
+    /** "common" for personal and work accounts, or a tenant id. */
+    tenant: z.string().min(1).default("common"),
+    refreshToken: z.string().min(1),
+  }),
+  z.object({
+    provider: z.literal("google"),
+    clientId: z.string().min(1),
+    clientSecret: z.string().min(1),
+    refreshToken: z.string().min(1),
+  }),
+]);
 
 export const EmailAccount = z.object({
   /** Stable id, used in dedupe keys, checkpoints and action payloads. */
@@ -71,7 +82,7 @@ export function parseEmailAccounts(json: string | undefined): EmailAccount[] {
 export function shouldSaveSent(account: EmailAccount): boolean {
   if (account.saveSent !== undefined) return account.saveSent;
   // Gmail and Microsoft file sent mail in Sent themselves (SMTP, the Gmail API and Graph alike).
-  if (account.oauth?.provider === "microsoft" || account.send) return false;
+  if (account.oauth || account.send) return false;
   return !/(^|\.)(gmail|googlemail)\.com$/i.test(account.smtp.host);
 }
 

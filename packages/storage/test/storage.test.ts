@@ -92,7 +92,7 @@ describe("LocalBlobStore", () => {
     });
     expect(dropped).toBe(true);
     expect(done).toMatchObject({ id: session.id, size: data.length });
-    expect((await buffer((await local.get(session.id))!.stream)).equals(data)).toBe(true);
+    expect(Buffer.compare(await buffer((await local.get(session.id))!.stream), data)).toBe(0);
     expect(await local.completeUpload(session.id)).toMatchObject({ folder: "footage" });
   });
 });
@@ -221,7 +221,7 @@ describe("GoogleDriveBlobStore (mocked fetch)", () => {
     await uploadResumable({ uploadUrl: session.uploadUrl, size: data.length, chunkSize: CHUNK_UNIT, fetch: fake.fetch, readChunk: async (s, n) => data.subarray(s, s + n) });
     const info = await store.completeUpload(session.id);
     expect(info).toMatchObject({ id: session.id, size: data.length, folder: "renders" });
-    expect((await buffer((await store.get(session.id))!.stream)).equals(data)).toBe(true);
+    expect(Buffer.compare(await buffer((await store.get(session.id))!.stream), data)).toBe(0);
   });
 });
 

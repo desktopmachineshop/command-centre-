@@ -25,7 +25,7 @@ describe("Microsoft mailbox sign-in", () => {
   afterEach(() => configureEmailOAuth({ onRotate: undefined }));
 
   it("needs a password only without OAuth", () => {
-    expect(outlook().oauth?.tenant).toBe("common");
+    expect(outlook().oauth).toMatchObject({ provider: "microsoft", tenant: "common" });
     expect(() => EmailAccount.parse({ ...outlook(), id: "x", oauth: undefined })).toThrow(/imap.pass and smtp.pass/);
   });
 
@@ -109,5 +109,35 @@ describe("sending over HTTPS (no SMTP port needed)", () => {
     expect(sent[0]!.headers.get("authorization")).toBe("Bearer graph-at");
     expect(sent[0]!.headers.get("content-type")).toBe("text/plain");
     expect(Buffer.from(sent[0]!.body, "base64").toString()).toContain("Hello there.");
+  });
+});
+
+describe("Gmail with Connect only (no app password)", () => {
+  it("reads over IMAP with XOAUTH2 and sends through the Gmail API, one Google token", async () => {
+    const sent: string[] = [];
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://google.test/token") {
+        expect(new URLSearchParams(String(init?.body)).get("refresh_token")).toBe("g-full-rt");
+        return Response.json({ access_token: "g-full-at", expires_in: 3600 });
+      }
+      sent.push(url);
+      return Response.json({ id: "m1" });
+    }) as typeof globalThis.fetch;
+    configureEmailOAuth({ fetch, googleToken: "https://google.test/token", gmailApi: "https://gmail.test" });
+    const gmail = EmailAccount.parse({
+      id: "dms-gmail2",
+      vertical: "dms",
+      address: "shop@gmail.com",
+      imap: { host: "imap.gmail.com", port: 993, secure: true, user: "shop@gmail.com" },
+      smtp: { host: "smtp.gmail.com", port: 465, secure: true, user: "shop@gmail.com" },
+      oauth: { provider: "google", clientId: "cid", clientSecret: "cs", refreshToken: "g-full-rt" },
+    });
+    expect(await imapAuth(gmail)).toEqual({ user: "shop@gmail.com", accessToken: "g-full-at" });
+    expect(sendRoute(gmail)).toBe("gmail");
+    expect(shouldSaveSent(gmail)).toBe(false);
+    const ex = createEmailExecutors([gmail], { connect: async () => { throw new Error("no IMAP"); } });
+    await ex["email.send"]!.execute({ accountId: "dms-gmail2", to: ["a@example.com"], subject: "Hi", body: "Hello." } as never);
+    expect(sent).toEqual(["https://gmail.test/gmail/v1/users/me/messages/send"]);
   });
 });
