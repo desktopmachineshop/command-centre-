@@ -277,7 +277,7 @@ export function entryTitle(def: Pick<KindDef, "label" | "multi">, entry: EntryVi
 // --- OAuth ---
 /** Developer app → the sign-in providers whose callback must be registered in its console. */
 export const APP_PROVIDERS: Record<string, string[]> = {
-  "google-app": ["google", "youtube"],
+  "google-app": ["google", "gmail", "youtube"],
   "instagram-app": ["instagram"],
   "threads-app": ["threads"],
   "x-app": ["x"],

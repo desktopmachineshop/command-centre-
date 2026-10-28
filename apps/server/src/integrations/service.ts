@@ -54,7 +54,7 @@ const ID = /^[a-z0-9][a-z0-9_-]{0,62}$/i;
 /** Social accounts share one id space (executors and inbound checkpoints key on the id alone). */
 const SOCIAL_KINDS = new Set(["discord", "instagram", "threads", "x", "reddit", "youtube"]);
 /** Mailboxes share one id space too (the poller's checkpoints and email actions key on it). */
-const MAIL_KINDS = new Set(["email", "outlook"]);
+const MAIL_KINDS = new Set(["email", "outlook", "gmail"]);
 
 export class IntegrationService {
   private effective: Config;

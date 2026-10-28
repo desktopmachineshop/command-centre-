@@ -66,3 +66,34 @@ export const youtube: ProviderDef = {
     };
   },
 };
+
+/** Gmail inbox: full mail access (https://mail.google.com/) covers IMAP (XOAUTH2) and the Gmail API, so there's no app password. */
+export const GMAIL_SCOPES = ["openid", "email", "https://mail.google.com/"];
+
+export const gmail: ProviderDef = {
+  provider: "gmail",
+  appKeys: ["clientId", "clientSecret"],
+  ...oauth2Callback,
+  async start(_deps, { app, redirectUri, state }) {
+    const { verifier, challenge } = pkcePair();
+    return { url: buildAuthUrl({ clientId: app.clientId!, redirectUri, challenge, state, scopes: GMAIL_SCOPES }), keep: { verifier } };
+  },
+  async finish(deps, { app, redirectUri, query, keep }) {
+    const tokens = await exchangeCode(
+      { clientId: app.clientId!, clientSecret: app.clientSecret!, code: codeOf(query), verifier: keep.verifier ?? "", redirectUri },
+      deps.fetch,
+    ).catch((err: Error) => {
+      throw new OAuthFlowError(err.message.slice(0, 200));
+    });
+    if (!tokens.scope.split(/\s+/).includes("https://mail.google.com/")) {
+      throw new OAuthFlowError("Google didn't grant access to the mailbox; connect again and tick \"Read, compose, send and permanently delete\"");
+    }
+    const info = await jsonOf<{ email?: string }>(
+      await deps.fetch(deps.urls.googleUserinfo, { headers: { authorization: `Bearer ${tokens.accessToken}` } }),
+      "Reading the Google account's email",
+    );
+    if (!info.email) throw new OAuthFlowError("Google didn't say which mailbox signed in");
+    const address = info.email.toLowerCase();
+    return { data: { address }, secrets: { refreshToken: tokens.refreshToken }, account: address };
+  },
+};

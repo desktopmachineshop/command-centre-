@@ -225,6 +225,12 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       return mailboxTest(account, [account.imap.pass ?? "", account.smtp.pass ?? ""]);
     },
 
+    async gmail(entry, config) {
+      const account = config.email.accounts.find((a) => a.id === entry.id && a.oauth?.provider === "google");
+      if (!account) return fail("Not connected yet: press Connect (and add the Google OAuth client first)");
+      return mailboxTest(account, [account.oauth?.refreshToken ?? "", account.oauth?.clientSecret ?? ""]);
+    },
+
     async outlook(entry, config) {
       const account = config.email.accounts.find((a) => a.id === entry.id && a.oauth);
       if (!account) return fail("Not connected yet: press Connect (and add the Microsoft app's keys first)");

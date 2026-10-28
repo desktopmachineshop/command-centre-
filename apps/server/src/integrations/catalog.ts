@@ -9,7 +9,7 @@ export const GROUPS: readonly Group[] = ["runner", "triage", "voice", "odoo", "e
 
 export type Section = "ai" | "business" | "google" | "social" | "apps" | "settings";
 
-export type OAuthProvider = "google" | "youtube" | "instagram" | "threads" | "x" | "reddit" | "microsoft";
+export type OAuthProvider = "google" | "youtube" | "instagram" | "threads" | "x" | "reddit" | "microsoft" | "gmail";
 
 export interface Field {
   key: string;
@@ -132,9 +132,9 @@ export const CATALOG: readonly KindDef[] = [
   },
   {
     kind: "email",
-    label: "Email inbox",
+    label: "Other email inbox",
     section: "business",
-    description: "A mailbox agents read and draft replies from (replies always need your approval). Gmail: use an app password.",
+    description: "Any other IMAP/SMTP mailbox (your host's email, iCloud, Yahoo...). Agents read it and draft replies, which always need your approval. For Gmail use Gmail inbox, for Outlook / Hotmail use Outlook / Hotmail inbox.",
     multi: true,
     fields: [
       vertical,
@@ -161,6 +161,24 @@ export const CATALOG: readonly KindDef[] = [
     ],
     affects: ["email"],
     helpUrl: "https://myaccount.google.com/apppasswords",
+  },
+  {
+    kind: "gmail",
+    label: "Gmail inbox",
+    section: "business",
+    description: "A Gmail or Google Workspace mailbox: press Connect and sign in, nothing to paste. Reads new mail and sends replies (always after your approval) through Google.",
+    multi: true,
+    oauth: "gmail",
+    needsApp: "google-app",
+    fields: [
+      vertical,
+      { key: "address", label: "Signed in as", type: "email", fromOAuth: true },
+      displayName,
+      { key: "refreshToken", label: "Refresh token", type: "secret", fromOAuth: true },
+      { key: "mailbox", label: "Folder", type: "text", default: "INBOX" },
+      { key: "ignoreFrom", label: "Ignore senders", type: "list", help: "Addresses or @domain, one per line." },
+    ],
+    affects: ["email"],
   },
   {
     kind: "outlook",
