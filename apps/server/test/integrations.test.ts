@@ -148,6 +148,28 @@ describe.skipIf(!DB_URL)("Accounts page API", () => {
     expect(ctx.server.integrations.current().agent.oauthToken).toBeUndefined();
   });
 
+  it("a Gmail inbox sends through the Gmail API once the same address is connected under Google", async () => {
+    // A closed local port: the poller this starts fails at once instead of reaching out to Gmail.
+    const gmail = { vertical: "dms", address: "shop@gmail.com", imapHost: "127.0.0.1", imapPort: 1, smtpHost: "127.0.0.1" };
+    expect((await ctx.api("/api/integrations/email/dms-gmail", { method: "PUT", json: { data: gmail, secrets: { password: "app-password-1234" } } })).status).toBe(200);
+    const inbox = () => ctx.server.integrations.current().email.accounts.find((a) => a.id === "dms-gmail");
+    expect(inbox()?.send).toBeUndefined();
+
+    await ctx.api("/api/integrations/google-app", { method: "PUT", json: { data: { clientId: "id.apps.googleusercontent.com" }, secrets: { clientSecret: "google-secret" } } });
+    // What a Google sign-in that granted gmail.send saves.
+    await ctx.server.integrations.save("google", "shop", { data: { email: "Shop@Gmail.com", vertical: "dms", sendMail: true, useForCalendar: false }, secrets: { refreshToken: "1//g-refresh" } }, "test");
+    expect(inbox()?.send).toEqual({ via: "gmail", clientId: "id.apps.googleusercontent.com", clientSecret: "google-secret", refreshToken: "1//g-refresh" });
+
+    // "smtp" opts out; "gmail" without a matching sign-in is refused.
+    await ctx.api("/api/integrations/email/dms-gmail", { method: "PUT", json: { data: { sendVia: "smtp" } } });
+    expect(inbox()?.send).toBeUndefined();
+    await ctx.api("/api/integrations/google/shop", { method: "DELETE" });
+    const forced = await ctx.api("/api/integrations/email/dms-gmail", { method: "PUT", json: { data: { sendVia: "gmail" } } });
+    expect(forced.status).toBe(400);
+    expect(forced.body.error).toMatch(/connect shop@gmail.com under Google/);
+    await ctx.api("/api/integrations/email/dms-gmail", { method: "DELETE" });
+  });
+
   it("needs credentials", async () => {
     const res = await ctx.server.app.request("/api/integrations");
     expect(res.status).toBe(401);

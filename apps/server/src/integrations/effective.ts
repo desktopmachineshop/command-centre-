@@ -111,7 +111,25 @@ function plainObject(v: unknown, label: string): Record<string, unknown> {
   return v as Record<string, unknown>;
 }
 
-export function emailAccountOf(e: EntryInput): EmailAccount {
+/**
+ * The Google sign-in an inbox sends through (Gmail API): the connected Google account with the
+ * same address, when "Send replies with" is auto or gmail.
+ */
+function gmailSender(e: EntryInput, address: string | undefined, base: Config | undefined, entries: EntryInput[]) {
+  const via = str(e.data.sendVia) ?? "auto";
+  if (via === "smtp" || !address || !base) return undefined;
+  const google = entries.find((g) => g.kind === "google" && str(g.data.email)?.toLowerCase() === address.toLowerCase());
+  const refreshToken = google ? str(google.secrets.refreshToken) : undefined;
+  const { clientId, clientSecret } = googleApp(base, entries);
+  const ready = google && refreshToken && clientId && clientSecret && (via === "gmail" || google.data.sendMail === true);
+  if (!ready) {
+    if (via === "gmail") throw new Error(`connect ${address} under Google (Accounts → Google → Add account) so it can send through Gmail`);
+    return undefined;
+  }
+  return { via: "gmail" as const, clientId: clientId!, clientSecret: clientSecret!, refreshToken: refreshToken! };
+}
+
+export function emailAccountOf(e: EntryInput, base?: Config, entries: EntryInput[] = []): EmailAccount {
   const v = values(e);
   const address = str(v.address);
   const user = str(v.user) ?? address;
@@ -124,6 +142,7 @@ export function emailAccountOf(e: EntryInput): EmailAccount {
     smtp: { host: v.smtpHost, port: Number(v.smtpPort ?? 465), secure: bool(v.smtpSecure, true), user, pass: v.password },
     mailbox: str(v.mailbox) ?? "INBOX",
     ignoreFrom: Array.isArray(v.ignoreFrom) ? v.ignoreFrom : [],
+    send: gmailSender(e, address, base, entries),
   });
 }
 
@@ -279,7 +298,7 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
   const emailEntries = entries.filter((e) => e.kind === "email" || e.kind === "outlook");
   const emailAccounts = mergeById(
     base.email.accounts,
-    emailEntries.flatMap((e) => attempt(e, () => (e.kind === "outlook" ? outlookAccountOf(e, entries) : emailAccountOf(e))) ?? []),
+    emailEntries.flatMap((e) => attempt(e, () => (e.kind === "outlook" ? outlookAccountOf(e, entries) : emailAccountOf(e, base, entries))) ?? []),
   );
 
   // --- social ---

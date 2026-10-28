@@ -38,6 +38,11 @@ export const EmailAccount = z.object({
    */
   saveSent: z.boolean().optional(),
   oauth: OAuth.optional(),
+  /**
+   * Send through the Gmail API (HTTPS) with this Google sign-in instead of SMTP: hosts such as
+   * Railway's lower plans block outgoing SMTP. Reading still uses IMAP.
+   */
+  send: z.object({ via: z.literal("gmail"), clientId: z.string().min(1), clientSecret: z.string().min(1), refreshToken: z.string().min(1) }).optional(),
 }).refine((a) => a.oauth || (a.imap.pass && a.smtp.pass), { message: "imap.pass and smtp.pass are needed (or oauth)", path: ["imap", "pass"] });
 export type EmailAccount = z.infer<typeof EmailAccount>;
 export type EmailAccountInput = z.input<typeof EmailAccount>;
@@ -65,8 +70,8 @@ export function parseEmailAccounts(json: string | undefined): EmailAccount[] {
 
 export function shouldSaveSent(account: EmailAccount): boolean {
   if (account.saveSent !== undefined) return account.saveSent;
-  // Gmail and Microsoft file SMTP-sent mail in Sent themselves.
-  if (account.oauth?.provider === "microsoft") return false;
+  // Gmail and Microsoft file sent mail in Sent themselves (SMTP, the Gmail API and Graph alike).
+  if (account.oauth?.provider === "microsoft" || account.send) return false;
   return !/(^|\.)(gmail|googlemail)\.com$/i.test(account.smtp.host);
 }
 

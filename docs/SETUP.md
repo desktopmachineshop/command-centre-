@@ -177,7 +177,7 @@ straight away; only the changed integration restarts, and nothing redeploys.
   | Threads | Meta app → Threads use case → Settings | `/oauth/threads/callback` |
   | X | developer.x.com → app → User authentication settings: OAuth 1.0a, Read and write | `/oauth/x/callback` |
   | Reddit | reddit.com/prefs/apps → create a **web app** | `/oauth/reddit/callback` |
-  | Outlook / Hotmail | Azure portal → Microsoft Entra ID → App registrations → New registration: *Accounts in any organizational directory and personal Microsoft accounts*, platform **Web**. Then Certificates & secrets → New client secret (copy the **Value**), and API permissions → Add → APIs my organization uses → **Office 365 Exchange Online** → Delegated → `IMAP.AccessAsUser.All` and `SMTP.Send` | `/oauth/microsoft/callback` |
+  | Outlook / Hotmail | Azure portal → Microsoft Entra ID → App registrations → New registration: *Accounts in any organizational directory and personal Microsoft accounts*, platform **Web**. Then Certificates & secrets → New client secret (copy the **Value**), and API permissions → Add → APIs my organization uses → **Office 365 Exchange Online** → Delegated → `IMAP.AccessAsUser.All` and `SMTP.Send`, and **Microsoft Graph** → Delegated → `Mail.Send` (sending) | `/oauth/microsoft/callback` |
 
   Google: set the consent screen to **In production**, or the sign-in expires after 7 days.
   The old desktop-type client from `google:auth` can't be used for Connect; create a Web
@@ -418,6 +418,12 @@ Or run it locally over stdio against a clone: `BRAIN_DIR=~/brain pnpm --filter @
 ## Email
 
 > **Easiest:** Accounts page → Business → Email inboxes → Add email inbox (Gmail preset included).
+> **Sending on Railway:** Railway blocks outgoing SMTP below the Pro plan, so replies can't go
+> out over SMTP there. Gmail inboxes send through the **Gmail API** instead: also connect the same
+> address under Accounts → Google (Add account → Connect; the sign-in asks to "send email on your
+> behalf"). In Google Cloud Console enable the **Gmail API** for the project. The inbox's "Send
+> replies with" setting is `auto` by default, so it switches over by itself. Reading still uses
+> the app password. Outlook / Hotmail inboxes always send through **Microsoft Graph**.
 > **Outlook.com / Hotmail / Live / Microsoft 365:** Microsoft no longer accepts passwords or app
 > passwords for IMAP and SMTP, so use Accounts page → Business → Outlook / Hotmail inbox →
 > Connect (after the one-time Microsoft app; see "Accounts page"). It reads over IMAP

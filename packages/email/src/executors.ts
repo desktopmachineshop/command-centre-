@@ -3,7 +3,7 @@ import MailComposer from "nodemailer/lib/mail-composer";
 import { z } from "zod";
 import { type EmailAccount, shouldSaveSent } from "./accounts";
 import { type ImapConnector, imapflowConnector } from "./imap";
-import { smtpAuth } from "./oauth";
+import { sendOverHttps, smtpAuth } from "./oauth";
 
 /** Same shape as the server's `ActionExecutor`; the context is not needed here. */
 export interface EmailActionExecutor {
@@ -82,6 +82,9 @@ export function createEmailExecutors(
       ...mail,
     }).compile();
     const raw = await node.build();
+    // Gmail API / Microsoft Graph over HTTPS when the account has one: no SMTP port needed.
+    const viaHttps = await sendOverHttps(a, raw);
+    if (viaHttps) return { messageId: node.messageId(), accepted: node.getEnvelope().to, rejected: [], savedTo: null };
     const transport = nodemailer.createTransport({
       host: a.smtp.host,
       port: a.smtp.port,

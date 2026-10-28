@@ -1,4 +1,4 @@
-import { type EmailAccount, type ImapConnector, imapflowConnector, smtpAuth } from "@cc/email";
+import { type EmailAccount, type ImapConnector, imapflowConnector, sendRoute, smtpAuth, verifyHttpsSending } from "@cc/email";
 import { OdooClient } from "@cc/odoo";
 import { createGoogleTokenProvider } from "@cc/pa";
 import { IG_GRAPH_BASE, REDDIT_API, REDDIT_TOKEN_URL, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
@@ -132,10 +132,23 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
     } catch (err) {
       return fail(redact(`IMAP (${account.imap.host}): ${(err as Error).message}`, secrets).slice(0, 300));
     }
+    const route = sendRoute(account);
+    if (route !== "smtp" && !deps.smtpVerify) {
+      const api = route === "gmail" ? "the Gmail API" : "Microsoft Graph";
+      try {
+        await withTimeout(verifyHttpsSending(account), timeoutMs, "Sign-in for sending");
+      } catch (err) {
+        return fail(redact(`IMAP works, but sending through ${api}: ${(err as Error).message}`, secrets).slice(0, 300));
+      }
+      return ok(`Signed in to IMAP as ${account.imap.user}; replies send through ${api}`, account.address);
+    }
     try {
       await withTimeout((deps.smtpVerify ?? defaultSmtpVerify)(account), timeoutMs, "SMTP login");
     } catch (err) {
-      return fail(redact(`IMAP works, but SMTP (${account.smtp.host}): ${(err as Error).message}`, secrets).slice(0, 300));
+      const hint = /timed out|ETIMEDOUT|ECONNREFUSED|EHOSTUNREACH/i.test((err as Error).message)
+        ? " The server can't reach the SMTP port: Railway blocks outgoing SMTP below the Pro plan. For Gmail, connect the same address under Google so replies send through the Gmail API."
+        : "";
+      return fail(redact(`IMAP works, but SMTP (${account.smtp.host}): ${(err as Error).message}.${hint}`, secrets).slice(0, 400));
     }
     return ok(`Signed in to IMAP and SMTP as ${account.imap.user}`, account.address);
   };
@@ -201,10 +214,11 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       }
     },
 
-    async email(entry) {
-      let account: EmailAccount;
+    async email(entry, config) {
+      // The account in use (with its Gmail sign-in for sending, if any), else the entry as typed.
+      let account: EmailAccount | undefined = config?.email?.accounts.find((a) => a.id === entry.id && !a.oauth);
       try {
-        account = emailAccountOf(entry);
+        account ??= emailAccountOf(entry);
       } catch {
         return fail("The mailbox settings are incomplete");
       }

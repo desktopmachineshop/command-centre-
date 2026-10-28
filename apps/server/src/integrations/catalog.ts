@@ -150,6 +150,14 @@ export const CATALOG: readonly KindDef[] = [
       { key: "password", label: "Password / app password", type: "secret", required: true },
       { key: "mailbox", label: "Folder", type: "text", default: "INBOX" },
       { key: "ignoreFrom", label: "Ignore senders", type: "list", help: "Addresses or @domain, one per line." },
+      {
+        key: "sendVia",
+        label: "Send replies with",
+        type: "select",
+        options: ["auto", "smtp", "gmail"],
+        default: "auto",
+        help: "auto: the Gmail API when the same address is connected under Google (needed on hosts that block SMTP), else SMTP.",
+      },
     ],
     affects: ["email"],
     helpUrl: "https://myaccount.google.com/apppasswords",
@@ -187,8 +195,9 @@ export const CATALOG: readonly KindDef[] = [
       { ...vertical, default: "personal", help: "Whose agents may use this calendar." },
       { key: "calendars", label: "Calendars", type: "json", help: 'Picked after connecting, e.g. [{"id":"primary"}].', default: '[{"id":"primary"}]' },
       { key: "useForCalendar", label: "Use for Calendar", type: "boolean", default: true },
+      { key: "sendMail", label: "Can send Gmail", type: "boolean", fromOAuth: true, help: "An email inbox with the same address sends its replies through this sign-in." },
     ],
-    affects: ["calendar", "storage"],
+    affects: ["calendar", "storage", "email"],
   },
   // --- Social ---
   {

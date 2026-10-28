@@ -2,12 +2,15 @@ import { buildAuthUrl, DEFAULT_AUTH_SCOPES, exchangeCode, pkcePair } from "@cc/p
 import { youtubeOAuth } from "@cc/social";
 import { codeOf, jsonOf, OAuthFlowError, oauth2Callback, type ProviderDef } from "./provider";
 
+/** Lets a Gmail inbox send replies through the Gmail API (HTTPS) when the host blocks SMTP. */
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+
 /**
  * Google account (Calendar + Drive): the web-redirect version of `pnpm --filter @cc/pa google:auth`.
  * PKCE, access_type=offline and prompt=consent (so a refresh token comes back every time),
  * scopes: openid email + the calendar scopes + drive.file. The email comes from the userinfo endpoint.
  */
-export const GOOGLE_SIGNIN_SCOPES = ["openid", "email", ...DEFAULT_AUTH_SCOPES];
+export const GOOGLE_SIGNIN_SCOPES = ["openid", "email", ...DEFAULT_AUTH_SCOPES, GMAIL_SEND_SCOPE];
 
 export const google: ProviderDef = {
   provider: "google",
@@ -29,7 +32,8 @@ export const google: ProviderDef = {
       "Reading the Google account's email",
     );
     if (!info.email) throw new OAuthFlowError("Google didn't say which account signed in (the email scope wasn't granted)");
-    return { data: { email: info.email }, secrets: { refreshToken: tokens.refreshToken }, account: info.email };
+    const sendMail = tokens.scope.split(/\s+/).includes(GMAIL_SEND_SCOPE);
+    return { data: { email: info.email, sendMail }, secrets: { refreshToken: tokens.refreshToken }, account: info.email };
   },
 };
 
