@@ -1,3 +1,4 @@
+import { BRAIN_MIGRATION_ID, BRAIN_MIGRATION_SQL } from "@cc/brain";
 import { PA_MIGRATION_ID, PA_MIGRATION_SQL } from "@cc/pa";
 
 /**
@@ -387,4 +388,6 @@ export const migrations: { id: string; sql: string }[] = [
 `,
   },
   // --- end integrations ---
+  // brain: notes and their version history (packages/brain/src/pg.ts)
+  { id: BRAIN_MIGRATION_ID, sql: BRAIN_MIGRATION_SQL },
 ];

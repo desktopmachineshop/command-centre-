@@ -37,6 +37,25 @@ export function saveConnection(conn: Connection | null): void {
   }
 }
 
+export interface BrainNote {
+  path: string;
+  frontmatter: Record<string, unknown>;
+  body: string;
+  version: number;
+  updatedBy: string;
+  updatedAt: string;
+  /** The whole file as the editor shows it (only from a read). */
+  raw?: string;
+}
+
+export interface BrainNoteVersion {
+  version: number;
+  author: string;
+  message: string | null;
+  deleted: boolean;
+  createdAt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -280,8 +299,16 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     jobs: () => call<Job[]>("/jobs"),
     brainSearch: (q: string) => call<{ path: string; title: string; snippet: string }[]>(`/brain/search?q=${encodeURIComponent(q)}`),
     brainList: (folder = "") => call<string[]>(`/brain/list?folder=${encodeURIComponent(folder)}`),
-    brainNote: (path: string) =>
-      call<{ path: string; frontmatter: Record<string, unknown>; body: string }>(`/brain/note?path=${encodeURIComponent(path)}`),
+    brainNote: (path: string) => call<BrainNote>(`/brain/note?path=${encodeURIComponent(path)}`),
+    /** `expectedVersion` is the version the editor opened (0 for a new note); a newer one gives a 409. */
+    brainSave: (path: string, raw: string, expectedVersion: number) =>
+      call<BrainNote>("/brain/note", { method: "PUT", body: JSON.stringify({ path, raw, expectedVersion }) }),
+    brainDelete: (path: string, expectedVersion: number) =>
+      call<{ deleted: true }>(`/brain/note?path=${encodeURIComponent(path)}&expectedVersion=${expectedVersion}`, { method: "DELETE" }),
+    brainHistory: (path: string) => call<BrainNoteVersion[]>(`/brain/history?path=${encodeURIComponent(path)}`),
+    brainVersion: (path: string, version: number) =>
+      call<{ path: string; frontmatter: Record<string, unknown>; body: string }>(`/brain/version?path=${encodeURIComponent(path)}&version=${version}`),
+    brainRestore: (path: string, version: number) => post<BrainNote>("/brain/restore", { path, version }),
     stats: () => call<Stats>("/stats"),
     pushKey: () => call<{ publicKey: string | null }>("/push/key"),
     pushSubscribe: (sub: PushSubscriptionJSON) => post("/push/subscribe", sub),

@@ -5,8 +5,9 @@ description: Conventions for reading and writing the command centre's long-term 
 
 # Brain notes
 
-The brain is a git repo of markdown notes. Use the `brain` MCP tools: `search`, `read`,
-`write`, `append_journal`, `list`.
+The brain is a store of markdown notes (in the server's database; Dave edits the same notes in
+the app, and every save is kept in a note's history). Use the `brain` MCP tools: `search`,
+`read`, `write`, `append_journal`, `list`.
 
 ## Before acting
 

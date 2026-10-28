@@ -9,7 +9,7 @@ Desktop Machine Shop, 3dpandme, OpenV, OpenD and personal.
 - Agents read and write a markdown **brain** and use a shared **skills bank**.
 - Anything outward-facing becomes a **proposal**, which runs straight away or waits for approval
   depending on policy.
-- A **PWA** (phone and desktop) shows the inbox, approvals, chat, brain and worker devices.
+- A **PWA** (phone and desktop) shows the inbox, approvals, chat, brain (edit notes there) and worker devices.
 
 ```
 apps/server            API, WebSocket hub, pipeline, scheduler, MCP endpoints (/mcp/brain, /mcp/actions)
@@ -18,7 +18,7 @@ apps/worker            worker daemon for PCs: runs ffmpeg, GPU and local Claude 
 apps/desktop           Tauri app for Windows: the PWA in a window, the worker as a sidecar, tray icon
 packages/core          shared types and WebSocket protocol
 packages/agent-runtime AgentRunner harness + Claude Code adapter (+ API-key fallback)
-packages/brain         git-backed markdown brain + MCP server
+packages/brain         markdown brain in Postgres (history, search, git mirror) + MCP server
 packages/email         IMAP inbox poller + email.reply / email.send executors
 packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/mcp/odoo), Odoo actions
 packages/pa            personal assistant: reminders, to-do lists, Google Calendar, MCP server (/mcp/pa)

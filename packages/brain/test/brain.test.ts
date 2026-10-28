@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { beforeEach, describe, expect, it } from "vitest";
-import { Brain, createBrainMcpServer, parseNote, serializeNote } from "../src";
+import { GitBrain, createBrainMcpServer, parseNote, serializeNote } from "../src";
 
-let brain: Brain;
+let brain: GitBrain;
 beforeEach(async () => {
-  brain = new Brain({ dir: join(mkdtempSync(join(tmpdir(), "brain-")), "brain"), folders: ["dms", "personal"] });
+  brain = new GitBrain({ dir: join(mkdtempSync(join(tmpdir(), "brain-")), "brain"), folders: ["dms", "personal"] });
   await brain.init();
 });
 

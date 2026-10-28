@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, normalize, relative, sep } from "node:path";
 import { Git, type GitIdentity } from "./git";
 import { type Frontmatter, type Note, noteTitle, parseNote, serializeNote } from "./note";
@@ -21,13 +21,71 @@ export interface SearchHit {
   snippet: string;
 }
 
+/** Who made a change and why; shown in the note's history. */
+export interface WriteOptions {
+  message?: string;
+  /** "agent" (default), "dave", "system", ... */
+  author?: string;
+  /** Refuse the write unless the note is still at this version (0 = must not exist yet). */
+  expectedVersion?: number;
+}
+
+/**
+ * What agents, the API and the MCP server need from a brain. PgBrain (Postgres)
+ * is the live store; GitBrain (a git checkout) backs the stdio MCP server and
+ * the git mirror.
+ */
+export interface Brain {
+  init(): Promise<void>;
+  read(path: string): Promise<Note | null>;
+  write(path: string, content: { frontmatter?: Frontmatter; body: string }, options?: string | WriteOptions): Promise<Note>;
+  appendJournal(text: string, options?: { vertical?: string; at?: Date }): Promise<Note>;
+  list(folder?: string): Promise<string[]>;
+  search(query: string, options?: { folder?: string; limit?: number }): Promise<SearchHit[]>;
+}
+
+/** Thrown when a write's expectedVersion no longer matches (someone else saved first). */
+export class BrainConflictError extends Error {
+  constructor(
+    readonly path: string,
+    readonly currentVersion: number,
+  ) {
+    super(`${path} changed since you opened it (now version ${currentVersion})`);
+    this.name = "BrainConflictError";
+  }
+}
+
+export const writeOptions = (options?: string | WriteOptions): WriteOptions =>
+  typeof options === "string" ? { message: options } : (options ?? {});
+
+/** Normalise a brain-relative path, refusing anything outside the brain or not markdown. */
+export function notePath(path: string): string {
+  const rel = normalize(path.replace(/^\/+/, ""));
+  if (rel.startsWith("..") || rel.split(sep).includes(".git")) throw new Error(`Path outside brain: ${path}`);
+  if (!rel.endsWith(".md")) throw new Error(`Brain notes must be .md files: ${path}`);
+  return rel.split(sep).join("/");
+}
+
+/** The one-line journal entry appendJournal adds, and the note it lands in. */
+export function journalEntry(text: string, options: { vertical?: string; at?: Date } = {}): { path: string; day: string; line: string } {
+  const at = options.at ?? new Date();
+  const day = at.toISOString().slice(0, 10);
+  const time = at.toISOString().slice(11, 16);
+  const tag = options.vertical ? ` [${options.vertical}]` : "";
+  return { path: `journal/${day}.md`, day, line: `- ${time}${tag} ${text.replace(/\s*\n\s*/g, " ").trim()}` };
+}
+
+export function appendJournalLine(existing: Note | null, day: string, line: string): string {
+  return existing ? `${existing.body.trimEnd()}\n${line}\n` : `# ${day}\n\n${line}\n`;
+}
+
 const SKIP_DIRS = new Set([".git", ".obsidian", "node_modules"]);
 
 /**
- * The brain: a git repo of Obsidian-compatible markdown notes with YAML frontmatter.
+ * A brain kept in a git repo of Obsidian-compatible markdown notes with YAML frontmatter.
  * Every write is a commit; pushes go to the remote when one is configured.
  */
-export class Brain {
+export class GitBrain implements Brain {
   readonly dir: string;
   private readonly git: Git;
   private readonly remoteUrl?: string;
@@ -71,10 +129,8 @@ export class Brain {
 
   /** Resolve a brain-relative path, refusing anything outside the brain or not markdown. */
   resolve(path: string): { rel: string; abs: string } {
-    const rel = normalize(path.replace(/^\/+/, ""));
-    if (rel.startsWith("..") || rel.split(sep).includes(".git")) throw new Error(`Path outside brain: ${path}`);
-    if (!rel.endsWith(".md")) throw new Error(`Brain notes must be .md files: ${path}`);
-    return { rel: rel.split(sep).join("/"), abs: join(this.dir, rel) };
+    const rel = notePath(path);
+    return { rel, abs: join(this.dir, rel) };
   }
 
   async read(path: string): Promise<Note | null> {
@@ -86,8 +142,9 @@ export class Brain {
   async write(
     path: string,
     content: { frontmatter?: Frontmatter; body: string },
-    message?: string,
+    options?: string | WriteOptions,
   ): Promise<Note> {
+    const { message } = writeOptions(options);
     const { rel, abs } = this.resolve(path);
     const frontmatter = { ...(content.frontmatter ?? {}), updated: new Date().toISOString() };
     await mkdir(dirname(abs), { recursive: true });
@@ -98,14 +155,9 @@ export class Brain {
 
   /** Append a timestamped line to today's journal note. */
   async appendJournal(text: string, options: { vertical?: string; at?: Date } = {}): Promise<Note> {
-    const at = options.at ?? new Date();
-    const day = at.toISOString().slice(0, 10);
-    const path = `journal/${day}.md`;
+    const { path, day, line } = journalEntry(text, options);
     const existing = await this.read(path);
-    const time = at.toISOString().slice(11, 16);
-    const tag = options.vertical ? ` [${options.vertical}]` : "";
-    const line = `- ${time}${tag} ${text.replace(/\s*\n\s*/g, " ").trim()}`;
-    const body = existing ? `${existing.body.trimEnd()}\n${line}\n` : `# ${day}\n\n${line}\n`;
+    const body = appendJournalLine(existing, day, line);
     return this.write(path, { frontmatter: { ...(existing?.frontmatter ?? {}), type: "journal" }, body }, `journal: ${day}`);
   }
 
@@ -125,6 +177,37 @@ export class Brain {
     };
     await walk(base);
     return out.sort();
+  }
+
+  /**
+   * Make the checkout hold exactly these notes, as one commit, and push it.
+   * Used by the one-way git mirror: the remote is reset first, so edits made
+   * there are replaced (they stay in the repo's history). Returns whether
+   * anything changed.
+   */
+  async replaceAll(notes: Note[], message: string): Promise<boolean> {
+    if (this.remoteUrl) {
+      await this.git.run("fetch", "--quiet", "origin");
+      const branch = (await this.git.run("rev-parse", "--abbrev-ref", "HEAD")).trim();
+      const remote = await this.git.run("ls-remote", "--heads", "origin", branch);
+      if (remote.trim()) await this.git.run("reset", "--quiet", "--hard", `origin/${branch}`);
+    }
+    const keep = new Set<string>();
+    for (const note of notes) {
+      const { rel, abs } = this.resolve(note.path);
+      keep.add(rel);
+      await mkdir(dirname(abs), { recursive: true });
+      await writeFile(abs, serializeNote(note));
+    }
+    for (const path of await this.list()) {
+      if (!keep.has(path)) await rm(join(this.dir, path));
+    }
+    await this.git.run("add", "-A", "--", ".");
+    const staged = await this.git.run("diff", "--cached", "--name-only");
+    if (!staged.trim()) return false;
+    await this.git.run("commit", "--quiet", "-m", message);
+    if (this.remoteUrl) await this.git.run("push", "--quiet", "origin", "HEAD");
+    return true;
   }
 
   /**
@@ -165,7 +248,7 @@ export class Brain {
   }
 }
 
-function tokenize(query: string): string[] {
+export function tokenize(query: string): string[] {
   return [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length > 1))];
 }
 
@@ -175,14 +258,14 @@ function countOccurrences(text: string, term: string): number {
   return count;
 }
 
-function snippet(body: string, terms: string[]): string {
+export function snippet(body: string, terms: string[]): string {
   const lower = body.toLowerCase();
   const first = terms.map((t) => lower.indexOf(t)).filter((i) => i >= 0).sort((a, b) => a - b)[0] ?? 0;
   const start = Math.max(0, first - 80);
   return body.slice(start, start + 240).replace(/\s+/g, " ").trim();
 }
 
-const BRAIN_README = `# Brain
+export const BRAIN_README = `# Brain
 
 Long-term knowledge for the command centre. Plain markdown with YAML frontmatter,
 so it opens in Obsidian. Agents read and write it through the brain MCP server;

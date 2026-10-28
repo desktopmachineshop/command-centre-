@@ -1,7 +1,7 @@
-import type { Brain } from "@cc/brain";
+import { BrainConflictError, parseNote, type PgBrain, serializeNote } from "@cc/brain";
 import { Capability, leadOf, ProposalStatus, ROOT_ROLE_ID, TaskStatus } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
 import type { AuthService } from "../accounts/service";
@@ -29,7 +29,7 @@ export interface ApiDeps {
   pipeline: Pipeline;
   actions: ActionService;
   workers: WorkerService;
-  brain: Brain;
+  brain: PgBrain;
   verticals: VerticalRegistry;
   notifier: Notifier;
   budget: BudgetService;
@@ -64,6 +64,8 @@ export function apiRoutes(deps: ApiDeps) {
   app.onError((err, c) => {
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof ProposalStateError) return c.json({ error: err.message }, 409);
+    if (err instanceof BrainConflictError) return c.json({ error: err.message, version: err.currentVersion }, 409);
+    if (/^(Path outside brain|Brain notes must be \.md)/.test(err.message)) return c.json({ error: err.message }, 400);
     console.error("[api]", err);
     return c.json({ error: err.message }, 500);
   });
@@ -178,10 +180,46 @@ export function apiRoutes(deps: ApiDeps) {
 
   app.get("/brain/search", async (c) => c.json(await brain.search(c.req.query("q") ?? "", { folder: c.req.query("folder") })));
   app.get("/brain/list", async (c) => c.json(await brain.list(c.req.query("folder") ?? "")));
+  /** The note plus `raw`: the editable file, without the automatic `updated` key. */
   app.get("/brain/note", async (c) => {
     const note = await brain.read(c.req.query("path") ?? "");
+    if (!note) return c.json({ error: "not found" }, 404);
+    const { updated: _updated, ...frontmatter } = note.frontmatter;
+    return c.json({ ...note, raw: serializeNote({ frontmatter, body: note.body }) });
+  });
+  // --- brain editing: saves from the app, with history and restore; `expectedVersion` refuses stale saves (409) ---
+  const editor = (c: Context) => {
+    const p = c.get("principal");
+    return p.kind === "user" ? p.user.name || p.user.email : "admin";
+  };
+  /** `raw` is the whole file (YAML frontmatter fence + markdown); `expectedVersion` 0 creates a new note. */
+  app.put("/brain/note", async (c) => {
+    const body = z
+      .object({ path: z.string().min(1), raw: z.string(), expectedVersion: z.number().int().min(0).optional(), message: z.string().optional() })
+      .parse(await c.req.json());
+    const parsed = parseNote(body.path, body.raw);
+    const note = await brain.write(body.path, parsed, { author: editor(c), message: body.message, expectedVersion: body.expectedVersion });
+    return c.json(note);
+  });
+  app.delete("/brain/note", async (c) => {
+    const expected = c.req.query("expectedVersion");
+    const deleted = await brain.delete(c.req.query("path") ?? "", {
+      author: editor(c),
+      expectedVersion: expected === undefined ? undefined : z.coerce.number().int().parse(expected),
+    });
+    return deleted ? c.json({ deleted: true }) : c.json({ error: "not found" }, 404);
+  });
+  app.get("/brain/history", async (c) => c.json(await brain.history(c.req.query("path") ?? "")));
+  app.get("/brain/version", async (c) => {
+    const note = await brain.readVersion(c.req.query("path") ?? "", z.coerce.number().int().parse(c.req.query("version")));
     return note ? c.json(note) : c.json({ error: "not found" }, 404);
   });
+  app.post("/brain/restore", async (c) => {
+    const body = z.object({ path: z.string().min(1), version: z.number().int().min(1) }).parse(await c.req.json());
+    const note = await brain.restore(body.path, body.version, { author: editor(c) });
+    return note ? c.json(note) : c.json({ error: "not found" }, 404);
+  });
+  // --- end brain editing ---
 
   app.get("/stats", async (c) => {
     const { budget } = deps;
