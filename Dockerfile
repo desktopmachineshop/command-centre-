@@ -23,7 +23,7 @@ RUN pnpm --filter @cc/web build && pnpm --filter @cc/server build
 RUN pnpm --filter @cc/server deploy --prod --legacy /out
 
 FROM node:22-slim
-# git: the brain is a git repo. ca-certificates: HTTPS for git and the Claude API.
+# git: the brain's optional git mirror. ca-certificates: HTTPS for git and the Claude API.
 # bsdutils: `script`, the terminal "Connect Claude" runs `claude setup-token` in.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates bsdutils \

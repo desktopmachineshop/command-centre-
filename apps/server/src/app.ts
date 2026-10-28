@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
-import { Brain } from "@cc/brain";
+import { GitBrain, GitMirror, PgBrain } from "@cc/brain";
 import { configureEmailOAuth, createEmailExecutors, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
 import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
@@ -143,11 +144,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const store = new Store(pool);
   const hub = new Hub();
   const verticals = overrides.verticals ?? new VerticalRegistry();
-  const brain = new Brain({
-    dir: config.brainDir,
-    remoteUrl: config.brainRemoteUrl,
-    folders: verticals.all().map((v) => v.brainFolder),
-  });
+  // --- brain: notes live in Postgres; BRAIN_REMOTE_URL adds a read-only git mirror (and a one-time import from it) ---
+  const brainGit = config.brainRemoteUrl || existsSync(join(config.brainDir, ".git"))
+    ? new GitBrain({ dir: config.brainDir, remoteUrl: config.brainRemoteUrl, folders: verticals.all().map((v) => v.brainFolder) })
+    : null;
+  let brainMirror: GitMirror | null = null;
+  const brain = new PgBrain(pool, { onChange: () => brainMirror?.schedule() });
+  if (brainGit) brainMirror = new GitMirror(brain, brainGit);
+  // --- end brain ---
   // --- Notifications: inbox, preferences, quiet hours, rate limits, devices (src/notifications) ---
   const notifications = new NotificationService(new NotificationStore(pool), overrides.pushTransport ?? new WebPushTransport(config.vapid), {
     timezone: config.timezone,
@@ -624,7 +628,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await integrations.load(); // integrations: saved accounts over the env config, before anything polls
       await auth.warm();
       await store.markAllNodesOffline();
+      // brain: import the git brain into an empty database once (only from a good checkout), seed, then mirror back to git.
+      if (brainGit && brainMirror) {
+        try {
+          await brainGit.init();
+          await brainMirror.importIfEmpty();
+        } catch (err) {
+          console.error("[brain] git checkout failed, skipping import and mirror:", (err as Error).message);
+          brainMirror = null;
+        }
+      }
       await brain.init();
+      brainMirror?.schedule();
       await storage.init(); // storage: index media from before the index, load the cache
       storageServing = true; // storage: from here a backend switch waits for a restart
       if (queue instanceof PgBossTaskQueue) await queue.start();
@@ -656,6 +671,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     async stop() {
       await claudeSetup.cancel();
+      brainMirror?.stop();
       for (const c of crons) c.stop();
       for (const c of notificationCrons) c.stop();
       await email.stop();

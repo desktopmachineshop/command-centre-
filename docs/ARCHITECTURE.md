@@ -59,14 +59,14 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 ### Data
 - **Postgres** (Railway), with:
   - `pg-boss` for the job and task queues;
-  - `pgvector` for the brain index;
+  - the brain (`brain_notes`, `brain_note_versions`), with full-text search; `pgvector` can join it later;
   - tables for events, triage results, tasks, proposals, approvals, the audit log, worker nodes and jobs.
-- **Brain**: a separate git repo of Obsidian-compatible markdown with YAML frontmatter (`type`, `vertical`, `entities`, `updated`). Folders:
+- **Brain**: Obsidian-compatible markdown notes with YAML frontmatter (`type`, `vertical`, `entities`, `updated`), stored in Postgres (one row per note, every save kept as a version). Folders:
   - `/<vertical>/{customers,products,decisions,playbooks}`
   - `/journal/YYYY-MM-DD.md`
   - `/people`
 
-  The server commits and pushes, and the desktops pull it into Obsidian. Two-way editing works through git. The MCP tools are `brain.search` (hybrid BM25 + vector), `brain.read`, `brain.write`, `brain.append_journal` and `brain.link`. A nightly "consolidate" agent turns the day's events into durable notes.
+  Dave edits notes in the PWA's Brain page (history and restore included); saves go live straight away, no git or PRs. With `BRAIN_REMOTE_URL` set, the server mirrors the brain one way into a git repo (a backup and a read-only Obsidian vault) and, on first boot, imports that repo. The MCP tools are `brain.search` (Postgres full-text; vector later), `brain.read`, `brain.write`, `brain.append_journal` and `brain.list`. A nightly "consolidate" agent turns the day's events into durable notes.
 
 ### Autonomy & safety
 - Every outward action (sending email, publishing, changing prices or ads) is an `ActionProposal`. Each action type has a policy level:
@@ -115,7 +115,8 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 **Phase 0: Foundations** (built). Deviations from the original plan:
 - The brain and actions MCP servers are served by the server itself over HTTP (`/mcp/brain`,
   `/mcp/actions`). Each agent run gets a short-lived token scoped to its task. This means one
-  brain writer, no git contention, and the same brain is reachable from agents on the PCs.
+  brain writer, and the same brain is reachable from agents on the PCs. The brain later moved from
+  a git checkout to Postgres, so edits from the app need no git and concurrent writes can't clash.
 - Agent workspaces are per vertical and role (see `docs/ORG.md`), and only that role's skills are symlinked into
   `.claude/skills`.
 - Triage is rules-only for now. Jev slots in as another `Triager` in Phase 1.
@@ -164,7 +165,7 @@ Original Phase 0 steps:
   - `pnpm turbo typecheck test` is green;
   - `docker compose up` brings up the server, Postgres and the PWA locally;
   - a cron event produces a Claude Code run whose transcript appears in the PWA;
-  - a brain write shows up as a git commit.
+  - a brain write shows up in the Brain page and in the note's history.
 - Phase 1, against the real Odoo instance in read-only mode first:
   - replay a fixture set of past shop emails and check Jev's intent accuracy (target ≥90%) and the quality of the drafted replies;
   - one live email, end to end, gets approved on the phone and sent.

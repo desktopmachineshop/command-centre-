@@ -29,7 +29,7 @@ first, and the test is skipped when Chromium is missing.
 1. **New project → Deploy from GitHub repo** → `desktopmachineshop/command-centre-`. Railway
    picks up `railway.json` and builds the `Dockerfile`.
 2. **Add a Postgres service.** Reference its `DATABASE_URL` from the server's variables.
-3. **Add a volume** to the server, mounted at `/data`. It holds the brain checkout, agent
+3. **Add a volume** to the server, mounted at `/data`. It holds the brain's git mirror, agent
    workspaces and Claude Code's config.
 4. **Set the variables** (see `.env.example`):
    - `ADMIN_TOKEN`: `openssl rand -hex 32`. You paste it once, at first-run setup; after that
@@ -394,15 +394,33 @@ pnpm --filter @cc/desktop tauri build   # installers in apps/desktop/src-tauri/t
 
 ## Brain
 
-The brain is a separate private git repo of markdown notes.
+The brain is the agents' long-term memory: markdown notes with YAML frontmatter, stored in the
+server's Postgres (tables `brain_notes` and `brain_note_versions`). There is nothing to set up.
+
+- **Edit in the app:** More → **Brain**. Search, open a note, **Edit** (the whole file,
+  frontmatter included), **New note**, **Delete**. Saves are live for agents straight away.
+- **History:** every save and delete is kept with who made it (you, an agent, `system`). Open
+  **History** on a note to view an old version or **Restore** it. A deleted note can be brought
+  back by recreating it at the same path and restoring from its history.
+- **Conflicts:** if an agent saves a note while you are editing it, your save is refused rather
+  than overwriting theirs; load the latest and make your change again.
+- **Search** is Postgres full-text (English stemming, so "spindles" finds "spindle"), ranking
+  title and path over frontmatter over body.
+
+### Git mirror (optional): backup and Obsidian
+
+Set `BRAIN_REMOTE_URL` to a private repo and the server keeps a copy of the brain there:
 
 1. Create an empty private repo, e.g. `desktopmachineshop/brain`.
 2. Create a fine-grained GitHub token with *Contents: read & write* on that repo only.
 3. Set `BRAIN_REMOTE_URL=https://x-access-token:<token>@github.com/desktopmachineshop/brain.git`.
 
-The server clones it on boot, and every agent write becomes a commit that it pushes. On your PCs,
-clone the same repo and open it as an **Obsidian** vault. The Obsidian Git plugin keeps it in sync,
-and edits you make there are pulled on the next server boot.
+- **One way only.** About a minute after the last change, the server commits the whole brain to
+  the repo and pushes. Open a clone as an **Obsidian** vault to read it, but **edit in the app**:
+  edits made in the repo are replaced by the next mirror (they stay in the repo's git history).
+- **Import:** on the first boot with an empty database brain, the server imports every note from
+  the repo (author `import`). This is how an existing git brain moves into Postgres; it runs once.
+- If the repo can't be reached at boot, the server logs it and runs without the mirror.
 
 ### Use the brain from other agents
 
@@ -414,7 +432,8 @@ claude mcp add --transport http brain https://<your-domain>/mcp/brain \
   --header "Authorization: Bearer <ADMIN_TOKEN>"
 ```
 
-Or run it locally over stdio against a clone: `BRAIN_DIR=~/brain pnpm --filter @cc/brain mcp`.
+Or run it locally over stdio: `DATABASE_URL=<postgres url> pnpm --filter @cc/brain mcp` for the live
+brain, or `BRAIN_DIR=~/brain pnpm --filter @cc/brain mcp` against a clone of the git mirror.
 
 ## Email
 

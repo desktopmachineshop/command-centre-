@@ -178,4 +178,29 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(stats.pendingApprovals).toBe(0);
   });
 
+
+  it("edits brain notes from the app, with history, conflicts and restore", async () => {
+    const path = "dms/edited.md";
+    const created = await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: "---\ntype: note\n---\n\n# Edited\n\nv1\n", expectedVersion: 0 } });
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({ path, version: 1, updatedBy: "admin", frontmatter: { type: "note" } });
+    expect((await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: "# Clash", expectedVersion: 0 } })).status).toBe(409);
+    expect((await ctx.api("/api/brain/note", { method: "PUT", json: { path: "../x.md", raw: "x" } })).status).toBe(400);
+
+    await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: "# Edited\n\nv2\n", expectedVersion: 1 } });
+    const history = (await ctx.api(`/api/brain/history?path=${encodeURIComponent(path)}`)).body;
+    expect(history.map((h: { version: number }) => h.version)).toEqual([2, 1]);
+    expect((await ctx.api(`/api/brain/version?path=${encodeURIComponent(path)}&version=1`)).body.body).toContain("v1");
+
+    const restored = await ctx.api("/api/brain/restore", { method: "POST", json: { path, version: 1 } });
+    expect(restored.body).toMatchObject({ version: 3, frontmatter: { type: "note" } });
+    expect((await ctx.api(`/api/brain/search?q=edited`)).body[0].path).toBe(path);
+
+    expect((await ctx.api(`/api/brain/note?path=${encodeURIComponent(path)}&expectedVersion=3`, { method: "DELETE" })).status).toBe(200);
+    expect((await ctx.api(`/api/brain/note?path=${encodeURIComponent(path)}`)).status).toBe(404);
+  });
+
+  it("seeds the brain with the overnight summary", async () => {
+    expect((await ctx.server.brain.read("command-centre/2026-10-24-overnight-summary.md"))?.body).toContain("overnight summary");
+  });
 });
