@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BrowserListener, chunkForSpeech, pickVoice } from "../src/voice/speech";
+import { BrowserListener, chunkForSpeech, collapseRepeats, pickVoice } from "../src/voice/speech";
 
 const v = (name: string, lang: string, localService = true) => ({ name, lang, localService, default: false });
 
@@ -35,6 +35,18 @@ describe("chunkForSpeech", () => {
   });
 });
 
+describe("collapseRepeats", () => {
+  it("folds Android's repeat-the-sentence-so-far results into one", () => {
+    expect(collapseRepeats(["draft", "draft a", "draft a note", "draft a note to remind me", "draft a note to remind me"])).toEqual(["draft a note to remind me"]);
+  });
+
+  it("keeps separate phrases, including ones that share a word", () => {
+    expect(collapseRepeats(["order more collets", "from the usual supplier"])).toEqual(["order more collets", "from the usual supplier"]);
+    expect(collapseRepeats(["order", "orders shipped"])).toEqual(["order", "orders shipped"]);
+    expect(collapseRepeats(["Draft a note.", "draft a note to Sam"])).toEqual(["draft a note to Sam"]);
+  });
+});
+
 /** A stand-in for the Web Speech API recognition object. */
 class FakeRecognition {
   static last: FakeRecognition;
@@ -55,8 +67,10 @@ class FakeRecognition {
     this.onend?.();
   }
   abort() {}
-  say(transcript: string) {
-    this.results.push({ isFinal: true, 0: { transcript } });
+  say(transcript: string, isFinal = true) {
+    const last = this.results[this.results.length - 1];
+    if (last && !last.isFinal) this.results.pop();
+    this.results.push({ isFinal, 0: { transcript } });
     this.onresult?.({ resultIndex: this.results.length - 1, results: this.results });
   }
 }
@@ -84,6 +98,31 @@ describe("BrowserListener", () => {
     expect(result).toBeUndefined();
     await vi.advanceTimersByTimeAsync(600);
     expect(result).toBe("order more collets from the usual supplier");
+  });
+
+  it("hears Android's word-by-word repeats as one sentence", async () => {
+    const l = setup();
+    const p = l.listen({ lang: "en-GB", timeoutMs: 8000 });
+    const words = "draft a note to remind me that I need to change how the behaviour when an order is confirmed happens".split(" ");
+    for (let i = 1; i <= words.length; i++) {
+      FakeRecognition.last.say(words.slice(0, i).join(" "));
+      FakeRecognition.last.say(words.slice(0, i).join(" ")); // sometimes twice
+    }
+    l.stop();
+    expect(await p).toBe(words.join(" "));
+  });
+
+  it("shows interim words and replaces them when they become final", async () => {
+    const l = setup();
+    const seen: string[] = [];
+    const p = l.listen({ lang: "en-GB", timeoutMs: 8000, onInterim: (t) => seen.push(t) });
+    FakeRecognition.last.say("approve the");
+    FakeRecognition.last.say("yes", false);
+    FakeRecognition.last.say("yes approve", false);
+    FakeRecognition.last.say("yes approve it");
+    l.stop();
+    expect(await p).toBe("approve the yes approve it");
+    expect(seen).toEqual(["approve the", "approve the yes", "approve the yes approve", "approve the yes approve it"]);
   });
 
   it("Send ends the turn at once with what was heard", async () => {
