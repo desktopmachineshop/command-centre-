@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NotificationCategory } from "./notifications";
 
 /** Where an event entered the system. New ingress adapters add a value here. */
 export const EventSource = z.enum(["chat", "cron", "webhook", "email", "odoo", "social", "system"]);
@@ -48,6 +49,8 @@ export const TriageResult = z.object({
   /** Which triager produced the result, e.g. "rules", "jev", "haiku". */
   triager: z.string(),
   notes: z.string().optional(),
+  /** Push the event straight away in this notification category (e.g. an incoming RFQ), even when it is only filed. */
+  push: NotificationCategory.optional(),
 });
 export type TriageResult = z.infer<typeof TriageResult>;
 

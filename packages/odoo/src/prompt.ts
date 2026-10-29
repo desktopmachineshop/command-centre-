@@ -3,7 +3,7 @@
  * I/O so the server, the digest and tests can all render the same text.
  */
 
-export const ODOO_EVENT_KINDS = ["order.created", "message.received", "stock.low", "delivery.late", "review.received"] as const;
+export const ODOO_EVENT_KINDS = ["order.created", "message.received", "stock.low", "delivery.late", "review.received", "rfq.received", "purchase.reply"] as const;
 export type OdooEventKind = (typeof ODOO_EVENT_KINDS)[number];
 
 const SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$" };
@@ -42,9 +42,36 @@ export function odooTitle(kind: string, p: Record<string, unknown>): string {
       const stars = typeof p.rating === "number" ? `${p.rating}/5` : "a rating";
       return `New review ${stars} from ${customer} on ${clip(oneLine(str(p.recordName) || str(p.resModel)), 60)}`;
     }
+    case "rfq.received": {
+      const from = oneLine(str(p.company)) || customer;
+      return `New RFQ from ${from}: ${clip(oneLine(str(p.name) || "(no subject)"), 80)}`;
+    }
+    case "purchase.reply": {
+      const supplier = oneLine(str(p.supplier) || str(p.author)) || "a supplier";
+      const what = p.orderState === "purchase" || p.orderState === "done" ? "PO" : "RFQ";
+      return `${supplier} replied on ${what} ${str(p.recordName) || str(p.resId)}${p.subject ? `: ${clip(oneLine(str(p.subject)), 80)}` : ""}`;
+    }
     default:
       return `Odoo ${kind}: ${str(p.model)} ${str(p.id)}`;
   }
+}
+
+/** The body of the push for an event that notifies straight away: who, the gist, and where to open it in Odoo. */
+export function odooPushBody(kind: string, p: Record<string, unknown>): string {
+  const customer = obj(p.customer);
+  const gist = clip(oneLine(str(p.body)), 300);
+  const lines: string[] = [];
+  if (kind === "rfq.received") {
+    lines.push([str(customer.name), str(customer.email) ? `<${str(customer.email)}>` : "", str(p.phone)].filter(Boolean).join(" "));
+    if (gist) lines.push(gist);
+  } else if (kind === "purchase.reply") {
+    const total = typeof p.amount === "number" ? `, ${formatMoney(p.amount, p.currency)}` : "";
+    lines.push(`${str(p.recordName)} (${p.orderState === "purchase" || p.orderState === "done" ? "purchase order" : "RFQ"}${total})`);
+    if (gist) lines.push(gist);
+    if (typeof p.attachments === "number" && p.attachments > 0) lines.push(`${p.attachments} attachment${p.attachments === 1 ? "" : "s"}`);
+  }
+  if (p.link) lines.push(str(p.link));
+  return lines.filter(Boolean).join("\n");
 }
 
 const BEGIN = "----- BEGIN ODOO CONTENT -----";
@@ -175,6 +202,36 @@ export function odooPrompt(event: { kind: string; title?: string; payload: Recor
         "",
         "A customer left a rating. Follow the dms-ops skill (review.received): thank good reviews, and for poor ones find the order and what went wrong before drafting an apology.",
         "Every reply is a proposal Dave approves. Never post or send directly.",
+      ].join("\n");
+    case "rfq.received":
+      return [
+        ...head,
+        ...quoted([
+          field("Request", p.name),
+          field("From", who),
+          field("Company", p.company),
+          field("Phone", p.phone),
+          field("Source", p.source),
+          "",
+          str(p.body) || "(no description)",
+        ]),
+        "",
+        "A request for a quote came in through Odoo CRM. Dave has been notified and quotes it himself. If he asks, look up the products, prices and stock with the odoo tools and draft the quote or a reply for his approval.",
+      ].join("\n");
+    case "purchase.reply":
+      return [
+        ...head,
+        ...quoted([
+          field("Order", `${str(p.recordName)} (${str(p.orderState)})`),
+          field("Supplier", p.supplier),
+          field("From", [str(p.author), str(p.email) ? `<${str(p.email)}>` : ""].filter(Boolean).join(" ")),
+          field("Subject", p.subject),
+          field("Attachments", p.attachments),
+          "",
+          str(p.body) || "(empty message)",
+        ]),
+        "",
+        "A supplier replied on a purchase order or RFQ. Dave has been notified. If he asks, compare it with the order (prices, quantities, dates) using the odoo tools; never reply to the supplier without his approval.",
       ].join("\n");
     default:
       return [...head, ...quoted([JSON.stringify(p, null, 2).slice(0, 20_000)]), "", "Decide what needs doing and do it."].join("\n");

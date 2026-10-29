@@ -28,17 +28,27 @@ describe("RulesTriager on Odoo events", () => {
   it.each([
     ["order.created", "new-order", "file"],
     ["message.received", "customer-message", "agent"],
-    ["stock.low", "stock-low", "agent"],
-    ["delivery.late", "delivery-late", "agent"],
+    ["stock.low", "stock-low", "file"],
+    ["delivery.late", "delivery-late", "file"],
     ["review.received", "review", "agent"],
+    ["rfq.received", "rfq", "file"],
+    ["purchase.reply", "supplier-reply", "file"],
   ])("%s → intent %s, route %s, without a model", async (kind, intent, route) => {
     expect(await rules.triage(odoo(kind), context)).toMatchObject({ vertical: "dms", intent, route, confidence: 1, triager: "rules" });
   });
 
-  it("hands a flagged order (e.g. over the big-order threshold) to an agent", async () => {
+  it("files even a flagged order (e.g. over the big-order threshold) for the digest, with no agent", async () => {
     const r = await rules.triage(odoo("order.created", { attention: ["large order (1250.00 ≥ 500 threshold)"] }), context);
-    expect(r).toMatchObject({ intent: "new-order", route: "agent", urgency: 0.6 });
-    expect(r?.notes).toContain("large order");
+    expect(r).toMatchObject({ intent: "new-order", route: "file" });
+    expect(r?.push).toBeUndefined();
+  });
+
+  it("pushes RFQs and supplier replies straight away, and nothing else", async () => {
+    expect((await rules.triage(odoo("rfq.received"), context))?.push).toBe("quotes");
+    expect((await rules.triage(odoo("purchase.reply"), context))?.push).toBe("quotes");
+    for (const kind of ["order.created", "stock.low", "delivery.late", "message.received", "review.received"]) {
+      expect((await rules.triage(odoo(kind), context))?.push).toBeUndefined();
+    }
   });
 
   it("treats a poor review as more urgent", async () => {

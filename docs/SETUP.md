@@ -992,6 +992,7 @@ Change it all under **Notifications → Notification settings** (`#/notification
 | `digest` | the daily digest | push, silent, low |
 | `social` | social activity | batched into the next digest |
 | `orders` | Odoo/shop orders | batched into the next digest |
+| `quotes` | incoming RFQs (Odoo CRM leads) and suppliers' replies on RFQs and POs | push, sound, high |
 | `system` | test pushes, system notices | in the app only |
 | `agent` | anything else an agent sends with `notify` | push, sound |
 
@@ -1102,12 +1103,20 @@ server.
 
 | Source | What it watches | Event | Default handling |
 | --- | --- | --- | --- |
-| `orders` | confirmed sales and website orders (`sale.order` in state sale/done) | `order.created` | filed: a journal line and the digest, no agent |
+| `orders` | confirmed sales and website orders (`sale.order` in state sale/done) | `order.created` | filed: a journal line and the daily digest, no agent, no push |
 | `messages` | customer chatter messages (`mail.message` of type comment, not by an internal user) on orders, contacts and tickets | `message.received` | agent drafts a reply (`dms-customer-reply`) |
 | `tickets` | new Helpdesk tickets (if Helpdesk is installed) | `message.received` | agent drafts a reply |
-| `stock` | a storable product's on-hand quantity dropping below its threshold, once per crossing | `stock.low` | agent proposes a reorder note (`dms-ops`) |
-| `deliveries` | an outgoing delivery still not done `lateAfterHours` after its scheduled date, once | `delivery.late` | agent drafts an apology (`dms-ops`) |
+| `stock` | a storable product's on-hand quantity dropping below its threshold, once per crossing | `stock.low` | filed: on the daily digest's **To buy** list, no agent, no push |
+| `deliveries` | an outgoing delivery still not done `lateAfterHours` after its scheduled date, once | `delivery.late` | filed: on the daily digest's late list, no agent, no push |
 | `reviews` | submitted ratings and product reviews (`rating.rating`, if installed) | `review.received` | agent drafts a reply (`dms-ops`) |
+| `leads` | new CRM leads and opportunities (website forms, the sales email alias), not ones a staff user typed in (if CRM is installed) | `rfq.received` | filed **and pushed straight away** ("RFQs and purchasing"), no agent |
+| `purchases` | suppliers' replies on RFQs and purchase orders (`mail.message` on `purchase.order`, comments and emails, not by staff; if Purchase is installed) | `purchase.reply` | filed **and pushed straight away** ("RFQs and purchasing"), no agent |
+
+**What reaches you when:** RFQs and supplier replies (including PO confirmations sent by
+email or posted on the PO) push one at a time, as they arrive. Confirmed sales, what to buy and
+late deliveries wait for the daily digest. Abandoned website carts are draft sales orders, which
+no source watches, so Odoo's own cart follow-up handles them. RFQs that arrive as email in a
+polled inbox go through the email flow (an agent drafts a reply for approval).
 
 - **First run:** each source starts from "now" and doesn't replay old records. Progress is kept
   per source in the `odoo_event_checkpoints` table, so restarts carry on where they stopped.
@@ -1116,8 +1125,10 @@ server.
   Restart the server after installing the app.
 - **Untrusted:** Odoo content can come from customers. Tasks from Odoo events never auto-execute
   outward actions: every proposal waits for your approval, whatever the vertical's policy.
-- **Digest:** the daily digest of each vertical gets an **Odoo** section, with the order count
-  and revenue, customer messages, low-stock items, late deliveries and reviews.
+- **Digest:** the daily digest of each vertical gets an **Odoo** section: confirmed sales and
+  revenue, the day's RFQs and supplier replies, customer messages and reviews, then **To buy**
+  (every product below its reorder level *now*, with on-hand and incoming quantities, not just the
+  day's new ones) and every delivery that is late now.
 
 Set `ODOO_EVENTS` to choose what runs. Leave it unset (or `on`) for every source with the
 defaults, or set:
@@ -1128,7 +1139,7 @@ defaults, or set:
 
 ```json
 {
-  "sources": ["orders", "messages", "tickets", "stock", "deliveries", "reviews"],
+  "sources": ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"],
   "pollSeconds": 300,
   "lowStockThreshold": 3,
   "useReorderRules": true,
@@ -1137,6 +1148,7 @@ defaults, or set:
   "bigOrderThreshold": 500,
   "lateAfterHours": 24,
   "messageTypes": ["comment"],
+  "purchaseMessageTypes": ["comment", "email"],
   "overlapSeconds": 600
 }
 ```
@@ -1148,12 +1160,14 @@ defaults, or set:
 - `websites`: maps an Odoo website, by id or by name, to a vertical. Find the ids with the
   `list_websites` tool. Anything else (and records with no website, such as stock) goes to
   `defaultVertical`.
-- `bigOrderThreshold`: an order at or above this total (in its own currency) goes to an agent for
-  a check, instead of just being filed.
+- `bigOrderThreshold`: an order at or above this total (in its own currency) is flagged as large
+  in its event. It is still only filed for the digest.
 - `lateAfterHours`: grace period after a delivery's scheduled date. Many orders are scheduled for
   the moment they're placed, so `0` would flag nearly every order.
 - `messageTypes`: add `"email"` to also catch customers' email replies to Odoo's own mails
   (quotations, order confirmations), if those don't already reach a polled inbox.
+- `purchaseMessageTypes`: which messages on a purchase order count as a supplier's reply. The
+  default takes chatter comments and emails (replies to Odoo's RFQ and PO mails).
 - `overlapSeconds`: how far back each poll looks again, for records committed late. Already-seen
   ids are skipped.
 

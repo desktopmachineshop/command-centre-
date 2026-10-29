@@ -19,14 +19,14 @@ const odooAt = (minutes: number) => formatOdooDate(at(minutes));
 describe("parseOdooEventsConfig", () => {
   it("defaults to every source, and can be switched off", () => {
     expect(parseOdooEventsConfig(undefined)).toMatchObject({
-      sources: ["orders", "messages", "tickets", "stock", "deliveries", "reviews"],
+      sources: ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"],
       pollIntervalMs: 300_000,
       lowStockThreshold: 3,
       defaultVertical: "dms",
       lateAfterHours: 24,
       messageTypes: ["comment"],
     });
-    expect(parseOdooEventsConfig("on")?.sources).toHaveLength(6);
+    expect(parseOdooEventsConfig("on")?.sources).toHaveLength(8);
     for (const off of ["off", "false", "0", "none"]) expect(parseOdooEventsConfig(off)).toBeNull();
   });
 
@@ -328,6 +328,9 @@ describe("OdooEventPoller", () => {
       expect(events[1]!.dedupeKey).toBe("odoo:product.product:1:stock.low#2");
       // Services are never "low".
       expect(events.some((e) => e.payload!.id === 4)).toBe(false);
+      // The checkpoint keeps everything low right now, for the digest's buying list.
+      const current = (await store.getOdooCheckpoint(`${odoo.db}:stock`))!.state.current as { id: number; qtyAvailable: number }[];
+      expect(current.map((c) => [c.id, c.qtyAvailable])).toEqual([[1, 2], [3, 0]]);
     });
 
     it("uses a reordering rule's min qty as the product's threshold", async () => {
@@ -358,6 +361,9 @@ describe("OdooEventPoller", () => {
       });
       now = new Date("2026-10-26T10:00:00Z");
       expect(await poller.pollOnce("deliveries")).toBe(0);
+      expect((await store.getOdooCheckpoint(`${odoo.db}:deliveries`))!.state.current).toEqual([
+        { id: 5, name: "WH/OUT/00017", state: "assigned", scheduledDate: "2026-10-24 09:00:00", order: "S00042", customer: "Jane Doe", vertical: "dms" },
+      ]);
       // Done pickings and receipts are never late.
       odoo.add("stock.picking", { name: "WH/IN/00003", state: "assigned", picking_type_code: "incoming", scheduled_date: "2026-10-20 09:00:00" });
       expect(await poller.pollOnce("deliveries")).toBe(0);
@@ -392,6 +398,92 @@ describe("OdooEventPoller", () => {
       });
       now = at(12);
       expect(await poller.pollOnce("reviews")).toBe(0);
+    });
+  });
+
+  describe("leads (incoming RFQs)", () => {
+    beforeEach(() => start());
+
+    const lead = (minutes: number, extra: Record<string, unknown> = {}) =>
+      odoo.add("crm.lead", {
+        name: "Quote for 20 ER11 collet sets",
+        type: "lead",
+        contact_name: "Sam Lee",
+        partner_name: "Lee Engineering",
+        email_from: "sam@lee.example",
+        phone: "01234 567890",
+        description: "<p>Please quote 20 sets, delivered to Leeds.</p>",
+        create_uid: [1, "OdooBot"],
+        create_date: odooAt(minutes),
+        ...extra,
+      });
+
+    it("emits leads from the website or mail gateway, not ones staff typed in", async () => {
+      const poller = make(["leads"]);
+      lead(-5); // already there on the first run: not news
+      await poller.pollOnce("leads");
+      expect(events).toEqual([]);
+
+      const id = lead(1);
+      lead(2, { name: "Dave's own note", create_uid: [7, "Command Centre"] });
+      now = at(3);
+      expect(await poller.pollOnce("leads")).toBe(1);
+      expect(events[0]).toMatchObject({
+        kind: "rfq.received",
+        vertical: "dms",
+        title: "New RFQ from Lee Engineering: Quote for 20 ER11 collet sets",
+        dedupeKey: `odoo:crm.lead:${id}:rfq.received`,
+        payload: { customer: { name: "Sam Lee", email: "sam@lee.example" }, phone: "01234 567890", body: "Please quote 20 sets, delivered to Leeds." },
+      });
+      expect(events[0]!.payload!.summary).toBe(
+        `Sam Lee <sam@lee.example> 01234 567890\nPlease quote 20 sets, delivered to Leeds.\nhttps://shop.example.com/web#id=${id}&model=crm.lead&view_type=form`,
+      );
+      now = at(4);
+      expect(await poller.pollOnce("leads")).toBe(0);
+    });
+  });
+
+  describe("purchases (supplier replies)", () => {
+    beforeEach(() => start());
+
+    const reply = (minutes: number, extra: Record<string, unknown> = {}) =>
+      odoo.add("mail.message", {
+        model: "purchase.order",
+        res_id: 70,
+        record_name: "P00070",
+        create_date: odooAt(minutes),
+        date: odooAt(minutes),
+        message_type: "email",
+        is_internal: false,
+        author_id: [30, "Spindle Supplies Ltd"],
+        subject: "Re: RFQ P00070",
+        body: "<p>Confirmed, 20 units shipping 5 Nov.</p>",
+        ...extra,
+      });
+
+    it("emits suppliers' replies on RFQs and POs, not Dave's own messages or notes", async () => {
+      const poller = make(["purchases"]);
+      await poller.pollOnce("purchases");
+      const id = reply(1);
+      reply(2, { author_id: [3, "Dave"], body: "<p>Please confirm.</p>" });
+      reply(3, { is_internal: true, author_id: [30, "Spindle Supplies Ltd"], body: "<p>note</p>" });
+      reply(4, { model: "sale.order", res_id: 42 });
+      now = at(5);
+      expect(await poller.pollOnce("purchases")).toBe(1);
+      expect(events[0]).toMatchObject({
+        kind: "purchase.reply",
+        vertical: "dms",
+        title: "Spindle Supplies Ltd replied on RFQ P00070: Re: RFQ P00070",
+        dedupeKey: `odoo:mail.message:${id}:purchase.reply`,
+        payload: { recordName: "P00070", orderState: "sent", supplier: "Spindle Supplies Ltd", amount: 820, body: "Confirmed, 20 units shipping 5 Nov." },
+      });
+      expect(events[0]!.payload!.summary).toContain("P00070 (RFQ, £820.00)\nConfirmed, 20 units shipping 5 Nov.");
+
+      odoo.update("purchase.order", 70, { state: "purchase" });
+      reply(6, { subject: false });
+      now = at(7);
+      expect(await poller.pollOnce("purchases")).toBe(1);
+      expect(events[1]!.title).toBe("Spindle Supplies Ltd replied on PO P00070");
     });
   });
 
