@@ -1,4 +1,4 @@
-import type { Event, Job, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
+import type { Event, Job, OrgConfig, OrgConfigVersion, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
 import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
 import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
 
@@ -288,6 +288,14 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);
     },
     org: () => call<OrgTree>("/org"),
+    // Org editing: `unit` is a vertical id or "chief-of-staff"; each call returns the whole config again.
+    orgConfig: () => call<OrgConfig>("/org/config"),
+    orgSave: (unit: string, data: unknown, expectedVersion: number) =>
+      call<OrgConfig>(`/org/config/${encodeURIComponent(unit)}`, { method: "PUT", body: JSON.stringify({ data, expectedVersion }) }),
+    orgReset: (unit: string, expectedVersion: number) =>
+      call<OrgConfig>(`/org/config/${encodeURIComponent(unit)}?expectedVersion=${expectedVersion}`, { method: "DELETE" }),
+    orgHistory: (unit: string) => call<OrgConfigVersion[]>(`/org/config/${encodeURIComponent(unit)}/history`),
+    orgRestore: (unit: string, version: number) => post<OrgConfig>(`/org/config/${encodeURIComponent(unit)}/restore`, { version }),
     task: (id: string) => call<TaskDetail>(`/tasks/${id}`),
     retry: (id: string) => post<Task>(`/tasks/${id}/retry`),
     digest: (options: { vertical?: string; date?: string } = {}) =>

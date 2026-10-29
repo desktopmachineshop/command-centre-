@@ -1,6 +1,5 @@
 import { BrainConflictError, parseNote, type PgBrain, serializeNote } from "@cc/brain";
 import { Capability, leadOf, ProposalStatus, ROOT_ROLE_ID, TaskStatus } from "@cc/core";
-import type { VerticalRegistry } from "@cc/verticals";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
@@ -12,6 +11,8 @@ import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
 import type { DigestService } from "../digest";
 import { buildOrgTree } from "../org";
+import { OrgConflictError, type OrgConfigService } from "../org-config";
+import { OrgError, type VerticalRegistry } from "@cc/verticals";
 import { notificationRoutes } from "../notifications/routes";
 import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
@@ -52,6 +53,8 @@ export interface ApiDeps {
   integrations?: IntegrationService;
   /** "Connect Claude" (runs `claude setup-token` on the server). */
   claudeSetup?: ClaudeSetup;
+  /** Org page editing: roles and policies over the code manifests (see ../org-config.ts). */
+  org?: OrgConfigService;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -65,6 +68,8 @@ export function apiRoutes(deps: ApiDeps) {
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof ProposalStateError) return c.json({ error: err.message }, 409);
     if (err instanceof BrainConflictError) return c.json({ error: err.message, version: err.currentVersion }, 409);
+    if (err instanceof OrgConflictError) return c.json({ error: err.message, version: err.currentVersion }, 409);
+    if (err instanceof OrgError) return c.json({ error: err.message, issues: err.issues }, 400);
     if (/^(Path outside brain|Brain notes must be \.md)/.test(err.message)) return c.json({ error: err.message }, 400);
     console.error("[api]", err);
     return c.json({ error: err.message }, 500);
@@ -129,6 +134,12 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json(await store.listTasks({ status, vertical, role, includeUnassigned, limit: limit.parse(c.req.query("limit")) }));
   });
 
+  /** Who made a change from the app, for brain and org history. */
+  const editor = (c: Context) => {
+    const p = c.get("principal");
+    return p.kind === "user" ? p.user.name || p.user.email : "admin";
+  };
+
   // --- org roles (docs/ORG.md) ---
   /** The org chart with live numbers per role over the last 7 days. */
   app.get("/org", async (c) => {
@@ -136,6 +147,33 @@ export function apiRoutes(deps: ApiDeps) {
     const since = new Date(Date.now() - windowDays * 86_400_000);
     return c.json(buildOrgTree(verticals, await store.roleStats(since), windowDays));
   });
+  // Editing: `:unit` is a vertical id or chief-of-staff. A save sends the whole unit (every role of the vertical
+  // and its policies) with the version it started from; the whole org is checked before anything is stored.
+  const org = deps.org;
+  if (org) {
+    app.get("/org/config", async (c) => c.json(await org.config()));
+    app.put("/org/config/:unit", async (c) => {
+      const body = z.object({ data: z.record(z.string(), z.unknown()), expectedVersion: z.number().int().min(0) }).parse(await c.req.json());
+      await org.save(c.req.param("unit"), body.data, { author: editor(c), expectedVersion: body.expectedVersion });
+      return c.json(await org.config());
+    });
+    /** Back to the code manifest. The saved versions are kept, so it can be restored. */
+    app.delete("/org/config/:unit", async (c) => {
+      const expectedVersion = z.coerce.number().int().min(0).parse(c.req.query("expectedVersion"));
+      await org.save(c.req.param("unit"), null, { author: editor(c), expectedVersion });
+      return c.json(await org.config());
+    });
+    app.get("/org/config/:unit/history", async (c) => c.json(await org.history(c.req.param("unit"))));
+    app.get("/org/config/:unit/versions/:version", async (c) => {
+      const data = await org.readVersion(c.req.param("unit"), z.coerce.number().int().parse(c.req.param("version")));
+      return data === undefined ? c.json({ error: "not found" }, 404) : c.json({ data });
+    });
+    app.post("/org/config/:unit/restore", async (c) => {
+      const body = z.object({ version: z.number().int().min(1) }).parse(await c.req.json());
+      const ok = await org.restore(c.req.param("unit"), body.version, { author: editor(c) });
+      return ok ? c.json(await org.config()) : c.json({ error: "not found" }, 404);
+    });
+  }
   // --- end org roles ---
 
   app.get("/tasks/:id", async (c) => {
@@ -188,10 +226,6 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json({ ...note, raw: serializeNote({ frontmatter, body: note.body }) });
   });
   // --- brain editing: saves from the app, with history and restore; `expectedVersion` refuses stale saves (409) ---
-  const editor = (c: Context) => {
-    const p = c.get("principal");
-    return p.kind === "user" ? p.user.name || p.user.email : "admin";
-  };
   /** `raw` is the whole file (YAML frontmatter fence + markdown); `expectedVersion` 0 creates a new note. */
   app.put("/brain/note", async (c) => {
     const body = z

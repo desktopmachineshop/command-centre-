@@ -14,12 +14,14 @@ by the vertical's `policies` (and untrusted input always makes it a draft). The 
 `autonomyNotes` of a role tell the agent what it is expected to propose, and they are shown in the
 app.
 
-The org lives in code:
+The org starts in code and can be changed from the app:
 
 - the roles of each vertical are in `packages/verticals/src/<vertical>.ts`, under `roles`
   (OpenV and OpenD share `saas-org.ts`);
 - the Chief of Staff, the org root, is in `packages/verticals/src/org.ts`;
-- the schema and its checks are in `packages/core/src/vertical.ts` (`Role`, `orgIssues`).
+- the schema and its checks are in `packages/core/src/vertical.ts` (`Role`, `orgIssues`);
+- changes made on the Org page are stored in Postgres and run over the code (see
+  [Editing from the app](#editing-from-the-app)).
 
 The **Org** page in the app shows the chart with live numbers per role (open tasks, tasks done in
 the last 7 days, cost over 7 days and approvals waiting). Choose a role to see its tasks in the
@@ -143,7 +145,43 @@ another role with the note and the original request, and the agent then stops.
   handoffs, and its prompt says the request came from outside.
 - Handoffs are internal, so they need no approval and cost nothing until the new task runs.
 
-## Adding or changing a role
+## Editing from the app
+
+On the **Org** page, press **Edit**:
+
+- the pencil on a role card edits that role: title, who it reports to, mission, autonomy notes,
+  the intents it owns, skills, MCP servers, the actions it usually proposes, chat aliases, KPIs and
+  schedules. **Add role** adds one under a vertical, and **Remove** takes one out (move the roles
+  reporting to it first; the lead can't be removed).
+- Picking an intent another role owns moves it. Making a role report to the Chief of Staff makes it
+  the lead, and the old lead then reports to it.
+- **Policies** sets, per action type, whether it waits for approval, runs and is listed in the
+  digest, or runs straight away. Untrusted input still always makes a draft.
+- **History** lists every save, with **Restore**, and **Reset to code** goes back to the manifest.
+
+What runs:
+
+- Each vertical (its whole `roles` list, `policies` and `defaultPolicy`) and the Chief of Staff
+  (everything but its id and home vertical) is saved as one document in `org_overrides`, with every
+  save and reset in `org_override_versions` (migration `0015_org_overrides`).
+- A save is checked as a whole org first, with the same checks as the manifests plus "every skill is
+  in the bank", and refused with the list of problems. A save over a stale version gets a 409.
+- An accepted save applies at once: the next task, handoff and chat prefix use it, and schedules
+  are restarted. Running tasks keep the prompt they started with.
+- A vertical's intents, skills, servers and budget stay in code. So does a new intent: add it to
+  the manifest first.
+- If a code change makes a saved change invalid (say an intent the saved roles own is removed), the
+  server logs it at boot and runs the code's version of that vertical. The Org page shows the
+  problem until the change is saved again or reset.
+- A change in the app shadows later code changes to that vertical's roles until it is reset.
+
+The API is `GET /api/org/config`, `PUT /api/org/config/:unit` (`{ data, expectedVersion }`),
+`DELETE /api/org/config/:unit?expectedVersion=` (reset), `GET /api/org/config/:unit/history`,
+`GET /api/org/config/:unit/versions/:version` and `POST /api/org/config/:unit/restore`. `:unit` is
+a vertical id or `chief-of-staff`. Code: `apps/server/src/org-config.ts`,
+`apps/web/src/pages/OrgEdit.tsx`.
+
+## Adding or changing a role in code
 
 1. Edit the vertical's manifest in `packages/verticals/src/`. Add an entry to `roles`:
 

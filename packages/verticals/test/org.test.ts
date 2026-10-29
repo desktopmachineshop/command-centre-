@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineVertical, type Event, leadOf, ROOT_ROLE_ID, rolesOf } from "@cc/core";
 import { describe, expect, it } from "vitest";
-import { chiefOfStaff, parseRolePrefix, routeRole, VerticalRegistry, verticals } from "../src";
+import { chiefOfStaff, OrgError, parseRolePrefix, routeRole, VerticalRegistry, verticals } from "../src";
 
 const reg = new VerticalRegistry();
 const chat = (text: string, extra: Record<string, unknown> = {}): Pick<Event, "source" | "payload"> => ({ source: "chat", payload: { text, ...extra } });
@@ -104,5 +104,36 @@ describe("routing a task to a role", () => {
     expect(parseRolePrefix("dms customer support: x", ids)).toEqual({ vertical: "dms", role: "customer support" });
     expect(parseRolePrefix("https://example.com is down", ids)).toBeNull();
     expect(parseRolePrefix("no prefix here", ids)).toBeNull();
+  });
+});
+
+describe("org changes from the app", () => {
+  it("applies over the code manifests and keeps the base for reset", () => {
+    const reg = new VerticalRegistry();
+    const base = reg.require("dms");
+    const roles = base.roles.map((r) => (r.id === "customer-support" ? { ...r, mission: "Answers customers." } : r));
+    reg.apply({ verticals: { dms: { roles, policies: { notify: "auto" }, defaultPolicy: "draft" } }, root: { ...reg.baseRoot, title: "Chief" } });
+    expect(reg.roleFor("dms", "customer-support").mission).toBe("Answers customers.");
+    expect(reg.require("dms").policies).toEqual({ notify: "auto" });
+    expect(reg.require("dms").skills).toEqual(base.skills);
+    expect(reg.root).toMatchObject({ id: "chief-of-staff", title: "Chief", reportsTo: null });
+    expect(reg.base("dms")).toBe(base);
+    reg.apply({});
+    expect(reg.require("dms")).toBe(base);
+  });
+
+  it("refuses an invalid org with every problem and keeps the current one", () => {
+    const reg = new VerticalRegistry();
+    const dms = reg.require("dms");
+    const roles = dms.roles.map((r) => ({ ...r, reportsTo: r.id === "ops-admin" ? "nobody" : r.reportsTo }));
+    let error: unknown;
+    try {
+      reg.apply({ verticals: { dms: { roles, policies: {}, defaultPolicy: "draft" }, gone: { roles: [], policies: {}, defaultPolicy: "draft" } } });
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeInstanceOf(OrgError);
+    expect((error as OrgError).issues).toEqual(['dms: ops-admin reports to unknown role "nobody"', "gone: no such vertical"]);
+    expect(reg.require("dms")).toBe(dms);
   });
 });
