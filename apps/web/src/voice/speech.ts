@@ -63,6 +63,28 @@ export function hasRecorder(): boolean {
   return typeof MediaRecorder !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
 }
 
+/**
+ * Folds recognition results that repeat the one before: Chrome on Android, listening
+ * continuously, can send "draft", "draft a", "draft a note" as separate results, which would
+ * otherwise read "draft draft a draft a note". A result whose words start with the previous
+ * result's words replaces it; one that only repeats the start of the previous result is dropped.
+ * Pure.
+ */
+export function collapseRepeats(parts: string[]): string[] {
+  const words = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}'\s]/gu, "").split(/\s+/).filter(Boolean);
+  const startsWith = (a: string[], b: string[]) => b.length > 0 && b.length <= a.length && b.every((w, i) => a[i] === w);
+  const out: string[] = [];
+  for (const raw of parts) {
+    const part = raw.trim();
+    if (!part) continue;
+    const prev = out[out.length - 1];
+    if (prev !== undefined && startsWith(words(part), words(prev))) out[out.length - 1] = part;
+    else if (prev !== undefined && startsWith(words(prev), words(part))) continue;
+    else out.push(part);
+  }
+  return out;
+}
+
 /** Web Speech API recognition: one utterance per listen(). */
 export class BrowserListener implements Listener {
   readonly kind = "browser";
@@ -78,14 +100,15 @@ export class BrowserListener implements Listener {
     if (!Ctor) return Promise.reject(new Error("Speech recognition isn't available in this browser"));
     this.stop();
     return new Promise((resolve, reject) => {
-      let finalText = "";
-      let interim = "";
+      // What earlier recognition sessions heard, and the current session's text.
+      let committed = "";
+      let current = "";
       let heard = false;
       let settled = false;
       let stopping = false;
       let rec: Recognition;
       let endTimer: ReturnType<typeof setTimeout> | undefined;
-      const text = () => `${finalText} ${interim}`.replace(/\s+/g, " ").trim();
+      const text = () => `${committed} ${current}`.replace(/\s+/g, " ").trim();
       const finish = (value: string | null, error?: Error) => {
         if (settled) return;
         settled = true;
@@ -116,6 +139,8 @@ export class BrowserListener implements Listener {
         finish(text() || null);
       };
       const start = () => {
+        committed = text();
+        current = "";
         rec = new Ctor();
         this.current = rec;
         rec.lang = lang;
@@ -127,12 +152,11 @@ export class BrowserListener implements Listener {
         };
         rec.onresult = (e) => {
           heard = true;
-          interim = "";
-          for (let i = e.resultIndex; i < e.results.length; i++) {
-            const r = e.results[i]!;
-            if (r.isFinal) finalText = `${finalText} ${r[0]!.transcript}`;
-            else interim += r[0]!.transcript;
-          }
+          // Rebuilt from the whole session each time: Android sends each word as a new result
+          // repeating the sentence so far, which collapseRepeats folds back into one.
+          const parts: string[] = [];
+          for (let i = 0; i < e.results.length; i++) parts.push(e.results[i]![0]!.transcript);
+          current = collapseRepeats(parts).join(" ");
           onInterim?.(text());
           armEnd();
         };
