@@ -55,6 +55,8 @@ export const OutboundMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("notifications.updated"), unread: z.number().int() }),
   // integrations: the Accounts page saved or removed credentials (refetch /api/integrations)
   z.object({ type: z.literal("integrations.updated") }),
+  // The org (roles, policies) changed on the Org page.
+  z.object({ type: z.literal("org.updated") }),
 ]);
 export type OutboundMessage = z.infer<typeof OutboundMessage>;
 

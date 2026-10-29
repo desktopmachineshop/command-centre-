@@ -390,4 +390,30 @@ export const migrations: { id: string; sql: string }[] = [
   // --- end integrations ---
   // brain: notes and their version history (packages/brain/src/pg.ts)
   { id: BRAIN_MIGRATION_ID, sql: BRAIN_MIGRATION_SQL },
+  // org: role and policy changes made on the Org page, over the code manifests (src/org-config.ts)
+  {
+    id: "0015_org_overrides",
+    sql: `
+  create table org_overrides (
+    -- A vertical id, or 'chief-of-staff'.
+    unit text primary key,
+    data jsonb not null,
+    -- Matches org_override_versions.version of the latest save.
+    version integer not null,
+    updated_by text not null,
+    updated_at timestamptz not null default now()
+  );
+  -- Every save and reset, so an earlier org can be read or restored.
+  create table org_override_versions (
+    id bigserial primary key,
+    unit text not null,
+    version integer not null,
+    -- Null for a reset to the code manifest.
+    data jsonb,
+    author text not null,
+    created_at timestamptz not null default now(),
+    unique (unit, version)
+  );
+`,
+  },
 ];

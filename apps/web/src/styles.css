@@ -2047,6 +2047,62 @@ a.stat:hover {
 .org-stats .status {
   font-size: var(--fs-xs);
 }
+/* Org editing (pages/OrgEdit.tsx) */
+.org-tools {
+  margin: var(--sp-2) 0;
+}
+.org-tools .error {
+  margin: 0 0 var(--sp-2);
+}
+.org-card header .icon-btn {
+  margin: -6px -6px -6px 0;
+}
+.org-edit fieldset.field {
+  border: 0;
+  padding: 0;
+}
+.org-edit legend {
+  font-weight: 550;
+  padding: 0;
+  margin-bottom: 6px;
+}
+.org-edit .error ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.org-schedule {
+  padding: var(--sp-3);
+  margin: 0;
+}
+.org-schedule .row.wrap > .field {
+  flex: 1 1 140px;
+  margin: 0;
+}
+.org-policies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.org-policies label {
+  flex-wrap: wrap;
+}
+.org-policies code {
+  overflow-wrap: anywhere;
+}
+.org-policies select {
+  flex: 0 1 230px;
+  min-width: 0;
+}
+.org-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.org-history li {
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+}
 @media (min-width: 760px) {
   .org-verticals {
     display: grid;

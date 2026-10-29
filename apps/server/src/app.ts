@@ -50,6 +50,7 @@ import { NotificationStore } from "./notifications/store";
 import { type Notifier, type PushTransport, WebPushTransport } from "./push";
 import { PgBossTaskQueue, type TaskQueue } from "./queue";
 import { RunTokens } from "./run-tokens";
+import { OrgConfigService } from "./org-config";
 import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
 import { VoiceConversations } from "./voice/conversations";
@@ -400,6 +401,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier }, executors);
   actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
+  // org: role and policy changes from the Org page, over the code manifests; applied to `verticals` live
+  const org = new OrgConfigService(pool, verticals, { skillsDir: config.skillsDir, actionTypes: () => Object.keys(actions.executors) });
   // pa: Dave writes directly; a run writes directly only if its task came from chat/cron/system, else it proposes.
   const paMcpServer = (caller: Caller) =>
     createPaMcpServer({
@@ -535,7 +538,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup, org }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -595,6 +598,21 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- end integrations reload ---
 
   let crons: ReturnType<typeof startSchedules> = [];
+  /** Vertical, role and Chief of Staff schedules: restarted whenever the org changes. */
+  let scheduleCrons: ReturnType<typeof startSchedules> = [];
+  let started = false;
+  const restartSchedules = () => {
+    for (const c of scheduleCrons) c.stop();
+    scheduleCrons = [];
+    if (!started || !config.schedulesEnabled) return;
+    // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
+    const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
+    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root);
+  };
+  org.onChange(() => {
+    restartSchedules();
+    hub.broadcast({ type: "org.updated" });
+  });
   let notificationCrons: ReturnType<typeof startNotificationJobs> = [];
 
   /** Just after midnight: finish yesterday's digest notes (no push) and release deferred tasks. */
@@ -632,11 +650,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     deliverReminders,
     storage,
     integrations,
+    org,
     async start() {
       await migrate(pool);
       secretBox = await SecretBox.load({ key: config.credentialsKey, keyFile: join(config.dataDir, "credentials.key") }); // integrations
       await integrations.load(); // integrations: saved accounts over the env config, before anything polls
       await auth.warm();
+      await org.load(); // org: changes saved on the Org page, before any task runs
       await store.markAllNodesOffline();
       // brain: import the git brain into an empty database once (only from a good checkout), seed, then mirror back to git.
       if (brainGit && brainMirror) {
@@ -669,11 +689,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         integrationsRefresh: () => refreshExpiringTokens({ service: integrations, notifier, fetch: overrides.integrationsFetch }), // --- integrations oauth ---
       });
       notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
-      if (config.schedulesEnabled) {
-        // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
-        const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
-        crons.push(...startSchedules(verticals.all(), (e) => pipeline.ingest(e), root));
-      }
+      started = true;
+      restartSchedules();
       // Pollers: whatever is current now (the env config with saved accounts applied); later reloads start their own.
       await email.start();
       await social.start();
@@ -683,6 +700,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await claudeSetup.cancel();
       brainMirror?.stop();
       for (const c of crons) c.stop();
+      for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();
       await email.stop();
       await social.stop();
