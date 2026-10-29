@@ -156,6 +156,28 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     expect(await done.json()).toMatchObject({ status: "done" });
   });
 
+  it("edits a reminder's text, time and repeat from the app", async () => {
+    const created = (await ctx.api("/api/pa/reminders", { method: "POST", json: { text: "Bins out", due: "2030-03-04T19:00" } })).body;
+    const id = created.id as string;
+    const patch = (json: unknown) => ctx.api(`/api/pa/reminders/${id}`, { method: "PATCH", json });
+
+    // Text only: the time stays.
+    expect((await patch({ text: "Bins and recycling out" })).body).toMatchObject({ text: "Bins and recycling out", dueAt: created.dueAt, recurrence: null });
+    // New time, then make it repeat weekly on Tuesdays at that time.
+    expect((await patch({ due: "2030-03-05T20:30" })).body).toMatchObject({ dueAt: "2030-03-05T20:30:00.000Z", status: "pending" });
+    const weekly = (await patch({ recurrence: "weekly:tue" })).body;
+    expect(weekly).toMatchObject({ recurrence: "FREQ=WEEKLY;BYDAY=TU", localTime: "20:30" });
+    expect(new Date(weekly.dueAt).getUTCDay()).toBe(2);
+    // And back to a one-off.
+    expect((await patch({ recurrence: "none" })).body).toMatchObject({ recurrence: null });
+
+    expect((await patch({})).status).toBe(400);
+    expect((await patch({ due: "next week" })).status).toBe(400);
+    expect((await patch({ recurrence: "fortnightly" })).status).toBe(400);
+    await ctx.api(`/api/pa/reminders/${id}`, { method: "DELETE" });
+    expect((await patch({ text: "too late" })).status).toBe(409);
+  });
+
   it("Done on a recurring reminder's push acknowledges this occurrence, not the series", async () => {
     const created = (await ctx.api("/api/pa/reminders", { method: "POST", json: { text: "Take tablets", due: "2026-01-01T08:00", recurrence: "daily" } })).body;
     await ctx.server.store.pool.query("update reminders set due_at = now() - interval '1 minute' where id = $1", [created.id]);
