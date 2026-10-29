@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   addReminder,
   buildToday,
+  changeReminder,
   type CalendarService,
   isDate,
   type PgPaStore,
@@ -123,6 +124,20 @@ export function paApiRoutes(deps: PaApiDeps) {
     const body = z.object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().nullable().optional(), vertical: Vertical }).parse(await c.req.json());
     try {
       return c.json(await addReminder(store, body, { vertical: body.vertical, createdBy: "dave", timeZone, now: now() }), 201);
+    } catch (err) {
+      if (err instanceof RecurrenceError || /date-time|empty/.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
+      throw err;
+    }
+  });
+  /** Edit an open reminder: any of text, due (local YYYY-MM-DDTHH:MM) and recurrence ("none" makes it a one-off). */
+  app.patch("/pa/reminders/:id", async (c) => {
+    const body = z
+      .object({ text: z.string().trim().min(1).max(500).optional(), due: z.string().min(1).optional(), recurrence: z.string().nullable().optional() })
+      .refine((b) => b.text !== undefined || b.due !== undefined || b.recurrence !== undefined, "give text, due or recurrence")
+      .parse(await c.req.json());
+    try {
+      const r = await changeReminder(store, c.req.param("id"), body, { now: now() });
+      return r ? c.json(r) : c.json({ error: "reminder is not open" }, 409);
     } catch (err) {
       if (err instanceof RecurrenceError || /date-time|empty/.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
       throw err;

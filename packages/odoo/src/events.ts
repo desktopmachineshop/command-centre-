@@ -39,7 +39,8 @@ const Options = z
   .object({
     /** Which sources to poll. Default: all of them (each disables itself if its Odoo app is missing). */
     sources: z.array(z.enum(ODOO_EVENT_SOURCES)).optional(),
-    pollSeconds: z.number().int().min(30).default(300),
+    /** How often each source is checked. Hourly by default: Odoo Online rate-limits the external API (HTTP 429). */
+    pollSeconds: z.number().int().min(30).default(3600),
     /** stock.low fires when qty_available drops below this (or a reordering rule's min qty, when set). */
     lowStockThreshold: z.number().min(0).default(3),
     useReorderRules: z.boolean().default(true),
@@ -186,6 +187,8 @@ interface Collected {
 }
 
 const PAGE = 200;
+/** Gap between sources' first polls at start-up. */
+const STAGGER_MS = 8_000;
 const MAX_PAGES = 10;
 
 export class OdooEventPoller {
@@ -217,7 +220,9 @@ export class OdooEventPoller {
 
   start(): void {
     this.log.info(`polling ${this.sources.join(", ")} every ${Math.round(this.cfg.pollIntervalMs / 1000)}s`);
-    for (const source of this.sources) this.loops.push(this.loop(source));
+    // Spread the sources' first polls (and so every later one) over a minute, rather than all at once.
+    const stagger = Math.min(STAGGER_MS, this.cfg.pollIntervalMs / Math.max(1, this.sources.length));
+    this.sources.forEach((source, i) => this.loops.push(this.loop(source, i * stagger)));
   }
 
   async stop(): Promise<void> {
@@ -245,9 +250,10 @@ export class OdooEventPoller {
     return this.abort.signal.aborted;
   }
 
-  private async loop(source: OdooEventSourceId): Promise<void> {
+  private async loop(source: OdooEventSourceId, startAfterMs = 0): Promise<void> {
     const { initialMs, maxMs } = this.options.backoff ?? { initialMs: 30_000, maxMs: 15 * 60_000 };
     let delay = initialMs;
+    if (startAfterMs > 0) await sleep(startAfterMs, this.abort.signal);
     while (!this.stopped && !this.disabled.has(source)) {
       let wait = this.cfg.pollIntervalMs;
       try {

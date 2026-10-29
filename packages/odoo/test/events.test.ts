@@ -20,7 +20,7 @@ describe("parseOdooEventsConfig", () => {
   it("defaults to every source, and can be switched off", () => {
     expect(parseOdooEventsConfig(undefined)).toMatchObject({
       sources: ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"],
-      pollIntervalMs: 300_000,
+      pollIntervalMs: 3_600_000,
       lowStockThreshold: 3,
       defaultVertical: "dms",
       lateAfterHours: 24,

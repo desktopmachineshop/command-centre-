@@ -16,9 +16,11 @@ export class WorkerService {
   ) {}
 
   async connect(node: { id: string; name: string; capabilities: Capability[] }, peer: Peer): Promise<void> {
+    // Save the node before it can be dispatched to: a job claimed for a node with no row fails jobs_node_id_fkey.
+    const saved = await this.store.upsertNode(node);
     this.hub.addWorker(node.id, peer);
     this.online.set(node.id, node.capabilities);
-    this.hub.broadcast({ type: "node.updated", node: await this.store.upsertNode(node) });
+    this.hub.broadcast({ type: "node.updated", node: saved });
     await this.dispatch();
   }
 

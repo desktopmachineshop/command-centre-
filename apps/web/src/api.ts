@@ -327,6 +327,11 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     compose: (campaign: Campaign) => post<Proposal>("/social/compose", campaign),
     // --- pa ---
     today: (day?: string) => call<TodayView>(`/pa/today${day ? `?day=${day}` : ""}`),
+    /** `due` is local Europe/London `YYYY-MM-DDTHH:MM`; `recurrence` is e.g. "weekdays", "weekly:mon,thu", "monthly:15" or "none". */
+    addReminder: (r: { text: string; due: string; recurrence?: string | null }) => post<Reminder>("/pa/reminders", r),
+    updateReminder: (id: string, change: { text?: string; due?: string; recurrence?: string | null }) =>
+      call<Reminder>(`/pa/reminders/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
+    cancelReminder: (id: string) => call<Reminder>(`/pa/reminders/${id}`, { method: "DELETE" }),
     completeReminder: (id: string) => post<Reminder>(`/pa/reminders/${id}/complete`),
     snoozeReminder: (id: string, minutes: number) => post<Reminder>(`/pa/reminders/${id}/snooze`, { minutes }),
     createList: (name: string) => post<TodoList>("/pa/lists", { name }),
