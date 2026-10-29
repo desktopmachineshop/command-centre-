@@ -5,7 +5,7 @@ import { VerticalRegistry, verticals } from "@cc/verticals";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { taskPrompt } from "../src/agent-context";
 import { loadConfig } from "../src/config";
-import { renderOdooDigest, summariseOdooEvents } from "../src/odoo-digest";
+import { odooHeadline, renderOdooDigest, summariseOdooEvents } from "../src/odoo-digest";
 import { DB_URL, makeServer, McpCallingRunner, resetDatabase } from "./helpers";
 
 const base = { DATABASE_URL: "postgres://x", ADMIN_TOKEN: "admin-token-for-tests-0123456789" };
@@ -25,9 +25,9 @@ const event = (kind: string, payload: Record<string, unknown>): Event => ({
 describe("ODOO_EVENTS config", () => {
   it("is off without Odoo, and on with every source by default when Odoo is configured", () => {
     expect(loadConfig({ ...base, ODOO_EVENTS: "on" }).odooEvents).toBeUndefined();
-    expect(loadConfig({ ...base, ...odooEnv }).odooEvents).toMatchObject({ sources: ["orders", "messages", "tickets", "stock", "deliveries", "reviews"], pollIntervalMs: 300_000 });
+    expect(loadConfig({ ...base, ...odooEnv }).odooEvents).toMatchObject({ sources: ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"], pollIntervalMs: 300_000 });
     expect(loadConfig({ ...base, ...odooEnv, ODOO_EVENTS: "off" }).odooEvents).toBeUndefined();
-    expect(loadConfig({ ...base, ...odooEnv, ODOO_EVENTS: "" }).odooEvents?.sources).toHaveLength(6);
+    expect(loadConfig({ ...base, ...odooEnv, ODOO_EVENTS: "" }).odooEvents?.sources).toHaveLength(8);
     expect(loadConfig({ ...base, ...odooEnv, ODOO_EVENTS: '{"sources":["orders"],"websites":{"2":"3dpandme"}}' }).odooEvents).toMatchObject({
       sources: ["orders"],
       websites: { "2": "3dpandme" },
@@ -93,31 +93,51 @@ describe("Odoo task prompts", () => {
 });
 
 describe("Odoo digest section", () => {
-  it("counts orders and revenue, and lists low stock and late deliveries", () => {
-    const d = summariseOdooEvents([
-      event("order.created", { name: "S1", amount: 84.5, currency: "GBP", customer: { name: "Jane" } }),
-      event("order.created", { name: "S2", amount: 15.5, currency: "GBP", customer: { name: "Bob" } }),
-      event("stock.low", { id: 1, name: "ER11 collet set", sku: "ER11-7", qtyAvailable: 1, threshold: 3 }),
-      event("delivery.late", { name: "WH/OUT/00017", order: { name: "S00042" }, customer: { name: "Jane" }, scheduledDate: "2026-10-24 09:00:00" }),
-      event("message.received", {}),
-    ])!;
+  it("counts sales, RFQs and supplier replies, and lists what to buy and what is late now", () => {
+    const snapshot = {
+      lowStock: [
+        { id: 1, name: "ER11 collet set", sku: "ER11-7", qtyAvailable: 1, incomingQty: 0, threshold: 3, vertical: "dms" },
+        { id: 3, name: "Milo v2 CNC kit", sku: "MILO-V2", qtyAvailable: 0, incomingQty: 4, threshold: 3, vertical: "dms" },
+        { id: 9, name: "PLA spool", sku: null, qtyAvailable: 1, incomingQty: 0, threshold: 2, vertical: "3dpandme" },
+      ],
+      lateDeliveries: [{ id: 5, name: "WH/OUT/00017", state: "assigned", scheduledDate: "2026-10-24 09:00:00", order: "S00042", customer: "Jane", vertical: "dms" }],
+    };
+    const d = summariseOdooEvents(
+      [
+        event("order.created", { name: "S1", amount: 84.5, currency: "GBP", customer: { name: "Jane" } }),
+        event("order.created", { name: "S2", amount: 15.5, currency: "GBP", customer: { name: "Bob" } }),
+        event("rfq.received", { name: "Quote for 20 collet sets", company: "Lee Engineering" }),
+        event("purchase.reply", { recordName: "P00070", supplier: "Spindle Supplies Ltd" }),
+        event("message.received", {}),
+      ],
+      snapshot,
+      "dms",
+    )!;
     expect(d).toMatchObject({ orders: 2, revenue: { GBP: 100 }, revenueText: "£100.00", messages: 1 });
+    expect(odooHeadline(d)).toEqual(["2 orders £100.00", "1 RFQ", "2 to buy", "1 late"]);
     expect(renderOdooDigest(d).join("\n")).toBe(
       [
         "",
         "## Odoo",
         "",
-        "- Orders: 2, revenue £100.00",
+        "- Confirmed sales: 2, revenue £100.00",
         "  - S1, Jane: £84.50",
         "  - S2, Bob: £15.50",
+        "- RFQs received: 1",
+        "  - Quote for 20 collet sets, Lee Engineering",
+        "- Supplier replies: 1",
+        "  - P00070, Spindle Supplies Ltd",
         "- Customer messages and tickets: 1",
-        "- Low stock: 1",
-        "  - ER11 collet set (ER11-7): 1 on hand, below 3",
-        "- Late deliveries: 1",
-        "  - WH/OUT/00017 (S00042), Jane: due 2026-10-24",
+        "- To buy (below reorder level now): 2",
+        "  - ER11 collet set (ER11-7): 1 on hand, none incoming, reorder level 3",
+        "  - Milo v2 CNC kit (MILO-V2): 0 on hand, 4 incoming, reorder level 3",
+        "- Late deliveries (not shipped, past their date): 1",
+        "  - WH/OUT/00017 (S00042), Jane: due 2026-10-24, assigned",
       ].join("\n"),
     );
     expect(summariseOdooEvents([])).toBeNull();
+    // Nothing happened today, but there is still something to buy: the section stays.
+    expect(summariseOdooEvents([], snapshot, "3dpandme")?.toBuy).toHaveLength(1);
   });
 });
 
@@ -152,7 +172,7 @@ describe.skipIf(!DB_URL)("Odoo events (integration)", () => {
     });
     runner.app = ctx.server.app;
     // The first run (also started in the background by start()) records where Odoo stands.
-    expect(await ctx.server.odooEvents!.pollAll()).toEqual({ orders: 0, messages: 0, tickets: 0, stock: 0, deliveries: 0, reviews: 0 });
+    expect(await ctx.server.odooEvents!.pollAll()).toEqual({ orders: 0, messages: 0, tickets: 0, stock: 0, deliveries: 0, reviews: 0, leads: 0, purchases: 0 });
   });
   afterAll(async () => {
     await ctx?.server.stop();
@@ -236,20 +256,46 @@ describe.skipIf(!DB_URL)("Odoo events (integration)", () => {
     expect(ctx.notifier.sent.some((n) => n.body === "evil.example")).toBe(false);
   });
 
-  it("sends low stock to an agent once per crossing, and puts the day's Odoo activity in the DMS digest", async () => {
+  it("pushes an incoming RFQ and a supplier's reply straight away, with no agent run", async () => {
+    const runsBefore = runner.requests.length;
+    const sentBefore = ctx.notifier.sent.length;
+    odoo.add("crm.lead", { name: "Quote for 20 ER11 sets", contact_name: "Sam Lee", partner_name: "Lee Engineering", email_from: "sam@lee.example", description: "<p>Delivered to Leeds.</p>", create_uid: [1, "OdooBot"], create_date: now() });
+    odoo.add("mail.message", { model: "purchase.order", res_id: 70, record_name: "P00070", create_date: now(), date: now(), message_type: "email", is_internal: false, author_id: [30, "Spindle Supplies Ltd"], body: "<p>Confirmed, shipping 5 Nov.</p>" });
+    expect(await ctx.server.odooEvents!.pollOnce("leads")).toBe(1);
+    expect(await ctx.server.odooEvents!.pollOnce("purchases")).toBe(1);
+    await ctx.queue.drain();
+
+    expect(runner.requests.length).toBe(runsBefore);
+    const rfq = await taskFor(/^New RFQ from Lee Engineering/);
+    expect(rfq).toMatchObject({ vertical: "dms", intent: "rfq", route: "file", status: "done" });
+    const sent = ctx.notifier.sent.slice(sentBefore) as any[];
+    expect(sent).toEqual([
+      expect.objectContaining({ title: "New RFQ from Lee Engineering: Quote for 20 ER11 sets", category: "quotes", url: `/task/${rfq.id}`, body: expect.stringContaining("Delivered to Leeds.") }),
+      expect.objectContaining({ title: "Spindle Supplies Ltd replied on RFQ P00070", category: "quotes", body: expect.stringContaining("Confirmed, shipping 5 Nov.") }),
+    ]);
+    const stored = (await ctx.api("/api/notifications?category=quotes")).body;
+    expect(JSON.stringify(stored)).toContain("New RFQ from Lee Engineering");
+  });
+
+  it("files low stock and late deliveries for the digest's buying and late lists, with no agent or push", async () => {
+    const runsBefore = runner.requests.length;
+    const sentBefore = ctx.notifier.sent.length;
     odoo.update("product.product", 1, { qty_available: 1 });
     expect(await ctx.server.odooEvents!.pollOnce("stock")).toBe(1);
     expect(await ctx.server.odooEvents!.pollOnce("stock")).toBe(0);
     await ctx.queue.drain();
-    expect(await taskFor(/^Low stock: ER11 collet set/)).toMatchObject({ intent: "stock-low", route: "agent", vertical: "dms" });
+    expect(await taskFor(/^Low stock: ER11 collet set/)).toMatchObject({ intent: "stock-low", route: "file", status: "done", vertical: "dms" });
+    expect(runner.requests.length).toBe(runsBefore);
+    expect(ctx.notifier.sent.length).toBe(sentBefore);
 
     const { body } = await ctx.api("/api/digest?vertical=dms");
     const d = body.digests[0];
-    expect(d.odoo).toMatchObject({ orders: 1, revenueText: "£84.50", messages: 1, lowStock: [expect.objectContaining({ sku: "ER11-7", qtyAvailable: 1 })] });
+    expect(d.odoo).toMatchObject({ orders: 1, revenueText: "£84.50", messages: 1, toBuy: expect.arrayContaining([expect.objectContaining({ sku: "ER11-7", qtyAvailable: 1 })]) });
     expect(d.headline).toContain("1 order £84.50");
+    expect(d.headline).toContain("1 RFQ");
     expect(d.markdown).toContain("## Odoo");
-    expect(d.markdown).toContain("- Orders: 1, revenue £84.50");
-    expect(d.markdown).toContain("  - ER11 collet set (7 pcs) (ER11-7): 1 on hand, below 3");
+    expect(d.markdown).toContain("- Confirmed sales: 1, revenue £84.50");
+    expect(d.markdown).toContain("  - ER11 collet set (7 pcs) (ER11-7): 1 on hand, none incoming, reorder level 3");
     const blog = (await ctx.api("/api/digest?vertical=3dpandme")).body.digests[0];
     expect(blog.odoo).toMatchObject({ orders: 1, revenueText: "£20.00" });
   });

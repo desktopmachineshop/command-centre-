@@ -16,7 +16,7 @@ export default defineVertical({
   intents: [
     "presales-question", "order-status", "return-warranty", "supplier", "invoice-admin", "spam",
     // Odoo events (rules triager, see @cc/triage odoo.ts)
-    "new-order", "customer-message", "stock-low", "delivery-late", "review",
+    "new-order", "customer-message", "stock-low", "delivery-late", "review", "rfq", "supplier-reply",
   ],
   skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-voice-dms", "social-platform-guide"],
   mcpServers: ["brain", "odoo", "pa"],
@@ -42,7 +42,7 @@ export default defineVertical({
       aliases: ["support"],
       mission:
         "Answers customers the way Dave would: pre-sales and compatibility questions, where an order is, returns and warranty claims. Works from live Odoo data and the brain, never from memory, and keeps each customer's history in the brain.",
-      intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review"],
+      intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review", "rfq"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
       mcpServers: ["brain", "odoo"],
       actions: ["email.reply", "odoo.message.post", "social.reply", "social.dm", "brain.write"],
@@ -83,7 +83,7 @@ export default defineVertical({
       aliases: ["ops"],
       mission:
         "Handles the back office: supplier emails, stock and lead times, purchase prices, invoices and bills. Files each one in the brain, flags low stock early and keeps supplier notes current.",
-      intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late"],
+      intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late", "supplier-reply"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status"],
       mcpServers: ["brain", "odoo", "pa"],
       actions: ["email.reply", "email.send", "odoo.message.post", "notify", "brain.write"],

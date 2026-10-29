@@ -4,7 +4,7 @@ import { DEFAULT_VERTICAL, type VerticalRegistry } from "@cc/verticals";
 import type { BudgetService } from "./budget";
 import type { Store } from "./db/store";
 import { dayRange, localDay } from "./days";
-import { type OdooDigest, odooHeadline, renderOdooDigest, summariseOdooEvents } from "./odoo-digest";
+import { type OdooDigest, type OdooSnapshot, odooHeadline, renderOdooDigest, summariseOdooEvents } from "./odoo-digest";
 import type { Notifier } from "./push";
 
 export interface Digest {
@@ -23,7 +23,7 @@ export interface Digest {
   /** Pending approvals as of now, whatever the date. */
   pendingApprovals: { id: string; actionType: string; summary: string }[];
   jobs: { id: string; kind: string; status: string }[];
-  /** Orders, revenue, low stock and late deliveries from the day's Odoo events; null if there were none. */
+  /** The day's orders, RFQs and supplier replies, plus what is low and late now; null if Odoo had nothing. */
   odoo: OdooDigest | null;
   /** One line with the headline numbers, used for the push notification. */
   headline: string;
@@ -47,6 +47,8 @@ export class DigestService {
     private readonly notifier: Notifier,
     private readonly budget: BudgetService,
     private readonly timezone: string,
+    /** What the Odoo pollers last saw as low and late (null without Odoo): the buying and late lists. */
+    private readonly odooSnapshot: () => Promise<OdooSnapshot | null> = async () => null,
   ) {}
 
   today(now = new Date()): string {
@@ -71,7 +73,7 @@ export class DigestService {
       store.costByVertical(start, end),
     ]);
     // --- Odoo events ---
-    const odoo = summariseOdooEvents(await store.listOdooEventsBetween(vertical.id, start, end));
+    const odoo = summariseOdooEvents(await store.listOdooEventsBetween(vertical.id, start, end), await this.odooSnapshot(), vertical.id);
     // --- end odoo events ---
     const myJobs = jobs.filter((j) => jobVertical(j) === vertical.id && (j.status === "succeeded" || j.status === "failed"));
     const digest: Omit<Digest, "headline" | "markdown"> = {

@@ -26,7 +26,7 @@ const isCategory = (v: unknown): v is NotificationCategory => NOTIFICATION_CATEG
 const isPriority = (v: unknown): v is NotificationPriority => NOTIFICATION_PRIORITIES.includes(v as NotificationPriority);
 export { isCategory, isPriority };
 
-/** The defaults: approvals, briefings, reminders and alerts push; digests push quietly; social and orders wait for the digest; system stays in the app. */
+/** The defaults: approvals, briefings, reminders, alerts, RFQs and supplier replies push; digests push quietly; social and orders wait for the digest; system stays in the app. */
 export function defaultPrefs(timezone = "Europe/London"): NotificationPrefs {
   const c = (delivery: CategoryPrefs["delivery"], sound: boolean, priority: NotificationPriority): CategoryPrefs => ({
     enabled: true,
@@ -43,6 +43,7 @@ export function defaultPrefs(timezone = "Europe/London"): NotificationPrefs {
       digest: c("push", false, "low"),
       social: c("digest", false, "low"),
       orders: c("digest", false, "normal"),
+      quotes: c("push", true, "high"),
       system: c("silent", false, "low"),
       agent: c("push", true, "normal"),
     },
