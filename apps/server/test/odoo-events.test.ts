@@ -25,7 +25,7 @@ const event = (kind: string, payload: Record<string, unknown>): Event => ({
 describe("ODOO_EVENTS config", () => {
   it("is off without Odoo, and on with every source by default when Odoo is configured", () => {
     expect(loadConfig({ ...base, ODOO_EVENTS: "on" }).odooEvents).toBeUndefined();
-    expect(loadConfig({ ...base, ...odooEnv }).odooEvents).toMatchObject({ sources: ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"], pollIntervalMs: 300_000 });
+    expect(loadConfig({ ...base, ...odooEnv }).odooEvents).toMatchObject({ sources: ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"], pollIntervalMs: 3_600_000 });
     expect(loadConfig({ ...base, ...odooEnv, ODOO_EVENTS: "off" }).odooEvents).toBeUndefined();
     expect(loadConfig({ ...base, ...odooEnv, ODOO_EVENTS: "" }).odooEvents?.sources).toHaveLength(8);
     expect(loadConfig({ ...base, ...odooEnv, ODOO_EVENTS: '{"sources":["orders"],"websites":{"2":"3dpandme"}}' }).odooEvents).toMatchObject({

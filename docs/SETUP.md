@@ -1097,7 +1097,7 @@ sites, with their blogs.
 
 ### Odoo events
 
-When Odoo is configured, the server also **polls** Odoo (every 5 minutes by default) and turns
+When Odoo is configured, the server also **polls** Odoo (once an hour by default) and turns
 what happened into events. Odoo Online can't run custom modules, so nothing is pushed to the
 server.
 
@@ -1113,8 +1113,8 @@ server.
 | `purchases` | suppliers' replies on RFQs and purchase orders (`mail.message` on `purchase.order`, comments and emails, not by staff; if Purchase is installed) | `purchase.reply` | filed **and pushed straight away** ("RFQs and purchasing"), no agent |
 
 **What reaches you when:** RFQs and supplier replies (including PO confirmations sent by
-email or posted on the PO) push one at a time, as they arrive. Confirmed sales, what to buy and
-late deliveries wait for the daily digest. Abandoned website carts are draft sales orders, which
+email or posted on the PO) push one at a time, when the next poll finds them (within the hour
+by default). Confirmed sales, what to buy and late deliveries wait for the daily digest. Abandoned website carts are draft sales orders, which
 no source watches, so Odoo's own cart follow-up handles them. RFQs that arrive as email in a
 polled inbox go through the email flow (an agent drafts a reply for approval).
 
@@ -1140,7 +1140,7 @@ defaults, or set:
 ```json
 {
   "sources": ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"],
-  "pollSeconds": 300,
+  "pollSeconds": 3600,
   "lowStockThreshold": 3,
   "useReorderRules": true,
   "websites": { "1": "dms", "3dpandme": "3dpandme" },
@@ -1153,7 +1153,8 @@ defaults, or set:
 }
 ```
 
-- `pollSeconds`: how often each source is checked (minimum 30).
+- `pollSeconds`: how often each source is checked (default 3600, minimum 30). Odoo Online
+  rate-limits its API (HTTP 429), so keep it long. The sources start a few seconds apart.
 - `lowStockThreshold`: a product is low when `qty_available` is **below** this. With
   `useReorderRules`, a product's reordering rule (Inventory → Configuration → Reordering Rules)
   with a min quantity above 0 sets its threshold instead. Services and consumables are never low.
