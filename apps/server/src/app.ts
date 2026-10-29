@@ -35,6 +35,7 @@ import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
 import { DigestService } from "./digest";
+import type { OdooLateNow, OdooStockNow } from "./odoo-digest";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { storagePublicRoutes } from "./http/storage";
@@ -294,14 +295,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
   // Its event poller (orders, messages, stock, deliveries, reviews) starts in start().
   const buildOdoo = (c: Config) => {
-    if (!c.odoo) return { client: undefined, executors: {}, events: undefined };
+    if (!c.odoo) return { client: undefined, executors: {}, events: undefined, db: undefined };
     const client = new OdooClient(c.odoo);
     const eventsConfig = c.odooEvents;
     if (eventsConfig) for (const v of [eventsConfig.defaultVertical, ...Object.values(eventsConfig.websites)]) verticals.require(v);
     const events = eventsConfig?.sources.length
       ? new OdooEventPoller({ client, store, config: eventsConfig, instance: c.odoo.db, baseUrl: c.odoo.url, ingest: (e) => pipeline.ingest(e) })
       : undefined;
-    return { client, executors: createOdooExecutors(client), events };
+    return { client, executors: createOdooExecutors(client), events, db: c.odoo.db };
   };
   const odoo = new Live(buildOdoo(config), { start: (v) => v.events?.start(), stop: (v) => v.events?.stop() });
 
@@ -429,7 +430,15 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;
   const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency, staleRunSeconds + 300);
   const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
-  const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone);
+  // The buying and late lists: what the Odoo stock and deliveries pollers last saw (their checkpoints).
+  const odooSnapshot = async () => {
+    const { db, events } = odoo.current;
+    if (!db || !events) return null;
+    const [stock, deliveries] = await Promise.all([store.getOdooCheckpoint(`${db}:stock`), store.getOdooCheckpoint(`${db}:deliveries`)]);
+    const list = <T>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
+    return { lowStock: list<OdooStockNow>(stock?.state.current), lateDeliveries: list<OdooLateNow>(deliveries?.state.current) };
+  };
+  const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone, odooSnapshot);
   // --- Voice: server speech providers (optional), briefing, task conversations ---
   const voiceConversations = new VoiceConversations(store, hub, queue);
   // Getters: VoiceService reads these per request, so a reloaded key or calendar applies at once.
@@ -477,6 +486,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     skillsDir: config.skillsDir,
     internalBaseUrl: config.internalBaseUrl,
     maxTurns: config.agent.maxTurns,
+    notifier, // pushes for filed events that ask for one (incoming RFQs, supplier replies)
     budget,
     guards: {
       maxConcurrentPerVertical: config.agent.maxConcurrentPerVertical,

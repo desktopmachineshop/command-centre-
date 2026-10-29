@@ -13,6 +13,7 @@ export const NOTIFICATION_CATEGORIES = [
   "digest",
   "social",
   "orders",
+  "quotes",
   "system",
   "agent",
 ] as const;
@@ -36,6 +37,7 @@ export const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   digest: "Digests",
   social: "Social",
   orders: "Orders",
+  quotes: "RFQs and purchasing",
   system: "System",
   agent: "Agent messages",
 };

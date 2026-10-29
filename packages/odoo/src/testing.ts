@@ -339,11 +339,11 @@ export function eventModels(): Record<string, FakeModel> {
   const m = demoModels();
   const extend = (name: string, fields: string[]) => (m[name] = { ...m[name]!, fields: [...m[name]!.fields, ...fields] });
   m["res.users"] = {
-    fields: ["login", "name", "share", "partner_id"],
+    fields: ["login", "name", "share", "partner_id", "active"],
     records: [
-      { id: 7, login: "bot@example.com", name: "Command Centre", share: false, partner_id: [3, "Dave"] },
-      { id: 1, login: "__system__", name: "OdooBot", share: false, partner_id: [2, "OdooBot"] },
-      { id: 20, login: "jane@example.com", name: "Jane Doe", share: true, partner_id: [10, "Jane Doe"] },
+      { id: 7, login: "bot@example.com", name: "Command Centre", share: false, partner_id: [3, "Dave"], active: true },
+      { id: 1, login: "__system__", name: "OdooBot", share: false, partner_id: [2, "OdooBot"], active: false },
+      { id: 20, login: "jane@example.com", name: "Jane Doe", share: true, partner_id: [10, "Jane Doe"], active: true },
     ],
   };
   extend("sale.order", ["carrier_id", "amount_untaxed", "create_date", "write_date"]);
@@ -362,6 +362,14 @@ export function eventModels(): Record<string, FakeModel> {
   m["helpdesk.ticket"] = {
     fields: ["name", "ticket_ref", "partner_id", "partner_name", "partner_email", "description", "team_id", "stage_id", "priority", "create_date"],
     records: [],
+  };
+  m["crm.lead"] = {
+    fields: ["name", "type", "partner_id", "partner_name", "contact_name", "email_from", "phone", "description", "expected_revenue", "team_id", "source_id", "create_uid", "create_date"],
+    records: [],
+  };
+  m["purchase.order"] = {
+    fields: ["name", "state", "partner_id", "amount_total", "currency_id", "date_planned"],
+    records: [{ id: 70, name: "P00070", state: "sent", partner_id: [30, "Spindle Supplies Ltd"], amount_total: 820, currency_id: [1, "GBP"], date_planned: "2026-11-05 09:00:00" }],
   };
   m["rating.rating"] = {
     fields: ["rating", "feedback", "res_model", "res_id", "res_name", "partner_id", "message_id", "consumed", "publisher_comment", "create_date", "write_date"],

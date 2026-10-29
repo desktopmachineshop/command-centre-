@@ -13,16 +13,57 @@ export interface OdooDigest {
   lateDeliveries: { name: string; order: string | null; customer: string | null; scheduledDate: string | null }[];
   messages: number;
   reviews: { rating: number | null; on: string | null; customer: string | null }[];
+  /** Incoming RFQs (CRM leads) today; each was also pushed when it arrived. */
+  rfqs: { name: string; from: string | null }[];
+  /** Supplier replies on RFQs and purchase orders today; each was also pushed. */
+  supplierReplies: { order: string; supplier: string | null }[];
+  /** Everything below its reorder level right now (not just today's crossings): the buying list. */
+  toBuy: OdooStockNow[];
+  /** Every outgoing delivery late right now. */
+  lateNow: OdooLateNow[];
+}
+
+/** One product low right now, from the stock poller's checkpoint. */
+export interface OdooStockNow {
+  id: number;
+  name: string;
+  sku: string | null;
+  qtyAvailable: number | null;
+  incomingQty: number | null;
+  threshold: number | null;
+  vertical: string;
+}
+
+/** One delivery late right now, from the deliveries poller's checkpoint. */
+export interface OdooLateNow {
+  id: number;
+  name: string;
+  state: string | null;
+  scheduledDate: string | null;
+  order: string | null;
+  customer: string | null;
+  vertical: string;
+}
+
+/** What the Odoo pollers last saw as low and late, across every vertical. */
+export interface OdooSnapshot {
+  lowStock: OdooStockNow[];
+  lateDeliveries: OdooLateNow[];
 }
 
 const s = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 const n = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const nameOf = (v: unknown): string | null => s((v as { name?: unknown } | null)?.name);
 
-/** Null when the day had no Odoo events. */
-export function summariseOdooEvents(events: Event[]): OdooDigest | null {
-  if (!events.length) return null;
-  const d: OdooDigest = { orders: 0, revenue: {}, revenueText: "", orderList: [], lowStock: [], lateDeliveries: [], messages: 0, reviews: [] };
+/**
+ * A vertical's Odoo section: the day's events plus, from `snapshot`, what is
+ * low and late right now. Null when there is neither.
+ */
+export function summariseOdooEvents(events: Event[], snapshot: OdooSnapshot | null = null, vertical?: string): OdooDigest | null {
+  const toBuy = (snapshot?.lowStock ?? []).filter((p) => !vertical || p.vertical === vertical);
+  const lateNow = (snapshot?.lateDeliveries ?? []).filter((p) => !vertical || p.vertical === vertical);
+  if (!events.length && !toBuy.length && !lateNow.length) return null;
+  const d: OdooDigest = { orders: 0, revenue: {}, revenueText: "", orderList: [], lowStock: [], lateDeliveries: [], messages: 0, reviews: [], rfqs: [], supplierReplies: [], toBuy, lateNow };
   for (const e of events) {
     const p = e.payload;
     switch (e.kind) {
@@ -45,6 +86,12 @@ export function summariseOdooEvents(events: Event[]): OdooDigest | null {
       case "review.received":
         d.reviews.push({ rating: n(p.rating), on: s(p.recordName), customer: nameOf(p.customer) });
         break;
+      case "rfq.received":
+        d.rfqs.push({ name: s(p.name) ?? `lead ${p.id}`, from: s(p.company) ?? nameOf(p.customer) });
+        break;
+      case "purchase.reply":
+        d.supplierReplies.push({ order: s(p.recordName) ?? `PO ${p.resId}`, supplier: s(p.supplier) });
+        break;
     }
   }
   d.revenueText = Object.entries(d.revenue).map(([currency, total]) => formatMoney(total, currency)).join(" + ") || formatMoney(0);
@@ -56,25 +103,37 @@ export function odooHeadline(d: OdooDigest | null): string[] {
   if (!d) return [];
   const parts: string[] = [];
   if (d.orders) parts.push(`${d.orders} order${d.orders === 1 ? "" : "s"} ${d.revenueText}`);
-  if (d.lowStock.length) parts.push(`${d.lowStock.length} low stock`);
-  if (d.lateDeliveries.length) parts.push(`${d.lateDeliveries.length} late`);
+  if (d.rfqs.length) parts.push(`${d.rfqs.length} RFQ${d.rfqs.length === 1 ? "" : "s"}`);
+  if (d.toBuy.length) parts.push(`${d.toBuy.length} to buy`);
+  if (d.lateNow.length) parts.push(`${d.lateNow.length} late`);
   return parts;
 }
 
 /** The digest note's "Odoo" section. */
 export function renderOdooDigest(d: OdooDigest | null): string[] {
   if (!d) return [];
-  const lines = ["", "## Odoo", "", `- Orders: ${d.orders}, revenue ${d.revenueText}`];
+  const lines = ["", "## Odoo", "", `- Confirmed sales: ${d.orders}, revenue ${d.revenueText}`];
   for (const o of d.orderList) lines.push(`  - ${o.name}${o.customer ? `, ${o.customer}` : ""}: ${o.amount}`);
-  if (d.messages) lines.push(`- Customer messages and tickets: ${d.messages}`);
-  if (d.lowStock.length) {
-    lines.push(`- Low stock: ${d.lowStock.length}`);
-    for (const p of d.lowStock) lines.push(`  - ${p.name}${p.sku ? ` (${p.sku})` : ""}: ${p.qtyAvailable ?? "?"} on hand, below ${p.threshold ?? "?"}`);
+  if (d.rfqs.length) {
+    lines.push(`- RFQs received: ${d.rfqs.length}`);
+    for (const r of d.rfqs) lines.push(`  - ${r.name}${r.from ? `, ${r.from}` : ""}`);
   }
-  if (d.lateDeliveries.length) {
-    lines.push(`- Late deliveries: ${d.lateDeliveries.length}`);
-    for (const l of d.lateDeliveries) {
-      lines.push(`  - ${l.name}${l.order ? ` (${l.order})` : ""}${l.customer ? `, ${l.customer}` : ""}${l.scheduledDate ? `: due ${l.scheduledDate.slice(0, 10)}` : ""}`);
+  if (d.supplierReplies.length) {
+    lines.push(`- Supplier replies: ${d.supplierReplies.length}`);
+    for (const r of d.supplierReplies) lines.push(`  - ${r.order}${r.supplier ? `, ${r.supplier}` : ""}`);
+  }
+  if (d.messages) lines.push(`- Customer messages and tickets: ${d.messages}`);
+  if (d.toBuy.length) {
+    lines.push(`- To buy (below reorder level now): ${d.toBuy.length}`);
+    for (const p of d.toBuy) {
+      const incoming = p.incomingQty ? `, ${p.incomingQty} incoming` : ", none incoming";
+      lines.push(`  - ${p.name}${p.sku ? ` (${p.sku})` : ""}: ${p.qtyAvailable ?? "?"} on hand${incoming}, reorder level ${p.threshold ?? "?"}`);
+    }
+  }
+  if (d.lateNow.length) {
+    lines.push(`- Late deliveries (not shipped, past their date): ${d.lateNow.length}`);
+    for (const l of d.lateNow) {
+      lines.push(`  - ${l.name}${l.order ? ` (${l.order})` : ""}${l.customer ? `, ${l.customer}` : ""}${l.scheduledDate ? `: due ${l.scheduledDate.slice(0, 10)}` : ""}${l.state ? `, ${l.state}` : ""}`);
     }
   }
   if (d.reviews.length) {

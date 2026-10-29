@@ -1,6 +1,6 @@
 import type { AgentRunner } from "@cc/agent-runtime";
 import type { Brain } from "@cc/brain";
-import { type Event, findRole, NewEvent, ROOT_ROLE_ID, type Task, type TaskStatus, type TriageResult } from "@cc/core";
+import { type Event, findRole, NewEvent, type NotificationCategory, ROOT_ROLE_ID, type Task, type TaskStatus, type TriageResult } from "@cc/core";
 import type { Triager } from "@cc/triage";
 import { DEFAULT_VERTICAL, routeRole, type VerticalRegistry } from "@cc/verticals";
 import type { ActionService } from "./actions";
@@ -8,6 +8,7 @@ import { allowedToolsFor, mcpServersFor, roleBrief, systemPrompt, taskPrompt } f
 import { type BudgetService, bypassesBudget } from "./budget";
 import type { Store } from "./db/store";
 import type { Hub } from "./hub";
+import type { Notifier } from "./push";
 import type { TaskQueue } from "./queue";
 import type { RunTokens } from "./run-tokens";
 import type { VoiceConversations } from "./voice/conversations";
@@ -35,6 +36,8 @@ export interface PipelineDeps {
   maxHandoffDepth?: number;
   /** Voice conversations: replies that continue a task, and spoken responses. */
   voice?: Pick<VoiceConversations, "beforeRun" | "afterRun">;
+  /** For events whose triage asks for a push (`push`), e.g. an incoming RFQ. */
+  notifier?: Notifier;
 }
 
 /** Default limit on handoffs in one chain, so roles can't pass work around forever. */
@@ -180,13 +183,14 @@ export class Pipeline {
 
     const created = await store.transaction(async (tx) => {
       const event = await tx.insertEvent(parsed);
-      return event ? { event, task: await this.createTask(tx, event) } : null;
+      return event ? { event, ...(await this.createTask(tx, event)) } : null;
     });
     if (!created) return parsed.dedupeKey ? this.resume(parsed.dedupeKey) : null;
     hub.broadcast({ type: "event.created", event: created.event });
     hub.broadcast({ type: "task.updated", task: created.task });
     if (created.task.status === "queued") await this.deps.queue.enqueue(created.task.id);
-    return created;
+    await this.pushIfAsked(created.event, created.task, created.push);
+    return { event: created.event, task: created.task };
   }
 
   /**
@@ -202,19 +206,33 @@ export class Pipeline {
       const event = await tx.lockEventByDedupeKey(dedupeKey);
       if (!event) return null;
       const existing = await tx.getTaskForEvent(event.id);
-      return existing ? { event, task: existing, created: false } : { event, task: await this.createTask(tx, event), created: true };
+      return existing ? { event, task: existing, created: false } : { event, ...(await this.createTask(tx, event)), created: true };
     });
     if (!found) return null;
     if (found.created) {
       hub.broadcast({ type: "event.created", event: found.event });
       hub.broadcast({ type: "task.updated", task: found.task });
+      await this.pushIfAsked(found.event, found.task, "push" in found ? found.push : undefined);
     }
     if (found.task.status === "queued") await this.deps.queue.enqueue(found.task.id);
     return found.created ? { event: found.event, task: found.task } : null;
   }
 
+  /**
+   * One push for an event its triage marked `push` (after the commit, so a
+   * rolled-back ingest never notifies). The body is the event's `summary`
+   * payload field when it has one. A failed push is logged, not retried.
+   */
+  private async pushIfAsked(event: Event, task: Task, category: NotificationCategory | undefined): Promise<void> {
+    if (!category || !this.deps.notifier || task.status === "dropped") return;
+    const summary = typeof event.payload.summary === "string" ? event.payload.summary : "";
+    await this.deps.notifier
+      .notify({ title: event.title, body: summary, url: `/task/${task.id}`, category, vertical: task.vertical })
+      .catch((err) => console.error("[pipeline] push failed:", (err as Error).message));
+  }
+
   /** Triages an event and inserts its task (and journal entry, for "file") inside the transaction `tx`. */
-  private async createTask(tx: Store, event: Event): Promise<Task> {
+  private async createTask(tx: Store, event: Event): Promise<{ task: Task; push?: NotificationCategory }> {
     const { triager, verticals } = this.deps;
     const context = { verticals: verticals.all(), defaultVertical: DEFAULT_VERTICAL };
     let triage = (await triager.triage(event, context)) ?? {
@@ -239,7 +257,7 @@ export class Pipeline {
       note: duplicate ? `Same request as a task that is already ${duplicate.status}; linked to it instead of running again.` : null,
     });
     if (triage.route === "file") await this.deps.brain.appendJournal(event.title, { vertical: triage.vertical });
-    return task;
+    return { task, push: triage.push };
   }
 
   /**

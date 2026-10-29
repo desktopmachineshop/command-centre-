@@ -2,7 +2,7 @@ import type { NewEvent } from "@cc/core";
 import { z } from "zod";
 import { type Domain, type OdooClient, OdooRpcError, type OdooRecord, type SearchReadOptions } from "./client";
 import { htmlToText } from "./mcp";
-import { type OdooEventKind, odooTitle } from "./prompt";
+import { type OdooEventKind, odooPushBody, odooTitle } from "./prompt";
 
 /**
  * Odoo inbound events. Odoo Online allows no custom modules (so no outgoing
@@ -17,6 +17,8 @@ import { type OdooEventKind, odooTitle } from "./prompt";
  * | stock      | product.product qty_available | `stock.low`        |
  * | deliveries | stock.picking past scheduled  | `delivery.late`    |
  * | reviews    | rating.rating                 | `review.received`  |
+ * | leads      | crm.lead (not made by staff)  | `rfq.received`     |
+ * | purchases  | mail.message on purchase.order | `purchase.reply`  |
  *
  * Each source has its own loop and checkpoint, so one failing (or missing:
  * a module that isn't installed disables its source, logged once) never
@@ -28,7 +30,7 @@ import { type OdooEventKind, odooTitle } from "./prompt";
  * and emits nothing, so a backlog is never replayed.
  */
 
-export const ODOO_EVENT_SOURCES = ["orders", "messages", "tickets", "stock", "deliveries", "reviews"] as const;
+export const ODOO_EVENT_SOURCES = ["orders", "messages", "tickets", "stock", "deliveries", "reviews", "leads", "purchases"] as const;
 export type OdooEventSourceId = (typeof ODOO_EVENT_SOURCES)[number];
 
 const verticalId = z.string().regex(/^[a-z0-9-]+$/, "a vertical id, e.g. dms");
@@ -51,6 +53,8 @@ const Options = z
     lateAfterHours: z.number().min(0).default(24),
     /** mail.message types that count as customer messages. Add "email" to include email replies to Odoo's mails. */
     messageTypes: z.array(z.string().min(1)).min(1).default(["comment"]),
+    /** mail.message types that count as a supplier's reply on a purchase order or RFQ ("email" is a reply to Odoo's mail). */
+    purchaseMessageTypes: z.array(z.string().min(1)).min(1).default(["comment", "email"]),
     /** Records whose chatter is watched. */
     messageModels: z.array(z.string().regex(/^[a-z0-9_.]+$/)).min(1).default(["sale.order", "res.partner", "helpdesk.ticket"]),
     /** How far back each poll re-reads, to catch rows committed late. */
@@ -293,6 +297,10 @@ export class OdooEventPoller {
         return this.deliveries(cp);
       case "reviews":
         return this.reviews(cp);
+      case "leads":
+        return this.leads(cp);
+      case "purchases":
+        return this.purchases(cp);
     }
   }
 
@@ -457,14 +465,7 @@ export class OdooEventPoller {
     const { fresh, checkpoint } = await this.scan("mail.message", dateField, domain, wanted, cp);
     if (!fresh.length) return { checkpoint, events: [] };
 
-    // Internal users (including archived ones such as OdooBot) are staff, not customers.
-    const userFields = await this.options.client.fields("res.users");
-    const users = await this.find("res.users", userFields?.has("share") ? [["share", "=", false]] : [], ["partner_id"], { context: { active_test: false } });
-    const staff = new Set(ids(users, "partner_id"));
-    const external = fresh.filter((m) => {
-      const author = idOf(m.author_id);
-      return author === null ? !!val(m.email_from) : !staff.has(author);
-    });
+    const external = await this.fromOutside(fresh);
     const orderIds = [...new Set(external.filter((m) => m.model === "sale.order").map((m) => m.res_id as number))];
     const [sites, partners] = await Promise.all([this.websites("sale.order", orderIds), this.partners(ids(external, "author_id"))]);
 
@@ -567,7 +568,17 @@ export class OdooEventPoller {
         events.push(this.event("stock.low", "product.product", r.id, this.cfg.defaultVertical, payload, n > 1 ? `#${n}` : ""));
       }
     }
-    return { checkpoint: { cursor: null, seenIds: low.map((r) => r.id), state: { crossings } }, events };
+    // `current`: everything below its threshold right now, for the daily digest's buying list.
+    const current = low.map((r) => ({
+      id: r.id,
+      sku: val(r.default_code),
+      name: stripSku(val(r.display_name) ?? r.name) ?? r.name,
+      qtyAvailable: r.qty_available,
+      incomingQty: val(r.incoming_qty),
+      threshold: thresholdOf(r.id),
+      vertical: this.cfg.defaultVertical,
+    }));
+    return { checkpoint: { cursor: null, seenIds: low.map((r) => r.id), state: { crossings, current } }, events };
   }
 
   private async deliveries(cp: OdooCheckpoint | null): Promise<Collected> {
@@ -583,10 +594,23 @@ export class OdooEventPoller {
     const late = await this.find("stock.picking", domain, wanted, { limit: 1000, order: "scheduled_date asc" });
     const previous = new Set(cp?.seenIds ?? []);
     const fresh = cp ? late.filter((p) => !previous.has(p.id)) : [];
-    const checkpoint: OdooCheckpoint = { cursor: null, seenIds: late.map((p) => p.id), state: {} };
+    const orders = await this.readKnown("sale.order", ids(late, "sale_id"), ["name", "website_id", "partner_id"]);
+    // `current`: every delivery late right now, for the daily digest.
+    const current = late.map((p) => {
+      const order = orders.get(idOf(p.sale_id) ?? -1);
+      return {
+        id: p.id,
+        name: p.name,
+        state: p.state,
+        scheduledDate: val(p.scheduled_date),
+        order: (order?.name as string | undefined) ?? nameOf(p.sale_id),
+        customer: nameOf(p.partner_id) ?? nameOf(order?.partner_id),
+        vertical: verticalForWebsite(this.cfg, order?.website_id),
+      };
+    });
+    const checkpoint: OdooCheckpoint = { cursor: null, seenIds: late.map((p) => p.id), state: { current } };
     if (!fresh.length) return { checkpoint, events: [] };
 
-    const orders = await this.readKnown("sale.order", ids(fresh, "sale_id"), ["name", "website_id", "partner_id"]);
     const partners = await this.partners([...ids(fresh, "partner_id"), ...ids([...orders.values()], "partner_id")]);
     const events = fresh.map((p) => {
       const order = orders.get(idOf(p.sale_id) ?? -1);
@@ -608,6 +632,110 @@ export class OdooEventPoller {
         link: this.link("stock.picking", p.id),
       };
       return this.event("delivery.late", "stock.picking", p.id, verticalForWebsite(this.cfg, order?.website_id), payload);
+    });
+    return { checkpoint, events };
+  }
+
+  /** Messages not written by staff. Internal users (including archived ones such as OdooBot) are staff. */
+  private async fromOutside(messages: OdooRecord[]): Promise<OdooRecord[]> {
+    const userFields = await this.options.client.fields("res.users");
+    const users = await this.find("res.users", userFields?.has("share") ? [["share", "=", false]] : [], ["partner_id"], { context: { active_test: false } });
+    const staff = new Set(ids(users, "partner_id"));
+    return messages.filter((m) => {
+      const author = idOf(m.author_id);
+      return author === null ? !!val(m.email_from) : !staff.has(author);
+    });
+  }
+
+  /**
+   * New CRM leads and opportunities: quote requests from the website form, the
+   * sales email alias and the like. Ones an active staff user created by hand
+   * are skipped (the mail gateway creates as OdooBot, which is archived).
+   */
+  private async leads(cp: OdooCheckpoint | null): Promise<Collected> {
+    await this.model("crm.lead", ["name", "create_date"], "is the CRM app installed?");
+    const wanted = ["name", "type", "partner_id", "partner_name", "contact_name", "email_from", "phone", "description", "expected_revenue", "team_id", "source_id", "website_id", "create_uid"];
+    const { fresh, checkpoint } = await this.scan("crm.lead", "create_date", [], wanted, cp);
+    if (!fresh.length) return { checkpoint, events: [] };
+
+    const userFields = await this.options.client.fields("res.users");
+    const active: Domain = userFields?.has("active") ? [["active", "=", true]] : [];
+    const staff = new Set((await this.find("res.users", [...(userFields?.has("share") ? [["share", "=", false]] : []), ...active], ["id"])).map((u) => u.id));
+    const incoming = fresh.filter((l) => {
+      const by = idOf(l.create_uid);
+      return by === null || !staff.has(by);
+    });
+    const partners = await this.partners(ids(incoming, "partner_id"));
+    const events = incoming.map((l) => {
+      const customer = this.customer(l.partner_id, partners, { name: l.contact_name || l.partner_name || l.email_from, email: l.email_from });
+      const body = htmlToText(l.description, 4000);
+      const payload = {
+        model: "crm.lead",
+        id: l.id,
+        name: l.name,
+        type: val(l.type),
+        customer,
+        company: val(l.partner_name),
+        phone: val(l.phone),
+        body,
+        expectedRevenue: val(l.expected_revenue),
+        team: nameOf(l.team_id),
+        source: nameOf(l.source_id),
+        website: nameOf(l.website_id),
+        date: val(l.create_date),
+        link: this.link("crm.lead", l.id),
+      };
+      return this.event("rfq.received", "crm.lead", l.id, verticalForWebsite(this.cfg, l.website_id), { ...payload, summary: odooPushBody("rfq.received", payload) });
+    });
+    return { checkpoint, events };
+  }
+
+  /** Suppliers' replies on purchase orders and RFQs (including confirmations by email), not staff posts. */
+  private async purchases(cp: OdooCheckpoint | null): Promise<Collected> {
+    await this.model("purchase.order", ["name", "state"], "is the Purchase app installed?");
+    const fields = await this.model("mail.message", ["model", "res_id", "message_type", "author_id", "body"], "messaging");
+    const dateField = fields.has("create_date") ? "create_date" : "date";
+    if (!fields.has(dateField)) throw new SourceUnavailable("mail.message has no create_date or date field");
+    const domain: Domain = [
+      ["model", "=", "purchase.order"],
+      ["message_type", "in", this.cfg.purchaseMessageTypes],
+      ...(fields.has("is_internal") ? [["is_internal", "=", false]] : []),
+    ];
+    const wanted = ["model", "res_id", "record_name", "message_type", "author_id", "email_from", "subject", "body", "date", "attachment_ids"];
+    const { fresh, checkpoint } = await this.scan("mail.message", dateField, domain, wanted, cp);
+    if (!fresh.length) return { checkpoint, events: [] };
+
+    const external = await this.fromOutside(fresh);
+    const [orders, partners] = await Promise.all([
+      this.readKnown("purchase.order", [...new Set(external.map((m) => m.res_id as number))], ["name", "state", "partner_id", "amount_total", "currency_id", "date_planned"]),
+      this.partners(ids(external, "author_id")),
+    ]);
+    const events = external.map((m) => {
+      const order = orders.get(m.res_id as number);
+      const author = this.customer(m.author_id, partners, { name: m.email_from, email: m.email_from });
+      const attachments = Array.isArray(m.attachment_ids) ? m.attachment_ids.length : 0;
+      const payload = {
+        model: "purchase.order",
+        resId: m.res_id,
+        messageId: m.id,
+        recordName: (order?.name as string | undefined) ?? val(m.record_name),
+        // draft/sent: still an RFQ; purchase/done: a confirmed purchase order.
+        orderState: val(order?.state),
+        supplier: nameOf(order?.partner_id) ?? author.name,
+        amount: val(order?.amount_total),
+        currency: nameOf(order?.currency_id),
+        expected: val(order?.date_planned),
+        author: author.name,
+        email: author.email,
+        customer: author,
+        subject: val(m.subject),
+        body: htmlToText(m.body, 4000),
+        attachments,
+        date: val(m.date) ?? val(m[dateField]),
+        messageType: m.message_type,
+        link: this.link("purchase.order", m.res_id),
+      };
+      return this.event("purchase.reply", "mail.message", m.id, this.cfg.defaultVertical, { ...payload, summary: odooPushBody("purchase.reply", payload) });
     });
     return { checkpoint, events };
   }
