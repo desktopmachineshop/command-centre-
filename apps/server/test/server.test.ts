@@ -72,6 +72,56 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(note?.body).toContain("Checked ER11 stock");
   });
 
+  it("lets Dave edit a pending proposal before approving it", async () => {
+    calls.push({
+      server: "actions",
+      tool: "propose_action",
+      args: { actionType: "brain.journal", summary: "Log the delivery", payload: { text: "Parcel arrived" } },
+    });
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "log the parcel" } });
+    await ctx.queue.drain();
+    const [proposal] = (await ctx.api("/api/proposals?status=pending")).body.filter((p: any) => p.taskId === body.task.id);
+
+    const edited = await ctx.api(`/api/proposals/${proposal.id}`, { method: "PATCH", json: { payload: { text: "Parcel from Spindle Supplies arrived, 2 boxes" } } });
+    expect(edited.body).toMatchObject({ status: "pending", payload: { text: "Parcel from Spindle Supplies arrived, 2 boxes" } });
+    expect((await ctx.api(`/api/proposals/${proposal.id}`, { method: "PATCH", json: { payload: "nope" } })).status).toBe(400);
+
+    expect((await ctx.api(`/api/proposals/${proposal.id}/approve`, { method: "POST" })).body.status).toBe("executed");
+    const journal = await ctx.server.brain.read((await ctx.server.brain.list("journal")).at(-1)!);
+    expect(journal?.body).toContain("Parcel from Spindle Supplies arrived, 2 boxes");
+    expect((await ctx.api(`/api/proposals/${proposal.id}`, { method: "PATCH", json: { payload: { text: "late" } } })).status).toBe(409);
+  });
+
+  it("asks the agent for changes: rejects the proposal and continues its task with Dave's feedback", async () => {
+    calls.push({
+      server: "actions",
+      tool: "propose_action",
+      args: { actionType: "brain.journal", summary: "Log the call", payload: { text: "Called the courier" } },
+    });
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "log the courier call" } });
+    await ctx.queue.drain();
+    const [proposal] = (await ctx.api("/api/proposals?status=pending")).body.filter((p: any) => p.taskId === body.task.id);
+    expect((await ctx.api(`/api/proposals/${proposal.id}/revise`, { method: "POST", json: { feedback: "  " } })).status).toBe(400);
+
+    const runsBefore = runner.requests.length;
+    const revised = await ctx.api(`/api/proposals/${proposal.id}/revise`, { method: "POST", json: { feedback: "Say it was Royal Mail, and the parcel ref." } });
+    expect(revised.status).toBe(200);
+    expect(revised.body.proposal.status).toBe("rejected");
+    expect(revised.body.task.status).toBe("queued");
+    await ctx.queue.drain();
+
+    // The agent ran again on the same task, told what Dave wants changed, and proposed again.
+    expect(runner.requests.length).toBe(runsBefore + 1);
+    const prompt = runner.requests.at(-1)!.prompt;
+    expect(prompt).toContain('did not approve your proposed brain.journal ("Log the call")');
+    expect(prompt).toContain("Say it was Royal Mail, and the parcel ref.");
+    const again = (await ctx.api("/api/proposals?status=pending")).body.filter((p: any) => p.taskId === body.task.id);
+    expect(again).toHaveLength(1);
+    expect(again[0].id).not.toBe(proposal.id);
+    expect((await ctx.api(`/api/proposals/${proposal.id}/revise`, { method: "POST", json: { feedback: "again" } })).status).toBe(409);
+    await ctx.api(`/api/proposals/${again[0].id}/approve`, { method: "POST" });
+  });
+
   it("doesn't mark a task done over a reply that re-queued it while its approval settled", async () => {
     calls.push({
       server: "actions",

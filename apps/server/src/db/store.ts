@@ -495,6 +495,12 @@ export class Store {
     return rows[0] ? toProposal(rows[0]) : null;
   }
 
+  /** Replaces a pending proposal's payload (Dave edited it before approving). Null if it is no longer pending. */
+  async updateProposalPayload(id: string, payload: Record<string, unknown>): Promise<Proposal | null> {
+    const { rows } = await this.pool.query("update proposals set payload = $2 where id = $1 and status = 'pending' returning *", [id, JSON.stringify(payload)]);
+    return rows[0] ? toProposal(rows[0]) : null;
+  }
+
   async listProposals(
     options: { status?: ProposalStatus; taskId?: string; vertical?: string; limit?: number } = {},
   ): Promise<Proposal[]> {

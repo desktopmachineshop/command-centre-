@@ -303,6 +303,11 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     proposals: (status?: string) => call<Proposal[]>(`/proposals${status ? `?status=${status}` : ""}`),
     approve: (id: string) => post<Proposal>(`/proposals/${id}/approve`),
     reject: (id: string) => post<Proposal>(`/proposals/${id}/reject`),
+    /** Change what a pending proposal will do before approving it. */
+    editProposal: (id: string, payload: Record<string, unknown>) =>
+      call<Proposal>(`/proposals/${id}`, { method: "PATCH", body: JSON.stringify({ payload }) }),
+    /** Reject it and send the feedback to the agent, which proposes a revised version. */
+    reviseProposal: (id: string, feedback: string) => post<{ proposal: Proposal; task: Task }>(`/proposals/${id}/revise`, { feedback }),
     nodes: () => call<WorkerNode[]>("/nodes"),
     jobs: () => call<Job[]>("/jobs"),
     brainSearch: (q: string) => call<{ path: string; title: string; snippet: string }[]>(`/brain/search?q=${encodeURIComponent(q)}`),

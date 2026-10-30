@@ -1789,6 +1789,23 @@ a.stat:hover {
   display: flex;
   gap: var(--sp-2);
 }
+.proposal-tools {
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-2);
+}
+.proposal-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-3);
+}
+.proposal-edit textarea.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.proposal-sent {
+  margin-bottom: var(--sp-3);
+}
 .proposal > p.error {
   margin-bottom: var(--sp-3);
 }
