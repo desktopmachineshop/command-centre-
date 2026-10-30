@@ -472,6 +472,13 @@ Gmail, Google Workspace, Microsoft 365 / Outlook.com, or Odoo's own mail server.
   `email.send`. Both are `draft` policy, so nothing is sent until you approve it under Approvals.
   A copy is then appended to the IMAP Sent folder (`saveSent`; off by default for Gmail, which
   files SMTP-sent mail itself).
+- **Filing (Gmail inboxes connected with Google):** agents label each email they handle and move
+  it out of the inbox when nothing is left for you, with `email.label` (`labels`, up to 5 names,
+  created if missing; `archive` takes the conversation out of the inbox, like Gmail's Archive).
+  On the email that started the task it runs straight away (`auto`). A reply can carry `labels`
+  and `archive` too, and the conversation is filed once the reply is sent. The label scheme is
+  in the `email-triage-and-reply` skill, or your own in the brain note
+  `<vertical>/email-labels.md`. Inboxes signed in with a password, and Outlook, can't be filed.
 - A mailbox that fails to connect is retried with backoff (5 s doubling to 5 min) and logged as
   `[email]`. It never stops the server or the other inboxes.
 
@@ -848,7 +855,9 @@ or `webhook`, or anything other than `chat`, `cron` and `system`) can't auto-exe
 whatever the vertical's `policies` say: its proposals are downgraded to `draft` and wait under
 Approvals, with `payload.policyDowngrade` saying which policy was overridden and why. So a crafted
 email routed to `personal` can't push its own text to your devices through `notify`. The only
-exceptions are the internal-only `brain.journal` and `brain.write`, which keep their policy.
+exceptions are the internal-only `brain.journal` and `brain.write`, which keep their policy, and
+`email.label` on the very email that started the task (same account and Message-ID): filing it
+only touches your own mailbox. Labelling any other message from such a task waits for approval.
 Proposals made with the admin token (no task) keep their policy too. (`ActionService.propose` in
 `apps/server/src/actions.ts`.)
 

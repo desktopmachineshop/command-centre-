@@ -21,7 +21,7 @@ export default defineVertical({
   mcpServers: ["brain", "pa"],
   // The morning brief moved to the Chief of Staff (src/org.ts), whose tasks run in this vertical.
   // notify only reaches Dave's own devices, so the brief is sent without an approval step and reported in the digest.
-  policies: { "brain.write": "auto", notify: "auto-with-digest" },
+  policies: { "brain.write": "auto", notify: "auto-with-digest", "email.label": "auto" },
   roles: [
     {
       id: "pa",
@@ -33,7 +33,7 @@ export default defineVertical({
       intents: ["question"],
       skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
       mcpServers: ["brain", "pa"],
-      actions: ["brain.journal", "brain.write", "notify", "email.reply"],
+      actions: ["brain.journal", "brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Questions answered the same day", "Personal inbox at zero open threads"],
       autonomyNotes: "May file notes and notify Dave. Every email or message to another person is a draft for Dave to approve.",
     },
@@ -80,7 +80,7 @@ export default defineVertical({
       intents: ["admin"],
       skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
       mcpServers: ["brain", "pa"],
-      actions: ["brain.write", "notify", "email.reply"],
+      actions: ["brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Every bill filed with its due date", "No late-payment charges"],
       autonomyNotes:
         "Never pays, transfers, cancels or signs up for anything. May file notes and remind Dave; replies to providers are drafts.",

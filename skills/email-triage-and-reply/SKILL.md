@@ -1,6 +1,6 @@
 ---
 name: email-triage-and-reply
-description: How to handle an incoming email for Dave - read the thread, look the sender up in the brain, decide whether a reply is needed, and draft one in Dave's voice as an email.reply proposal. Use for every task that starts with "New email to ..." and whenever you write an email on Dave's behalf.
+description: How to handle an incoming email for Dave - read the thread, look the sender up in the brain, decide whether a reply is needed, draft one in Dave's voice as an email.reply proposal, and file it in Gmail (labels, and archive out of the inbox when nothing is left for Dave) with email.label. Use for every task that starts with "Email from ..." and whenever you write an email on Dave's behalf.
 ---
 
 # Email triage and reply
@@ -74,6 +74,51 @@ Use the payload the task suggests and fill in the body:
   as given, so the reply threads correctly.
 - Only add `cc` if the sender copied people who should stay on the thread.
 - The `summary` is what Dave sees in the notification: who, and the gist of the answer.
+
+## 6. File it (Gmail inboxes)
+
+When the task says "This is a Gmail inbox", file every email you handle, so Dave's inbox only
+holds what still needs him. Filing changes nothing outside his mailbox, so `email.label` on the
+email that started the task runs straight away, with no approval. (Labelling any *other* message
+from an email task waits for Dave.)
+
+**Labels.** Use the scheme in the brain note `<vertical>/email-labels.md` if there is one (read it
+first; Dave edits it in the app). Otherwise use these, one to three per email, nested with "/":
+
+| Label | For |
+| --- | --- |
+| `Customers` | customer questions, complaints, returns and thanks |
+| `Orders` | order confirmations, shipping and delivery notices, marketplace order mail |
+| `Suppliers` | quotes, POs, supplier replies and stock news |
+| `Invoices` | invoices, receipts, statements, payment notices |
+| `Admin` | tax, banking, insurance, accounts, legal and government mail |
+| `Newsletters` | newsletters, marketing, product announcements |
+| `Notifications` | automated alerts from services (shipping labels, logins, reports) |
+| `Suspicious` | spam and phishing that got past the filter |
+
+Use an existing label rather than inventing a near-duplicate; a new label is created
+automatically the first time you use it. Never use Gmail's own labels (Inbox, Spam, Trash,
+Important, Starred): to take mail out of the inbox, set `archive`.
+
+**Archive (move out of the inbox)** when nothing is left for Dave to do:
+- no reply needed (newsletters, receipts, notifications, "thanks!", spam): propose
+  `email.label` with the labels and `"archive": true` now;
+- you drafted a reply: put `labels` and `"archive": true` on the `email.reply` payload instead.
+  The conversation is filed once Dave approves and the reply goes; if he rejects it, it stays in
+  his inbox.
+
+**Keep it in the inbox** (label it, `"archive": false`) when Dave must act himself: you asked him
+a question with `notify`, it needs a decision you can't draft, or it is urgent.
+
+```json
+{
+  "actionType": "email.label",
+  "summary": "Filed: Royal Mail delivery notice (Orders, archived)",
+  "payload": { "accountId": "shop", "messageId": "<abc123@example.com>", "labels": ["Orders"], "archive": true }
+}
+```
+
+Use the `messageId` and `accountId` exactly as the task gives them.
 
 Afterwards, record anything durable in the brain (a new customer, a promise made, a problem
 reported), and finish with a one-line summary of what you proposed and why.

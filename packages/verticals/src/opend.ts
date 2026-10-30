@@ -10,6 +10,6 @@ export default defineVertical({
   intents: ["support", "bug", "feature-request", "billing"],
   skills: ["brain-notes", "email-triage-and-reply", "video-scriptwriter"],
   mcpServers: ["brain", "pa"],
-  policies: { "brain.write": "auto" },
+  policies: { "brain.write": "auto", "email.label": "auto" },
   roles: saasRoles("OpenD", { docsWriter: true }),
 });
