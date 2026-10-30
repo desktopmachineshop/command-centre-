@@ -104,7 +104,10 @@ export class ActionService {
     await executor.validate?.(p.payload, { vertical: vertical.id });
     let policy: Policy = policyFor(vertical, p.actionType);
     let payload = p.payload;
-    const untrusted = policy !== "draft" && !UNTRUSTED_AUTO_ALLOWED.has(p.actionType) ? await this.untrustedSource(p.taskId) : null;
+    const untrusted =
+      policy !== "draft" && !UNTRUSTED_AUTO_ALLOWED.has(p.actionType) && !(await this.filesOwnEmail(p.taskId, p.actionType, payload))
+        ? await this.untrustedSource(p.taskId)
+        : null;
     if (untrusted) {
       payload = { ...payload, policyDowngrade: { from: policy, reason: `task was triggered by untrusted ${untrusted} input` } };
       policy = "draft";
@@ -160,6 +163,21 @@ export class ActionService {
       return TRUSTED_SOURCES.has(origin as EventSource) ? null : origin;
     }
     return TRUSTED_SOURCES.has(event.source) ? null : event.source;
+  }
+
+  /**
+   * True for `email.label` on the very email (same account and Message-ID) that
+   * started the task: filing it only touches Dave's own mailbox and can't be
+   * aimed at other mail, so it keeps its policy even though the email is outside
+   * input. Labelling any other message from such a task waits for approval.
+   */
+  private async filesOwnEmail(taskId: string | null | undefined, actionType: string, payload: Record<string, unknown>): Promise<boolean> {
+    if (actionType !== "email.label" || !taskId) return false;
+    const task = await this.store.getTask(taskId);
+    const event = task ? await this.store.getEvent(task.eventId) : null;
+    if (event?.source !== "email") return false;
+    const bare = (v: unknown) => (typeof v === "string" ? v.trim().replace(/^<|>$/g, "") : "");
+    return !!bare(event.payload.messageId) && bare(event.payload.messageId) === bare(payload.messageId) && event.payload.accountId === payload.accountId;
   }
 
   /** Approvals waiting on Dave, newest first; all verticals unless one is given. */

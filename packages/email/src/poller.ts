@@ -1,5 +1,6 @@
 import type { NewEvent } from "@cc/core";
 import { type EmailAccount, isIgnoredSender } from "./accounts";
+import { canFileInGmail } from "./gmail";
 import { type ImapConnector, type ImapSession, imapflowConnector } from "./imap";
 import { type EmailPayload, parseEmail } from "./parse";
 
@@ -42,6 +43,8 @@ export function emailEvent(
       accountId: account.id,
       account: account.address,
       accountName: account.displayName ?? null,
+      // Gmail inboxes connected with Google can be labelled and archived (email.label).
+      canLabel: canFileInGmail(account),
       mailbox: account.mailbox,
       ...email,
     },

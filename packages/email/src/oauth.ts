@@ -164,6 +164,21 @@ export async function gmailAccessToken(account: EmailAccount): Promise<string> {
   return googleAccessToken(account, account.send);
 }
 
+/**
+ * A Gmail API call (path under /gmail/v1/users/me) with the account's Google token. Throws
+ * with Gmail's own message on an error status.
+ */
+export async function gmailRequest<T>(account: EmailAccount, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const res = await options.fetch(`${options.gmailApi}/gmail/v1/users/me${path}`, {
+    method: init.method ?? "GET",
+    headers: { authorization: `Bearer ${await gmailAccessToken(account)}`, accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}) },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
+  const body = (await res.json().catch(() => ({}))) as T & { error?: { message?: string } };
+  if (!res.ok) throw new Error(`Gmail: ${(body.error?.message ?? `HTTP ${res.status}`).slice(0, 200)}`);
+  return body;
+}
+
 /** How this account sends: the Gmail API, Microsoft Graph, or SMTP. */
 export function sendRoute(account: EmailAccount): "gmail" | "graph" | "smtp" {
   if (account.send?.via === "gmail" || account.oauth?.provider === "google") return "gmail";

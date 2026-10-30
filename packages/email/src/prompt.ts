@@ -58,5 +58,10 @@ export function emailPrompt(payload: Record<string, unknown>): string {
       ? `To answer, propose an "email.reply" action with a payload like ${JSON.stringify(reply)}.`
       : `It has no Message-ID, so to answer, propose an "email.send" action with accountId "${reply.accountId}".`,
     ...(str(payload.accountName) ? [`Sign replies as "${str(payload.accountName)}".`] : []),
+    ...(payload.canLabel && messageId
+      ? [
+          `This is a Gmail inbox: file it (see the email-triage-and-reply skill, "File it"). To label it and/or take it out of the inbox now, propose "email.label" with ${JSON.stringify({ accountId: reply.accountId, messageId, labels: ["..."], archive: true })}; when you propose a reply, put "labels" and "archive" on the email.reply payload instead, so it is filed once the reply is sent.`,
+        ]
+      : []),
   ].join("\n");
 }

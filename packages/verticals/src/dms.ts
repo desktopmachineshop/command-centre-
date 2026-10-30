@@ -20,7 +20,7 @@ export default defineVertical({
   ],
   skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-voice-dms", "social-platform-guide"],
   mcpServers: ["brain", "odoo", "pa"],
-  policies: { "brain.write": "auto" },
+  policies: { "brain.write": "auto", "email.label": "auto" },
   roles: [
     {
       id: "shop-lead",
@@ -30,7 +30,7 @@ export default defineVertical({
       mission:
         "Runs Desktop Machine Shop day to day on Dave's behalf: picks up anything no specialist owns, decides which role should handle it and keeps the shop's notes in the brain current. Escalates to the Chief of Staff when something needs Dave's attention across the business.",
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status"],
-      actions: ["brain.write", "notify", "email.reply"],
+      actions: ["brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Nothing unowned for more than a day", "Weekly shop summary in the brain"],
       autonomyNotes:
         "May file notes and hand work to its team. Anything that reaches a customer, supplier or the storefront is a draft for Dave.",
@@ -45,7 +45,7 @@ export default defineVertical({
       intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review", "rfq"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
       mcpServers: ["brain", "odoo"],
-      actions: ["email.reply", "odoo.message.post", "social.reply", "social.dm", "brain.write"],
+      actions: ["email.reply", "email.label", "odoo.message.post", "social.reply", "social.dm", "brain.write"],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
       autonomyNotes:
         "Drafts every customer reply for approval. Refunds, exchanges outside the returns policy, discounts and warranty decisions always need Dave.",
@@ -86,7 +86,7 @@ export default defineVertical({
       intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late", "supplier-reply"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status"],
       mcpServers: ["brain", "odoo", "pa"],
-      actions: ["email.reply", "email.send", "odoo.message.post", "notify", "brain.write"],
+      actions: ["email.reply", "email.label", "email.send", "odoo.message.post", "notify", "brain.write"],
       schedules: [
         // Turn on once the Odoo low_stock threshold is agreed.
         { id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", prompt: LOW_STOCK_CHECK, enabled: false },

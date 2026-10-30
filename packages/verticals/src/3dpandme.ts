@@ -9,7 +9,7 @@ export default defineVertical({
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
   skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide"],
   mcpServers: ["brain", "odoo", "pa"],
-  policies: { "brain.write": "auto" },
+  policies: { "brain.write": "auto", "email.label": "auto" },
   roles: [
     {
       id: "content-lead",
@@ -20,7 +20,7 @@ export default defineVertical({
         "Owns the 3dpandme content plan: sorts ideas into videos, blog posts or social posts, keeps the content calendar in the brain and weighs collaboration and sponsorship requests. Hands production to the video, blog and community roles.",
       intents: ["content-idea", "collab"],
       skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "email-triage-and-reply"],
-      actions: ["brain.write", "notify", "email.reply"],
+      actions: ["brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Content calendar 4 weeks ahead", "Every collab request answered within 3 days"],
       autonomyNotes: "May keep the content calendar and idea notes. Accepting a collab, sponsorship or review unit always needs Dave.",
     },

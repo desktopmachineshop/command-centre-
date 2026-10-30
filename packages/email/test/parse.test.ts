@@ -142,6 +142,11 @@ describe("emailPrompt", () => {
     expect(prompt).toContain('"accountId":"shop","to":"jane@example.com"');
     expect(prompt).toContain('"inReplyTo":"<abc@example.com>"');
     expect(prompt).toContain('Sign replies as "Dave at DMS".');
+    expect(prompt).not.toContain("email.label");
+
+    const gmail = emailPrompt({ accountId: "shop", canLabel: true, ...p });
+    expect(gmail).toContain("This is a Gmail inbox");
+    expect(gmail).toContain('"email.label" with {"accountId":"shop","messageId":"<abc@example.com>","labels":["..."],"archive":true}');
   });
 
   it("titles a nameless sender by address and a blank subject", () => {

@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { z } from "zod";
 import { type EmailAccount, shouldSaveSent } from "./accounts";
+import { canFileInGmail, fileInGmail } from "./gmail";
 import { type ImapConnector, imapflowConnector } from "./imap";
 import { sendOverHttps, smtpAuth } from "./oauth";
 
@@ -9,6 +10,8 @@ import { sendOverHttps, smtpAuth } from "./oauth";
 export interface EmailActionExecutor {
   description: string;
   execute(payload: Record<string, unknown>, ctx?: unknown): Promise<unknown>;
+  /** Checked when the action is proposed, so a bad payload fails then rather than on approval. */
+  validate?(payload: Record<string, unknown>): void;
 }
 
 export interface EmailExecutorOptions {
@@ -28,11 +31,27 @@ const Send = z.object({
   body: z.string().min(1),
 });
 
+const LabelNames = z.array(z.string().trim().min(1).max(100)).max(5);
+
 const Reply = Send.extend({
   /** Message-ID of the email being answered. */
   inReplyTo: z.string().min(1),
   references: MessageIds.optional(),
+  /** Gmail only: once sent, label the conversation and/or take it out of the inbox. */
+  labels: LabelNames.optional(),
+  archive: z.boolean().optional(),
 });
+
+const Label = z
+  .object({
+    accountId: z.string().min(1),
+    /** Message-ID header of the email whose conversation to file. */
+    messageId: z.string().min(1),
+    labels: LabelNames.default([]),
+    /** Take the conversation out of the inbox (Gmail "archive"); it stays under All Mail and its labels. */
+    archive: z.boolean().default(false),
+  })
+  .refine((p) => p.labels.length > 0 || p.archive, { message: "give labels and/or archive: true", path: ["labels"] });
 
 export type SendPayload = z.infer<typeof Send>;
 export type ReplyPayload = z.infer<typeof Reply>;
@@ -65,7 +84,7 @@ function parse<T>(schema: z.ZodType<T>, type: string, payload: Record<string, un
 export function createEmailExecutors(
   accounts: EmailAccount[],
   options: EmailExecutorOptions = {},
-): Record<"email.reply" | "email.send", EmailActionExecutor> {
+): Record<"email.reply" | "email.send" | "email.label", EmailActionExecutor> {
   const connect = options.connect ?? imapflowConnector;
   const log = options.logger ?? { error: (m: string, err?: unknown) => console.error(`[email] ${m}`, err ?? "") };
   const ids = accounts.map((a) => a.id).join(", ");
@@ -116,10 +135,11 @@ export function createEmailExecutors(
   return {
     "email.reply": {
       description:
-        "Reply to an email. payload: { accountId, to, subject, body, inReplyTo (the original Message-ID), references?, cc? }. Body is plain text; sign it yourself.",
+        "Reply to an email. payload: { accountId, to, subject, body, inReplyTo (the original Message-ID), references?, cc?, labels?, archive? }. Body is plain text; sign it yourself. Gmail inboxes: labels and archive file the conversation once the reply has gone.",
       execute: async (payload) => {
         const p = parse(Reply, "email.reply", payload);
-        return deliver(account(p.accountId), {
+        const a = account(p.accountId);
+        const sent = await deliver(a, {
           to: p.to,
           cc: p.cc,
           subject: replySubject(p.subject),
@@ -127,6 +147,27 @@ export function createEmailExecutors(
           inReplyTo: bracket(p.inReplyTo),
           references: replyReferences(p.inReplyTo, p.references),
         });
+        if (!p.labels?.length && !p.archive) return sent;
+        // The reply has gone; failing to file the conversation must not fail the action.
+        try {
+          return { ...sent, filed: await fileInGmail(a, { messageId: p.inReplyTo, labels: p.labels, archive: p.archive }) };
+        } catch (err) {
+          log.error(`${a.id}: replied, but could not label/archive the conversation`, err);
+          return { ...sent, fileError: (err as Error).message };
+        }
+      },
+    },
+    "email.label": {
+      description:
+        "Gmail inboxes: label an email's conversation and/or move it out of the inbox. payload: { accountId, messageId (the email's Message-ID), labels? (up to 5 names; missing ones are created, nested like \"Shop/Orders\"), archive? (true takes it out of the inbox) }.",
+      validate: (payload) => {
+        const p = parse(Label, "email.label", payload);
+        const a = account(p.accountId);
+        if (!canFileInGmail(a)) throw new Error(`${a.id} isn't a Gmail inbox connected with Google, so it can't be labelled`);
+      },
+      execute: async (payload) => {
+        const p = parse(Label, "email.label", payload);
+        return fileInGmail(account(p.accountId), { messageId: p.messageId, labels: p.labels, archive: p.archive });
       },
     },
     "email.send": {
