@@ -4,7 +4,8 @@ import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
 import type { AuthService } from "../accounts/service";
-import { type ActionService, ProposalStateError } from "../actions";
+import { type ActionService, ProposalInvalidError, ProposalStateError } from "../actions";
+import { ReplyStateError } from "../voice/conversations";
 import { tokenMatches } from "../auth";
 import type { BudgetService } from "../budget";
 import { dayStart, isDay } from "../days";
@@ -67,6 +68,8 @@ export function apiRoutes(deps: ApiDeps) {
   app.onError((err, c) => {
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", issues: err.issues }, 400);
     if (err instanceof ProposalStateError) return c.json({ error: err.message }, 409);
+    if (err instanceof ProposalInvalidError) return c.json({ error: err.message }, 400);
+    if (err instanceof ReplyStateError) return c.json({ error: err.message }, 409);
     if (err instanceof BrainConflictError) return c.json({ error: err.message, version: err.currentVersion }, 409);
     if (err instanceof OrgConflictError) return c.json({ error: err.message, version: err.currentVersion }, 409);
     if (err instanceof OrgError) return c.json({ error: err.message, issues: err.issues }, 400);
@@ -206,6 +209,35 @@ export function apiRoutes(deps: ApiDeps) {
   });
   app.post("/proposals/:id/approve", async (c) => c.json(await actions.approve(c.req.param("id"))));
   app.post("/proposals/:id/reject", async (c) => c.json(await actions.reject(c.req.param("id"))));
+  /** Dave edits what a pending proposal will do (e.g. the email text) before approving it. */
+  app.patch("/proposals/:id", async (c) => {
+    const body = z.object({ payload: z.record(z.string(), z.unknown()) }).parse(await c.req.json());
+    return c.json(await actions.edit(c.req.param("id"), body.payload));
+  });
+  /**
+   * "Ask for changes": rejects the proposal and sends Dave's feedback to the agent
+   * that proposed it, continuing its task so it can propose a revised version.
+   */
+  app.post("/proposals/:id/revise", async (c) => {
+    const { feedback } = z.object({ feedback: z.string().trim().min(1).max(4000) }).parse(await c.req.json());
+    const proposal = await store.getProposal(c.req.param("id"));
+    if (!proposal || proposal.status !== "pending") return c.json({ error: "proposal is not pending" }, 409);
+    const conversations = deps.voice?.conversations;
+    if (!proposal.taskId || !conversations) return c.json({ error: "no agent task to send feedback to; reject it instead" }, 409);
+    // A run still in progress can't take a reply yet: say so before rejecting anything.
+    const owner = await store.getTask(proposal.taskId);
+    if (owner?.status === "queued" || owner?.status === "running") return c.json({ error: "the agent is still working on this task; try again when it has finished" }, 409);
+    const rejected = await actions.reject(proposal.id);
+    const message = [
+      `Dave did not approve your proposed ${proposal.actionType} ("${proposal.summary}") and asked for changes:`,
+      "",
+      feedback,
+      "",
+      "Revise it and propose it again with propose_action, or explain why you can't.",
+    ].join("\n");
+    const task = await conversations.reply(proposal.taskId, message, false);
+    return c.json({ proposal: rejected, task });
+  });
 
   app.get("/nodes", async (c) => c.json(await store.listNodes()));
   app.get("/jobs", async (c) => c.json(await store.listJobs({ limit: limit.parse(c.req.query("limit")) })));

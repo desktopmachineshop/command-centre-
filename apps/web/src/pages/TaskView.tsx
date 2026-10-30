@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@cc/core";
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import type { Api } from "../api";
 import { ago, usd } from "../format";
 import { Icon } from "../icons";
@@ -76,6 +76,8 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
         {retryError && <ErrorBanner>{retryError}</ErrorBanner>}
       </div>
 
+      {(task.status === "done" || task.status === "awaiting_approval" || task.status === "failed") && <ReplyBox api={api} taskId={task.id} />}
+
       {proposals.length > 0 && (
         <>
           <div className="section-title">
@@ -119,5 +121,43 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
         </div>
       ))}
     </section>
+  );
+}
+
+/**
+ * Talk back to the agent on this task: answer its question, change its plan or
+ * ask for more. The task runs again, resuming the agent's earlier session.
+ */
+function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.replyToTask(taskId, text.trim(), false);
+      setText("");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="card reply-box" onSubmit={send}>
+      <label className="field">
+        <span>Reply to the agent</span>
+        <textarea value={text} rows={2} placeholder="Answer its question, change the plan, or ask for something else" onChange={(e) => setText(e.target.value)} />
+      </label>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <div className="row">
+        <button type="submit" className="primary" disabled={busy || !text.trim()}>
+          <Icon name="chat" size={16} /> {busy ? "Sending…" : "Send"}
+        </button>
+      </div>
+    </form>
   );
 }

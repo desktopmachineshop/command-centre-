@@ -171,6 +171,27 @@ export class ActionService {
     return this.execute(id, ["pending"]);
   }
 
+  /**
+   * Dave's edit of a pending proposal before he approves it. The new payload is
+   * validated like a fresh proposal; `policyDowngrade` (why it waits for approval)
+   * is the server's and is kept whatever the edit says.
+   */
+  async edit(id: string, payload: Record<string, unknown>): Promise<Proposal> {
+    const current = await this.store.getProposal(id);
+    if (!current || current.status !== "pending") throw new ProposalStateError(id);
+    const { policyDowngrade: _ignored, ...edited } = payload;
+    const next = current.payload.policyDowngrade === undefined ? edited : { ...edited, policyDowngrade: current.payload.policyDowngrade };
+    try {
+      await this.executors[current.actionType]?.validate?.(next, { vertical: current.vertical });
+    } catch (err) {
+      throw new ProposalInvalidError((err as Error).message);
+    }
+    const proposal = await this.store.updateProposalPayload(id, next);
+    if (!proposal) throw new ProposalStateError(id);
+    this.hub.broadcast({ type: "proposal.updated", proposal });
+    return proposal;
+  }
+
   async reject(id: string): Promise<Proposal> {
     const proposal = await this.store.transitionProposal(id, ["pending"], "rejected");
     if (!proposal) throw new ProposalStateError(id);
@@ -214,6 +235,9 @@ export class ActionService {
     if (done) this.hub.broadcast({ type: "task.updated", task: done });
   }
 }
+
+/** An edited payload its executor refuses. */
+export class ProposalInvalidError extends Error {}
 
 export class ProposalStateError extends Error {
   constructor(id: string) {
