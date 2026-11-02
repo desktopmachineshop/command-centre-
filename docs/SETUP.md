@@ -1865,6 +1865,38 @@ Endpoints, all behind the dashboard auth:
   reading aloud. Approving and rejecting use the normal `/api/proposals/:id/approve|reject`;
 - `POST /api/chat {text, voice: true}` and `POST /api/tasks/:id/reply {text, voice}`.
 
+## Command Centre: the Software Lead
+
+The **Command Centre** business has one role, the **Software Lead**, which works on this app's
+own code (`desktopmachineshop/command-centre-`). Ask it in Chat or Drive mode ("software: make the
+digest arrive at 8am", "talk to the software lead"), or let the Chief of Staff hand it the work.
+
+**Set up:** create a fine-grained GitHub token with **Contents** and **Pull requests** (read and
+write) on that repository only, and set it as `GITHUB_TOKEN` in Railway.
+
+**How it works:**
+- Each task gets its own checkout, `workspaces/command-centre/software-lead/work/<task id>` on
+  the volume, fetched fresh and started at the default branch. A reply or a report on the same
+  task finds it as the agent left it.
+- The role's runs may use Claude Code's own tools (`tools` on the role: Bash, Read, Edit, Write,
+  Glob, Grep, WebFetch), so the agent edits, installs (`corepack pnpm install`), runs checks and
+  commits on a `cc/...` branch.
+- It has **no GitHub credentials**: the token stays on the server, which passes it to git per
+  command. To publish, the agent proposes **`github.pr.create`** (branch, title, body). That waits
+  under Approvals; when you approve, the server pushes the branch and opens the pull request (or,
+  if one is open for that branch, pushes the new commits to it). It never pushes the default
+  branch, never forces, and never merges: you review and merge on GitHub.
+- **Only for work you started:** a task from chat, a schedule, or a handoff from those gets the
+  tools and the checkout. A task from outside input (an email or webhook routed there) gets
+  neither, and says so.
+- **Trust:** the agent has a shell inside the server's container, as the server's user. Its own
+  environment holds no secrets, but this is **not a sandbox**: a shell as that user could read the
+  server's files and its process environment (database URL, admin token, `GITHUB_TOKEN`). That is
+  why the tools are only given to tasks you start. Review every PR before merging. For stronger
+  isolation, run coding on a desktop worker instead (a later step).
+- Old checkouts stay on the volume; delete `workspaces/command-centre/software-lead/work/*` to
+  free space (a task whose checkout is gone gets a fresh one on its next run).
+
 ## Extending
 
 - **New vertical:** add `packages/verticals/src/<id>.ts` (copy an existing one) and list it in

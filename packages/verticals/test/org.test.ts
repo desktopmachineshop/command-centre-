@@ -10,7 +10,8 @@ const chat = (text: string, extra: Record<string, unknown> = {}): Pick<Event, "s
 describe("the drafted org", () => {
   it("gives every vertical a lead reporting to the Chief of Staff", () => {
     for (const v of verticals) {
-      expect(v.roles.length, v.id).toBeGreaterThan(1);
+      // Every vertical has an explicit org chart; Command Centre's is just its Software Lead for now.
+      expect(v.roles.length, v.id).toBeGreaterThanOrEqual(1);
       expect(leadOf(v).reportsTo).toBe(ROOT_ROLE_ID);
     }
     expect(reg.root).toMatchObject({ id: ROOT_ROLE_ID, title: "Chief of Staff", reportsTo: null });

@@ -104,7 +104,7 @@ describe("org tree", () => {
       7,
     );
     expect(tree.root).toMatchObject({ id: ROOT_ROLE_ID, reportsTo: null, vertical: "personal", stats: { doneTasks: 3, pendingApprovals: 1 } });
-    expect(tree.root.verticals.map((v) => v.id)).toEqual(["personal", "dms", "3dpandme", "openv", "opend"]);
+    expect(tree.root.verticals.map((v) => v.id)).toEqual(["personal", "dms", "3dpandme", "openv", "opend", "command-centre"]);
     const shop = tree.root.verticals.find((v) => v.id === "dms")!;
     expect(shop).toMatchObject({ name: "Desktop Machine Shop", color: "#d9822b", stats: { openTasks: 4, doneTasks: 5, pendingApprovals: 1 } });
     expect(shop.lead).toMatchObject({ id: "shop-lead", reportsTo: ROOT_ROLE_ID, stats: { openTasks: 2 } });

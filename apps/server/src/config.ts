@@ -27,6 +27,11 @@ const Env = z.object({
   WORKER_TOKEN: z.string().min(16).optional(),
   /** Shared secret for POST /api/ingress/webhook/:vertical (header x-cc-webhook-secret). */
   WEBHOOK_SECRET: z.string().min(16).optional(),
+  /**
+   * GitHub fine-grained token for coding roles (the Software Lead): Contents and Pull requests,
+   * read and write, on their repository. Used by the server only; agents never see it.
+   */
+  GITHUB_TOKEN: z.string().optional(),
   /** Reverse proxies in front of the server (Railway: 1). Picks the client IP from X-Forwarded-For for sign-in rate limits; 0 ignores the header. */
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
 
@@ -209,6 +214,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     adminToken: e.ADMIN_TOKEN,
     workerToken: e.WORKER_TOKEN ?? e.ADMIN_TOKEN,
     webhookSecret: e.WEBHOOK_SECRET,
+    githubToken: e.GITHUB_TOKEN || undefined,
     trustedProxyHops: e.TRUSTED_PROXY_HOPS,
     dataDir,
     brainDir: resolve(e.BRAIN_DIR ?? `${dataDir}/brain`),

@@ -34,6 +34,7 @@ import type { Config } from "./config";
 import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
+import { type CodeOptions, createCodeExecutors } from "./code";
 import { DigestService } from "./digest";
 import type { OdooLateNow, OdooStockNow } from "./odoo-digest";
 import { apiRoutes } from "./http/api";
@@ -65,6 +66,8 @@ import { credentialTests } from "./integrations/tests"; // --- integrations oaut
 
 export interface Overrides {
   runner?: AgentRunner;
+  /** Coding roles' GitHub access (tests point it at a local remote and a fake API). */
+  code?: CodeOptions;
   queue?: TaskQueue;
   triager?: Triager;
   notifier?: Notifier;
@@ -380,6 +383,15 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Resolved when a proposal is made or approved, so one approved after a reload uses the new credentials.
   const paExecutors = createPaExecutors(paStore, { timeZone: config.timezone });
   const videoExecutors = video.executors();
+  // Coding roles (a role with a repo, e.g. the Software Lead): their checkout and github.pr.create (./code.ts).
+  const code: CodeOptions = overrides.code ?? { token: config.githubToken };
+  const codeExecutors = createCodeExecutors({
+    ...code,
+    locate: (vertical) => {
+      const role = verticals.get(vertical) ? verticals.roles(vertical).find((r) => r.repo) : undefined;
+      return role?.repo ? { roleDir: join(config.dataDir, "workspaces", vertical, role.id), repo: role.repo } : null;
+    },
+  });
   let executorCache: { from: unknown[]; executors: Record<string, ActionExecutor> } | undefined;
   const executors = () => {
     const from = [calendar.current, email.current, odoo.current, social.current];
@@ -394,6 +406,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           ...odoo.current.executors,
           ...social.current.executors,
           ...videoExecutors,
+          ...codeExecutors,
         },
       };
     }
@@ -487,6 +500,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     internalBaseUrl: config.internalBaseUrl,
     maxTurns: config.agent.maxTurns,
     notifier, // pushes for filed events that ask for one (incoming RFQs, supplier replies)
+    code,
     budget,
     guards: {
       maxConcurrentPerVertical: config.agent.maxConcurrentPerVertical,
