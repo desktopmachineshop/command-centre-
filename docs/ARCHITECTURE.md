@@ -145,7 +145,7 @@ Original Phase 0 steps:
    - `dms-admin-filing`;
    - the existing `odoo-product-info` and `price-setting-comparison` skills, ported in.
 5. Flow: email → triage → agent drafts a reply using Odoo and the brain → approval in the PWA → send → customer note in the brain.
-6. Daily DMS digest (orders, low stock, open questions).
+6. Daily DMS digest (orders, late deliveries, open questions); weekly low-stock summary.
 
 **Phase 2: Personal assistant.** Calendar and personal inbox, a morning brief (reusing the `morning` brief pattern), reminders, and personal skills (trip and gift planning, etc.) in the shared bank.
 

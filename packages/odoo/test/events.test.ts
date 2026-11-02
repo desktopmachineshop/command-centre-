@@ -301,8 +301,18 @@ describe("OdooEventPoller", () => {
   describe("low stock", () => {
     beforeEach(() => start());
 
-    it("emits once per crossing below the threshold, not every poll", async () => {
+    it("by default emits nothing, only keeps what is low now for the weekly summary", async () => {
       const poller = make(["stock"]);
+      await poller.pollOnce("stock");
+      odoo.update("product.product", 1, { qty_available: 1 });
+      expect(await poller.pollOnce("stock")).toBe(0);
+      expect(events).toEqual([]);
+      const current = (await store.getOdooCheckpoint(`${odoo.db}:stock`))!.state.current as { id: number }[];
+      expect(current.map((c) => c.id)).toEqual([1, 3]);
+    });
+
+    it("with lowStockEvents, emits once per crossing below the threshold, not every poll", async () => {
+      const poller = make(["stock"], { lowStockEvents: true });
       // ER11 has 3 (not below 3); Milo has 0 already: that is the starting state, not news.
       await poller.pollOnce("stock");
       expect(events).toEqual([]);
@@ -328,13 +338,13 @@ describe("OdooEventPoller", () => {
       expect(events[1]!.dedupeKey).toBe("odoo:product.product:1:stock.low#2");
       // Services are never "low".
       expect(events.some((e) => e.payload!.id === 4)).toBe(false);
-      // The checkpoint keeps everything low right now, for the digest's buying list.
+      // The checkpoint keeps everything low right now, for the weekly low-stock summary.
       const current = (await store.getOdooCheckpoint(`${odoo.db}:stock`))!.state.current as { id: number; qtyAvailable: number }[];
       expect(current.map((c) => [c.id, c.qtyAvailable])).toEqual([[1, 2], [3, 0]]);
     });
 
     it("uses a reordering rule's min qty as the product's threshold", async () => {
-      const poller = make(["stock"]);
+      const poller = make(["stock"], { lowStockEvents: true });
       await poller.pollOnce("stock");
       odoo.add("stock.warehouse.orderpoint", { product_id: [2, "[SP-300W] 300W spindle"], product_min_qty: 15, product_max_qty: 30 });
       expect(await poller.pollOnce("stock")).toBe(1);
@@ -489,7 +499,7 @@ describe("OdooEventPoller", () => {
 
   it("runs every source in the background between start and stop", async () => {
     await start();
-    const poller = make(["orders", "stock"], { pollIntervalMs: 50 });
+    const poller = make(["orders", "stock"], { pollIntervalMs: 50, lowStockEvents: true });
     poller.start();
     await until(async () => (await store.getOdooCheckpoint("testdb:stock")) !== null && (await store.getOdooCheckpoint("testdb:orders")) !== null);
     odoo.update("product.product", 2, { qty_available: 1 });

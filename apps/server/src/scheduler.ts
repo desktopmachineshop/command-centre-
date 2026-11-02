@@ -37,14 +37,17 @@ export function startSchedules(
 }
 
 /**
- * Built-in jobs that are not agent runs: the daily digest (`digestCron`, off
- * when unset), the budget-day rollover just after local midnight, and, when
+ * Built-in jobs that are not agent runs: the daily digest (`digestCron`) and
+ * the weekly low-stock summary (`lowStockCron`), each off when unset; the budget-day rollover just after local midnight, and, when
  * social accounts are configured, publishing due scheduled posts every minute.
  */
 export function startSystemJobs(options: {
   timezone: string;
   digestCron?: string;
   digest: () => Promise<unknown>;
+  /** The weekly low-stock summary (off when unset). */
+  lowStockCron?: string;
+  lowStock?: () => Promise<unknown>;
   rollover: () => Promise<unknown>;
   socialPublish?: () => Promise<unknown>;
   /** Delivers due PA reminders as pushes, every minute. */
@@ -58,6 +61,7 @@ export function startSystemJobs(options: {
     });
   const jobs = [job("rollover", "1 0 * * *", options.rollover)];
   if (options.digestCron) jobs.push(job("digest", options.digestCron, options.digest));
+  if (options.lowStockCron && options.lowStock) jobs.push(job("low-stock", options.lowStockCron, options.lowStock));
   if (options.socialPublish) jobs.push(job("social-scheduled", "* * * * *", options.socialPublish));
   if (options.paReminders) jobs.push(job("pa-reminders", "* * * * *", options.paReminders));
   if (options.integrationsRefresh) jobs.push(job("integrations-refresh", "17 4 * * *", options.integrationsRefresh));

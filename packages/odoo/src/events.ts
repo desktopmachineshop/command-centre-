@@ -44,6 +44,11 @@ const Options = z
     /** stock.low fires when qty_available drops below this (or a reordering rule's min qty, when set). */
     lowStockThreshold: z.number().min(0).default(3),
     useReorderRules: z.boolean().default(true),
+    /**
+     * Emit a stock.low event (an inbox item) each time a product crosses its threshold.
+     * Off by default: low stock goes on the weekly low-stock summary instead.
+     */
+    lowStockEvents: z.boolean().default(false),
     /** Odoo website id or name → vertical, e.g. {"1": "dms", "3dpandme": "3dpandme"}. */
     websites: z.record(z.string(), verticalId).default({}),
     /** Vertical for records with no (mapped) website. */
@@ -552,7 +557,7 @@ export class OdooEventPoller {
     const previous = new Set(cp?.seenIds ?? []);
     const crossings = { ...((cp?.state.crossings as Record<string, number> | undefined) ?? {}) };
     const events: OdooEvent[] = [];
-    if (cp) {
+    if (cp && this.cfg.lowStockEvents) {
       for (const r of low.filter((r) => !previous.has(r.id))) {
         const n = (crossings[r.id] ?? 0) + 1;
         crossings[r.id] = n;
@@ -574,7 +579,7 @@ export class OdooEventPoller {
         events.push(this.event("stock.low", "product.product", r.id, this.cfg.defaultVertical, payload, n > 1 ? `#${n}` : ""));
       }
     }
-    // `current`: everything below its threshold right now, for the daily digest's buying list.
+    // `current`: everything below its threshold right now, for the weekly low-stock summary.
     const current = low.map((r) => ({
       id: r.id,
       sku: val(r.default_code),

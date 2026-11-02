@@ -697,6 +697,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         timezone: config.timezone,
         digestCron: config.digestCron,
         digest: () => digests.deliver(),
+        lowStockCron: config.lowStockCron,
+        lowStock: () => digests.deliverLowStock(),
         rollover,
         socialPublish: publishScheduledPosts, // a no-op until a social account is set up
         paReminders: deliverReminders,

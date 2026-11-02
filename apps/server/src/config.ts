@@ -74,6 +74,11 @@ const Env = z.object({
     .string()
     .default("30 18 * * *")
     .refine((v) => v === "off" || isCron(v), "must be a 5-field cron expression or \"off\""),
+  /** When the weekly low-stock summary is written and pushed, in DAY_TIMEZONE. Default Monday 08:00. "off" disables it. */
+  LOW_STOCK_CRON: z
+    .string()
+    .default("0 8 * * 1")
+    .refine((v) => v === "off" || isCron(v), "must be a 5-field cron expression or \"off\""),
 
   // --- Triage (model triagers are added to the chain only when their key is set) ---
   /** TypeSafe Jev API key. */
@@ -248,6 +253,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     timezone: e.DAY_TIMEZONE,
     digestCron: e.DIGEST_CRON === "off" || !e.DIGEST_CRON ? undefined : e.DIGEST_CRON,
+    lowStockCron: e.LOW_STOCK_CRON === "off" || !e.LOW_STOCK_CRON ? undefined : e.LOW_STOCK_CRON,
     vapid:
       e.VAPID_PUBLIC_KEY && e.VAPID_PRIVATE_KEY
         ? { publicKey: e.VAPID_PUBLIC_KEY, privateKey: e.VAPID_PRIVATE_KEY, subject: e.VAPID_SUBJECT }
