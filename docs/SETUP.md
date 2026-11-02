@@ -1901,7 +1901,8 @@ write) on that repository only, and set it as `GITHUB_TOKEN` in Railway.
   environment holds no secrets, but this is **not a sandbox**: a shell as that user could read the
   server's files and its process environment (database URL, admin token, `GITHUB_TOKEN`). That is
   why the tools are only given to tasks you start. Review every PR before merging. For stronger
-  isolation, run coding on a desktop worker instead (a later step).
+  isolation, run coding on a desktop worker, or in Anthropic's cloud (see
+  [docs/plans/managed-agents.md](plans/managed-agents.md), not built yet).
 - Old checkouts stay on the volume; delete `workspaces/command-centre/software-lead/work/*` to
   free space (a task whose checkout is gone gets a fresh one on its next run).
 
