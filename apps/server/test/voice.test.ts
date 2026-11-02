@@ -108,9 +108,11 @@ describe.skipIf(!DB_URL)("voice API (integration)", () => {
   });
 
   it("passes voice mode into the prompt only when asked", async () => {
-    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: has order 1042 shipped?", voice: true } });
+    const voiced = (await ctx.api("/api/chat", { method: "POST", json: { text: "dms: has order 1042 shipped?", voice: true } })).body.task;
     await ctx.api("/api/chat", { method: "POST", json: { text: "dms: has order 1043 shipped?" } });
     await ctx.queue.drain();
+    // The task keeps just what Dave said: the voice rules go to the agent, not into the app.
+    expect((await ctx.api(`/api/tasks/${voiced.id}`)).body.task.prompt).toBe("dms: has order 1042 shipped?");
     expect(runner.requests[0]!.prompt).toMatch(/^dms: has order 1042 shipped\?\n\nVOICE MODE/);
     expect(runner.requests[0]!.prompt).toContain('"type":"final"');
     expect(runner.requests[1]!.prompt).toBe("dms: has order 1043 shipped?");

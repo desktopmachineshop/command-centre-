@@ -4,7 +4,7 @@ import { type Event, findRole, NewEvent, type NotificationCategory, ROOT_ROLE_ID
 import type { Triager } from "@cc/triage";
 import { DEFAULT_VERTICAL, routeRole, type VerticalRegistry } from "@cc/verticals";
 import type { ActionService } from "./actions";
-import { allowedToolsFor, mcpServersFor, roleBrief, systemPrompt, taskPrompt } from "./agent-context";
+import { allowedToolsFor, mcpServersFor, roleBrief, runPrompt, systemPrompt, taskPrompt } from "./agent-context";
 import { type BudgetService, bypassesBudget } from "./budget";
 import type { Store } from "./db/store";
 import type { Hub } from "./hub";
@@ -321,7 +321,7 @@ export class Pipeline {
       let chain = Promise.resolve();
       const result = await runner.run(
         {
-          prompt: turn?.prompt ?? task.prompt,
+          prompt: turn?.prompt ?? runPrompt(task, event),
           resumeSessionId: turn?.resumeSessionId,
           promptWithoutResume: turn?.promptWithoutResume,
           systemPrompt: systemPrompt(vertical, this.deps.actions.executors, new Date(), brief),

@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@cc/core";
 import { type FormEvent, useState } from "react";
 import type { Api } from "../api";
-import { ago, usd } from "../format";
+import { ago, askText, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLive, useLoad } from "../live";
 import { ErrorBanner, Skeleton, Status, VTag } from "../ui";
@@ -50,7 +50,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           <VTag id={task.vertical} />
           <Status value={task.status} />
         </div>
-        <h2 className="prewrap task-prompt">{task.prompt}</h2>
+        <h2 className="prewrap task-prompt">{askText(task.prompt)}</h2>
         <div className="meta">
           {task.role && <span className="role">{task.role}</span>}
           <span>{task.intent}</span>

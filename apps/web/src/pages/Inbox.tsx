@@ -1,7 +1,7 @@
 import type { Task } from "@cc/core";
 import { useState } from "react";
 import type { Api } from "../api";
-import { ago, usd } from "../format";
+import { ago, askText, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
 import { useRouteQuery } from "../router";
@@ -137,7 +137,7 @@ export function TaskRow({ task }: { task: Task }) {
           <VTag id={task.vertical} />
           <Status value={task.status} />
         </div>
-        <div className="title">{task.prompt.split("\n")[0]}</div>
+        <div className="title">{askText(task.prompt).split("\n")[0]}</div>
         <div className="meta">
           {task.role && <span className="role">{task.role}</span>}
           <span>{task.intent}</span>

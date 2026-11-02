@@ -1,5 +1,5 @@
 import type { McpServerConfig } from "@cc/agent-runtime";
-import { type Event, ROOT_ROLE_ID, type VerticalManifest } from "@cc/core";
+import { type Event, ROOT_ROLE_ID, type Task, type VerticalManifest } from "@cc/core";
 import { emailPrompt } from "@cc/email";
 import { odooPrompt } from "@cc/odoo";
 import { socialPrompt } from "@cc/social";
@@ -10,9 +10,8 @@ import type { ActionExecutor } from "./actions";
 /** The prompt an agent gets for a task, derived from the event that caused it. */
 export function taskPrompt(event: Event): string {
   const p = event.payload;
-  // --- voice: chat sent with {voice: true} (Drive mode) asks for a short spoken answer ---
-  if (event.source === "chat" && typeof p.text === "string" && p.voice === true) return voicePrompt(p.text);
-  // --- end voice ---
+  // Voice-mode chats (Drive mode) store just Dave's words; the spoken-answer rules are added
+  // when the run starts (`runPrompt`), so they never show in the app or travel with a handoff.
   if (event.source === "chat" && typeof p.text === "string") return p.text;
   if (event.source === "cron" && typeof p.prompt === "string") return p.prompt;
   // Email: a readable message plus how to reply (see @cc/email emailPrompt).
@@ -33,6 +32,11 @@ export function taskPrompt(event: Event): string {
     "",
     "Decide what needs doing and do it.",
   ].join("\n");
+}
+
+/** What the agent is given for a task's first run: its prompt, plus the spoken-answer rules for a voice-mode chat. */
+export function runPrompt(task: Pick<Task, "prompt">, event: Event | null): string {
+  return event?.source === "chat" && event.payload.voice === true ? voicePrompt(task.prompt) : task.prompt;
 }
 
 /** Voice mode: Dave's words plus the spoken-answer rules and response protocol (see @cc/voice). */
