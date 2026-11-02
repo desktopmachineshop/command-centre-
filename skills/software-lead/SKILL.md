@@ -1,6 +1,6 @@
 ---
 name: software-lead
-description: How the Software Lead changes the Command Centre code - work in the task's own checkout, branch, make a small tested change, commit, and raise a pull request with the github.pr.create action for Dave to approve. Use for every Command Centre software task (features, bug fixes, reviews of the code), and whenever you edit the repository.
+description: How the Software Lead changes the Command Centre code - work in the task's own checkout, branch, make a small tested change, commit, raise a pull request with the github.pr.create action (no approval needed), and propose github.pr.merge (Dave approves) only when asked to merge. Use for every Command Centre software task (features, bug fixes, reviews of the code), and whenever you edit the repository.
 ---
 
 # Software Lead
@@ -17,8 +17,8 @@ The server fetched it fresh from GitHub and checked out the default branch befor
 left it.
 
 - You can't push or reach GitHub with git yourself: there are no credentials in your
-  environment, by design. Pushing and opening the PR is the `github.pr.create` action, which Dave
-  approves.
+  environment, by design. Pushing and opening the PR is the `github.pr.create` action, which runs
+  straight away; merging is `github.pr.merge`, which Dave approves.
 - Never touch secrets, `.env` files with real values, Railway settings or production data.
 
 ## How to make a change
@@ -49,9 +49,13 @@ left it.
    }
    ```
 
-   `base` defaults to the repository's default branch. When Dave approves, the server pushes the
-   branch and opens the PR, or updates it if one is already open for that branch. To change an
-   open PR after review, commit on the same branch and propose `github.pr.create` again.
+   `base` defaults to the repository's default branch. The server pushes the branch and opens the
+   PR straight away (no approval), or updates it if one is already open for that branch; the
+   result gives the PR's number and link. To change an open PR after review, commit on the same
+   branch and propose `github.pr.create` again.
+7. **Merge only when asked:** when Dave asks you to merge (and CI is green), propose
+   `{"actionType": "github.pr.merge", "summary": "Merge #11: Latch push to talk", "payload": {"number": 11}}`.
+   It waits for his approval; then the server merges it on GitHub.
 
-Never merge, force-push or delete branches. Finish with a short report: what you changed, how
+Never force-push or delete branches, and never merge without that approval. Finish with a short report: what you changed, how
 you tested it, and the PR (or why there isn't one). It goes back to whoever handed you the task.

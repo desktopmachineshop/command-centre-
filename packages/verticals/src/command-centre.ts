@@ -14,7 +14,8 @@ export default defineVertical({
   intents: ["software"],
   skills: ["brain-notes", "software-lead"],
   mcpServers: ["brain"],
-  policies: { "brain.write": "auto" },
+  // Raising or updating a PR changes nothing until it is merged, so only merging waits for Dave.
+  policies: { "brain.write": "auto", "github.pr.create": "auto" },
   roles: [
     {
       id: "software-lead",
@@ -28,10 +29,10 @@ export default defineVertical({
       mcpServers: ["brain"],
       tools: ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch"],
       repo: "desktopmachineshop/command-centre-",
-      actions: ["github.pr.create", "brain.write", "notify"],
+      actions: ["github.pr.create", "github.pr.merge", "brain.write", "notify"],
       kpis: ["Each PR is green in CI when raised", "Changes are small, with tests", "Dave can merge without rework"],
       autonomyNotes:
-        "Edits, builds and commits freely inside its own checkout. Pushing a branch and opening or updating a pull request (github.pr.create) waits for Dave's approval. Never merges, never pushes to the default branch, never changes secrets or production settings.",
+        "Edits, builds and commits freely inside its own checkout, and pushes a branch and opens or updates its pull request (github.pr.create) without asking. Merging (github.pr.merge) always waits for Dave's approval. Never pushes to the default branch, never changes secrets or production settings.",
     },
   ],
 });

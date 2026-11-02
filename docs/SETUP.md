@@ -1882,10 +1882,14 @@ write) on that repository only, and set it as `GITHUB_TOKEN` in Railway.
   Glob, Grep, WebFetch), so the agent edits, installs (`corepack pnpm install`), runs checks and
   commits on a `cc/...` branch.
 - It has **no GitHub credentials**: the token stays on the server, which passes it to git per
-  command. To publish, the agent proposes **`github.pr.create`** (branch, title, body). That waits
-  under Approvals; when you approve, the server pushes the branch and opens the pull request (or,
-  if one is open for that branch, pushes the new commits to it). It never pushes the default
-  branch, never forces, and never merges: you review and merge on GitHub.
+  command. To publish, the agent proposes **`github.pr.create`** (branch, title, body), which runs
+  **straight away** (`auto`): the server pushes the branch and opens the pull request (or, if one
+  is open for that branch, pushes the new commits to it), and you get its link in the report. A PR
+  changes nothing until it is merged.
+- **Merging needs your approval:** ask it to merge ("merge PR 11") and it proposes
+  **`github.pr.merge`**, which waits under Approvals; approve and the server merges it on GitHub
+  (branch protection and required checks still apply). Or merge on GitHub yourself. It never
+  pushes the default branch and never forces.
 - **Only for work you started:** a task from chat, a schedule, or a handoff from those gets the
   tools and the checkout. A task from outside input (an email or webhook routed there) gets
   neither, and says so.

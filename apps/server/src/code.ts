@@ -87,8 +87,10 @@ const BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/;
 
 /**
  * `github.pr.create`: pushes a branch the role committed in its checkout and opens a pull request
- * for it (or returns the one already open, after pushing the new commits). Draft policy: Dave
- * approves every push. Never the default branch; never a force push.
+ * for it (or returns the one already open, after pushing the new commits). Runs without approval
+ * (`auto` in the vertical's policies): a PR is for review and changes nothing until merged.
+ * Never the default branch; never a force push.
+ * `github.pr.merge`: merges an open pull request. Draft policy: Dave approves every merge.
  */
 export function createCodeExecutors(
   o: CodeOptions & {
@@ -118,7 +120,7 @@ export function createCodeExecutors(
   return {
     "github.pr.create": {
       description:
-        'Push a branch you committed in your checkout and open a pull request (or update the open one). payload: { branch, title, body (markdown: what, why, testing), base? (default: the default branch) }. Needs Dave\'s approval; never the default branch.',
+        "Push a branch you committed in your checkout and open a pull request (or update the open one). payload: { branch, title, body (markdown: what, why, testing), base? (default: the default branch) }. Never the default branch.",
       validate: (payload, ctx) => {
         parse(payload);
         if (!o.locate(ctx.vertical)) throw new Error(`${ctx.vertical} has no coding role with a repository`);
@@ -156,5 +158,38 @@ export function createCodeExecutors(
         return { url: created.json.html_url, number: created.json.number, updated: false, commits: ahead };
       },
     },
+    "github.pr.merge": {
+      description:
+        "Merge an open pull request in your repository once it is ready (CI green, review done). payload: { number, method? (\"merge\" default, \"squash\" or \"rebase\") }. Needs Dave's approval.",
+      validate: (payload, ctx) => {
+        parseMerge(payload);
+        if (!o.locate(ctx.vertical)) throw new Error(`${ctx.vertical} has no coding role with a repository`);
+      },
+      execute: async (payload, ctx) => {
+        const m = parseMerge(payload);
+        const where = ctx.vertical ? o.locate(ctx.vertical) : null;
+        if (!where) throw new Error(`${ctx.vertical ?? "This vertical"} has no coding role with a repository`);
+        if (!o.token && /^https?:/.test(gitBase(o))) throw new Error("GITHUB_TOKEN is not set");
+        const pr = await api<{ state?: string; merged?: boolean; html_url?: string; title?: string; head?: { sha?: string } }>(`/repos/${where.repo}/pulls/${m.number}`);
+        if (pr.status === 404) throw new Error(`There is no pull request #${m.number} in ${where.repo}`);
+        if (pr.json.merged) return { number: m.number, url: pr.json.html_url, merged: true, already: true };
+        if (pr.json.state !== "open") throw new Error(`Pull request #${m.number} is ${pr.json.state ?? "not open"}`);
+        // Merge the head just read: GitHub refuses if a push lands in between (sha).
+        const merged = await api<{ merged?: boolean; sha?: string; message?: string }>(`/repos/${where.repo}/pulls/${m.number}/merge`, {
+          method: "PUT",
+          body: { merge_method: m.method, ...(pr.json.head?.sha ? { sha: pr.json.head.sha } : {}) },
+        });
+        if (merged.status >= 300 || !merged.json.merged) throw new Error(`GitHub didn't merge #${m.number}: ${merged.json.message ?? `HTTP ${merged.status}`}`);
+        return { number: m.number, url: pr.json.html_url, merged: true, sha: merged.json.sha };
+      },
+    },
   };
+}
+
+function parseMerge(payload: Record<string, unknown>): { number: number; method: "merge" | "squash" | "rebase" } {
+  const number = typeof payload.number === "number" ? payload.number : Number(payload.number);
+  if (!Number.isInteger(number) || number < 1) throw new Error("payload.number must be the pull request number");
+  const method = payload.method === undefined ? "merge" : payload.method;
+  if (method !== "merge" && method !== "squash" && method !== "rebase") throw new Error('payload.method must be "merge", "squash" or "rebase"');
+  return { number, method };
 }

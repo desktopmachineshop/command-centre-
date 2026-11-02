@@ -46,6 +46,9 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     const url = new URL(String(input));
     api.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (init?.method === "POST") return Response.json({ html_url: `https://github.test/${REPO}/pull/11`, number: 11 }, { status: 201 });
+    if (url.pathname === `/repos/${REPO}/pulls/11`) return Response.json({ state: "open", merged: false, html_url: `https://github.test/${REPO}/pull/11`, head: { sha: "abc123" } });
+    if (url.pathname === `/repos/${REPO}/pulls/11/merge`) return Response.json({ merged: true, sha: "def456" });
+    if (url.pathname.startsWith(`/repos/${REPO}/pulls/`)) return Response.json({ message: "Not Found" }, { status: 404 });
     return Response.json([]);
   }) as typeof fetch;
 
@@ -66,7 +69,7 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
   });
   afterAll(async () => ctx?.server.stop());
 
-  it("gives a task Dave started the coding tools and its own checkout, and opens the PR only once approved", async () => {
+  it("gives a task Dave started the coding tools and its own checkout, and opens the PR without an approval", async () => {
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "software: latch push to talk" } });
     expect(body.task).toMatchObject({ vertical: "command-centre", role: "software-lead" });
     await ctx.queue.drain();
@@ -78,25 +81,40 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     // The clone holds no credentials.
     expect(sh(join(request.cwd!, "repo"), "remote", "get-url", "origin")).toBe(`${github}/${REPO}.git`);
 
-    const { proposals } = (await ctx.api(`/api/tasks/${body.task.id}`)).body;
-    expect(proposals[0]).toMatchObject({ actionType: "github.pr.create", policy: "draft", status: "pending" });
-    expect(() => sh(remote, "rev-parse", "--verify", "refs/heads/cc/latched-ptt")).toThrow(); // nothing pushed before approval
-    expect(api).toHaveLength(0);
-
-    const approved = (await ctx.api(`/api/proposals/${proposals[0].id}/approve`, { method: "POST" })).body;
-    expect(approved).toMatchObject({ status: "executed", result: { ok: true, result: { url: `https://github.test/${REPO}/pull/11`, number: 11, updated: false, commits: 1 } } });
+    const { task, proposals } = (await ctx.api(`/api/tasks/${body.task.id}`)).body;
+    expect(proposals[0]).toMatchObject({
+      actionType: "github.pr.create",
+      policy: "auto",
+      status: "executed",
+      result: { ok: true, result: { url: `https://github.test/${REPO}/pull/11`, number: 11, updated: false, commits: 1 } },
+    });
+    expect(task.status).toBe("done"); // nothing waiting for Dave
     expect(sh(remote, "log", "--format=%s", "-1", "refs/heads/cc/latched-ptt")).toBe("Latch push to talk");
     expect(api.at(-1)).toEqual({ method: "POST", path: `/repos/${REPO}/pulls`, body: { title: "Latch push to talk", head: "cc/latched-ptt", base: "main", body: "## What\nLatched." } });
   });
 
+  it("merges a PR only once Dave approves", async () => {
+    const before = api.length;
+    const merge = await ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.pr.merge", summary: "Merge #11", payload: { number: 11 } });
+    expect(merge).toMatchObject({ policy: "draft", status: "pending" });
+    expect(api.length).toBe(before); // nothing sent to GitHub yet
+    const approved = (await ctx.api(`/api/proposals/${merge.id}/approve`, { method: "POST" })).body;
+    expect(approved).toMatchObject({ status: "executed", result: { ok: true, result: { number: 11, merged: true, sha: "def456" } } });
+    expect(api.at(-1)).toEqual({ method: "PUT", path: `/repos/${REPO}/pulls/11/merge`, body: { merge_method: "merge", sha: "abc123" } });
+
+    const missing = await ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.pr.merge", summary: "x", payload: { number: 99 } });
+    expect((await ctx.api(`/api/proposals/${missing.id}/approve`, { method: "POST" })).body.result.error).toContain("no pull request #99");
+    await expect(ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.pr.merge", summary: "x", payload: { number: "eleven" } })).rejects.toThrow(/number/);
+  });
+
   it("refuses to push the default branch or a branch that doesn't exist", async () => {
+    // Auto policy: they run when proposed, and fail without pushing anything.
     const propose = (branch: string) => ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.pr.create", summary: "x", payload: { branch, title: "x" } });
     const main = await propose("main");
-    const result = (await ctx.api(`/api/proposals/${main.id}/approve`, { method: "POST" })).body;
-    expect(result.status).toBe("failed");
-    expect(JSON.stringify(result.result)).toContain("Refusing to push to main");
+    expect(main.status).toBe("failed");
+    expect(JSON.stringify(main.result)).toContain("Refusing to push to main");
     const ghost = await propose("cc/nope");
-    expect((await ctx.api(`/api/proposals/${ghost.id}/approve`, { method: "POST" })).body.result.error).toContain('no local branch "cc/nope"');
+    expect(JSON.stringify(ghost.result)).toContain('no local branch \\"cc/nope\\"');
     await expect(propose("--force")).rejects.toThrow(/branch name/);
     await expect(ctx.server.actions.propose({ vertical: "dms", actionType: "github.pr.create", summary: "x", payload: { branch: "cc/x", title: "x" } })).rejects.toThrow(/no coding role/);
   });
