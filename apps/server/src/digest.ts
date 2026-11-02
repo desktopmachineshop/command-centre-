@@ -37,7 +37,7 @@ const usd = (n: number) => `$${n.toFixed(2)}`;
  * The daily digest per vertical: a deterministic summary of the day's tasks,
  * auto-with-digest actions, pending approvals, cost and jobs. It is built from
  * the database, not by an agent, so it costs no tokens. Delivered as a brain
- * note at `<brainFolder>/digests/YYYY-MM-DD.md` plus one push for all verticals.
+ * note at `<brainFolder>/digests/YYYY-MM-DD.md` plus one push per vertical that opens it.
  */
 export class DigestService {
   constructor(
@@ -126,7 +126,7 @@ export class DigestService {
 
   /**
    * Writes the digest note for each vertical that had anything to report, and
-   * sends one push with the headline numbers (`push: false` for a quiet rewrite).
+   * sends each one's headline as its own push (`push: false` for a quiet rewrite).
    */
   async deliver(day = this.today(), options: { push?: boolean; now?: Date } = {}): Promise<Digest[]> {
     const { digests } = await this.buildAll(day, { now: options.now });
@@ -138,15 +138,20 @@ export class DigestService {
         `digest: ${d.vertical} ${day}`,
       );
     }
-    if (options.push !== false && active.length > 0) {
-      await this.notifier.notify({
-        title: `Daily digest, ${day}`,
-        body: active.map((d) => d.headline).join("\n"),
-        url: "/",
-        category: "digest",
-        priority: "normal",
-        tag: "digest",
-      });
+    if (options.push !== false) {
+      // One push per business, each opening that business's digest note.
+      for (const d of active) {
+        const path = DigestService.notePath(this.verticals.require(d.vertical), day);
+        await this.notifier.notify({
+          title: `${d.name} daily digest, ${day}`,
+          body: d.headline,
+          url: `/brain/${encodeURIComponent(path)}`,
+          category: "digest",
+          priority: "normal",
+          vertical: d.vertical,
+          tag: `digest:${d.vertical}`,
+        });
+      }
     }
     return active;
   }

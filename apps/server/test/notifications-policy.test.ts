@@ -152,6 +152,7 @@ describe("routing one notification", () => {
   it("collapses pushes over the per-category rate limit, except urgent", () => {
     expect(route("agent", { recentPushes: 2 })).toBe("push");
     expect(route("agent", { recentPushes: 3 })).toBe("collapse");
+    expect(route("digest", { recentPushes: 5 })).toBe("push");
     expect(route("agent", { recentPushes: 3, priority: "urgent" })).toBe("push");
     expect(route("agent", { recentPushes: 50, prefs: { ...prefs, rateLimit: { perCategory: 0, windowMinutes: 10 } } })).toBe("push");
   });

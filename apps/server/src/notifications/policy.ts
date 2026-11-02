@@ -219,7 +219,8 @@ export function decideRoute(input: {
   if (settings.delivery === "digest" && category !== "digest") return { kind: "batched" };
   if (inQuietHours(input.now, prefs.quietHours) && !breaksQuietHours(category, priority, prefs.quietHours)) return { kind: "held" };
   const limit = prefs.rateLimit.perCategory;
-  if (limit > 0 && priority !== "urgent" && input.recentPushes >= limit) return { kind: "collapse" };
+  // Each business sends its digest at the same moment once a day, so digests are never rate limited.
+  if (limit > 0 && priority !== "urgent" && category !== "digest" && input.recentPushes >= limit) return { kind: "collapse" };
   return { kind: "push" };
 }
 

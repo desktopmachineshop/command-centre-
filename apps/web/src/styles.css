@@ -3378,3 +3378,46 @@ a.button-link.primary:hover {
   flex-wrap: wrap;
 }
 /* --- end accounts page --- */
+.brain-tree-root {
+  padding: var(--sp-3) var(--sp-4);
+}
+.brain-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.brain-tree .brain-tree {
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
+  margin-left: 8px;
+}
+.brain-tree summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.brain-tree summary::-webkit-details-marker {
+  display: none;
+}
+.brain-tree-chevron {
+  transition: transform 0.15s;
+}
+details[open] > summary .brain-tree-chevron {
+  transform: rotate(90deg);
+}
+.brain-tree-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.brain-tree-note:hover {
+  text-decoration: underline;
+}

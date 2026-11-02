@@ -826,8 +826,8 @@ a digest for each vertical that had activity. It covers:
   don't have one.
 
 The digest is built from the database, not by an agent, so it costs no tokens. It is saved as a
-brain note at `<brainFolder>/digests/YYYY-MM-DD.md`, and one push gives the headline numbers for
-every vertical. Just after midnight the notes are rewritten, without a push, so that they cover the
+brain note at `<brainFolder>/digests/YYYY-MM-DD.md`. Each business with something to report gets
+its own push with its headline numbers; tapping it opens that business's digest note in the Brain. Just after midnight the notes are rewritten, without a push, so that they cover the
 whole day. The Inbox's **Today** card shows the same numbers live. Any day's digest is at
 `GET /api/digest?date=YYYY-MM-DD&vertical=dms` (both parameters optional).
 
