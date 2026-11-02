@@ -23,6 +23,11 @@ export interface EmailPayload {
   quotedHistoryStripped: boolean;
   truncated: boolean;
   attachments: { filename: string; contentType: string; size: number }[];
+  /**
+   * Why this looks machine-sent (a no-reply sender, a mailing list, an
+   * auto-submitted message), or null when a person seems to have written it.
+   */
+  automated: string | null;
 }
 
 const addresses = (v: AddressObject | AddressObject[] | undefined): Address[] =>
@@ -55,7 +60,32 @@ export async function parseEmail(source: Buffer | string): Promise<EmailPayload>
     attachments: mail.attachments
       .filter((a) => a.contentDisposition !== "inline" || a.filename)
       .map((a) => ({ filename: a.filename ?? "(unnamed)", contentType: a.contentType, size: a.size })),
+    automated: automatedReason(addresses(mail.from)[0]?.address ?? "", mail.headers, stripped),
   };
+}
+
+const NO_REPLY_SENDER = /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|mailer-daemon|postmaster|notifications?|notify|alerts?|bounces?)(?:[-_.+].*)?@/i;
+const AUTOMATED_TEXT = /\b(?:this is an automated (?:message|email)|automatically generated (?:message|email)|please do not reply to (?:this|it)|do not reply to this (?:message|email))\b/i;
+
+/**
+ * Why an email looks machine-sent, or null. Headers first (RFC 3834
+ * Auto-Submitted, Precedence, mailing-list headers), then a no-reply sender,
+ * then the "automated message, do not reply" line such mail usually carries.
+ */
+export function automatedReason(from: string, headers: Map<string, unknown>, text: string): string | null {
+  const header = (name: string) => {
+    const v = headers.get(name);
+    return typeof v === "string" ? v.toLowerCase() : v && typeof v === "object" && "value" in v ? String((v as { value: unknown }).value).toLowerCase() : v ? "yes" : "";
+  };
+  const auto = header("auto-submitted");
+  if (auto && auto !== "no") return `Auto-Submitted: ${auto}`;
+  const precedence = header("precedence");
+  if (["bulk", "list", "junk", "auto_reply"].includes(precedence)) return `Precedence: ${precedence}`;
+  // mailparser gathers List-* headers under "list".
+  if (headers.has("list") || headers.has("list-unsubscribe") || headers.has("list-id")) return "mailing list";
+  if (NO_REPLY_SENDER.test(from)) return `sent from ${from}`;
+  if (AUTOMATED_TEXT.test(text)) return "says it is automated";
+  return null;
 }
 
 /** Reply-header lines that start the quoted part of a reply. */

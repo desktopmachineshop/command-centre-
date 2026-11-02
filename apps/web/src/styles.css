@@ -3421,3 +3421,28 @@ details[open] > summary .brain-tree-chevron {
 .brain-tree-note:hover {
   text-decoration: underline;
 }
+.email-quote {
+  margin: var(--sp-3) 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-left: 4px solid var(--accent, var(--border-strong));
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  border-radius: 0 8px 8px 0;
+  overflow-wrap: anywhere;
+}
+.email-quote-head {
+  color: var(--text-2);
+  padding-bottom: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border);
+}
+.email-quote-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  line-height: var(--lh-read, 1.5);
+}
+.email-fold summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}

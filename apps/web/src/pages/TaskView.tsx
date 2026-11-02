@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@cc/core";
 import { type FormEvent, useState } from "react";
 import type { Api } from "../api";
-import { ago, askText, usd } from "../format";
+import { ago, askText, emailAsk, readableEmailBody, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLive, useLoad } from "../live";
 import { ErrorBanner, Skeleton, Status, VTag } from "../ui";
@@ -50,7 +50,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           <VTag id={task.vertical} />
           <Status value={task.status} />
         </div>
-        <h2 className="prewrap task-prompt">{askText(task.prompt)}</h2>
+        <TaskAsk prompt={task.prompt} />
         <div className="meta">
           {task.role && <span className="role">{task.role}</span>}
           <span>{task.intent}</span>
@@ -159,5 +159,44 @@ function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
         </button>
       </div>
     </form>
+  );
+}
+
+/** What the task is about. An email shows as a quote, apart from the agent's work; automated mail starts folded away. */
+function TaskAsk({ prompt }: { prompt: string }) {
+  const email = emailAsk(prompt);
+  if (!email) return <h2 className="prewrap task-prompt">{askText(prompt)}</h2>;
+  const quote = (
+    <blockquote className="email-quote">
+      <div className="email-quote-head small">
+        <div>
+          <strong>From</strong> {email.from}
+        </div>
+        {email.date && (
+          <div>
+            <strong>Sent</strong> {new Date(email.date).toLocaleString()}
+          </div>
+        )}
+        {email.attachments && (
+          <div>
+            <strong>Attachments</strong> {email.attachments}
+          </div>
+        )}
+      </div>
+      <div className="email-quote-body prewrap">{readableEmailBody(email.body) || "(empty email)"}</div>
+    </blockquote>
+  );
+  return (
+    <>
+      <h2 className="task-prompt">{email.title}</h2>
+      {email.automated ? (
+        <details className="email-fold">
+          <summary className="muted small">Automated email ({email.automated}). Show it</summary>
+          {quote}
+        </details>
+      ) : (
+        quote
+      )}
+    </>
   );
 }
