@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "The bundled settings page only. The remote server UI gets no IPC access.",
   "windows": ["main", "settings"],
-  "permissions": ["core:default", "allow-get-settings", "allow-save-settings"]
+  "permissions": ["core:default", "allow-get-settings", "allow-save-settings", "allow-link-now"]
 }

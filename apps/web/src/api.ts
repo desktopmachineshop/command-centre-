@@ -56,6 +56,27 @@ export interface BrainNoteVersion {
   createdAt: string;
 }
 
+/** A computer linked from the desktop app (it has its own worker token). */
+export interface DesktopDevice {
+  id: string;
+  name: string;
+  userId: string | null;
+  /** The worker node it last connected as. */
+  nodeId: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+/** The Windows installer the Desktop workflow last built. */
+export interface DesktopInstaller {
+  version: string;
+  filename: string;
+  size: number;
+  sha256: string;
+  commit: string | null;
+  uploadedAt: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -310,6 +331,20 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     /** Reject it and send the feedback to the agent, which proposes a revised version. */
     reviseProposal: (id: string, feedback: string) => post<{ proposal: Proposal; task: Task }>(`/proposals/${id}/revise`, { feedback }),
     nodes: () => call<WorkerNode[]>("/nodes"),
+    // --- desktop app: linking computers by signing in, and the installer download ---
+    desktopDevices: () => call<DesktopDevice[]>("/desktop/devices"),
+    unlinkDesktop: (id: string) => call<{ revoked: true }>(`/desktop/devices/${id}`, { method: "DELETE" }),
+    desktopLink: (code: string) => call<{ code: string; name: string; createdAt: string; approved: boolean }>(`/desktop/link/${encodeURIComponent(code)}`),
+    approveDesktopLink: (code: string) => post<DesktopDevice>(`/desktop/link/${encodeURIComponent(code)}/approve`),
+    desktopInstaller: () => call<{ installer: DesktopInstaller | null }>("/desktop/installer"),
+    /** A plain link: the session cookie authenticates the GET, so the browser downloads it itself. */
+    desktopDownloadUrl: `${base}/api/desktop/download`,
+    /** For an admin-token connection, which a plain link can't authenticate: fetches the installer. */
+    desktopDownload: async () => {
+      const res = await fetch(`${base}/api/desktop/download`, authed({}));
+      if (!res.ok) throw await failed(res);
+      return res.blob();
+    },
     jobs: () => call<Job[]>("/jobs"),
     brainSearch: (q: string) => call<{ path: string; title: string; snippet: string }[]>(`/brain/search?q=${encodeURIComponent(q)}`),
     brainList: (folder = "") => call<string[]>(`/brain/list?folder=${encodeURIComponent(folder)}`),

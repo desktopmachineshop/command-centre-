@@ -399,7 +399,7 @@ export const KINDS: ReadonlyMap<string, KindDef> = new Map(CATALOG.map((k) => [k
 export const RAILWAY_ONLY = [
   { name: "DATABASE_URL", label: "Database" },
   { name: "ADMIN_TOKEN", label: "Admin token" },
-  { name: "WORKER_TOKEN", label: "Worker token (desktop app)" },
+  { name: "WORKER_TOKEN", label: "Worker token (optional: only for workers run by hand)" },
   { name: "WEBHOOK_SECRET", label: "Webhook secret" },
   { name: "PUBLIC_BASE_URL", label: "Public address" },
   { name: "VAPID_PUBLIC_KEY", label: "Push notification keys" },

@@ -1,10 +1,16 @@
 //! Command Centre desktop shell: shows the server's PWA in a window, runs the
 //! worker daemon (`cc-worker`, a Node single-executable sidecar) while the app
 //! is open, and lives in the tray.
+//!
+//! Linking: the app has no shared token to type in. It asks the server for a link
+//! code, opens the server's app at `#/devices?link=<code>` where Dave signs in and
+//! presses "Link this computer", and polls until the server hands it this
+//! computer's own worker token (see apps/server/src/desktop.ts).
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -15,6 +21,10 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
+/// The server this build was made for (the Desktop workflow sets it), so a fresh
+/// install needs no typing: it goes straight to signing in.
+const DEFAULT_SERVER_URL: Option<&str> = option_env!("CC_DEFAULT_SERVER_URL");
+
 /// Desktop settings. They live in the worker's own config file, so the worker
 /// and the app share the server URL, token and node name.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -22,8 +32,11 @@ use tauri_plugin_shell::ShellExt;
 struct Settings {
     #[serde(default)]
     server_url: String,
+    /// This computer's worker token, from linking. Never shown or typed.
     #[serde(default)]
     token: String,
+    #[serde(default)]
+    device_id: String,
     #[serde(default)]
     node_name: String,
     #[serde(default = "enabled_by_default")]
@@ -52,6 +65,33 @@ struct AppState {
     worker: Mutex<Worker>,
     status_item: MenuItem<Wry>,
     worker_item: CheckMenuItem<Wry>,
+    /// Bumped by every new link attempt, so an older one stops polling.
+    link_generation: AtomicU64,
+    /// The code of the link waiting for approval, shown on the settings page.
+    link_code: Mutex<Option<String>>,
+}
+
+/// What the settings page edits. The token is never sent to or from it.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SettingsForm {
+    server_url: String,
+    #[serde(default)]
+    node_name: String,
+    worker_enabled: bool,
+    launch_at_login: bool,
+}
+
+/// What the settings page shows.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SettingsView {
+    server_url: String,
+    node_name: String,
+    worker_enabled: bool,
+    launch_at_login: bool,
+    linked: bool,
+    link_code: Option<String>,
 }
 
 /// `%APPDATA%\CommandCentre\worker.json`, the worker's default config path.
@@ -69,13 +109,34 @@ fn read_config(app: &AppHandle) -> Map<String, Value> {
 }
 
 fn load_settings(app: &AppHandle) -> Settings {
-    serde_json::from_value(Value::Object(read_config(app))).unwrap_or(Settings {
+    let mut settings = serde_json::from_value(Value::Object(read_config(app))).unwrap_or(Settings {
         server_url: String::new(),
         token: String::new(),
+        device_id: String::new(),
         node_name: String::new(),
         worker_enabled: true,
         launch_at_login: false,
-    })
+    });
+    if settings.server_url.is_empty() {
+        settings.server_url = DEFAULT_SERVER_URL.unwrap_or_default().trim_end_matches('/').to_string();
+    }
+    settings
+}
+
+/// `https://host` for a usable server URL (http only for a local server).
+fn server_base(server_url: &str) -> Option<String> {
+    let url = Url::parse(server_url).ok()?;
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return None;
+    }
+    Some(url.as_str().trim_end_matches('/').to_string())
+}
+
+/// This computer's name, for the Devices page.
+fn computer_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Computer".into())
 }
 
 /// Merges the settings into the config file, keeping keys the worker owns (node id etc.).
@@ -133,7 +194,14 @@ fn start_worker(app: &AppHandle) {
     }
     if !settings.worker_ready() {
         drop(worker);
-        set_status(app, if settings.worker_enabled { "needs settings" } else { "off" });
+        let why = if !settings.worker_enabled {
+            "off"
+        } else if settings.token.is_empty() {
+            "not linked yet"
+        } else {
+            "needs settings"
+        };
+        set_status(app, why);
         return;
     }
 
@@ -163,8 +231,16 @@ fn start_worker(app: &AppHandle) {
             match event {
                 CommandEvent::Stdout(line) => {
                     let line = String::from_utf8_lossy(&line);
-                    match line.trim().strip_prefix("CC_STATUS ").and_then(describe_status) {
-                        Some(text) => set_status(&app, &text),
+                    match line.trim().strip_prefix("CC_STATUS ") {
+                        Some(json) if is_unlinked(json) => {
+                            // The server no longer knows this token (unlinked on the Devices page).
+                            forget_link(&app);
+                            return;
+                        }
+                        Some(json) => match describe_status(json) {
+                            Some(text) => set_status(&app, &text),
+                            None => println!("{}", line.trim_end()),
+                        },
                         None => println!("{}", line.trim_end()),
                     }
                 }
@@ -198,6 +274,114 @@ fn restart_later(app: AppHandle, generation: u64) {
     });
 }
 
+/// The worker was refused with "bad token": this computer isn't linked (any more).
+fn is_unlinked(json: &str) -> bool {
+    serde_json::from_str::<Value>(json)
+        .ok()
+        .and_then(|s| s["error"].as_str().map(|e| e.contains("bad token")))
+        .unwrap_or(false)
+}
+
+/// Drops the token the server refused, stops the worker and waits for "Link this computer".
+fn forget_link(app: &AppHandle) {
+    stop_worker(app);
+    let mut settings = load_settings(app);
+    settings.token.clear();
+    settings.device_id.clear();
+    if let Err(err) = store_settings(app, &settings) {
+        eprintln!("saving settings: {err}");
+    }
+    set_status(app, "not linked - choose Link this computer");
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkStart {
+    code: String,
+    poll_token: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkPoll {
+    status: String,
+    #[serde(default)]
+    token: String,
+    #[serde(default)]
+    device_id: String,
+}
+
+/// Starts linking this computer: gets a code from the server, opens the approval
+/// page in the main window (Dave signs in there if needed) and polls until it's approved.
+fn begin_link(app: &AppHandle) {
+    let settings = load_settings(app);
+    let Some(base) = server_base(&settings.server_url) else {
+        show_settings(app);
+        return;
+    };
+    let state = app.state::<AppState>();
+    let generation = state.link_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    set_status(app, "linking: contacting the server...");
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let name = if settings.node_name.is_empty() { computer_name() } else { settings.node_name.clone() };
+        let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(20)).build();
+        let started = agent
+            .post(&format!("{base}/api/desktop/link"))
+            .send_json(serde_json::json!({ "name": name }))
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.into_json::<LinkStart>().map_err(|e| e.to_string()));
+        let start = match started {
+            Ok(start) => start,
+            Err(err) => {
+                set_status(&app, &format!("can't reach the server to link ({err})"));
+                return;
+            }
+        };
+        let current = |app: &AppHandle| app.state::<AppState>().link_generation.load(Ordering::SeqCst) == generation;
+        *app.state::<AppState>().link_code.lock().unwrap() = Some(start.code.clone());
+        set_status(&app, &format!("waiting for you to approve {} in the window", start.code));
+        open_main_at(&app, &format!("{base}/#/devices?link={}", start.code));
+
+        let deadline = Instant::now() + Duration::from_secs(11 * 60);
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_secs(2));
+            if !current(&app) {
+                return; // a newer link attempt took over
+            }
+            let polled = agent
+                .post(&format!("{base}/api/desktop/link/poll"))
+                .send_json(serde_json::json!({ "pollToken": start.poll_token }))
+                .map_err(|e| e.to_string())
+                .and_then(|r| r.into_json::<LinkPoll>().map_err(|e| e.to_string()));
+            match polled {
+                Ok(poll) if poll.status == "approved" && !poll.token.is_empty() => {
+                    let mut settings = load_settings(&app);
+                    settings.token = poll.token;
+                    settings.device_id = poll.device_id;
+                    if let Err(err) = store_settings(&app, &settings) {
+                        set_status(&app, &format!("linked, but saving failed ({err})"));
+                        return;
+                    }
+                    *app.state::<AppState>().link_code.lock().unwrap() = None;
+                    restart_worker(&app);
+                    if let Some(window) = app.get_webview_window("settings") {
+                        let _ = window.close();
+                    }
+                    return;
+                }
+                Ok(poll) if poll.status == "expired" => break,
+                Ok(_) => {}  // still waiting for approval
+                Err(_) => {} // a blip: keep trying until the code expires
+            }
+        }
+        if current(&app) {
+            *app.state::<AppState>().link_code.lock().unwrap() = None;
+            set_status(&app, "link code expired - choose Link this computer");
+        }
+    });
+}
+
 fn stop_worker(app: &AppHandle) {
     let state = app.state::<AppState>();
     let mut worker = state.worker.lock().unwrap();
@@ -226,11 +410,28 @@ fn show_main(app: &AppHandle, visible: bool) {
         }
         return;
     }
-    let url = Url::parse(&load_settings(app).server_url)
-        .ok()
-        .filter(|u| u.scheme() == "http" || u.scheme() == "https")
+    let url = server_base(&load_settings(app).server_url)
+        .and_then(|base| Url::parse(&base).ok())
         .map(WebviewUrl::External)
         .unwrap_or_else(|| WebviewUrl::App("index.html".into()));
+    build_main(app, url, visible);
+}
+
+/// Opens the main window at `url` (on the server), creating it if needed.
+fn open_main_at(app: &AppHandle, url: &str) {
+    let Ok(parsed) = Url::parse(url) else { return };
+    match app.get_webview_window("main") {
+        Some(window) => {
+            let _ = window.navigate(parsed);
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+        None => build_main(app, WebviewUrl::External(parsed), true),
+    }
+}
+
+fn build_main(app: &AppHandle, url: WebviewUrl, visible: bool) {
     let built = WebviewWindowBuilder::new(app, "main", url)
         .title("Command Centre")
         .inner_size(1280.0, 860.0)
@@ -262,37 +463,61 @@ fn show_settings(app: &AppHandle) {
 }
 
 #[tauri::command]
-fn get_settings(app: AppHandle) -> Settings {
-    load_settings(&app)
+fn get_settings(app: AppHandle) -> SettingsView {
+    let settings = load_settings(&app);
+    SettingsView {
+        server_url: settings.server_url,
+        node_name: settings.node_name,
+        worker_enabled: settings.worker_enabled,
+        launch_at_login: settings.launch_at_login,
+        linked: !settings.token.is_empty(),
+        link_code: app.state::<AppState>().link_code.lock().unwrap().clone(),
+    }
 }
 
-/// Saves settings, applies launch-at-login, restarts the worker and points the main window at the server.
+/// Saves settings, applies launch-at-login and restarts the worker. A new server
+/// (or no link yet) starts linking, which opens the sign-in page in the main window.
 #[tauri::command]
-fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
-    let url = Url::parse(&settings.server_url).map_err(|e| format!("Server URL: {e}"))?;
+fn save_settings(app: AppHandle, settings: SettingsForm) -> Result<(), String> {
+    let url = Url::parse(settings.server_url.trim()).map_err(|e| format!("Server URL: {e}"))?;
     if url.scheme() != "http" && url.scheme() != "https" {
         return Err("Server URL must start with https:// (or http:// for a local server)".into());
     }
-    store_settings(&app, &settings)?;
+    let base = url.as_str().trim_end_matches('/').to_string();
+    let mut stored = load_settings(&app);
+    if server_base(&stored.server_url).as_deref() != Some(base.as_str()) {
+        // A token only works on the server that issued it.
+        stored.token.clear();
+        stored.device_id.clear();
+    }
+    stored.server_url = base.clone();
+    stored.node_name = settings.node_name.trim().to_string();
+    stored.worker_enabled = settings.worker_enabled;
+    stored.launch_at_login = settings.launch_at_login;
+    store_settings(&app, &stored)?;
 
     let autostart = app.autolaunch();
     let result = if settings.launch_at_login { autostart.enable() } else { autostart.disable() };
     result.map_err(|e| format!("Launch at login: {e}"))?;
 
     let _ = app.state::<AppState>().worker_item.set_checked(settings.worker_enabled);
-    restart_worker(&app);
-
-    match app.get_webview_window("main") {
-        Some(main) => {
-            let _ = main.navigate(url);
-            let _ = main.show();
-        }
-        None => show_main(&app, true),
+    if stored.token.is_empty() {
+        stop_worker(&app);
+        begin_link(&app);
+        return Ok(());
     }
+    restart_worker(&app);
+    open_main_at(&app, &base);
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.close();
     }
     Ok(())
+}
+
+/// "Link this computer" on the settings page: links again (e.g. after it was unlinked).
+#[tauri::command]
+fn link_now(app: AppHandle) {
+    begin_link(&app);
 }
 
 pub fn run() {
@@ -301,7 +526,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app, true)))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
-        .invoke_handler(tauri::generate_handler![get_settings, save_settings])
+        .invoke_handler(tauri::generate_handler![get_settings, save_settings, link_now])
         .setup(|app| {
             let handle = app.handle();
             let settings = load_settings(handle);
@@ -309,12 +534,19 @@ pub fn run() {
             let status_item = MenuItem::with_id(app, "status", "Worker: starting...", false, None::<&str>)?;
             let open_item = MenuItem::with_id(app, "open", "Open Command Centre", true, None::<&str>)?;
             let worker_item = CheckMenuItem::with_id(app, "worker", "Worker on", true, settings.worker_enabled, None::<&str>)?;
+            let link_item = MenuItem::with_id(app, "link", "Link this computer...", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&status_item, &separator, &open_item, &worker_item, &settings_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&status_item, &separator, &open_item, &worker_item, &link_item, &settings_item, &quit_item])?;
 
-            app.manage(AppState { worker: Mutex::new(Worker { child: None, generation: 0 }), status_item, worker_item });
+            app.manage(AppState {
+                worker: Mutex::new(Worker { child: None, generation: 0 }),
+                status_item,
+                worker_item,
+                link_generation: AtomicU64::new(0),
+                link_code: Mutex::new(None),
+            });
 
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("Command Centre")
@@ -323,6 +555,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main(app, true),
                     "settings" => show_settings(app),
+                    "link" => begin_link(app),
                     "worker" => {
                         let mut settings = load_settings(app);
                         settings.worker_enabled = app.state::<AppState>().worker_item.is_checked().unwrap_or(true);
@@ -346,8 +579,14 @@ pub fn run() {
 
             // Started by launch-at-login: stay in the tray until opened.
             let minimized = std::env::args().any(|a| a == "--minimized");
-            show_main(handle, !minimized);
             start_worker(handle);
+            if server_base(&settings.server_url).is_none() {
+                show_settings(handle); // a build without a default server: ask for it
+            } else if settings.token.is_empty() {
+                begin_link(handle); // first run: sign in and approve this computer
+            } else {
+                show_main(handle, !minimized);
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -362,7 +601,15 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::describe_status;
+    use super::{describe_status, is_unlinked};
+
+    #[test]
+    fn spots_an_unlinked_computer() {
+        assert!(is_unlinked(r#"{"state":"disconnected","job":null,"error":"bad token: this computer was unlinked"}"#));
+        assert!(is_unlinked(r#"{"state":"disconnected","job":null,"error":"bad token"}"#));
+        assert!(!is_unlinked(r#"{"state":"disconnected","job":null,"error":"code 1006"}"#));
+        assert!(!is_unlinked("not json"));
+    }
 
     #[test]
     fn describes_worker_status() {

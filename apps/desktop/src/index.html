@@ -9,17 +9,19 @@
   <body>
     <main>
       <h1>Command Centre</h1>
-      <p class="hint">Connect this computer to your command centre server. The window then shows the server's app,
-        and this computer takes video, GPU and Claude Code jobs while the app is running.</p>
+      <p class="hint">Connect this computer to your command centre. You sign in with your usual email and
+        password, then approve this computer. The window then shows your command centre, and this computer takes
+        video, GPU and Claude Code jobs while the app is running.</p>
+      <div id="link" class="link">
+        <p id="link-status"></p>
+        <button id="link-now" type="button" class="secondary">Link this computer</button>
+      </div>
       <form id="form">
         <label>Server URL
-          <input name="serverUrl" type="url" placeholder="https://command-centre.up.railway.app" required />
-        </label>
-        <label>Worker token
-          <input name="token" type="password" placeholder="WORKER_TOKEN (or ADMIN_TOKEN) from Railway" required />
+          <input name="serverUrl" type="url" placeholder="https://command.example.com" required />
         </label>
         <label>Computer name
-          <input name="nodeName" placeholder="Defaults to this computer's hostname" />
+          <input name="nodeName" placeholder="Defaults to this computer's name" />
         </label>
         <label class="check"><input name="workerEnabled" type="checkbox" /> Run the worker while the app is open</label>
         <label class="check"><input name="launchAtLogin" type="checkbox" /> Start Command Centre when I sign in</label>

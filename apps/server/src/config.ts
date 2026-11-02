@@ -23,8 +23,13 @@ const Env = z.object({
   DATABASE_URL: z.string().min(1),
   /** Bearer token for automation, MCP and first-run setup; people sign in with email + password (src/accounts). */
   ADMIN_TOKEN: z.string().min(16, "ADMIN_TOKEN must be at least 16 characters"),
-  /** Token desktop worker nodes present; defaults to ADMIN_TOKEN. */
+  /**
+   * Optional shared token for workers run by hand (`cc-worker --token`); defaults to ADMIN_TOKEN.
+   * The desktop app doesn't need it: it links by signing in and gets its own token (src/desktop.ts).
+   */
   WORKER_TOKEN: z.string().min(16).optional(),
+  /** `owner/repo` whose Desktop workflow may upload the desktop installer (GitHub OIDC, no secret). */
+  DESKTOP_REPO: z.string().regex(/^[\w.-]+\/[\w.-]+$/).default("desktopmachineshop/command-centre-"),
   /** Shared secret for POST /api/ingress/webhook/:vertical (header x-cc-webhook-secret). */
   WEBHOOK_SECRET: z.string().min(16).optional(),
   /**
@@ -218,6 +223,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     databaseUrl: e.DATABASE_URL,
     adminToken: e.ADMIN_TOKEN,
     workerToken: e.WORKER_TOKEN ?? e.ADMIN_TOKEN,
+    desktopRepo: e.DESKTOP_REPO,
     webhookSecret: e.WEBHOOK_SECRET,
     githubToken: e.GITHUB_TOKEN || undefined,
     trustedProxyHops: e.TRUSTED_PROXY_HOPS,
