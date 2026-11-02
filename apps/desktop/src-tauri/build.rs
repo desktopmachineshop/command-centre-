@@ -3,7 +3,7 @@ fn main() {
     // capabilities that list them (the bundled settings page) can call them.
     tauri_build::try_build(
         tauri_build::Attributes::new()
-            .app_manifest(tauri_build::AppManifest::new().commands(&["get_settings", "save_settings"])),
+            .app_manifest(tauri_build::AppManifest::new().commands(&["get_settings", "save_settings", "link_now"])),
     )
     .expect("failed to run tauri-build");
 }

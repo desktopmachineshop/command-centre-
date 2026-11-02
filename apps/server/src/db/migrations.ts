@@ -424,4 +424,23 @@ export const migrations: { id: string; sql: string }[] = [
       alter table task_replies add column if not exists author text not null default 'dave';
     `,
   },
+  {
+    // desktop: computers linked by signing in from the desktop app (src/desktop.ts). Each has its own worker token.
+    id: "0017_desktop_devices",
+    sql: `
+      create table desktop_devices (
+        id uuid primary key,
+        name text not null,
+        -- Who approved the link (null if linked with the admin token).
+        user_id uuid references users (id) on delete set null,
+        -- sha256 of the device's worker token; the token itself is only ever on the computer.
+        token_hash text not null unique,
+        -- The worker node this device last connected as.
+        node_id text,
+        created_at timestamptz not null default now(),
+        last_used_at timestamptz,
+        revoked_at timestamptz
+      );
+    `,
+  },
 ];

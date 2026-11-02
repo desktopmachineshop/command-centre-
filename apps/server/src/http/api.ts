@@ -25,6 +25,7 @@ import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
 import { type StorageApiDeps, storageApiRoutes } from "./storage";
 import { type VoiceApiDeps, voiceApiRoutes } from "./voice";
+import { type DesktopApiDeps, desktopApiRoutes } from "./desktop";
 
 export interface ApiDeps {
   store: Store;
@@ -56,6 +57,8 @@ export interface ApiDeps {
   claudeSetup?: ClaudeSetup;
   /** Org page editing: roles and policies over the code manifests (see ../org-config.ts). */
   org?: OrgConfigService;
+  /** Desktop app: approving a computer's link, linked computers, installer download (see ./desktop.ts). */
+  desktop?: DesktopApiDeps;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -325,6 +328,7 @@ export function apiRoutes(deps: ApiDeps) {
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
   if (deps.storage) app.route("/", storageApiRoutes(deps.storage)); // storage
+  if (deps.desktop) app.route("/", desktopApiRoutes(deps.desktop)); // desktop
   // /voice/* and /tasks/:id/reply, behind the admin check above.
   if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
   // /pa/*: the Today page.

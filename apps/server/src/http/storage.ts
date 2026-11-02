@@ -2,7 +2,8 @@ import { FOLDERS, type BlobInfo, type Storage, UploadIncompleteError } from "@cc
 import { Readable, Transform } from "node:stream";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { bearer, tokenMatches } from "../auth";
+import { bearer } from "../auth";
+import type { WorkerAuth } from "./ws";
 import { MEDIA_FILE, publicOrigin } from "./social";
 
 export interface StorageApiDeps {
@@ -10,7 +11,8 @@ export interface StorageApiDeps {
   publicBaseUrl?: string;
   /** Largest direct upload accepted. */
   uploadMaxBytes: number;
-  workerToken: string;
+  /** Worker credentials: a linked desktop app's token, or WORKER_TOKEN / ADMIN_TOKEN (see ./ws.ts). */
+  workerAuth: WorkerAuth;
 }
 
 const SessionRequest = z.object({
@@ -89,7 +91,7 @@ const WORKER_FOLDERS = ["renders", "media", "footage", "assets"] as const;
 
 /**
  * Routes with their own credentials, mounted before the /api auth middleware:
- * - `/api/worker/storage/{upload-session,complete}`: `Authorization: Bearer <WORKER_TOKEN>`.
+ * - `/api/worker/storage/{upload-session,complete}`: `Authorization: Bearer <worker token>` (a linked desktop app's own token, or WORKER_TOKEN).
  * - `/api/storage/uploads/:id?key=…`: the local backend's chunk endpoint. The key in
  *   the URL is the credential for that one upload, like Drive's session URI.
  */
@@ -105,7 +107,7 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
 
   const worker = new Hono();
   worker.use("*", async (c, next) => {
-    if (!tokenMatches(bearer(c.req.header("authorization")), deps.workerToken)) return c.json({ error: "unauthorized" }, 401);
+    if (!(await deps.workerAuth(bearer(c.req.header("authorization"))))) return c.json({ error: "unauthorized" }, 401);
     await next();
   });
   worker.post("/upload-session", (c) => createSession(c, deps, WORKER_FOLDERS));

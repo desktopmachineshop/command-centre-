@@ -51,3 +51,14 @@ button {
   cursor: pointer;
 }
 .error { color: var(--error); margin: 0; }
+.link {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin: 0 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field);
+}
+.link p { margin: 0; }
+button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }

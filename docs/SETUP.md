@@ -125,7 +125,8 @@ Each one works once in place of a code. If you lose the phone and the codes, res
   advanced use (for example pointing the app at a different server). That token is stored in the
   browser until you sign out.
 
-Workers use `WORKER_TOKEN` (or `ADMIN_TOKEN` if that isn't set), as before. Rotating
+The desktop app links by signing in and gets its own token (see "Desktop app & worker"). A worker
+run by hand uses `WORKER_TOKEN` (or `ADMIN_TOKEN` if that isn't set), as before. Rotating
 `ADMIN_TOKEN` (change the variable and redeploy) doesn't sign anyone out.
 
 ### How it works (security notes)
@@ -283,19 +284,33 @@ into the app as a single executable, so the PC doesn't need Node installed.
 
 ### Install on Windows
 
-1. On Railway, set `WORKER_TOKEN` (`openssl rand -hex 32`). Without it, workers use `ADMIN_TOKEN`.
-2. In GitHub, go to **Actions → Desktop → Run workflow** (or push a `desktop-v0.1.0` tag). When the
-   run finishes, download the `command-centre-windows` artifact and run the `-setup.exe` inside
-   (or the `.msi`). The installer is unsigned, so SmartScreen asks you to confirm (**More info → Run anyway**).
-3. On first start, the app shows its settings page. Enter:
-   - **Server URL**: your Railway domain, e.g. `https://command-centre.up.railway.app`;
-   - **Worker token**: the `WORKER_TOKEN` value;
-   - **Computer name** (optional): shown on the Devices page, defaults to the hostname.
+There are no Railway variables to set: the app links to your command centre when you sign in.
 
-   Then **Save and connect**. The window loads the server's app, where you sign in with your
-   email and password, as on the phone. The window keeps its own session cookie (in WebView2's
-   profile), so it stays signed in across restarts; it shows up under **Settings → Signed-in
-   devices** as Edge on Windows. The worker token is only for the worker, not for signing in.
+1. In the app, open **Devices** and press **Download for Windows**. Run the `-setup.exe`. The
+   installer is unsigned, so SmartScreen asks you to confirm (**More info → Run anyway**).
+2. On first start the app opens your command centre. Sign in with your email and password, as
+   on the phone, and press **Link this computer** on the card that appears. Check the code it
+   shows matches the one in the desktop app (tray tooltip or **Settings…**).
+3. A few seconds later the computer shows on the Devices page as online.
+
+Behind the scenes the app asked the server for a link code, opened `#/devices?link=<code>`, and
+polled until you approved it. The server then handed it this computer's own worker token, which it
+keeps in `worker.json` (the server stores only a hash). **Unlink** on the Devices page revokes that
+token and disconnects the computer at once; choose **Link this computer…** in the tray to link it
+again. The window keeps its own session cookie (in WebView2's profile), so it stays signed in
+across restarts; it shows up under **Settings → Signed-in devices** as Edge on Windows.
+
+#### Where the download comes from
+
+The **Desktop** GitHub workflow builds the installer on every push to the default branch that
+touches `apps/desktop`, `apps/worker` or `packages/core` (or **Actions → Desktop → Run workflow**,
+or a `desktop-v*` tag). Its last step uploads the `.exe` to `PUT /api/desktop/installer` on the
+server, which keeps it on the volume (`/data/desktop`). No secret is involved: the upload carries a
+GitHub OIDC token, and the server checks GitHub signed it for this repository's `desktop.yml`
+(`DESKTOP_REPO`, default `desktopmachineshop/command-centre-`). The server address is
+`https://command.desktopmachineshop.com` unless the repository variable `CC_SERVER_URL` says
+otherwise; it is also baked into the app, so a fresh install goes straight to signing in. The run
+also keeps the installers as the `command-centre-windows` artifact.
 
 Closing the window keeps the app in the tray. The tray menu has the worker's status (online/idle,
 busy with a job and its progress, or offline and retrying), **Open**, **Worker on** (untick it to
@@ -371,8 +386,11 @@ The job's progress and result show in the app, and in `GET /api/jobs`.
 On any machine with Node 22 (including Linux or a Mac):
 
 ```bash
-pnpm --filter @cc/worker start --server https://<your-domain> --token <WORKER_TOKEN>
+pnpm --filter @cc/worker start --server https://<your-domain> --token <ADMIN_TOKEN>
 ```
+
+A worker run by hand uses `ADMIN_TOKEN`, or `WORKER_TOKEN` if you set one on Railway to keep the
+admin token off that machine.
 
 Flags and env vars: `--config` / `CC_WORKER_CONFIG`, `--server` / `CC_SERVER_URL`, `--token` /
 `CC_WORKER_TOKEN`, `--name` / `CC_NODE_NAME`, `--work-dir` / `CC_WORK_DIR`, and
@@ -390,7 +408,14 @@ pnpm --filter @cc/worker build:sea      # → apps/desktop/src-tauri/binaries/cc
 pnpm --filter @cc/desktop tauri build   # installers in apps/desktop/src-tauri/target/release/bundle
 ```
 
-`pnpm --filter @cc/desktop tauri:dev` runs it in development.
+`pnpm --filter @cc/desktop tauri:dev` runs it in development. Set `CC_DEFAULT_SERVER_URL` when
+building to bake in a server address; without it the app asks for one on first start. To put a
+build of your own on the Devices page:
+
+```bash
+curl -X PUT -H "Authorization: Bearer <ADMIN_TOKEN>" --data-binary @"Command Centre_0.1.0_x64-setup.exe" \
+  "https://<your-domain>/api/desktop/installer?version=0.1.0&filename=Command%20Centre_0.1.0_x64-setup.exe"
+```
 
 ## Brain
 
@@ -739,7 +764,8 @@ Big files don't pass through `POST /api/media`. Upload them directly instead:
    URL. For types that `/media` doesn't serve (e.g. a PDF attachment), `url` is `null`.
 
 **Desktop workers** use `POST /api/worker/storage/upload-session` and
-`POST /api/worker/storage/complete` with `Authorization: Bearer <WORKER_TOKEN>`.
+`POST /api/worker/storage/complete` with `Authorization: Bearer <worker token>` (the computer's own
+token from linking, or `WORKER_TOKEN` for a worker run by hand).
 - A worker can only upload, into `renders`, `media`, `footage` or `assets`. It can't list, read
   or delete files.
 - In a job handler, call `ctx.storage.uploadFile(path, {folder})`

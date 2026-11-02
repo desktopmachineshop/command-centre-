@@ -41,7 +41,11 @@ import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { storagePublicRoutes } from "./http/storage";
 import { createStorage, videoMediaFromStorage } from "./storage";
-import { wsHandler } from "./http/ws";
+import { type WorkerAuth, wsHandler } from "./http/ws";
+import { desktopPublicRoutes } from "./http/desktop";
+import { DesktopService } from "./desktop";
+import { createGithubOidcVerifier, type GithubOidcVerifier } from "./github-oidc";
+import { tokenMatches } from "./auth";
 import { Hub } from "./hub";
 import { paVoiceCalendar, reminderPushActions } from "./http/pa";
 import { type Caller, mcpRoutes } from "./mcp/endpoints";
@@ -100,6 +104,8 @@ export interface Overrides {
   /** fetch for Accounts-page sign-ins, connection tests and token renewal (tests use a fake provider). */
   integrationsFetch?: typeof fetch;
   // --- end integrations oauth ---
+  /** Verifies the Desktop workflow's GitHub OIDC token (tests use a fake). */
+  githubOidc?: GithubOidcVerifier;
 }
 
 /** What the claude child process may see of the server's environment: enough to run, reach the network and find its own settings. */
@@ -292,7 +298,22 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     return undefined;
   };
   const storage = createStorage(config, pool, { fetch: overrides.googleFetch, tokens: liveDriveTokens });
-  const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerToken: config.workerToken };
+  // --- desktop: computers linked by signing in from the desktop app, each with its own worker token ---
+  const desktop = new DesktopService(pool, { dataDir: config.dataDir });
+  const workerAuth: WorkerAuth = async (token) => {
+    if (tokenMatches(token, config.workerToken)) return { deviceId: null }; // a worker run by hand
+    const device = await desktop.verify(token);
+    return device ? { deviceId: device.id } : null;
+  };
+  const desktopDeps = {
+    desktop,
+    adminToken: config.adminToken,
+    verifyOidc: overrides.githubOidc ?? createGithubOidcVerifier(),
+    repository: config.desktopRepo,
+    installerMaxBytes: 1024 * 1024 * 1024,
+  };
+  // --- end desktop ---
+  const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerAuth };
   // --- end storage ---
 
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
@@ -531,7 +552,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   app.route("/oauth", oauth.callbacks);
   // --- end integrations oauth ---
 
-  app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerToken: config.workerToken, sessions: wsSessions }));
+  app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerAuth, devices: desktop, sessions: wsSessions }));
   const socialDeps = {
     store,
     actions,
@@ -552,7 +573,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup, org }));
+  app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps }));
   app.route(
     "/mcp",
     mcpRoutes({
