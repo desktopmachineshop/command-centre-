@@ -104,9 +104,14 @@ When a task is created, after triage (`routeRole` in `packages/verticals/src/rou
    `cos: what matters today?`. The id, an alias or the title all work
    (`Customer Support: ...`). A name only one vertical has moves the chat there (`pricing: ...`
    goes to DMS). A name several verticals share (`support`) goes to the triaged vertical's role,
-   or else to its lead.
-3. **Intent owner.** The role that lists the triage intent.
-4. **The lead.** Anything else, including `spam`, `other`, chat `request`s and `scheduled`.
+   or else to the Chief of Staff (below).
+3. **Front door.** Any other chat (the Chat page, Drive mode) that names no business, neither
+   picked in the app nor written first (`dms: …`), goes to the **Chief of Staff**. It answers the
+   quick and personal things itself and hands the rest to the role that owns it, without being
+   told to. A business mentioned in passing ("how did dms do?") is its call to route.
+4. **Intent owner.** The role that lists the triage intent.
+5. **The lead.** Anything else, including `spam`, `other`, a chat to a chosen business and
+   `scheduled`.
 
 The role is stored on the task (`tasks.role`, migration `0005_roles`) and shown in the Inbox.
 Tasks from before roles have no role and count as the vertical lead's.
@@ -144,6 +149,22 @@ another role with the note and the original request, and the agent then stops.
   Work that began with an email or webhook still gets only draft proposals after any number of
   handoffs, and its prompt says the request came from outside.
 - Handoffs are internal, so they need no approval and cost nothing until the new task runs.
+
+## Reporting back
+
+When a handed-off task finishes (done, waiting for approval, or failed), its result goes back to
+the task that handed it off, as a report (`task_replies.author`, migration `0016`). That task
+runs again, resuming its agent's session, and gives the outcome: the Chief of Staff tells Dave in
+the same chat thread or Drive session ("The Shop Lead checked: order 1042 shipped Monday; a
+journal note waits for your approval").
+
+- A report carries the role's final summary, anything waiting for Dave's approval, and its task
+  id. The handoff prompt tells the role its summary goes back, so it writes a report.
+- **Each step reports once, with the final result:** a task that handed work on waits until all
+  of its handoffs have finished and reported before reporting up itself
+  (`Store.openHandoffs`). A report that arrives while its task is running waits, and the task
+  runs again for it afterwards.
+- Reports are internal, like handoffs; each one costs one more run of the receiving task.
 
 ## Editing from the app
 

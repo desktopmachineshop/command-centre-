@@ -41,6 +41,9 @@ function writePref(key: string, value: string) {
   }
 }
 
+/** The org root's role id (ROOT_ROLE_ID on the server): Dave's front door, and the default here. */
+const CHIEF = "chief-of-staff";
+
 const WORKING = "Working on it.";
 const STILL_WORKING = "Still working on it.";
 const CUE_EVERY_MS = 20_000;
@@ -81,7 +84,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [aliases, setAliases] = useState<Aliases>(() => buildAliases([]));
   const [roles, setRoles] = useState<RoleBook>([]);
-  /** Who new requests go to; null is automatic (whichever role fits each request). Kept per device. */
+  /** Who new requests go to; null is the Chief of Staff, the default, who hands them on. Kept per device. */
   const [talkingTo, setTalkingTo] = useState<RoleChoice | null>(null);
   const talkingToRef = useRef(talkingTo);
   talkingToRef.current = talkingTo;
@@ -110,7 +113,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
       try {
         const saved = JSON.parse(readPref(PREFS.talkTo) ?? "null") as { vertical: string; role: string } | null;
         const found = saved && book.find((r) => r.choice.vertical === saved.vertical && r.choice.role === saved.role);
-        if (found) setTalkingTo(found.choice);
+        if (found && found.choice.role !== CHIEF) setTalkingTo(found.choice);
       } catch {
         // a bad saved value: stay automatic
       }
@@ -164,6 +167,8 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   // ----- following agent answers -----
   const watched = useRef(new Set<string>());
   const seenRuns = useRef(new Set<string>());
+  /** Requests made in this session: when one runs again (a role reported back on work handed on), its new answer is spoken too. */
+  const followed = useRef(new Set<string>());
 
   const say = useCallback((text: string, expect: Expect = "none", extra: Partial<Say> & { background?: boolean } = {}) => {
     dispatch({ type: "say", text, expect, ...extra });
@@ -195,6 +200,9 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   );
 
   useLive(feed, (m) => {
+    if (m.type === "task.updated" && followed.current.has(m.task.id) && (m.task.status === "queued" || m.task.status === "running")) {
+      watched.current.add(m.task.id);
+    }
     if (m.type === "task.updated" && watched.current.has(m.task.id)) void check(m.task.id);
     if (m.type === "run.response" && watched.current.has(m.taskId)) void check(m.taskId);
   });
@@ -252,7 +260,9 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     [api, readNext, say],
   );
 
-  const chooseRole = useCallback((choice: RoleChoice | null) => {
+  const chooseRole = useCallback((picked: RoleChoice | null) => {
+    // The Chief of Staff is the default, not a separate choice.
+    const choice = picked?.role === CHIEF ? null : picked;
     writePref(PREFS.talkTo, choice ? JSON.stringify({ vertical: choice.vertical, role: choice.role }) : "null");
     setTalkingTo(choice);
   }, []);
@@ -349,14 +359,17 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
           return;
         case "whoami": {
           const current = talkingToRef.current;
-          say(current ? `You're talking to ${describeRole(current)}.` : "Nobody in particular: each request goes to whoever fits it. Say talk to, and a role, to pick one.", s.followUp ? "command" : "none");
+          say(
+            current ? `You're talking to ${describeRole(current)}.` : "You're talking to the Chief of Staff, who passes things to the right role and tells you the outcome.",
+            s.followUp ? "command" : "none",
+          );
           return;
         }
         case "talkTo": {
           const found = resolveRole(cmd.target, roles);
-          if (found.kind === "auto") {
+          if (found.kind === "auto" || (found.kind === "role" && found.choice.role === CHIEF)) {
             chooseRole(null);
-            say("Okay. Each request goes to whoever fits it.", s.followUp ? "command" : "none");
+            say("You're talking to the Chief of Staff. Go ahead.", "command");
           } else if (found.kind === "role") {
             chooseRole(found.choice);
             say(`You're talking to ${describeRole(found.choice)}. Go ahead.`, "command");
@@ -375,6 +388,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
             const target = cmd.role ? { vertical: cmd.vertical, role: cmd.role } : cmd.vertical ? { vertical: cmd.vertical } : current ? { vertical: current.vertical, role: current.role } : {};
             const { task } = await api.chat(cmd.text, target.vertical, { voice: true, role: target.role });
             watched.current.add(task.id);
+            followed.current.add(task.id);
             dispatch({ type: "waiting", taskId: task.id });
           } catch (err) {
             say(`Sorry, I couldn't send that. ${(err as Error).message}`);
@@ -528,7 +542,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
             value={talkingTo ? `${talkingTo.vertical}/${talkingTo.role}` : ""}
             onChange={(e) => chooseRole(roles.find((r) => `${r.choice.vertical}/${r.choice.role}` === e.target.value)?.choice ?? null)}
           >
-            <option value="">Anyone (whoever fits)</option>
+            <option value="">Chief of Staff (hands it on)</option>
             {groupRoles(roles).map(([business, choices]) =>
               business ? (
                 <optgroup key={business} label={business}>
@@ -638,18 +652,18 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         </p>
         <p className="muted small">
           Say "what's new", "read approvals", "approve", "next", "repeat", "stop", or a request like "shop: has order 1042 shipped?". Say
-          "talk to the shop lead" (or "chief of staff", "anyone") to choose who you're talking to, "who am I talking to?", or ask one role
-          once: "ask customer support whether order 1042 shipped".
+          "talk to the shop lead" to talk to one role ("back to chief of staff" for the default, who hands things on and reports back),
+          "who am I talking to?", or ask one role once: "ask customer support whether order 1042 shipped".
         </p>
       </details>
     </section>
   );
 }
 
-/** The Chief of Staff first, then each business's roles in org-chart order. */
+/** Each business's roles in org-chart order (the Chief of Staff is the default option, not listed). */
 function groupRoles(book: RoleBook): [string, RoleChoice[]][] {
   const groups = new Map<string, RoleChoice[]>();
-  for (const { choice } of book) groups.set(choice.business, [...(groups.get(choice.business) ?? []), choice]);
+  for (const { choice } of book) if (choice.role !== CHIEF) groups.set(choice.business, [...(groups.get(choice.business) ?? []), choice]);
   return [...groups];
 }
 

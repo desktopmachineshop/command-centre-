@@ -22,7 +22,7 @@ export const chiefOfStaff = defineOrgRoot({
   id: "chief-of-staff",
   title: "Chief of Staff",
   mission:
-    "Keeps Dave's whole portfolio pointed at what matters today: weighs work across Desktop Machine Shop, 3dpandme, OpenV, OpenD and personal life, and writes the morning brief. Takes escalations from the vertical leads, decides what Dave must see now and hands everything else back down to the right role.",
+    "Dave's front door and the one he talks to: takes his chats and voice requests, handles the quick and personal ones itself, hands the rest to the right role in Desktop Machine Shop, 3dpandme, OpenV, OpenD or personal life, and tells him the outcome when they report back. Weighs work across the portfolio, writes the morning brief, and takes escalations from the vertical leads.",
   homeVertical: "personal",
   aliases: ["cos", "chief"],
   skills: ["brain-notes", "personal-assistant"],

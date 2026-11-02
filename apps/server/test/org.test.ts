@@ -197,7 +197,13 @@ describe.skipIf(!DB_URL)("org roles (integration)", () => {
     const first = chain.find((t) => t.role === "customer-support")!;
     expect(first.prompt).toContain("Handoff to you from the Shop Lead (Desktop Machine Shop).");
     expect(first.prompt).toContain("customer asks about S00042");
-    expect(runner.results["dms/shop-lead"]!.at(-1)).toContain(`Handed off to customer-support in dms: task ${first.id}`);
+    expect(runner.results["dms/shop-lead"]![0]).toContain(`Handed off to customer-support in dms: task ${first.id}`);
+    expect(first.prompt).toContain("your final summary goes back to the Shop Lead automatically");
+    // Each role reported back up the chain, so the Shop Lead ran again with Customer Support's report.
+    const leadRuns = runner.requests.filter((r) => r.cwd!.endsWith("dms/shop-lead"));
+    expect(leadRuns).toHaveLength(2);
+    expect(leadRuns[1]!.prompt).toContain("Report back from the Customer Support (Desktop Machine Shop), who took the work you handed off");
+    expect((await ctx.api(`/api/tasks/${body.task.id}`)).body.task.status).toBe("done");
     // The third handoff in the chain was the last allowed; the fourth is refused.
     expect(runner.results["dms/marketing-social"]!.at(-1)).toContain("Handoff limit reached (3 in a chain)");
     const last = runner.requests.find((r) => r.cwd!.endsWith("dms/marketing-social"))!;
@@ -211,7 +217,7 @@ describe.skipIf(!DB_URL)("org roles (integration)", () => {
     };
     await ctx.api("/api/chat", { method: "POST", json: { text: "dms: loop test" } });
     await ctx.queue.drain();
-    const lead = runner.results["dms/shop-lead"]!.at(-1)!;
+    const lead = runner.results["dms/shop-lead"]![0]!;
     expect(lead).toContain("That is your own role");
     expect(lead).toContain('Unknown role \\"nobody\\"');
     expect(lead).toContain("Only the Chief of Staff hands work across verticals");
@@ -230,12 +236,34 @@ describe.skipIf(!DB_URL)("org roles (integration)", () => {
     };
     await ctx.api("/api/chat", { method: "POST", json: { text: "billing: refund request from Acme", vertical: "openv" } });
     await ctx.queue.drain();
-    const cos = runner.results[`personal/${ROOT_ROLE_ID}`]!.at(-1)!;
+    const cos = runner.results[`personal/${ROOT_ROLE_ID}`]![0]!;
     expect(cos).toContain("[dms] brain.journal: dms pending note");
     expect(cos).toContain("Handed off to customer-support in dms");
     const handed = (await tasks()).find((t) => t.vertical === "dms" && t.prompt.includes("check the refund policy wording"))!;
     expect(handed.role).toBe("customer-support");
     expect(handed.prompt).toContain("Handoff to you from the Chief of Staff (Personal).");
+  });
+
+  it("sends a plain chat to the Chief of Staff, who hands it on and gets the result back", async () => {
+    runner.plan = {
+      [`personal/${ROOT_ROLE_ID}`]: [handoff("dms/shop-lead", "Dave asks whether order 1042 has shipped")],
+      "dms/shop-lead": [{ server: "actions", tool: "propose_action", args: { actionType: "brain.journal", summary: "Log the 1042 check", payload: { text: "1042 shipped Monday" } } }],
+    };
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "has order 1042 shipped?" } });
+    expect(body.task).toMatchObject({ vertical: "personal", role: ROOT_ROLE_ID });
+    await ctx.queue.drain();
+
+    const cosRuns = runner.requests.filter((r) => r.cwd!.endsWith(`personal/${ROOT_ROLE_ID}`));
+    expect(cosRuns).toHaveLength(2);
+    expect(cosRuns[0]!.systemPrompt).toContain("You are Dave's front door");
+    const report = cosRuns[1]!.prompt;
+    expect(report).toContain("Report back from the Shop Lead (Desktop Machine Shop), who took the work you handed off");
+    expect(report).toContain("Waiting for Dave's approval (1):\n- brain.journal: Log the 1042 check");
+    const thread = (await ctx.api(`/api/tasks/${body.task.id}`)).body;
+    expect(thread.task.status).toBe("done");
+    expect(thread.runs).toHaveLength(2);
+    // The Shop Lead's task holds the approval; reporting back didn't run it twice.
+    expect(runner.requests.filter((r) => r.cwd!.endsWith("dms/shop-lead"))).toHaveLength(1);
   });
 
   it("keeps untrusted input untrusted across a handoff", async () => {

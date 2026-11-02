@@ -66,7 +66,10 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   return (
     <section className="chat">
-      <PageHead title="Chat" sub="A message starts a task for the command agent; follow-ups continue it until you start a new chat.">
+      <PageHead
+        title="Chat"
+        sub="You're talking to the Chief of Staff, who hands work to the right role and tells you the outcome here. Follow-ups continue the chat until you start a new one."
+      >
         {threadId && (
           <button type="button" onClick={() => setThreadId(null)}>
             New chat
@@ -80,7 +83,8 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
       <div className="turns">
         {turns.length === 0 && (
           <Empty icon="chat">
-            Ask the command agent anything. Start with a vertical name (e.g. "dms: …") or pick one below.
+            Ask anything: the Chief of Staff answers, or passes it to the right role and reports back here. To go straight to a
+            business, start with its name ("dms: …") or pick it below.
           </Empty>
         )}
         {turns.map((t) => (
@@ -106,9 +110,9 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             setVertical(e.target.value);
             setThreadId(null);
           }}
-          aria-label="Vertical"
+          aria-label="Send to"
         >
-          <option value="">auto</option>
+          <option value="">Chief of Staff</option>
           {verticals.map((v) => (
             <option key={v.id} value={v.id}>
               {v.name}

@@ -271,15 +271,21 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.reload();
     await picker.waitFor({ timeout: 20_000 });
     await expect.poll(() => picker.inputValue(), { timeout: 15_000 }).toBe("dms/shop-lead");
-    await picker.selectOption("personal/chief-of-staff");
     await sayNext("who am I talking to?");
     await talk.click();
-    await waitSpoken(/^You're talking to the Chief of Staff\./);
+    await waitSpoken(/^You're talking to the Shop Lead at Desktop Machine Shop\./);
     await idle();
-    await sayNext("talk to anyone");
+    // Back to the default: the Chief of Staff, by voice or the picker.
+    await sayNext("back to chief of staff");
     await talk.click();
-    await waitSpoken(/^Okay\. Each request goes to whoever fits it\./);
+    await waitSpoken(/^You're talking to the Chief of Staff\. Go ahead\./);
     expect(await picker.inputValue()).toBe("");
+    await idle();
+    await picker.selectOption("dms/customer-support");
+    await picker.selectOption("");
+    await sayNext("who am I talking to?");
+    await talk.click();
+    await waitSpoken(/^You're talking to the Chief of Staff, who passes things to the right role/);
     await page.close();
   }, 90_000);
 });

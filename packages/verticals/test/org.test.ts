@@ -67,7 +67,18 @@ describe("routing a task to a role", () => {
   it("falls back to the vertical lead", () => {
     expect(routeRole(reg, { source: "email", payload: {} }, { vertical: "dms", intent: "other" })).toEqual({ vertical: "dms", role: "shop-lead", reason: "lead" });
     expect(routeRole(reg, chat("dms: what sold yesterday?"), { vertical: "dms", intent: "request" }).role).toBe("shop-lead");
-    expect(routeRole(reg, chat("Note: buy milk"), { vertical: "personal", intent: "request" }).role).toBe("pa");
+    expect(routeRole(reg, { ...chat("Note: buy milk"), vertical: "personal" }, { vertical: "personal", intent: "request" }).role).toBe("pa");
+  });
+
+  it("sends a chat that names no business or role to the Chief of Staff, Dave's front door", () => {
+    const front = { vertical: "personal", role: ROOT_ROLE_ID, reason: "front-door" };
+    expect(routeRole(reg, chat("Note: buy milk"), { vertical: "personal", intent: "request" })).toEqual(front);
+    // A business mentioned in passing is the Chief of Staff's to route; one named first, or chosen, is direct.
+    expect(routeRole(reg, chat("how did dms do yesterday?"), { vertical: "dms", intent: "request" })).toEqual(front);
+    expect(routeRole(reg, chat("Desktop Machine Shop: what sold?"), { vertical: "dms", intent: "request" })).toMatchObject({ vertical: "dms", role: "shop-lead" });
+    expect(routeRole(reg, { ...chat("what sold?"), vertical: "dms" }, { vertical: "dms", intent: "request" })).toMatchObject({ vertical: "dms", role: "shop-lead" });
+    // Only chat: other sources still go by intent.
+    expect(routeRole(reg, { source: "email", payload: { text: "hello" } }, { vertical: "dms", intent: "other" }).role).toBe("shop-lead");
   });
 
   it("honours a role named at the start of a chat", () => {
@@ -79,8 +90,8 @@ describe("routing a task to a role", () => {
 
   it("moves a chat to the vertical of a uniquely named role, but not an ambiguous one", () => {
     expect(routeRole(reg, chat("pricing: are we too dear on spindles?"), { vertical: "personal", intent: "request" })).toMatchObject({ vertical: "dms", role: "catalogue-pricing" });
-    // "support" exists in dms, openv and opend: with no vertical named it stays with the lead.
-    expect(routeRole(reg, chat("support: help"), { vertical: "personal", intent: "request" })).toMatchObject({ vertical: "personal", role: "pa", reason: "lead" });
+    // "support" exists in dms, openv and opend: with no vertical named it goes to the Chief of Staff to sort out.
+    expect(routeRole(reg, chat("support: help"), { vertical: "personal", intent: "request" })).toMatchObject({ vertical: "personal", role: ROOT_ROLE_ID, reason: "front-door" });
   });
 
   it("routes to the Chief of Staff by name", () => {

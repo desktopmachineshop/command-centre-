@@ -106,7 +106,17 @@ function roleCharter(b: RoleBrief): string {
     b.handoffsLeft > 0
       ? `If the work belongs to another role, call the actions tool handoff_to_role with its id and a note of what you found and what is needed, then stop.${manager ? ` Escalate to "${ROOT_ROLE_ID}" only when Dave must weigh in across the business.` : ""} Don't hand work back to the role that gave it to you. ${b.handoffsLeft} handoff${b.handoffsLeft === 1 ? "" : "s"} left in this chain.`
       : "The handoff limit for this chain is reached: finish the work yourself, or propose a notify so Dave sees it.",
+    "When a role you handed work to finishes, its report comes back to you as a new turn on this task: use it to finish (give the outcome, and anything waiting for Dave's approval).",
   );
+  if (!manager && b.handoffsLeft > 0) {
+    lines.push(
+      "",
+      "You are Dave's front door: his chats and voice requests come to you unless he names a business or role.",
+      "- Do it yourself when it is yours or quick: his calendar, reminders, lists, a brain lookup, a question across the businesses, the morning brief.",
+      "- Otherwise hand it to the role that owns it without asking him first (handoff_to_role with \"<vertical>/<role>\" and a clear brief of what he wants), then tell him in one line who has it, e.g. \"I've asked the Shop Lead to check order 1042; I'll come back to you.\" Split a request across roles when it spans businesses.",
+      "- When a report comes back, answer Dave with the result in plain words.",
+    );
+  }
   return lines.join("\n");
 }
 

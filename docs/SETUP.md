@@ -1750,12 +1750,13 @@ the phone in the car, so it shows almost nothing to read.
    - "conversation mode" or "push to talk" switches modes;
    - start with a business to send a request there: "shop: has order 1042 shipped?",
      "dms, …", "3dpandme: …", "open v: …".
-   - **choose who you're talking to**: "talk to the shop lead", "put me through to customer
-     support", "back to chief of staff", "talk to OpenD support" (a role shared by several
-     businesses needs its business; you'll be asked which). Every request after that goes to that
-     role, until you say "talk to anyone" (automatic: whoever fits each request). The **Talking to**
-     picker at the top does the same, and the choice is remembered on the phone. "Who am I
-     talking to?" says who it is.
+   - **who you're talking to**: by default the **Chief of Staff**, who hands each request to the
+     right role and tells you the outcome when they report back (docs/ORG.md, "Reporting back").
+     To talk to one role directly: "talk to the shop lead", "put me through to customer support",
+     "talk to OpenD support" (a role shared by several businesses needs its business; you'll be
+     asked which). Every request after that goes to that role until "back to chief of staff". The
+     **Talking to** picker at the top does the same, and the choice is remembered on the phone.
+     "Who am I talking to?" says who it is.
    - ask one role once, without switching: "ask customer support whether Jane's refund went
      through", "chief of staff: what's on today?". Naming a business on its own ("shop: …") still
      sends that request to the business, whoever you're talking to.
