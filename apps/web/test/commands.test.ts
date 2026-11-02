@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAliases, parseCommand } from "../src/voice/commands";
+import { buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole } from "../src/voice/commands";
 
 const aliases = buildAliases([
   { id: "personal", name: "Personal" },
@@ -75,5 +75,79 @@ describe("parseCommand", () => {
   it("sends everything else to chat as said", () => {
     expect(p("Remind me to call the supplier at 3")).toEqual({ kind: "chat", text: "Remind me to call the supplier at 3" });
     expect(p("   ")).toBeNull();
+  });
+});
+
+const role = (id: string, title: string, vertical: string, aliases: string[], children: any[] = []) => ({ id, title, vertical, aliases, children });
+const org = {
+  root: {
+    ...role("chief-of-staff", "Chief of Staff", "personal", ["cos", "chief"]),
+    verticals: [
+      {
+        id: "dms",
+        name: "Desktop Machine Shop",
+        lead: role("shop-lead", "Shop Lead", "dms", ["shop"], [
+          role("customer-support", "Customer Support", "dms", ["support"]),
+          role("catalogue-pricing", "Catalogue & Pricing", "dms", ["pricing", "catalogue"]),
+          role("ops-admin", "Ops & Admin", "dms", ["ops"]),
+        ]),
+      },
+      { id: "openv", name: "OpenV", lead: role("product-lead", "Product Lead", "openv", ["product"], [role("support-engineer", "Support Engineer", "openv", ["support"])]) },
+      { id: "opend", name: "OpenD", lead: role("product-lead", "Product Lead", "opend", ["product"], [role("support-engineer", "Support Engineer", "opend", ["support"])]) },
+    ],
+  },
+};
+const book = buildRoleBook(org, aliases);
+const r = (text: string) => parseCommand(text, aliases, book);
+const who = (target: string) => {
+  const res = resolveRole(target, book);
+  return res.kind === "role" ? `${res.choice.vertical}/${res.choice.role}` : res.kind === "ambiguous" ? res.options.map((o) => `${o.vertical}/${o.role}`) : res.kind;
+};
+
+describe("talking to a role", () => {
+  it("recognises switching and asking who it is", () => {
+    for (const t of ["Talk to the shop lead", "put me through to customer support", "switch to ops", "back to chief of staff", "can I speak to the COS please", "let me talk to OpenV support"]) {
+      expect(r(t), t).toMatchObject({ kind: "talkTo" });
+    }
+    expect(r("Talk to the shop lead")).toEqual({ kind: "talkTo", target: "shop lead" });
+    expect(r("Who am I talking to?")).toEqual({ kind: "whoami" });
+    expect(r("who's this")).toEqual({ kind: "whoami" });
+    // Modes still win, and a long "talk to me about ..." is a request.
+    expect(r("switch to conversation mode")).toEqual({ kind: "mode", mode: "conversational" });
+    expect(r("talk to me about the VAT return due this month please")).toMatchObject({ kind: "chat" });
+  });
+
+  it("resolves titles, aliases and business + role, and refuses to guess", () => {
+    expect(who("shop lead")).toBe("dms/shop-lead");
+    expect(who("chief of staff")).toBe("personal/chief-of-staff");
+    expect(who("the COS")).toBe("personal/chief-of-staff");
+    expect(who("catalogue and pricing")).toBe("dms/catalogue-pricing");
+    expect(who("ops")).toBe("dms/ops-admin");
+    expect(who("machine shop customer support")).toBe("dms/customer-support");
+    expect(who("open d support")).toBe("opend/support-engineer");
+    expect(who("support engineer for openv")).toBe("openv/support-engineer");
+    expect(who("support")).toEqual(["dms/customer-support", "openv/support-engineer", "opend/support-engineer"]);
+    expect(who("anyone")).toBe("auto");
+    expect(who("automatic")).toBe("auto");
+    expect(who("the plumber")).toBe("unknown");
+  });
+
+  it("sends a one-off request to a named role, with a separator or ask/tell", () => {
+    expect(r("Ask the shop lead whether order 1042 has shipped")).toEqual({ kind: "chat", text: "Order 1042 has shipped", vertical: "dms", role: "shop-lead" });
+    expect(r("customer support: chase the Royal Mail claim")).toEqual({ kind: "chat", text: "Chase the Royal Mail claim", vertical: "dms", role: "customer-support" });
+    expect(r("Chief of staff, what's on my plate today")).toEqual({ kind: "chat", text: "What's on my plate today", vertical: "personal", role: "chief-of-staff" });
+    expect(r("tell open d support to close ticket 12")).toEqual({ kind: "chat", text: "Close ticket 12", vertical: "opend", role: "support-engineer" });
+    // A business prefix still means the business; plain speech that starts with a role word is just a request.
+    expect(r("shop: what sold yesterday")).toEqual({ kind: "chat", text: "What sold yesterday", vertical: "dms" });
+    expect(r("ops is the best part of the job")).toEqual({ kind: "chat", text: "ops is the best part of the job" });
+    // A shared name isn't guessed.
+    expect(r("support: any new tickets")).toEqual({ kind: "chat", text: "support: any new tickets" });
+  });
+
+  it("says who it is", () => {
+    const res = resolveRole("shop lead", book);
+    expect(res.kind === "role" && describeRole(res.choice)).toBe("the Shop Lead at Desktop Machine Shop");
+    const cos = resolveRole("chief", book);
+    expect(cos.kind === "role" && describeRole(cos.choice)).toBe("the Chief of Staff");
   });
 });

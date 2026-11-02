@@ -96,6 +96,15 @@ async function mockApi(page: Page, calls: Calls) {
     if (path === "/voice/config") return json({ stt: null, tts: null, maxUploadBytes: 0, maxSeconds: 60, language: "en-GB", calendar: false });
     if (path === "/verticals") return json([{ id: "dms", name: "Desktop Machine Shop" }, { id: "personal", name: "Personal" }]);
     if (path === "/stats") return json({ pendingApprovals: 1, costTodayUsd: 0 });
+    if (path === "/org") {
+      const role = (id: string, title: string, vertical: string, aliases: string[], children: unknown[] = []) => ({ id, title, vertical, aliases, children });
+      return json({
+        root: {
+          ...role("chief-of-staff", "Chief of Staff", "personal", ["cos", "chief"]),
+          verticals: [{ id: "dms", name: "Desktop Machine Shop", lead: role("shop-lead", "Shop Lead", "dms", ["shop"], [role("customer-support", "Customer Support", "dms", ["support"])]) }],
+        },
+      });
+    }
     if (path === "/voice/briefing") return json({ text: "You have 1 approval waiting. Today's spend is 42 cents.", approvals: { count: 1 }, cost: { todayUsd: 0.42 } });
     if (path === "/voice/approvals/next") {
       return approved
@@ -213,6 +222,64 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(reply?.body).toEqual({ text: "the one for Jane", voice: true });
     expect(calls.filter((c) => c.path === "/chat")).toHaveLength(1);
     expect(errors).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("talks to a chosen role: by voice or the picker, remembered, and once with 'ask'", async () => {
+    const page = await browser.newPage();
+    await page.addInitScript(MOCK_SPEECH);
+    const calls: Calls = [];
+    await mockApi(page, calls);
+    await page.goto(`${base}/#/drive`);
+    const talk = page.locator("button.drive-ptt");
+    const picker = page.getByLabel("Talking to");
+    await picker.waitFor({ timeout: 20_000 });
+    expect(await picker.inputValue()).toBe("");
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
+    const sayNext = (text: string) => page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
+    const waitSpoken = (pattern: RegExp) => expect.poll(async () => (await spoken()).some((s) => pattern.test(s)), { timeout: 15_000 }).toBe(true);
+    const idle = () => page.getByRole("status").getByText("Tap to talk").waitFor();
+    const chats = () => calls.filter((c) => c.path === "/chat").map((c) => c.body);
+
+    await sayNext("talk to the shop lead");
+    await talk.click();
+    await waitSpoken(/^You're talking to the Shop Lead at Desktop Machine Shop\. Go ahead\./);
+    expect(await picker.inputValue()).toBe("dms/shop-lead");
+    expect(await page.evaluate(() => localStorage.getItem("cc.drive.talkTo"))).toBe(JSON.stringify({ vertical: "dms", role: "shop-lead" }));
+    await idle();
+
+    await sayNext("what sold yesterday?");
+    await talk.click();
+    await expect.poll(() => chats().length, { timeout: 15_000 }).toBe(1);
+    expect(chats()[0]).toEqual({ text: "what sold yesterday?", vertical: "dms", role: "shop-lead", voice: true });
+    await waitSpoken(/^Which order/);
+    // That answer was a question: end the conversation, so the next request isn't taken as the reply.
+    await idle();
+    await sayNext("that's all");
+    await talk.click();
+    await waitSpoken(/^Okay\. Talk later\./);
+    await idle();
+
+    // Once to another role, without changing who you're talking to.
+    await sayNext("Ask customer support whether Jane's refund went through");
+    await talk.click();
+    await expect.poll(() => chats().length, { timeout: 15_000 }).toBe(2);
+    expect(chats()[1]).toEqual({ text: "Jane's refund went through", vertical: "dms", role: "customer-support", voice: true });
+    expect(await picker.inputValue()).toBe("dms/shop-lead");
+
+    // The picker, and "who am I talking to?"; a reload keeps the choice.
+    await page.reload();
+    await picker.waitFor({ timeout: 20_000 });
+    await expect.poll(() => picker.inputValue(), { timeout: 15_000 }).toBe("dms/shop-lead");
+    await picker.selectOption("personal/chief-of-staff");
+    await sayNext("who am I talking to?");
+    await talk.click();
+    await waitSpoken(/^You're talking to the Chief of Staff\./);
+    await idle();
+    await sayNext("talk to anyone");
+    await talk.click();
+    await waitSpoken(/^Okay\. Each request goes to whoever fits it\./);
+    expect(await picker.inputValue()).toBe("");
     await page.close();
   }, 90_000);
 });

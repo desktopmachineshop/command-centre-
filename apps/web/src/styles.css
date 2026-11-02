@@ -2461,6 +2461,26 @@ a.stat:hover {
   padding: 8px 14px;
   font-size: 1rem;
 }
+/* Who requests go to: big enough to change at a glance, before setting off. */
+.drive-talkto {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 650;
+}
+.drive-talkto span {
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.drive-talkto select {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
 .drive-state {
   font-size: clamp(1.6rem, 7vw, 2.6rem);
   font-weight: 800;

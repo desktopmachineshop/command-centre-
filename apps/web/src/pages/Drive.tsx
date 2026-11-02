@@ -3,7 +3,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { go } from "../router";
-import { type Aliases, buildAliases, parseCommand, type VoiceMode } from "../voice/commands";
+import { type Aliases, buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole, type RoleBook, type RoleChoice, type VoiceMode } from "../voice/commands";
 import { type Approval, type DriveState, driveReducer, type Expect, initialDriveState, listenTimeoutMs, type Say } from "../voice/machine";
 import {
   BrowserListener,
@@ -25,7 +25,7 @@ import {
 } from "../voice/speech";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
-const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", serverVoice: "cc.drive.serverVoice" };
+const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", serverVoice: "cc.drive.serverVoice", talkTo: "cc.drive.talkTo" };
 function readPref(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -80,6 +80,11 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [aliases, setAliases] = useState<Aliases>(() => buildAliases([]));
+  const [roles, setRoles] = useState<RoleBook>([]);
+  /** Who new requests go to; null is automatic (whichever role fits each request). Kept per device. */
+  const [talkingTo, setTalkingTo] = useState<RoleChoice | null>(null);
+  const talkingToRef = useRef(talkingTo);
+  talkingToRef.current = talkingTo;
   const [preferServerVoice, setPreferServerVoice] = useState(readPref(PREFS.serverVoice) === "1");
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [interim, setInterim] = useState("");
@@ -93,7 +98,23 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   // ----- set-up: server config, business names, voices, wake lock -----
   useEffect(() => {
     api.voiceConfig().then(setConfig).catch(() => setConfig({ stt: null, tts: null, maxUploadBytes: 0, maxSeconds: 30, language: "en-GB", calendar: false }));
-    api.verticals().then((vs) => setAliases(buildAliases(vs))).catch(() => {});
+    void (async () => {
+      const verticals = await api.verticals().catch(() => []);
+      const names = buildAliases(verticals);
+      setAliases(names);
+      const org = await api.org().catch(() => null);
+      if (!org) return;
+      const book = buildRoleBook(org, names);
+      setRoles(book);
+      // The role chosen last time on this device, if it still exists.
+      try {
+        const saved = JSON.parse(readPref(PREFS.talkTo) ?? "null") as { vertical: string; role: string } | null;
+        const found = saved && book.find((r) => r.choice.vertical === saved.vertical && r.choice.role === saved.role);
+        if (found) setTalkingTo(found.choice);
+      } catch {
+        // a bad saved value: stay automatic
+      }
+    })();
     void loadVoices().then(setVoices);
   }, [api]);
 
@@ -231,6 +252,11 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     [api, readNext, say],
   );
 
+  const chooseRole = useCallback((choice: RoleChoice | null) => {
+    writePref(PREFS.talkTo, choice ? JSON.stringify({ vertical: choice.vertical, role: choice.role }) : "null");
+    setTalkingTo(choice);
+  }, []);
+
   const setMode = useCallback((mode: VoiceMode) => {
     writePref(PREFS.mode, mode);
     dispatch({ type: "mode", mode });
@@ -239,7 +265,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const handle = useCallback(
     async (utterance: string) => {
       const s = stateRef.current;
-      const cmd = parseCommand(utterance, aliases);
+      const cmd = parseCommand(utterance, aliases, roles);
       if (!cmd) {
         dispatch({ type: "end" });
         return;
@@ -321,9 +347,33 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
           if (s.expect === "confirm") say("Okay, left as it is. Say next, or approve or reject.", "approval");
           else say("Okay.");
           return;
+        case "whoami": {
+          const current = talkingToRef.current;
+          say(current ? `You're talking to ${describeRole(current)}.` : "Nobody in particular: each request goes to whoever fits it. Say talk to, and a role, to pick one.", s.followUp ? "command" : "none");
+          return;
+        }
+        case "talkTo": {
+          const found = resolveRole(cmd.target, roles);
+          if (found.kind === "auto") {
+            chooseRole(null);
+            say("Okay. Each request goes to whoever fits it.", s.followUp ? "command" : "none");
+          } else if (found.kind === "role") {
+            chooseRole(found.choice);
+            say(`You're talking to ${describeRole(found.choice)}. Go ahead.`, "command");
+          } else if (found.kind === "ambiguous") {
+            const options = found.options.map((o) => (o.business ? `${o.business} ${o.title}` : o.title));
+            say(`Which one: ${options.slice(0, -1).join(", ")} or ${options.at(-1)}?`, "command");
+          } else {
+            say(`I don't know who ${cmd.target} is. Say chief of staff, or a business and a role, like shop customer support.`, "command");
+          }
+          return;
+        }
         case "chat":
           try {
-            const { task } = await api.chat(cmd.text, cmd.vertical, { voice: true });
+            // A role named in the request wins; a business named on its own means that business, not the chosen role.
+            const current = talkingToRef.current;
+            const target = cmd.role ? { vertical: cmd.vertical, role: cmd.role } : cmd.vertical ? { vertical: cmd.vertical } : current ? { vertical: current.vertical, role: current.role } : {};
+            const { task } = await api.chat(cmd.text, target.vertical, { voice: true, role: target.role });
             watched.current.add(task.id);
             dispatch({ type: "waiting", taskId: task.id });
           } catch (err) {
@@ -331,7 +381,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
           }
       }
     },
-    [aliases, api, decide, readNext, say, setMode],
+    [aliases, api, chooseRole, decide, readNext, roles, say, setMode],
   );
 
   // ----- side effects of the state machine -----
@@ -471,6 +521,35 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         </div>
       </header>
 
+      {roles.length > 0 && (
+        <label className="drive-talkto">
+          <span>Talking to</span>
+          <select
+            value={talkingTo ? `${talkingTo.vertical}/${talkingTo.role}` : ""}
+            onChange={(e) => chooseRole(roles.find((r) => `${r.choice.vertical}/${r.choice.role}` === e.target.value)?.choice ?? null)}
+          >
+            <option value="">Anyone (whoever fits)</option>
+            {groupRoles(roles).map(([business, choices]) =>
+              business ? (
+                <optgroup key={business} label={business}>
+                  {choices.map((c) => (
+                    <option key={`${c.vertical}/${c.role}`} value={`${c.vertical}/${c.role}`}>
+                      {c.title}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : (
+                choices.map((c) => (
+                  <option key={`${c.vertical}/${c.role}`} value={`${c.vertical}/${c.role}`}>
+                    {c.title}
+                  </option>
+                ))
+              ),
+            )}
+          </select>
+        </label>
+      )}
+
       <p className="drive-state" role="status" aria-live="polite" data-phase={state.phase}>
         {PHASE_LABEL[state.phase]}
         {state.conversation && state.expect === "reply" && state.phase === "idle" ? " (your answer)" : ""}
@@ -558,11 +637,20 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
           {wakeHeld ? "kept on" : "may sleep"} · Headset button: {headset ? "on" : "tap once to enable"}
         </p>
         <p className="muted small">
-          Say "what's new", "read approvals", "approve", "next", "repeat", "stop", or a request like "shop: has order 1042 shipped?".
+          Say "what's new", "read approvals", "approve", "next", "repeat", "stop", or a request like "shop: has order 1042 shipped?". Say
+          "talk to the shop lead" (or "chief of staff", "anyone") to choose who you're talking to, "who am I talking to?", or ask one role
+          once: "ask customer support whether order 1042 shipped".
         </p>
       </details>
     </section>
   );
+}
+
+/** The Chief of Staff first, then each business's roles in org-chart order. */
+function groupRoles(book: RoleBook): [string, RoleChoice[]][] {
+  const groups = new Map<string, RoleChoice[]>();
+  for (const { choice } of book) groups.set(choice.business, [...(groups.get(choice.business) ?? []), choice]);
+  return [...groups];
 }
 
 function StopIcon() {
