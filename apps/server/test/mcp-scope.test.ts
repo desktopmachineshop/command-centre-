@@ -70,7 +70,7 @@ describe.skipIf(!DB_URL)("MCP run-token scope", () => {
   });
 
   it("limits list_pending to the run's own vertical", async () => {
-    await ctx.api("/api/chat", { method: "POST", json: { text: "what's waiting for me?" } });
+    await ctx.api("/api/chat", { method: "POST", json: { text: "what's waiting for me?", vertical: "personal" } });
     await ctx.queue.drain();
     expect(listPending).toContain("[personal] brain.journal: personal note");
     expect(listPending).not.toContain("[dms]");

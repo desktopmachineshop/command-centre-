@@ -100,6 +100,9 @@ type Draft = {
   actions: string[];
   kpis: string;
   schedules: Schedule[];
+  /** Kept as they are (not edited here): a coding role's own tools and repository. */
+  tools: Role["tools"];
+  repo?: string;
 };
 
 const toDraft = (r: Omit<Role, "reportsTo"> & { reportsTo?: string }): Draft => ({
@@ -115,6 +118,8 @@ const toDraft = (r: Omit<Role, "reportsTo"> & { reportsTo?: string }): Draft => 
   actions: r.actions,
   kpis: r.kpis.join("\n"),
   schedules: r.schedules,
+  tools: r.tools ?? [],
+  repo: r.repo,
 });
 
 const fromDraft = (d: Draft): Role => ({
@@ -130,6 +135,8 @@ const fromDraft = (d: Draft): Role => ({
   actions: d.actions,
   kpis: lines(d.kpis),
   schedules: d.schedules,
+  tools: d.tools,
+  ...(d.repo ? { repo: d.repo } : {}),
 });
 
 /**
@@ -154,7 +161,7 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
   const [draft, setDraft] = useState<Draft>(() =>
     existing
       ? toDraft(existing)
-      : toDraft({ id: "", title: "", reportsTo: lead?.id ?? ROOT, mission: "", autonomyNotes: "", aliases: [], intents: [], skills: ["brain-notes"], actions: [], kpis: [], schedules: [] }),
+      : toDraft({ id: "", title: "", reportsTo: lead?.id ?? ROOT, mission: "", autonomyNotes: "", aliases: [], intents: [], skills: ["brain-notes"], actions: [], kpis: [], schedules: [], tools: [] }),
   );
   const { error, saving, run } = useSave(api, onSaved);
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));

@@ -50,6 +50,17 @@ export const Role = z.object({
   mcpServers: z.array(z.string()).optional(),
   /** Action types the role is expected to propose. Guidance and display only: policy still decides. */
   actions: z.array(z.string()).default([]),
+  /**
+   * Claude Code's own tools the role's runs may use (e.g. Bash, Read, Edit, Write, Glob, Grep for a
+   * coding role). Only for tasks Dave started (chat, schedules, and handoffs from those); a task from
+   * outside input never gets them. Unset: none, just skills and MCP tools.
+   */
+  tools: z.array(z.enum(["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"])).default([]),
+  /** GitHub repository ("owner/name") checked out for each of the role's tasks, in its workspace (needs GITHUB_TOKEN). */
+  repo: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "owner/name")
+    .optional(),
   /** Schedules whose tasks go to this role. Ids are unique across the whole vertical. */
   schedules: z.array(Schedule).default([]),
   /** What the role is measured on, for display. */
@@ -187,6 +198,7 @@ export function implicitLead(v: VerticalManifest): Role {
     aliases: [],
     intents: [],
     skills: v.skills,
+    tools: [],
     actions: [],
     schedules: [],
     kpis: [],

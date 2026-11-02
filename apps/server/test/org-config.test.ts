@@ -12,6 +12,7 @@ const wholesale = {
   skills: ["brain-notes"],
   mcpServers: ["brain"],
   actions: ["email.reply"],
+  tools: [],
   schedules: [],
   kpis: ["Quotes out within a day"],
   autonomyNotes: "Drafts every quote.",
@@ -36,7 +37,7 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
 
   it("starts from the code manifests", async () => {
     const c = await config();
-    expect(c.verticals.map((v) => v.unit)).toEqual(["personal", "dms", "3dpandme", "openv", "opend"]);
+    expect(c.verticals.map((v) => v.unit)).toEqual(["personal", "dms", "3dpandme", "openv", "opend", "command-centre"]);
     const dms = c.verticals[1]!;
     expect(dms).toMatchObject({ overridden: false, version: 0, problem: null, name: "Desktop Machine Shop", mcpServers: ["brain", "odoo", "pa"] });
     expect(dms.current).toEqual(dms.base);

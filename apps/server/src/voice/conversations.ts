@@ -48,6 +48,40 @@ export class VoiceConversations {
   ) {}
 
   /** Continues `taskId` with Dave's `text`. The task is queued again; a new run on it answers. */
+  /**
+   * A report from a role that finished work this task handed off to it. Stored like a reply
+   * (`author` names the role) and continues the task, so its agent can tell Dave the outcome.
+   * While the task is still queued or running, the report waits and `takePending` re-queues the
+   * task once its run is over. Voice tasks get a spoken answer.
+   */
+  async report(taskId: string, author: string, text: string): Promise<Task | null> {
+    const queued = await this.store.transaction(async (tx) => {
+      const { rows } = await tx.pool.query("select status from tasks where id = $1 for update", [taskId]);
+      if (!rows[0]) return null;
+      const session = await tx.pool.query(
+        "select session_id from agent_runs where task_id = $1 and session_id is not null order by started_at desc limit 1",
+        [taskId],
+      );
+      const task = await tx.getTask(taskId);
+      const voice = task ? await this.isVoiceTask(task) : false;
+      await tx.pool.query(
+        "insert into task_replies (id, task_id, text, voice, resume_session_id, author) values ($1, $2, $3, $4, $5, $6)",
+        [randomUUID(), taskId, text, voice, session.rows[0]?.session_id ?? null, author],
+      );
+      return REPLYABLE.includes(rows[0].status) ? tx.setTaskStatus(taskId, "queued") : null;
+    });
+    if (!queued) return null;
+    this.hub.broadcast({ type: "task.updated", task: queued });
+    await this.queue.enqueue(queued.id);
+    return queued;
+  }
+
+  /** True when the task has replies or reports no run has taken yet. */
+  async hasPending(taskId: string): Promise<boolean> {
+    const { rows } = await this.store.pool.query("select 1 from task_replies where task_id = $1 and consumed_at is null limit 1", [taskId]);
+    return rows.length > 0;
+  }
+
   async reply(taskId: string, text: string, voice: boolean): Promise<Task | null> {
     const queued = await this.store.transaction(async (tx) => {
       const { rows } = await tx.pool.query("select status from tasks where id = $1 for update", [taskId]);
@@ -85,8 +119,12 @@ export class VoiceConversations {
     );
     const reply = rows[0];
     if (!reply) return null;
-    this.store.appendRunMessage(runId, { type: "system", text: `Dave replied: ${reply.text}` }).catch(() => {});
-    this.hub.broadcast({ type: "run.message", runId, taskId: task.id, message: { type: "system", text: `Dave replied: ${reply.text}` } });
+    // Dave's own reply, or a report from a role this task handed work to.
+    const fromDave = !reply.author || reply.author === "dave";
+    const said = fromDave ? `Dave replies: ${reply.text}` : `Report back from ${reply.author}, who took the work you handed off:\n\n${reply.text}\n\nUse it to finish your task: give the outcome in a sentence or two (what was done, and anything waiting for Dave's approval or decision). Don't redo their work.`;
+    const marker = fromDave ? `Dave replied: ${reply.text}` : `${reply.author} reported back: ${reply.text}`;
+    this.store.appendRunMessage(runId, { type: "system", text: marker }).catch(() => {});
+    this.hub.broadcast({ type: "run.message", runId, taskId: task.id, message: { type: "system", text: marker } });
 
     const answer = (text: string) => (reply.voice ? voicePrompt(text) : text);
     const last = await this.store.pool.query(
@@ -99,14 +137,14 @@ export class VoiceConversations {
       "This continues an earlier conversation on this task.",
       `Original request: ${original}`,
       previous ? `Your last answer: ${previous}` : null,
-      `Dave replies: ${reply.text}`,
+      said,
     ]
       .filter(Boolean)
       .join("\n\n");
     if (reply.resume_session_id) {
       return {
         replyId: reply.id,
-        prompt: answer(`Dave replies: ${reply.text}`),
+        prompt: answer(said),
         resumeSessionId: reply.resume_session_id,
         promptWithoutResume: answer(context),
         voice: reply.voice,

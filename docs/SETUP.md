@@ -1750,6 +1750,16 @@ the phone in the car, so it shows almost nothing to read.
    - "conversation mode" or "push to talk" switches modes;
    - start with a business to send a request there: "shop: has order 1042 shipped?",
      "dms, …", "3dpandme: …", "open v: …".
+   - **who you're talking to**: by default the **Chief of Staff**, who hands each request to the
+     right role and tells you the outcome when they report back (docs/ORG.md, "Reporting back").
+     To talk to one role directly: "talk to the shop lead", "put me through to customer support",
+     "talk to OpenD support" (a role shared by several businesses needs its business; you'll be
+     asked which). Every request after that goes to that role until "back to chief of staff". The
+     **Talking to** picker at the top does the same, and the choice is remembered on the phone.
+     "Who am I talking to?" says who it is.
+   - ask one role once, without switching: "ask customer support whether Jane's refund went
+     through", "chief of staff: what's on today?". Naming a business on its own ("shop: …") still
+     sends that request to the business, whoever you're talking to.
 
    Anything else goes to the agent in **voice mode**: it answers in one to three short spoken
    sentences. While it works you hear "Working on it", then "Still working on it" every
@@ -1762,9 +1772,12 @@ the phone in the car, so it shows almost nothing to read.
 
 **Two modes** (the toggle at the top; remembered per device):
 
-- **Push to talk** (default): it only listens after a press. If the agent asks a question, it
-  reads the question and waits for your next press. What you say then answers that question in the
-  same conversation.
+- **Push to talk** (default): it only listens after a press, and it is **latched**: it keeps
+  listening through pauses until you press again (**Send**, or the headset button), for up to
+  5 minutes, so you can dictate a long message and think between sentences. If the agent asks a
+  question, it reads the question and waits for your next press. What you say then answers that
+  question in the same conversation. (With the server's speech recognition, used on iPhone, a long
+  message is recorded and transcribed in pieces of up to `VOICE_MAX_SECONDS`.)
 - **Conversation**: after a question from the agent, a read-out approval or a confirmation, it
   plays a "your turn" chime and listens by itself. After 8 seconds of silence it asks "Still
   there?" once, then stops. Your answer continues the same task. "Stop", "cancel" or "that's all"
@@ -1851,6 +1864,42 @@ Endpoints, all behind the dashboard auth:
 - `GET /api/voice/approvals/next?skip=id,id` returns the next pending proposal, described for
   reading aloud. Approving and rejecting use the normal `/api/proposals/:id/approve|reject`;
 - `POST /api/chat {text, voice: true}` and `POST /api/tasks/:id/reply {text, voice}`.
+
+## Command Centre: the Software Lead
+
+The **Command Centre** business has one role, the **Software Lead**, which works on this app's
+own code (`desktopmachineshop/command-centre-`). Ask it in Chat or Drive mode ("software: make the
+digest arrive at 8am", "talk to the software lead"), or let the Chief of Staff hand it the work.
+
+**Set up:** create a fine-grained GitHub token with **Contents** and **Pull requests** (read and
+write) on that repository only, and set it as `GITHUB_TOKEN` in Railway.
+
+**How it works:**
+- Each task gets its own checkout, `workspaces/command-centre/software-lead/work/<task id>` on
+  the volume, fetched fresh and started at the default branch. A reply or a report on the same
+  task finds it as the agent left it.
+- The role's runs may use Claude Code's own tools (`tools` on the role: Bash, Read, Edit, Write,
+  Glob, Grep, WebFetch), so the agent edits, installs (`corepack pnpm install`), runs checks and
+  commits on a `cc/...` branch.
+- It has **no GitHub credentials**: the token stays on the server, which passes it to git per
+  command. To publish, the agent proposes **`github.pr.create`** (branch, title, body), which runs
+  **straight away** (`auto`): the server pushes the branch and opens the pull request (or, if one
+  is open for that branch, pushes the new commits to it), and you get its link in the report. A PR
+  changes nothing until it is merged.
+- **Merging needs your approval:** ask it to merge ("merge PR 11") and it proposes
+  **`github.pr.merge`**, which waits under Approvals; approve and the server merges it on GitHub
+  (branch protection and required checks still apply). Or merge on GitHub yourself. It never
+  pushes the default branch and never forces.
+- **Only for work you started:** a task from chat, a schedule, or a handoff from those gets the
+  tools and the checkout. A task from outside input (an email or webhook routed there) gets
+  neither, and says so.
+- **Trust:** the agent has a shell inside the server's container, as the server's user. Its own
+  environment holds no secrets, but this is **not a sandbox**: a shell as that user could read the
+  server's files and its process environment (database URL, admin token, `GITHUB_TOKEN`). That is
+  why the tools are only given to tasks you start. Review every PR before merging. For stronger
+  isolation, run coding on a desktop worker instead (a later step).
+- Old checkouts stay on the volume; delete `workspaces/command-centre/software-lead/work/*` to
+  free space (a task whose checkout is gone gets a fresh one on its next run).
 
 ## Extending
 

@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@cc/core";
+import { withoutVoiceLine } from "../format";
 import { Markdown } from "../markdown";
 
 export function Transcript({ messages }: { messages: AgentMessage[] }) {
@@ -6,8 +7,10 @@ export function Transcript({ messages }: { messages: AgentMessage[] }) {
     <div className="transcript">
       {messages.map((m, i) => {
         switch (m.type) {
-          case "text":
-            return <Markdown key={i} className="msg text" text={m.text} />;
+          case "text": {
+            const text = withoutVoiceLine(m.text);
+            return text ? <Markdown key={i} className="msg text" text={text} /> : null;
+          }
           case "tool_use":
             return (
               <details key={i} className="msg tool">

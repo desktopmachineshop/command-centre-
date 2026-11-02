@@ -54,3 +54,14 @@ describe("Markdown", () => {
     expect(html("<img src=x onerror=alert(1)>")).toContain("&lt;img");
   });
 });
+
+describe("what the app shows of a voice-mode task", () => {
+  it("drops the voice rules from an older stored prompt, and the protocol line from answers", async () => {
+    const { askText, withoutVoiceLine } = await import("../src/format");
+    expect(askText("another reminder for a bug fix\n\nVOICE MODE: Dave is driving and will hear your answer\n- Answer in one to three")).toBe("another reminder for a bug fix");
+    expect(askText("plain request\nsecond line")).toBe("plain request\nsecond line");
+    expect(withoutVoiceLine('Added the reminder for tomorrow.\n{"voice":{"type":"final","text":"Done, reminder set."}}')).toBe("Added the reminder for tomorrow.");
+    expect(withoutVoiceLine('```json {"voice":{"type":"converse","text":"Which day?"}}```')).toBe("");
+    expect(withoutVoiceLine('Config is {"a": 1}')).toBe('Config is {"a": 1}');
+  });
+});

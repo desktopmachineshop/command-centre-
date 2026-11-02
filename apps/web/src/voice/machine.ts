@@ -216,7 +216,10 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
 /** How long a pause ends Dave's turn (he can also tap Send). */
 export const END_OF_TURN_MS = 2500;
 
+/** Push to talk is latched: a turn lasts until Send, for up to this long (a long message, with pauses to think). */
+export const LATCHED_TURN_MS = 5 * 60_000;
+
 export function listenTimeoutMs(state: DriveState): number {
-  if (state.mode === "push") return 10_000;
+  if (state.mode === "push") return LATCHED_TURN_MS;
   return state.expect === "command" ? 5_000 : 8_000;
 }

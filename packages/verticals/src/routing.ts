@@ -4,8 +4,11 @@ import type { VerticalRegistry } from "./index";
 export interface RoleRoute {
   vertical: string;
   role: string;
-  /** Why this role: named explicitly, set by a schedule or handoff, owner of the intent, or the lead by default. */
-  reason: "explicit" | "assigned" | "intent" | "lead";
+  /**
+   * Why this role: named explicitly, set by a schedule or handoff, owner of the intent, the lead by
+   * default, or the Chief of Staff as Dave's front door for a chat that named no business or role.
+   */
+  reason: "explicit" | "assigned" | "intent" | "lead" | "front-door";
 }
 
 /** Sources whose `payload.role` is set by Dave or the server itself, so it is honoured. */
@@ -27,18 +30,28 @@ export function parseRolePrefix(text: string, verticalIds: readonly string[]): {
   return { role: prefix };
 }
 
+/** True when a chat starts with a business: "dms: ...", "Desktop Machine Shop: ...". */
+function startsWithVertical(text: string, registry: VerticalRegistry): boolean {
+  const m = /^\s*([^:\n]{1,60}):(?!\/)/.exec(text);
+  if (!m) return false;
+  const prefix = m[1]!.trim().toLowerCase();
+  return registry.all().some((v) => v.id.toLowerCase() === prefix || v.name.toLowerCase() === prefix);
+}
+
 /**
  * Picks the role for a new task, after triage:
  * 1. a role assigned in the payload by a trusted source (a schedule, a handoff, the chat API);
  * 2. a role named at the start of a chat ("support: ...");
- * 3. the role owning the triage intent;
- * 4. otherwise the vertical lead.
+ * 3. a chat that names no business (no vertical chosen, no "dms: ..." prefix) goes to the Chief
+ *    of Staff, Dave's front door, who hands it to the right role;
+ * 4. the role owning the triage intent;
+ * 5. otherwise the vertical lead.
  * Steps 1 and 2 may move the task to the role's vertical (only Dave and the server set them).
  * A role name several verticals share goes to the triaged vertical's, else is ignored.
  */
 export function routeRole(
   registry: VerticalRegistry,
-  event: Pick<Event, "source" | "payload">,
+  event: Pick<Event, "source" | "payload"> & { vertical?: string | null },
   triage: Pick<TriageResult, "vertical" | "intent">,
 ): RoleRoute {
   const vertical = registry.require(triage.vertical);
@@ -71,6 +84,9 @@ export function routeRole(
     const prefix = parseRolePrefix(payload.text, registry.all().map((v) => v.id));
     const chosen = prefix && named(prefix.role, prefix.vertical);
     if (chosen) return chosen;
+    if (!event.vertical && !startsWithVertical(payload.text, registry)) {
+      return { vertical: registry.rootVertical, role: ROOT_ROLE_ID, reason: "front-door" };
+    }
   }
   const owner = roleForIntent(vertical, triage.intent);
   return { vertical: vertical.id, role: owner.id, reason: owner.intents.includes(triage.intent) ? "intent" : "lead" };

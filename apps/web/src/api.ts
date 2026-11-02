@@ -281,8 +281,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     wsUrl: `${base.replace(/^http/, "ws") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`}/ws`,
     token: conn.token,
     verticals: () => call<VerticalManifest[]>("/verticals"),
-    chat: (text: string, vertical?: string, options: { voice?: boolean } = {}) =>
-      post<{ event: Event; task: Task }>("/chat", { text, vertical, ...(options.voice ? { voice: true } : {}) }),
+    /** `role` (an org role id, with its `vertical`) sends it to that role rather than whichever fits. */
+    chat: (text: string, vertical?: string, options: { voice?: boolean; role?: string } = {}) =>
+      post<{ event: Event; task: Task }>("/chat", { text, vertical, ...(options.role ? { role: options.role } : {}), ...(options.voice ? { voice: true } : {}) }),
     tasks: (status?: string, filter: { vertical?: string; role?: string } = {}) => {
       const q = new URLSearchParams(Object.entries({ status, ...filter }).filter(([, v]) => v) as [string, string][]).toString();
       return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);

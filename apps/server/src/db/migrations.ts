@@ -416,4 +416,12 @@ export const migrations: { id: string; sql: string }[] = [
   );
 `,
   },
+  {
+    // Hand-backs: a role's report on work handed to it continues the task that handed it off.
+    id: "0016_task_reply_author",
+    sql: `
+      -- Who wrote a task reply: "dave", or the role that reports back (e.g. "the Shop Lead (Desktop Machine Shop)").
+      alter table task_replies add column if not exists author text not null default 'dave';
+    `,
+  },
 ];

@@ -10,6 +10,7 @@ import {
   type VerticalOrgEdit,
 } from "@cc/core";
 import threeDPandMe from "./3dpandme";
+import commandCentre from "./command-centre";
 import dms from "./dms";
 import opend from "./opend";
 import openv from "./openv";
@@ -20,7 +21,7 @@ export { chiefOfStaff } from "./org";
 export { parseRolePrefix, routeRole, type RoleRoute } from "./routing";
 
 /** All verticals. To add one, create a manifest file and list it here. */
-export const verticals: readonly VerticalManifest[] = [personal, dms, threeDPandMe, openv, opend];
+export const verticals: readonly VerticalManifest[] = [personal, dms, threeDPandMe, openv, opend, commandCentre];
 
 /** Fallback vertical for events nothing else claims. */
 export const DEFAULT_VERTICAL = "personal";

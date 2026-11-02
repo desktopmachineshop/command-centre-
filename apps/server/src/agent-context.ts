@@ -1,5 +1,5 @@
 import type { McpServerConfig } from "@cc/agent-runtime";
-import { type Event, ROOT_ROLE_ID, type VerticalManifest } from "@cc/core";
+import { type Event, ROOT_ROLE_ID, type Task, type VerticalManifest } from "@cc/core";
 import { emailPrompt } from "@cc/email";
 import { odooPrompt } from "@cc/odoo";
 import { socialPrompt } from "@cc/social";
@@ -10,9 +10,8 @@ import type { ActionExecutor } from "./actions";
 /** The prompt an agent gets for a task, derived from the event that caused it. */
 export function taskPrompt(event: Event): string {
   const p = event.payload;
-  // --- voice: chat sent with {voice: true} (Drive mode) asks for a short spoken answer ---
-  if (event.source === "chat" && typeof p.text === "string" && p.voice === true) return voicePrompt(p.text);
-  // --- end voice ---
+  // Voice-mode chats (Drive mode) store just Dave's words; the spoken-answer rules are added
+  // when the run starts (`runPrompt`), so they never show in the app or travel with a handoff.
   if (event.source === "chat" && typeof p.text === "string") return p.text;
   if (event.source === "cron" && typeof p.prompt === "string") return p.prompt;
   // Email: a readable message plus how to reply (see @cc/email emailPrompt).
@@ -33,6 +32,11 @@ export function taskPrompt(event: Event): string {
     "",
     "Decide what needs doing and do it.",
   ].join("\n");
+}
+
+/** What the agent is given for a task's first run: its prompt, plus the spoken-answer rules for a voice-mode chat. */
+export function runPrompt(task: Pick<Task, "prompt">, event: Event | null): string {
+  return event?.source === "chat" && event.payload.voice === true ? voicePrompt(task.prompt) : task.prompt;
 }
 
 /** Voice mode: Dave's words plus the spoken-answer rules and response protocol (see @cc/voice). */
@@ -106,7 +110,17 @@ function roleCharter(b: RoleBrief): string {
     b.handoffsLeft > 0
       ? `If the work belongs to another role, call the actions tool handoff_to_role with its id and a note of what you found and what is needed, then stop.${manager ? ` Escalate to "${ROOT_ROLE_ID}" only when Dave must weigh in across the business.` : ""} Don't hand work back to the role that gave it to you. ${b.handoffsLeft} handoff${b.handoffsLeft === 1 ? "" : "s"} left in this chain.`
       : "The handoff limit for this chain is reached: finish the work yourself, or propose a notify so Dave sees it.",
+    "When a role you handed work to finishes, its report comes back to you as a new turn on this task: use it to finish (give the outcome, and anything waiting for Dave's approval).",
   );
+  if (!manager && b.handoffsLeft > 0) {
+    lines.push(
+      "",
+      "You are Dave's front door: his chats and voice requests come to you unless he names a business or role.",
+      "- Do it yourself when it is yours or quick: his calendar, reminders, lists, a brain lookup, a question across the businesses, the morning brief.",
+      "- Otherwise hand it to the role that owns it without asking him first (handoff_to_role with \"<vertical>/<role>\" and a clear brief of what he wants), then tell him in one line who has it, e.g. \"I've asked the Shop Lead to check order 1042; I'll come back to you.\" Split a request across roles when it spans businesses.",
+      "- When a report comes back, answer Dave with the result in plain words.",
+    );
+  }
   return lines.join("\n");
 }
 
