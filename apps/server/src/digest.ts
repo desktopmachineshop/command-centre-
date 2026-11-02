@@ -4,7 +4,7 @@ import { DEFAULT_VERTICAL, type VerticalRegistry } from "@cc/verticals";
 import type { BudgetService } from "./budget";
 import type { Store } from "./db/store";
 import { dayRange, localDay } from "./days";
-import { type OdooDigest, type OdooSnapshot, odooHeadline, renderOdooDigest, summariseOdooEvents } from "./odoo-digest";
+import { type OdooDigest, type OdooSnapshot, odooHeadline, renderLowStockSummary, renderOdooDigest, summariseOdooEvents } from "./odoo-digest";
 import type { Notifier } from "./push";
 
 export interface Digest {
@@ -37,7 +37,7 @@ const usd = (n: number) => `$${n.toFixed(2)}`;
  * The daily digest per vertical: a deterministic summary of the day's tasks,
  * auto-with-digest actions, pending approvals, cost and jobs. It is built from
  * the database, not by an agent, so it costs no tokens. Delivered as a brain
- * note at `<brainFolder>/digests/YYYY-MM-DD.md` plus one push for all verticals.
+ * note at `<brainFolder>/digests/YYYY-MM-DD.md` plus one push per vertical that opens it.
  */
 export class DigestService {
   constructor(
@@ -57,6 +57,44 @@ export class DigestService {
 
   static notePath(vertical: VerticalManifest, day: string): string {
     return `${vertical.brainFolder}/digests/${day}.md`;
+  }
+
+  static lowStockPath(vertical: VerticalManifest, day: string): string {
+    return `${vertical.brainFolder}/stock/low-stock-${day}.md`;
+  }
+
+  /**
+   * The weekly low-stock summary: for each business with anything below its
+   * reorder level (what the Odoo stock poller last saw), one brain note and
+   * one push that opens it. Returns what each business got.
+   */
+  async deliverLowStock(day = this.today(), options: { push?: boolean } = {}): Promise<{ vertical: string; path: string; count: number }[]> {
+    const snapshot = await this.odooSnapshot();
+    const out: { vertical: string; path: string; count: number }[] = [];
+    for (const vertical of this.verticals.all()) {
+      const items = (snapshot?.lowStock ?? []).filter((p) => p.vertical === vertical.id);
+      if (!items.length) continue;
+      const path = DigestService.lowStockPath(vertical, day);
+      await this.brain.write(
+        path,
+        { frontmatter: { type: "low-stock", vertical: vertical.id, date: day }, body: renderLowStockSummary(vertical.name, day, items) },
+        `low stock: ${vertical.id} ${day}`,
+      );
+      const toOrder = items.filter((p) => !p.incomingQty).length;
+      if (options.push !== false) {
+        await this.notifier.notify({
+          title: `${vertical.name} low stock, week of ${day}`,
+          body: `${items.length} below reorder level, ${toOrder} with nothing on order`,
+          url: `/brain/${encodeURIComponent(path)}`,
+          category: "digest",
+          priority: "normal",
+          vertical: vertical.id,
+          tag: `low-stock:${vertical.id}`,
+        });
+      }
+      out.push({ vertical: vertical.id, path, count: items.length });
+    }
+    return out;
   }
 
   async build(verticalId: string, day: string, now = new Date()): Promise<Digest> {
@@ -126,7 +164,7 @@ export class DigestService {
 
   /**
    * Writes the digest note for each vertical that had anything to report, and
-   * sends one push with the headline numbers (`push: false` for a quiet rewrite).
+   * sends each one's headline as its own push (`push: false` for a quiet rewrite).
    */
   async deliver(day = this.today(), options: { push?: boolean; now?: Date } = {}): Promise<Digest[]> {
     const { digests } = await this.buildAll(day, { now: options.now });
@@ -138,15 +176,20 @@ export class DigestService {
         `digest: ${d.vertical} ${day}`,
       );
     }
-    if (options.push !== false && active.length > 0) {
-      await this.notifier.notify({
-        title: `Daily digest, ${day}`,
-        body: active.map((d) => d.headline).join("\n"),
-        url: "/",
-        category: "digest",
-        priority: "normal",
-        tag: "digest",
-      });
+    if (options.push !== false) {
+      // One push per business, each opening that business's digest note.
+      for (const d of active) {
+        const path = DigestService.notePath(this.verticals.require(d.vertical), day);
+        await this.notifier.notify({
+          title: `${d.name} daily digest, ${day}`,
+          body: d.headline,
+          url: `/brain/${encodeURIComponent(path)}`,
+          category: "digest",
+          priority: "normal",
+          vertical: d.vertical,
+          tag: `digest:${d.vertical}`,
+        });
+      }
     }
     return active;
   }

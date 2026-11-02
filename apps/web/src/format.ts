@@ -27,3 +27,57 @@ export function withoutVoiceLine(text: string): string {
     .join("\n")
     .trim();
 }
+
+/** An email task's prompt, split into what Dave reads: the title line, the email itself, and whether a machine sent it. */
+export interface EmailAsk {
+  title: string;
+  from: string;
+  date: string;
+  subject: string;
+  attachments: string;
+  body: string;
+  /** Why it looks machine-sent, or null for mail a person wrote. */
+  automated: string | null;
+}
+
+const NO_REPLY = /\b(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|mailer-daemon|notifications?)(?:[-_.+][^@\s]*)?@/i;
+const SAYS_AUTOMATED = /\b(?:this is an automated (?:message|email)|automatically generated (?:message|email)|please do not reply to (?:this|it)|do not reply to this (?:message|email))\b/i;
+
+/**
+ * Reads an email task's prompt (@cc/email emailPrompt). Null for any other prompt.
+ * Everything outside BEGIN/END EMAIL is instructions for the agent, so it is dropped.
+ */
+export function emailAsk(prompt: string): EmailAsk | null {
+  const begin = prompt.indexOf("----- BEGIN EMAIL -----\n");
+  const end = prompt.lastIndexOf("\n----- END EMAIL -----");
+  if (!prompt.startsWith("Email from ") || begin < 0 || end < begin) return null;
+  const inner = prompt.slice(begin + "----- BEGIN EMAIL -----\n".length, end);
+  const split = inner.indexOf("\n\n");
+  const headLines = (split >= 0 ? inner.slice(0, split) : inner).split("\n");
+  const header = (name: string) => headLines.find((l) => l.startsWith(`${name}: `))?.slice(name.length + 2) ?? "";
+  const body = split >= 0 ? inner.slice(split + 2) : "";
+  const marked = /^Automated email \((.*)\): /m.exec(prompt.slice(0, begin));
+  const from = header("From");
+  const automated = marked ? marked[1]! : NO_REPLY.test(from) ? "no-reply sender" : SAYS_AUTOMATED.test(body) ? "says it is automated" : null;
+  return { title: prompt.split("\n")[0]!, from, date: header("Date"), subject: header("Subject"), attachments: header("Attachments"), body, automated };
+}
+
+/**
+ * An email body for reading: tracking links shortened to their site, image
+ * placeholders dropped, and runs of blank lines squeezed.
+ */
+export function readableEmailBody(body: string): string {
+  return body
+    .replace(/\[https?:\/\/[^\]\s]+\.(?:png|jpe?g|gif|svg|webp)\]/gi, "")
+    .replace(/\[?(https?:\/\/[^\s\]]+)\]?/g, (whole, url: string) => {
+      if (url.length <= 60) return whole;
+      try {
+        return `[link: ${new URL(url).hostname}]`;
+      } catch {
+        return "[link]";
+      }
+    })
+    .replace(/[ \t ]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}

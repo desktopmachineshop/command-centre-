@@ -5,7 +5,7 @@ import { VerticalRegistry, verticals } from "@cc/verticals";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { taskPrompt } from "../src/agent-context";
 import { loadConfig } from "../src/config";
-import { odooHeadline, renderOdooDigest, summariseOdooEvents } from "../src/odoo-digest";
+import { odooHeadline, renderLowStockSummary, renderOdooDigest, summariseOdooEvents } from "../src/odoo-digest";
 import { DB_URL, makeServer, McpCallingRunner, resetDatabase } from "./helpers";
 
 const base = { DATABASE_URL: "postgres://x", ADMIN_TOKEN: "admin-token-for-tests-0123456789" };
@@ -93,7 +93,7 @@ describe("Odoo task prompts", () => {
 });
 
 describe("Odoo digest section", () => {
-  it("counts sales, RFQs and supplier replies, and lists what to buy and what is late now", () => {
+  it("counts sales, RFQs and supplier replies, and lists what is late now (low stock is weekly)", () => {
     const snapshot = {
       lowStock: [
         { id: 1, name: "ER11 collet set", sku: "ER11-7", qtyAvailable: 1, incomingQty: 0, threshold: 3, vertical: "dms" },
@@ -114,7 +114,7 @@ describe("Odoo digest section", () => {
       "dms",
     )!;
     expect(d).toMatchObject({ orders: 2, revenue: { GBP: 100 }, revenueText: "£100.00", messages: 1 });
-    expect(odooHeadline(d)).toEqual(["2 orders £100.00", "1 RFQ", "2 to buy", "1 late"]);
+    expect(odooHeadline(d)).toEqual(["2 orders £100.00", "1 RFQ", "1 late"]);
     expect(renderOdooDigest(d).join("\n")).toBe(
       [
         "",
@@ -128,16 +128,29 @@ describe("Odoo digest section", () => {
         "- Supplier replies: 1",
         "  - P00070, Spindle Supplies Ltd",
         "- Customer messages and tickets: 1",
-        "- To buy (below reorder level now): 2",
-        "  - ER11 collet set (ER11-7): 1 on hand, none incoming, reorder level 3",
-        "  - Milo v2 CNC kit (MILO-V2): 0 on hand, 4 incoming, reorder level 3",
         "- Late deliveries (not shipped, past their date): 1",
         "  - WH/OUT/00017 (S00042), Jane: due 2026-10-24, assigned",
       ].join("\n"),
     );
     expect(summariseOdooEvents([])).toBeNull();
-    // Nothing happened today, but there is still something to buy: the section stays.
-    expect(summariseOdooEvents([], snapshot, "3dpandme")?.toBuy).toHaveLength(1);
+    // Low stock alone does not make a daily section.
+    expect(summariseOdooEvents([], snapshot, "3dpandme")).toBeNull();
+    expect(renderLowStockSummary("Desktop Machine Shop", "2026-11-02", snapshot.lowStock.slice(0, 2))).toBe(
+      [
+        "# Desktop Machine Shop low stock, week of 2026-11-02",
+        "",
+        "**2 below reorder level · 1 with nothing on order**",
+        "",
+        "## To order",
+        "",
+        "- ER11 collet set (ER11-7): 1 on hand, reorder level 3",
+        "",
+        "## Already on order",
+        "",
+        "- Milo v2 CNC kit (MILO-V2): 0 on hand, reorder level 3, 4 incoming",
+        "",
+      ].join("\n"),
+    );
   });
 });
 
@@ -277,25 +290,33 @@ describe.skipIf(!DB_URL)("Odoo events (integration)", () => {
     expect(JSON.stringify(stored)).toContain("New RFQ from Lee Engineering");
   });
 
-  it("files low stock and late deliveries for the digest's buying and late lists, with no agent or push", async () => {
+  it("puts low stock on one weekly summary per business, not an inbox item each", async () => {
     const runsBefore = runner.requests.length;
     const sentBefore = ctx.notifier.sent.length;
     odoo.update("product.product", 1, { qty_available: 1 });
-    expect(await ctx.server.odooEvents!.pollOnce("stock")).toBe(1);
     expect(await ctx.server.odooEvents!.pollOnce("stock")).toBe(0);
     await ctx.queue.drain();
-    expect(await taskFor(/^Low stock: ER11 collet set/)).toMatchObject({ intent: "stock-low", route: "file", status: "done", vertical: "dms" });
+    expect(await taskFor(/^Low stock: ER11 collet set/)).toBeUndefined();
     expect(runner.requests.length).toBe(runsBefore);
     expect(ctx.notifier.sent.length).toBe(sentBefore);
 
+    const day = ctx.server.digests.today();
+    const weekly = await ctx.server.digests.deliverLowStock(day);
+    expect(weekly).toEqual([expect.objectContaining({ vertical: "dms", path: `dms/stock/low-stock-${day}.md` })]);
+    const note = await ctx.server.brain.read(`dms/stock/low-stock-${day}.md`);
+    expect(note?.body).toContain("- ER11 collet set (7 pcs) (ER11-7): 1 on hand, reorder level 3");
+    expect(ctx.notifier.sent.slice(sentBefore)).toEqual([
+      expect.objectContaining({ title: `Desktop Machine Shop low stock, week of ${day}`, url: `/brain/${encodeURIComponent(`dms/stock/low-stock-${day}.md`)}`, category: "digest" }),
+    ]);
+
     const { body } = await ctx.api("/api/digest?vertical=dms");
     const d = body.digests[0];
-    expect(d.odoo).toMatchObject({ orders: 1, revenueText: "£84.50", messages: 1, toBuy: expect.arrayContaining([expect.objectContaining({ sku: "ER11-7", qtyAvailable: 1 })]) });
+    expect(d.odoo).toMatchObject({ orders: 1, revenueText: "£84.50", messages: 1 });
     expect(d.headline).toContain("1 order £84.50");
     expect(d.headline).toContain("1 RFQ");
     expect(d.markdown).toContain("## Odoo");
     expect(d.markdown).toContain("- Confirmed sales: 1, revenue £84.50");
-    expect(d.markdown).toContain("  - ER11 collet set (7 pcs) (ER11-7): 1 on hand, none incoming, reorder level 3");
+    expect(d.markdown).not.toContain("ER11 collet set (7 pcs)");
     const blog = (await ctx.api("/api/digest?vertical=3dpandme")).body.digests[0];
     expect(blog.odoo).toMatchObject({ orders: 1, revenueText: "£20.00" });
   });

@@ -5,8 +5,8 @@ description: Handle Desktop Machine Shop operations from Odoo - reviews and rati
 
 # DMS operations: stock, deliveries, reviews
 
-Low stock and late deliveries are no longer sent to agents as they happen: they are on the daily
-digest's buying and late lists, and Dave orders and dispatches from Odoo himself. The stock.low and
+Low stock and late deliveries are no longer sent to agents as they happen: low stock is on the
+weekly low-stock summary and late deliveries on the daily digest's late list, and Dave orders and dispatches from Odoo himself. The stock.low and
 delivery.late steps below apply when he asks you to look at one.
 
 Review tasks come from the Odoo poller, not from a person. The prompt starts with a one-line title,

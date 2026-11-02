@@ -17,8 +17,6 @@ export interface OdooDigest {
   rfqs: { name: string; from: string | null }[];
   /** Supplier replies on RFQs and purchase orders today; each was also pushed. */
   supplierReplies: { order: string; supplier: string | null }[];
-  /** Everything below its reorder level right now (not just today's crossings): the buying list. */
-  toBuy: OdooStockNow[];
   /** Every outgoing delivery late right now. */
   lateNow: OdooLateNow[];
 }
@@ -60,10 +58,10 @@ const nameOf = (v: unknown): string | null => s((v as { name?: unknown } | null)
  * low and late right now. Null when there is neither.
  */
 export function summariseOdooEvents(events: Event[], snapshot: OdooSnapshot | null = null, vertical?: string): OdooDigest | null {
-  const toBuy = (snapshot?.lowStock ?? []).filter((p) => !vertical || p.vertical === vertical);
   const lateNow = (snapshot?.lateDeliveries ?? []).filter((p) => !vertical || p.vertical === vertical);
-  if (!events.length && !toBuy.length && !lateNow.length) return null;
-  const d: OdooDigest = { orders: 0, revenue: {}, revenueText: "", orderList: [], lowStock: [], lateDeliveries: [], messages: 0, reviews: [], rfqs: [], supplierReplies: [], toBuy, lateNow };
+  // Low stock is not here: it goes on the weekly low-stock summary (renderLowStockSummary).
+  if (!events.some((e) => e.kind !== "stock.low") && !lateNow.length) return null;
+  const d: OdooDigest = { orders: 0, revenue: {}, revenueText: "", orderList: [], lowStock: [], lateDeliveries: [], messages: 0, reviews: [], rfqs: [], supplierReplies: [], lateNow };
   for (const e of events) {
     const p = e.payload;
     switch (e.kind) {
@@ -104,7 +102,6 @@ export function odooHeadline(d: OdooDigest | null): string[] {
   const parts: string[] = [];
   if (d.orders) parts.push(`${d.orders} order${d.orders === 1 ? "" : "s"} ${d.revenueText}`);
   if (d.rfqs.length) parts.push(`${d.rfqs.length} RFQ${d.rfqs.length === 1 ? "" : "s"}`);
-  if (d.toBuy.length) parts.push(`${d.toBuy.length} to buy`);
   if (d.lateNow.length) parts.push(`${d.lateNow.length} late`);
   return parts;
 }
@@ -123,13 +120,6 @@ export function renderOdooDigest(d: OdooDigest | null): string[] {
     for (const r of d.supplierReplies) lines.push(`  - ${r.order}${r.supplier ? `, ${r.supplier}` : ""}`);
   }
   if (d.messages) lines.push(`- Customer messages and tickets: ${d.messages}`);
-  if (d.toBuy.length) {
-    lines.push(`- To buy (below reorder level now): ${d.toBuy.length}`);
-    for (const p of d.toBuy) {
-      const incoming = p.incomingQty ? `, ${p.incomingQty} incoming` : ", none incoming";
-      lines.push(`  - ${p.name}${p.sku ? ` (${p.sku})` : ""}: ${p.qtyAvailable ?? "?"} on hand${incoming}, reorder level ${p.threshold ?? "?"}`);
-    }
-  }
   if (d.lateNow.length) {
     lines.push(`- Late deliveries (not shipped, past their date): ${d.lateNow.length}`);
     for (const l of d.lateNow) {
@@ -141,4 +131,16 @@ export function renderOdooDigest(d: OdooDigest | null): string[] {
     for (const r of d.reviews) lines.push(`  - ${r.rating ?? "?"}/5${r.on ? ` on ${r.on}` : ""}${r.customer ? ` from ${r.customer}` : ""}`);
   }
   return lines;
+}
+
+/** The weekly low-stock note: every product below its reorder level now, nothing on order first. */
+export function renderLowStockSummary(name: string, day: string, items: OdooStockNow[]): string {
+  const none = items.filter((p) => !p.incomingQty);
+  const incoming = items.filter((p) => p.incomingQty);
+  const line = (p: OdooStockNow) =>
+    `- ${p.name}${p.sku ? ` (${p.sku})` : ""}: ${p.qtyAvailable ?? "?"} on hand, reorder level ${p.threshold ?? "?"}${p.incomingQty ? `, ${p.incomingQty} incoming` : ""}`;
+  const lines = [`# ${name} low stock, week of ${day}`, "", `**${items.length} below reorder level · ${none.length} with nothing on order**`];
+  if (none.length) lines.push("", "## To order", "", ...none.map(line));
+  if (incoming.length) lines.push("", "## Already on order", "", ...incoming.map(line));
+  return `${lines.join("\n")}\n`;
 }

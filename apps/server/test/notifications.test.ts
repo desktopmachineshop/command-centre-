@@ -154,7 +154,7 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     await ctx.server.digests.deliver();
     const digest = transport.sent.find((s) => s.payload.category === "digest")!.payload;
     expect(digest.body).toContain("Also: 1 social, 1 orders (in Notifications)");
-    expect(digest).toMatchObject({ silent: true, tag: "digest" });
+    expect(digest).toMatchObject({ silent: true, tag: "digest:dms" });
     const items = (await ctx.api("/api/notifications")).body.items;
     expect(items.filter((n: any) => n.status === "digested")).toHaveLength(2);
   });

@@ -189,7 +189,7 @@ function lines_(ls: string[]): ReactNode[] {
 }
 
 const INLINE =
-  /(`+)([\s\S]*?[^`])\1(?!`)|!?\[([^\]]+)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)|\*\*(?=\S)([\s\S]*?\S)\*\*|(?<!\w)__(?=\S)([\s\S]*?\S)__(?!\w)|~~(?=\S)([\s\S]*?\S)~~|\*(?=[^\s*])([\s\S]*?[^\s*])\*|(?<![\w\\])_(?=[^\s_])([\s\S]*?[^\s_])_(?!\w)|(https?:\/\/[^\s<>]*[^\s<>.,:;!?"'*_)\]])|\\([\\`*_{}[\]()#+\-.!|~>])/g;
+  /(`+)([\s\S]*?[^`])\1(?!`)|!?\[([^\]]+)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)|\*\*(?=\S)([\s\S]*?\S)\*\*|(?<!\w)__(?=\S)([\s\S]*?\S)__(?!\w)|~~(?=\S)([\s\S]*?\S)~~|\*(?=[^\s*])([\s\S]*?[^\s*])\*|(?<![\w\\])_(?=[^\s_])([\s\S]*?[^\s_])_(?!\w)|(https?:\/\/[^\s<>]*[^\s<>.,:;!?"'*_)\]])|\\([\\`*_{}[\]()#+\-.!|~>])|(?<![\w/.:@-])((?:[\w-]+\/)+[\w.-]*\w\.md)(?![\w/])/g;
 
 export function inline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -201,7 +201,10 @@ export function inline(text: string): ReactNode[] {
     const key = out.length;
     // The regex is global and shared, so remember where we are before recursing.
     const resume = INLINE.lastIndex;
-    if (m[1]) out.push(<code key={key}>{m[2]!.replace(/^ (.*) $/, "$1")}</code>);
+    if (m[1]) {
+      const code = m[2]!.replace(/^ (.*) $/, "$1");
+      out.push(BRAIN_PATH.test(code) ? brainLink(code, <code>{code}</code>, key) : <code key={key}>{code}</code>);
+    }
     else if (m[3] !== undefined) out.push(link(m[4]!, inline(m[3]), key));
     else if (m[5] !== undefined) out.push(<strong key={key}>{inline(m[5])}</strong>);
     else if (m[6] !== undefined) out.push(<strong key={key}>{inline(m[6])}</strong>);
@@ -210,14 +213,28 @@ export function inline(text: string): ReactNode[] {
     else if (m[9] !== undefined) out.push(<em key={key}>{inline(m[9])}</em>);
     else if (m[10] !== undefined) out.push(link(m[10], m[10], key));
     else if (m[11] !== undefined) out.push(m[11]);
+    else if (m[12] !== undefined) out.push(brainLink(m[12], m[12], key));
     INLINE.lastIndex = resume;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
 }
 
-/** Only web, mail and in-app links become anchors; anything else (javascript:, data:) stays text. */
+/** A brain note path as agents write it: folder/…/name.md, relative, no scheme. */
+const BRAIN_PATH = /^(?:[\w-]+\/)+[\w.-]*\w\.md$/;
+
+/** Agents cite brain notes by path; each becomes a link to that note in the Brain page, where it can be edited. */
+function brainLink(path: string, label: ReactNode, key: number): ReactNode {
+  return (
+    <a key={key} href={`#/brain/${encodeURIComponent(path.replace(/^brain\//, ""))}`} className="brain-link">
+      {label}
+    </a>
+  );
+}
+
+/** Only web, mail, in-app and brain-note links become anchors; anything else (javascript:, data:) stays text. */
 function link(href: string, label: ReactNode, key: number): ReactNode {
+  if (BRAIN_PATH.test(href) || /^[\w.-]*\w\.md$/.test(href)) return brainLink(href, label, key);
   if (href.startsWith("#") || /^\/(?![/\\])/.test(href)) {
     return (
       <a key={key} href={href}>

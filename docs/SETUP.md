@@ -826,8 +826,8 @@ a digest for each vertical that had activity. It covers:
   don't have one.
 
 The digest is built from the database, not by an agent, so it costs no tokens. It is saved as a
-brain note at `<brainFolder>/digests/YYYY-MM-DD.md`, and one push gives the headline numbers for
-every vertical. Just after midnight the notes are rewritten, without a push, so that they cover the
+brain note at `<brainFolder>/digests/YYYY-MM-DD.md`. Each business with something to report gets
+its own push with its headline numbers; tapping it opens that business's digest note in the Brain. Just after midnight the notes are rewritten, without a push, so that they cover the
 whole day. The Inbox's **Today** card shows the same numbers live. Any day's digest is at
 `GET /api/digest?date=YYYY-MM-DD&vertical=dms` (both parameters optional).
 
@@ -1115,7 +1115,7 @@ server.
 | `orders` | confirmed sales and website orders (`sale.order` in state sale/done) | `order.created` | filed: a journal line and the daily digest, no agent, no push |
 | `messages` | customer chatter messages (`mail.message` of type comment, not by an internal user) on orders, contacts and tickets | `message.received` | agent drafts a reply (`dms-customer-reply`) |
 | `tickets` | new Helpdesk tickets (if Helpdesk is installed) | `message.received` | agent drafts a reply |
-| `stock` | a storable product's on-hand quantity dropping below its threshold, once per crossing | `stock.low` | filed: on the daily digest's **To buy** list, no agent, no push |
+| `stock` | what is below its threshold (a reordering rule's min qty, else `lowStockThreshold`) right now | none by default (`stock.low` per crossing with `lowStockEvents: true`) | the **weekly low-stock summary**, no agent |
 | `deliveries` | an outgoing delivery still not done `lateAfterHours` after its scheduled date, once | `delivery.late` | filed: on the daily digest's late list, no agent, no push |
 | `reviews` | submitted ratings and product reviews (`rating.rating`, if installed) | `review.received` | agent drafts a reply (`dms-ops`) |
 | `leads` | new CRM leads and opportunities (website forms, the sales email alias), not ones a staff user typed in (if CRM is installed) | `rfq.received` | filed **and pushed straight away** ("RFQs and purchasing"), no agent |
@@ -1123,7 +1123,8 @@ server.
 
 **What reaches you when:** RFQs and supplier replies (including PO confirmations sent by
 email or posted on the PO) push one at a time, when the next poll finds them (within the hour
-by default). Confirmed sales, what to buy and late deliveries wait for the daily digest. Abandoned website carts are draft sales orders, which
+by default). Confirmed sales and late deliveries wait for the daily digest. Low stock waits for the weekly
+low-stock summary. Abandoned website carts are draft sales orders, which
 no source watches, so Odoo's own cart follow-up handles them. RFQs that arrive as email in a
 polled inbox go through the email flow (an agent drafts a reply for approval).
 
@@ -1135,9 +1136,12 @@ polled inbox go through the email flow (an agent drafts a reply for approval).
 - **Untrusted:** Odoo content can come from customers. Tasks from Odoo events never auto-execute
   outward actions: every proposal waits for your approval, whatever the vertical's policy.
 - **Digest:** the daily digest of each vertical gets an **Odoo** section: confirmed sales and
-  revenue, the day's RFQs and supplier replies, customer messages and reviews, then **To buy**
-  (every product below its reorder level *now*, with on-hand and incoming quantities, not just the
-  day's new ones) and every delivery that is late now.
+  revenue, the day's RFQs and supplier replies, customer messages and reviews, and every delivery
+  that is late now.
+- **Weekly low stock:** at `LOW_STOCK_CRON` (default `0 8 * * 1`, Monday 08:00 in
+  `DAY_TIMEZONE`; `off` disables it) each business with anything below its reorder level gets one
+  brain note, `<folder>/stock/low-stock-YYYY-MM-DD.md`, and one push that opens it. The note lists
+  **To order** (nothing incoming) and **Already on order**, with on-hand and incoming quantities.
 
 Set `ODOO_EVENTS` to choose what runs. Leave it unset (or `on`) for every source with the
 defaults, or set:

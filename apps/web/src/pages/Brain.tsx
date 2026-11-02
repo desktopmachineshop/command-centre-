@@ -1,4 +1,4 @@
-import { type FormEvent, Fragment, useCallback, useEffect, useState } from "react";
+import { type FormEvent, Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
 import { type Api, ApiError, type BrainNote, type BrainNoteVersion } from "../api";
 import { ago } from "../format";
 import { Icon } from "../icons";
@@ -14,6 +14,8 @@ const noteHref = (path: string) => `#/brain/${encodeURIComponent(path)}`;
 export function Brain({ api, path }: { api: Api; path?: string }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ path: string; title: string; snippet?: string }[] | null>(null);
+  /** Every note path, shown as a folder tree when not searching. */
+  const [paths, setPaths] = useState<string[] | null>(null);
   const [note, setNote] = useState<BrainNote | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The editor: a new note (version 0) or the open one. */
@@ -33,10 +35,8 @@ export function Brain({ api, path }: { api: Api; path?: string }) {
       api.brainNote(path).then(setNote).catch((e: Error) => setError(e.message));
     } else {
       setNote(null);
-      api
-        .brainList()
-        .then((paths) => setResults(paths.map((p) => ({ path: p, title: p }))))
-        .catch((e: Error) => setError(e.message));
+      setResults(null);
+      api.brainList().then(setPaths).catch((e: Error) => setError(e.message));
     }
   }, [api, path]);
 
@@ -49,7 +49,11 @@ export function Brain({ api, path }: { api: Api; path?: string }) {
     e.preventDefault();
     if (path) go("brain");
     try {
-      setResults(query.trim() ? await api.brainSearch(query) : (await api.brainList()).map((p) => ({ path: p, title: p })));
+      if (query.trim()) setResults(await api.brainSearch(query));
+      else {
+        setResults(null);
+        setPaths(await api.brainList());
+      }
     } catch (err) {
       setError((err as Error).message);
     }
@@ -235,24 +239,39 @@ export function Brain({ api, path }: { api: Api; path?: string }) {
         ) : path && !error ? (
           <Skeleton rows={4} />
         ) : !path ? (
-          <>
-            {!results && !error && <Skeleton rows={3} />}
-            {results?.length === 0 && <Empty icon="brain">No notes match.</Empty>}
-            <ul className="list">
-              {results?.map((r) => (
-                <li key={r.path} className="item note-row">
-                  <a className="item-link" href={noteHref(r.path)}>
-                    <div className="title">
-                      <Icon name="brain" size={16} />
-                      {r.title}
-                    </div>
-                    {r.snippet && <div className="muted small">{r.snippet}</div>}
-                    {r.title !== r.path && <div className="muted small">{r.path}</div>}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </>
+          results ? (
+            <>
+              <p className="muted small">
+                {results.length} {results.length === 1 ? "match" : "matches"} ·{" "}
+                <button className="link" onClick={() => (setQuery(""), setResults(null))}>
+                  Show all folders
+                </button>
+              </p>
+              {results.length === 0 && <Empty icon="brain">No notes match.</Empty>}
+              <ul className="list">
+                {results.map((r) => (
+                  <li key={r.path} className="item note-row">
+                    <a className="item-link" href={noteHref(r.path)}>
+                      <div className="title">
+                        <Icon name="brain" size={16} />
+                        {r.title}
+                      </div>
+                      {r.snippet && <div className="muted small">{r.snippet}</div>}
+                      {r.title !== r.path && <div className="muted small">{r.path}</div>}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : paths ? (
+            paths.length === 0 ? (
+              <Empty icon="brain">No notes yet.</Empty>
+            ) : (
+              <FolderTree folder={tree(paths)} onNew={(prefix) => setDraft({ path: prefix, raw: "", version: 0 })} />
+            )
+          ) : (
+            !error && <Skeleton rows={3} />
+          )
         ) : null)}
     </section>
   );
@@ -271,4 +290,91 @@ function Frontmatter({ values }: { values: Record<string, unknown> }) {
       ))}
     </dl>
   );
+}
+
+type Folder = { name: string; prefix: string; folders: Folder[]; notes: string[]; count: number };
+
+/** Note paths as nested folders, folders first, both sorted by name. */
+export function tree(paths: string[]): Folder {
+  const root: Folder = { name: "", prefix: "", folders: [], notes: [], count: 0 };
+  for (const path of paths) {
+    const parts = path.split("/");
+    let at = root;
+    at.count++;
+    for (const part of parts.slice(0, -1)) {
+      let next = at.folders.find((f) => f.name === part);
+      if (!next) {
+        next = { name: part, prefix: `${at.prefix}${part}/`, folders: [], notes: [], count: 0 };
+        at.folders.push(next);
+      }
+      next.count++;
+      at = next;
+    }
+    at.notes.push(path);
+  }
+  const sort = (f: Folder) => {
+    f.folders.sort((a, b) => a.name.localeCompare(b.name));
+    f.notes.sort((a, b) => a.localeCompare(b));
+    f.folders.forEach(sort);
+  };
+  sort(root);
+  return root;
+}
+
+const OPEN_KEY = "brain-open-folders";
+
+function openFolders(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Browse the brain by folder. Which folders are open is remembered on this device. */
+function FolderTree({ folder, onNew }: { folder: Folder; onNew: (prefix: string) => void }) {
+  const [open, setOpen] = useState(openFolders);
+  const toggle = (prefix: string, isOpen: boolean) => {
+    const next = new Set(open);
+    if (isOpen) next.add(prefix);
+    else next.delete(prefix);
+    setOpen(next);
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify([...next]));
+    } catch {}
+  };
+  const render = (f: Folder): ReactNode => (
+    <ul className="brain-tree">
+      {f.folders.map((sub) => (
+        <li key={sub.prefix}>
+          <details open={open.has(sub.prefix)} onToggle={(e) => toggle(sub.prefix, e.currentTarget.open)}>
+            <summary>
+              <Icon name="chevron" size={14} className="brain-tree-chevron" />
+              <span className="grow">{sub.name}</span>
+              <span className="muted small">{sub.count}</span>
+              <button
+                type="button"
+                className="link small"
+                title={`New note in ${sub.prefix}`}
+                aria-label={`New note in ${sub.prefix}`}
+                onClick={(e) => (e.preventDefault(), onNew(sub.prefix))}
+              >
+                <Icon name="plus" size={14} />
+              </button>
+            </summary>
+            {render(sub)}
+          </details>
+        </li>
+      ))}
+      {f.notes.map((path) => (
+        <li key={path}>
+          <a className="brain-tree-note" href={noteHref(path)}>
+            <Icon name="brain" size={14} />
+            {path.slice(f.prefix.length).replace(/\.md$/, "")}
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+  return <div className="card brain-tree-root">{render(folder)}</div>;
 }

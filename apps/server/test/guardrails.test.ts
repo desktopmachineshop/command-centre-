@@ -319,7 +319,13 @@ describe.skipIf(!DB_URL)("daily digest", () => {
     expect(note?.body).toContain("brain.journal: Log the bins");
     // Quiet verticals get no note.
     expect(await ctx.server.brain.read(`openv/digests/${d.date}.md`)).toBeNull();
-    expect(ctx.notifier.sent).toEqual([expect.objectContaining({ title: `Daily digest, ${d.date}`, body: d.headline })]);
+    expect(ctx.notifier.sent).toEqual([
+      expect.objectContaining({
+        title: `${d.name} daily digest, ${d.date}`,
+        body: d.headline,
+        url: `/brain/${encodeURIComponent(`personal/digests/${d.date}.md`)}`,
+      }),
+    ]);
 
     const runsAfter = (await ctx.server.store.pool.query("select count(*)::int as n from agent_runs")).rows[0].n;
     expect(runsAfter).toBe(runsBefore);

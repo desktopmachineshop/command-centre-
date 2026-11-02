@@ -64,4 +64,21 @@ describe("what the app shows of a voice-mode task", () => {
     expect(withoutVoiceLine('```json {"voice":{"type":"converse","text":"Which day?"}}```')).toBe("");
     expect(withoutVoiceLine('Config is {"a": 1}')).toBe('Config is {"a": 1}');
   });
+
+  it("links brain note paths to the note in the Brain page", () => {
+    const href = '<a href="#/brain/dms%2Fwork-instructions%2Fsplitting-a-delivery-into-parcels.md" class="brain-link">';
+    expect(html("Updated dms/work-instructions/splitting-a-delivery-into-parcels.md with steps 3 to 6.")).toContain(
+      `${href}dms/work-instructions/splitting-a-delivery-into-parcels.md</a> with`,
+    );
+    expect(html("Saved to `dms/work-instructions/splitting-a-delivery-into-parcels.md`.")).toContain(
+      `${href}<code>dms/work-instructions/splitting-a-delivery-into-parcels.md</code></a>.`,
+    );
+    expect(html("See [the parcels guide](dms/work-instructions/splitting-a-delivery-into-parcels.md)")).toContain(`${href}the parcels guide</a>`);
+    expect(html("(personal/ideas_list.md)")).toContain('href="#/brain/personal%2Fideas_list.md"');
+  });
+
+  it("leaves URLs, plain words and non-note code alone", () => {
+    expect(html("https://example.com/docs/a.md")).toContain('href="https://example.com/docs/a.md" target="_blank"');
+    expect(html("README.md and `src/app.ts`")).not.toContain("<a");
+  });
 });

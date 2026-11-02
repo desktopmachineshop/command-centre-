@@ -11,6 +11,19 @@ import {
 import { account, rawEmail } from "./fixtures";
 
 describe("parseEmail", () => {
+  it("tells machine-sent mail from mail a person wrote", async () => {
+    const mail = (extra: Record<string, unknown>) => rawEmail({ to: "dave@desktopmachineshop.com", subject: "x", text: "Hello", ...extra });
+    expect((await parseEmail(await mail({ from: "Jane <jane@example.com>" }))).automated).toBeNull();
+    expect((await parseEmail(await mail({ from: "Royal Mail <no-reply@royalmail.com>" }))).automated).toBe("sent from no-reply@royalmail.com");
+    expect((await parseEmail(await mail({ from: "a@shop.com", headers: { "Auto-Submitted": "auto-generated" } }))).automated).toBe(
+      "Auto-Submitted: auto-generated",
+    );
+    expect((await parseEmail(await mail({ from: "news@shop.com", headers: { "List-Unsubscribe": "<https://shop.com/u>" } }))).automated).toBe("mailing list");
+    expect((await parseEmail(await mail({ from: "a@shop.com", text: "Paid.\n\nThis is an automated message, please don't reply." }))).automated).toBe(
+      "says it is automated",
+    );
+  });
+
   it("parses a multipart message with an attachment into a compact payload", async () => {
     const raw = await rawEmail({
       from: '"Jane Doe" <Jane@Example.com>',
@@ -152,5 +165,11 @@ describe("emailPrompt", () => {
   it("titles a nameless sender by address and a blank subject", () => {
     const prompt = emailPrompt({ accountId: "shop", from: { name: "", address: "bob@example.com" }, subject: "" });
     expect(prompt.split("\n")[0]).toBe("Email from bob@example.com: (no subject)");
+  });
+
+  it("marks automated mail so the agent keeps it to one line", () => {
+    const base = { accountId: "shop", from: { name: "", address: "no-reply@royalmail.com" }, subject: "Postage" };
+    expect(emailPrompt({ ...base, automated: "sent from no-reply@royalmail.com" }).split("\n")[3]).toMatch(/^Automated email \(sent from no-reply@royalmail.com\): /);
+    expect(emailPrompt({ ...base, automated: null })).not.toContain("Automated email");
   });
 });
