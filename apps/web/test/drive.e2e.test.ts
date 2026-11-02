@@ -176,6 +176,13 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(await page.getByRole("status").textContent()).toContain("Tap to talk");
     const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
     const sayNext = (text: string) => page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
+    /** Push to talk is latched: tap, speak, then tap Send. */
+    const pushToTalk = async (text: string) => {
+      await sayNext(text);
+      await talk.click();
+      await page.locator(".drive-caption", { hasText: text }).waitFor({ timeout: 15_000 });
+      await talk.click();
+    };
     const waitSpoken = async (pattern: RegExp) => {
       try {
         await expect.poll(async () => (await spoken()).some((s) => pattern.test(s)), { timeout: 15_000 }).toBe(true);
@@ -185,25 +192,21 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     };
 
     // Briefing, parsed locally.
-    await sayNext("What's new?");
-    await talk.click();
+    await pushToTalk("What's new?");
     await waitSpoken(/You have 1 approval waiting/);
     expect(calls.some((c) => c.path === "/voice/briefing")).toBe(true);
     await page.getByText("Tap to talk").waitFor();
 
     // Approvals: read, approve, confirm.
-    await sayNext("read approvals");
-    await talk.click();
+    await pushToTalk("read approvals");
     await waitSpoken(/^Approval 1 of 1/);
     await page.getByRole("status").getByText("Tap to talk").waitFor();
-    await sayNext("approve");
-    await talk.click();
+    await pushToTalk("approve");
     await waitSpoken(/^To approve: Reply to Jane about order 1042\. Say "yes, approve"/);
     expect(calls.some((c) => c.path.endsWith("/approve"))).toBe(false); // nothing without confirmation
     await page.getByRole("button", { name: "Yes, approve" }).waitFor();
     await page.getByRole("status").getByText("Tap to talk").waitFor();
-    await sayNext("yes, approve");
-    await talk.click();
+    await pushToTalk("yes, approve");
     await waitSpoken(/^Approved\. Nothing is waiting for approval\./);
     expect(calls.filter((c) => c.path === "/proposals/p1/approve")).toHaveLength(1);
 
@@ -237,32 +240,35 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(await picker.inputValue()).toBe("");
     const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
     const sayNext = (text: string) => page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
+    /** Push to talk is latched: tap, speak, then tap Send. */
+    const pushToTalk = async (text: string) => {
+      await sayNext(text);
+      await talk.click();
+      await page.locator(".drive-caption", { hasText: text }).waitFor({ timeout: 15_000 });
+      await talk.click();
+    };
     const waitSpoken = (pattern: RegExp) => expect.poll(async () => (await spoken()).some((s) => pattern.test(s)), { timeout: 15_000 }).toBe(true);
     const idle = () => page.getByRole("status").getByText("Tap to talk").waitFor();
     const chats = () => calls.filter((c) => c.path === "/chat").map((c) => c.body);
 
-    await sayNext("talk to the shop lead");
-    await talk.click();
+    await pushToTalk("talk to the shop lead");
     await waitSpoken(/^You're talking to the Shop Lead at Desktop Machine Shop\. Go ahead\./);
     expect(await picker.inputValue()).toBe("dms/shop-lead");
     expect(await page.evaluate(() => localStorage.getItem("cc.drive.talkTo"))).toBe(JSON.stringify({ vertical: "dms", role: "shop-lead" }));
     await idle();
 
-    await sayNext("what sold yesterday?");
-    await talk.click();
+    await pushToTalk("what sold yesterday?");
     await expect.poll(() => chats().length, { timeout: 15_000 }).toBe(1);
     expect(chats()[0]).toEqual({ text: "what sold yesterday?", vertical: "dms", role: "shop-lead", voice: true });
     await waitSpoken(/^Which order/);
     // That answer was a question: end the conversation, so the next request isn't taken as the reply.
     await idle();
-    await sayNext("that's all");
-    await talk.click();
+    await pushToTalk("that's all");
     await waitSpoken(/^Okay\. Talk later\./);
     await idle();
 
     // Once to another role, without changing who you're talking to.
-    await sayNext("Ask customer support whether Jane's refund went through");
-    await talk.click();
+    await pushToTalk("Ask customer support whether Jane's refund went through");
     await expect.poll(() => chats().length, { timeout: 15_000 }).toBe(2);
     expect(chats()[1]).toEqual({ text: "Jane's refund went through", vertical: "dms", role: "customer-support", voice: true });
     expect(await picker.inputValue()).toBe("dms/shop-lead");
@@ -271,20 +277,17 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.reload();
     await picker.waitFor({ timeout: 20_000 });
     await expect.poll(() => picker.inputValue(), { timeout: 15_000 }).toBe("dms/shop-lead");
-    await sayNext("who am I talking to?");
-    await talk.click();
+    await pushToTalk("who am I talking to?");
     await waitSpoken(/^You're talking to the Shop Lead at Desktop Machine Shop\./);
     await idle();
     // Back to the default: the Chief of Staff, by voice or the picker.
-    await sayNext("back to chief of staff");
-    await talk.click();
+    await pushToTalk("back to chief of staff");
     await waitSpoken(/^You're talking to the Chief of Staff\. Go ahead\./);
     expect(await picker.inputValue()).toBe("");
     await idle();
     await picker.selectOption("dms/customer-support");
     await picker.selectOption("");
-    await sayNext("who am I talking to?");
-    await talk.click();
+    await pushToTalk("who am I talking to?");
     await waitSpoken(/^You're talking to the Chief of Staff, who passes things to the right role/);
     await page.close();
   }, 90_000);

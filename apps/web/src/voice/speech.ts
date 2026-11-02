@@ -19,6 +19,11 @@ export interface ListenOptions {
   endOfTurnMs?: number;
   /** Longest a turn can last, so background chatter can't keep it open (default 60 s; Send ends it any time). */
   maxTurnMs?: number;
+  /**
+   * Push to talk, latched: pauses don't end the turn; only Send (`stop()`) or `maxTurnMs` does,
+   * so a long message can be dictated with breaks to think.
+   */
+  latched?: boolean;
 }
 
 export interface Listener {
@@ -95,7 +100,7 @@ export class BrowserListener implements Listener {
    * short pause mid-sentence doesn't send half an answer. Gives up after `timeoutMs` if he says
    * nothing. Android may end a continuous session by itself; before any speech it is restarted.
    */
-  listen({ lang, timeoutMs, onInterim, endOfTurnMs = 2500, maxTurnMs = 60_000 }: ListenOptions): Promise<string | null> {
+  listen({ lang, timeoutMs, onInterim, endOfTurnMs = 2500, maxTurnMs = 60_000, latched = false }: ListenOptions): Promise<string | null> {
     const Ctor = recognitionCtor();
     if (!Ctor) return Promise.reject(new Error("Speech recognition isn't available in this browser"));
     this.stop();
@@ -130,6 +135,7 @@ export class BrowserListener implements Listener {
       }, timeoutMs);
       const cap = setTimeout(() => finish(text() || null), maxTurnMs);
       const armEnd = () => {
+        if (latched) return; // only Send or the cap ends a latched turn
         clearTimeout(endTimer);
         endTimer = setTimeout(() => finish(text() || null), endOfTurnMs);
       };
@@ -168,9 +174,9 @@ export class BrowserListener implements Listener {
         };
         rec.onend = () => {
           if (settled || stopping) return;
-          // The engine stopped by itself: after speech, that's the end of the turn; before
-          // any, keep listening until the timeout.
-          if (heard) finish(text() || null);
+          // The engine stopped by itself: after speech, that's the end of the turn (unless latched,
+          // which keeps listening until Send); before any, keep listening until the timeout.
+          if (heard && !latched) finish(text() || null);
           else {
             try {
               start();
@@ -210,7 +216,30 @@ export class RecorderListener implements Listener {
     private readonly maxSeconds = 30,
   ) {}
 
-  async listen({ lang, timeoutMs, endOfTurnMs = 2500 }: ListenOptions): Promise<string | null> {
+  /**
+   * Records until Dave pauses (or Send), then transcribes on the server. Latched, it ignores
+   * pauses and records in segments no longer than the server accepts, transcribing each, until
+   * Send or `maxTurnMs`.
+   */
+  async listen(options: ListenOptions): Promise<string | null> {
+    this.stopped = false;
+    if (!options.latched) return this.segment(options);
+    const deadline = Date.now() + (options.maxTurnMs ?? 60_000);
+    const parts: string[] = [];
+    while (!this.stopped && Date.now() < deadline) {
+      const text = await this.segment({ ...options, timeoutMs: deadline - Date.now() }, deadline);
+      if (text) {
+        parts.push(text);
+        options.onInterim?.(parts.join(" "));
+      }
+    }
+    return parts.join(" ").trim() || null;
+  }
+
+  private stopped = false;
+
+  /** One recording, transcribed. */
+  private async segment({ lang, timeoutMs, endOfTurnMs = 2500, latched = false }: ListenOptions, deadline = Infinity): Promise<string | null> {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -251,8 +280,9 @@ export class RecorderListener implements Listener {
         quietSince = now;
       }
       if (!heardAt && now - started > timeoutMs) stop();
-      if (heardAt && now - quietSince > endOfTurnMs) stop();
-      if (now - started > this.maxSeconds * 1000) stop();
+      if (heardAt && !latched && now - quietSince > endOfTurnMs) stop();
+      // A segment stays under what the server transcribes; a latched turn carries on in the next one.
+      if (now - started > (this.maxSeconds - 1) * 1000 || now > deadline) stop();
     }, 100);
 
     await done;
@@ -267,6 +297,7 @@ export class RecorderListener implements Listener {
   }
 
   stop() {
+    this.stopped = true;
     this.stopNow?.();
   }
 }

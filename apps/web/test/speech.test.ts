@@ -160,4 +160,31 @@ describe("BrowserListener", () => {
     await vi.advanceTimersByTimeAsync(1100);
     expect(result).toBeNull();
   });
+
+  it("latched (push to talk) keeps listening through long pauses and engine restarts until Send", async () => {
+    const l = setup();
+    let result: string | null | undefined;
+    void l.listen({ lang: "en-GB", timeoutMs: 300_000, maxTurnMs: 300_000, latched: true }).then((r) => (result = r));
+    FakeRecognition.last.say("remind me to fix the push to talk timeout");
+    await vi.advanceTimersByTimeAsync(20_000); // a long pause to think
+    FakeRecognition.last.onend?.(); // the engine gives up by itself: it restarts, keeping what was said
+    await vi.advanceTimersByTimeAsync(5_000);
+    FakeRecognition.last.say("and make it latch for five minutes");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(result).toBeUndefined();
+    l.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result).toBe("remind me to fix the push to talk timeout and make it latch for five minutes");
+  });
+
+  it("latched ends by itself after five minutes, with what was heard", async () => {
+    const l = setup();
+    let result: string | null | undefined;
+    void l.listen({ lang: "en-GB", timeoutMs: 300_000, maxTurnMs: 300_000, latched: true }).then((r) => (result = r));
+    FakeRecognition.last.say("a very long message");
+    await vi.advanceTimersByTimeAsync(299_000);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1_100);
+    expect(result).toBe("a very long message");
+  });
 });

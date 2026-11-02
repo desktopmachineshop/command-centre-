@@ -4,7 +4,7 @@ import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api"
 import { type LiveFeed, useLive } from "../live";
 import { go } from "../router";
 import { type Aliases, buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole, type RoleBook, type RoleChoice, type VoiceMode } from "../voice/commands";
-import { type Approval, type DriveState, driveReducer, type Expect, initialDriveState, listenTimeoutMs, type Say } from "../voice/machine";
+import { type Approval, type DriveState, driveReducer, type Expect, initialDriveState, LATCHED_TURN_MS, listenTimeoutMs, type Say } from "../voice/machine";
 import {
   BrowserListener,
   BrowserSpeaker,
@@ -417,7 +417,14 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
       await earcon(stateRef.current.expect === "none" || stateRef.current.expect === "command" ? "listen" : "turn");
       if (!live) return;
       try {
-        const text = await l.listen({ lang: langRef.current, timeoutMs: listenTimeoutMs(stateRef.current), onInterim: setInterim });
+        // Push to talk is latched: it keeps listening through pauses until Send (or five minutes).
+        const latched = stateRef.current.mode === "push";
+        const text = await l.listen({
+          lang: langRef.current,
+          timeoutMs: listenTimeoutMs(stateRef.current),
+          onInterim: setInterim,
+          ...(latched ? { latched: true, maxTurnMs: LATCHED_TURN_MS } : {}),
+        });
         if (!live) return;
         if (text) {
           dispatch({ type: "heard", text });
@@ -565,7 +572,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
       )}
 
       <p className="drive-state" role="status" aria-live="polite" data-phase={state.phase}>
-        {PHASE_LABEL[state.phase]}
+        {state.phase === "listening" && state.mode === "push" ? "Listening: tap Send when you're done" : PHASE_LABEL[state.phase]}
         {state.conversation && state.expect === "reply" && state.phase === "idle" ? " (your answer)" : ""}
       </p>
 

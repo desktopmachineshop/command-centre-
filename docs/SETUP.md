@@ -1772,9 +1772,12 @@ the phone in the car, so it shows almost nothing to read.
 
 **Two modes** (the toggle at the top; remembered per device):
 
-- **Push to talk** (default): it only listens after a press. If the agent asks a question, it
-  reads the question and waits for your next press. What you say then answers that question in the
-  same conversation.
+- **Push to talk** (default): it only listens after a press, and it is **latched**: it keeps
+  listening through pauses until you press again (**Send**, or the headset button), for up to
+  5 minutes, so you can dictate a long message and think between sentences. If the agent asks a
+  question, it reads the question and waits for your next press. What you say then answers that
+  question in the same conversation. (With the server's speech recognition, used on iPhone, a long
+  message is recorded and transcribed in pieces of up to `VOICE_MAX_SECONDS`.)
 - **Conversation**: after a question from the agent, a read-out approval or a confirmation, it
   plays a "your turn" chime and listens by itself. After 8 seconds of silence it asks "Still
   there?" once, then stops. Your answer continues the same task. "Stop", "cancel" or "that's all"
