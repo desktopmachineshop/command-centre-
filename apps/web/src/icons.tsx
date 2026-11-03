@@ -83,8 +83,8 @@ export function BrandMark({ size = 28 }: { size?: number }) {
   return (
     <svg className="brand-mark" width={size} height={size} viewBox="0 0 512 512" aria-hidden="true" focusable="false">
       <rect width="512" height="512" rx="120" fill="var(--brand-tile)" />
-      <circle cx="256" cy="256" r="146" fill="none" stroke="var(--brand-ring)" strokeWidth="40" />
-      <circle cx="256" cy="256" r="54" fill="var(--brand-ring)" />
+      <path d="M363.2 166 A140 140 0 1 0 363.2 346" fill="none" stroke="var(--brand-ring)" strokeWidth="50" />
+      <circle cx="256" cy="256" r="45" fill="var(--brand-ring)" />
     </svg>
   );
 }
