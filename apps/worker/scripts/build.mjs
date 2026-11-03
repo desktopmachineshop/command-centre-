@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // Bundles the worker into one CommonJS file (dist/cc-worker.cjs). With --sea it
 // also builds a Node single-executable (dist/cc-worker[.exe]) and copies it to
-// the desktop app's sidecar folder as binaries/cc-worker-<target triple>[.exe].
+// the desktop app's sidecar folder as binaries/cc-worker-<target triple>[.exe], with
+// playwright-core beside it (binaries/playwright-core/, which Tauri installs next to the
+// worker) so screen capture works on the PC.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -50,6 +53,14 @@ if (process.argv.includes("--sea")) {
   mkdirSync(sidecarDir, { recursive: true });
   copyFileSync(out, join(sidecarDir, `cc-worker-${triple}${exe}`));
   console.log(`sidecar: ${join(sidecarDir, `cc-worker-${triple}${exe}`)}`);
+
+  // playwright-core can't go inside the executable (it ships driver files and loads them from
+  // disk), so it goes beside it; the worker loads it from there (src/browser.ts).
+  const playwright = dirname(createRequire(join(root, "package.json")).resolve("playwright-core/package.json"));
+  const target = join(sidecarDir, "playwright-core");
+  rmSync(target, { recursive: true, force: true });
+  cpSync(playwright, target, { recursive: true, dereference: true });
+  console.log(`playwright-core: ${target}`);
 }
 
 /** The Rust host triple Tauri expects in sidecar file names. */

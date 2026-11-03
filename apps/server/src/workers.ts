@@ -67,6 +67,17 @@ export class WorkerService {
     return created;
   }
 
+  /**
+   * Cancels a job still waiting for a computer. Running jobs can't be cancelled
+   * (the worker would need to stop it). The video chain simply ends: no next
+   * stage, no notification.
+   */
+  async cancel(jobId: string): Promise<Job | null> {
+    const job = await this.store.cancelQueuedJob(jobId);
+    if (job) this.hub.broadcast({ type: "job.updated", job });
+    return job;
+  }
+
   /** Called when a job succeeds or fails (e.g. to chain the next video stage). */
   onJobSettled(listener: (job: Job) => Promise<void> | void): void {
     this.settledListeners.push(listener);

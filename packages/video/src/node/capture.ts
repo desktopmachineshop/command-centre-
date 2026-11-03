@@ -42,11 +42,22 @@ export interface CaptureResult {
 
 export class CaptureError extends Error {}
 
+type PlaywrightModule = typeof import("playwright-core");
+let loadPlaywright: () => Promise<PlaywrightModule> = () => import("playwright-core");
+
+/**
+ * Where playwright-core comes from. The desktop worker is a single executable that can't
+ * import packages, so it loads the copy shipped beside it (see apps/worker/src/browser.ts).
+ */
+export function setPlaywrightLoader(load: () => Promise<PlaywrightModule>): void {
+  loadPlaywright = load;
+}
+
 /** Launches Chromium through playwright-core, which is an optional dependency. */
 export async function launchChromium(executablePath?: string): Promise<Browser> {
-  let pw: typeof import("playwright-core");
+  let pw: PlaywrightModule;
   try {
-    pw = await import("playwright-core");
+    pw = await loadPlaywright();
   } catch {
     throw new CaptureError("playwright-core is not installed on this machine, so screen capture is unavailable");
   }

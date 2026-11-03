@@ -148,13 +148,21 @@ is the pay-as-you-go figure.
 - `ffmpeg` on PATH (already a capability); `subtitles` needs a build with libass (gyan.dev
   "full" builds have it). NVENC is used when the node has `gpu` (`encoder: auto` falls back to
   x264 if NVENC fails).
-- Capture: set `chromiumBin` in `worker.json` (e.g. `C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe`)
-  or `CC_CHROMIUM_BIN`; that turns on `browser`. The worker needs `playwright-core`: it is a
-  dependency of `@cc/worker` but left out of the single-executable build (it ships driver
-  files), so capture runs when the worker runs under Node (`pnpm --filter @cc/worker start`);
-  bundling it into the desktop sidecar is roadmap item 2.
-- Playwright records video with its own small ffmpeg build (separate from the system ffmpeg):
-  run `npx playwright-core install ffmpeg` once on the PC, or capture fails with that hint.
+- Capture works out of the box with the desktop app (`apps/worker/src/browser.ts`):
+  - **Browser:** the installed Chrome, else Edge (always there on Windows), else Chromium.
+    `chromiumBin` in `worker.json` (or `CC_CHROMIUM_BIN`) picks another.
+  - **Playwright:** `playwright-core` can't go inside the single executable (it ships driver
+    files), so `build:sea` copies it to `binaries/playwright-core/` and Tauri installs it beside
+    the worker (`bundle.resources`). The worker loads it from there with `createRequire`
+    (`CC_PLAYWRIGHT_DIR` points elsewhere; under Node it uses the package as usual).
+  - **Recorder:** Playwright records with its own small ffmpeg build (not the system ffmpeg).
+    On start, if it's missing, the worker runs Playwright's installer once (a few MB into the
+    ms-playwright cache). Playwright runs its scripts with `process.execPath`, which in the app
+    is the worker, so the worker runs any script from its `playwright-core` folder it's given.
+  - `browser` is offered only when all three are in place; the log says why not
+    (`[capture] screen capture off: …`).
+  - Checked end to end by `apps/worker/test/sea.e2e.test.ts` (opt-in: build the executable,
+    then `CC_SEA_WORKER=…`), including the first-run recorder download.
 - Signed-in captures: save a Playwright storage state for a demo account and add
   `"captureProfiles": { "opend-demo": "C:\\...\\opend-demo.json" }`.
 - Brand fonts not installed on the PC: not yet supported (`fontsDir` exists in the compositor).
@@ -177,7 +185,7 @@ and audio stream. `CC_CHROMIUM_BIN` / `CC_FFMPEG_BIN` override the binaries.
 1. **Now (this change):** spec, TTS adapters, capture runner, captions, compositor, worker
    jobs, `video.produce` with the job chain, skill, local e2e render.
 2. **Next:** wire the media store and `social.campaign` (attach the MP4 to Reels/Threads/X);
-   bundle `playwright-core` with the desktop worker; brand kits confirmed by Dave (logo files,
+   brand kits confirmed by Dave (logo files,
    colours, fonts); demo accounts and storage-state profiles for OpenV and OpenD; wire the
    OpenD/OpenV MCP servers into those verticals' agent runs; first real ElevenLabs voice.
 3. **Then:** YouTube upload action (`youtube.upload` with title, description, chapters, SRT,

@@ -224,6 +224,22 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(nodes.map((n: any) => [n.id, n.online])).toEqual([["desktop", true], ["laptop", true]]);
   });
 
+  it("cancels a job still waiting for a computer, and only then", async () => {
+    // No connected computer has a browser, so it stays queued.
+    const job = (await ctx.api("/api/jobs", { method: "POST", json: { kind: "video.capture", requires: ["browser"] } })).body;
+    expect(job.status).toBe("queued");
+    const cancelled = await ctx.api(`/api/jobs/${job.id}/cancel`, { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body).toMatchObject({ id: job.id, status: "cancelled" });
+    // A cancelled job is never handed out later.
+    const frames: string[] = [];
+    await ctx.server.workers.connect({ id: "browser-pc", name: "Browser PC", capabilities: ["browser"] }, { send: (d) => frames.push(d) });
+    expect(frames.some((f) => f.includes(job.id))).toBe(false);
+    expect((await ctx.api(`/api/jobs/${job.id}/cancel`, { method: "POST" })).status).toBe(409);
+    expect((await ctx.api("/api/jobs/00000000-0000-4000-8000-000000000000/cancel", { method: "POST" })).status).toBe(404);
+    expect((await ctx.api("/api/jobs/not-a-job/cancel", { method: "POST" })).status).toBe(404);
+  });
+
   it("reports stats", async () => {
     const stats = (await ctx.api("/api/stats")).body;
     expect(stats.costTodayUsd).toBeGreaterThan(0);

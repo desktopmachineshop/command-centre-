@@ -257,6 +257,15 @@ export function apiRoutes(deps: ApiDeps) {
       .parse(await c.req.json());
     return c.json(await workers.submit(body), 201);
   });
+  /** Cancels a job no computer has picked up (409 once it has started or finished). */
+  app.post("/jobs/:id/cancel", async (c) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "not found" }, 404);
+    const job = await workers.cancel(id.data);
+    if (job) return c.json(job);
+    const existing = (await store.listJobs({ limit: 500 })).find((j) => j.id === id.data);
+    return existing ? c.json({ error: `The job is ${existing.status}, so it can't be cancelled.` }, 409) : c.json({ error: "not found" }, 404);
+  });
 
   app.get("/brain/search", async (c) => c.json(await brain.search(c.req.query("q") ?? "", { folder: c.req.query("folder") })));
   app.get("/brain/list", async (c) => c.json(await brain.list(c.req.query("folder") ?? "")));
