@@ -131,6 +131,10 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     const request = runner.requests.at(-1)!;
     expect(request.allowedTools).not.toContain("Bash");
     expect(request.allowedTools).not.toContain("Edit");
+    // Web search stays; fetching pages could carry data to a URL the webhook planted.
+    expect(request.allowedTools).toContain("WebSearch");
+    expect(request.allowedTools).not.toContain("WebFetch");
+    expect(request.systemPrompt).toContain("Opening pages (WebFetch) is off because this task came from outside input (webhook)");
     expect(request.systemPrompt).toContain("This task came from outside input (webhook), so your coding tools and the repository are off");
     expect(existsSync(join(request.cwd!, "work", task.id))).toBe(false);
   });

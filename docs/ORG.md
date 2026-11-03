@@ -128,6 +128,11 @@ Tasks from before roles have no role and count as the vertical lead's.
   run token carries the role, and `/mcp/<server>` refuses servers the role doesn't have.
 - **System prompt:** the role charter (title, mission, who it reports to, intents, usual actions,
   autonomy notes) and the other roles it can hand work to, each with one line and its intents.
+- **The web:** every run can search the web (`WebSearch`) and, for work Dave started (chat,
+  schedules and handoffs from those), read pages (`WebFetch`). A task from outside input (an
+  email, a webhook, Odoo, social) gets search only: a page fetch could carry data out to a URL
+  that the input planted. This needs no setting on the role; a role's `tools` add more
+  (Bash, Edit, ...) on top.
 - **Mail:** a role with the `mail` server can search its business's mailboxes and read attachments
   itself, so work that didn't start from an email (a chat, a handoff) doesn't have to be passed
   on to find the mail. Mail it reads is outside input: its later proposals are drafts and its
