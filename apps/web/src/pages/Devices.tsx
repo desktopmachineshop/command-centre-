@@ -8,6 +8,7 @@ import { Empty, ErrorBanner, PageHead, Skeleton, Status } from "../ui";
 import { VideoPreview, videoOf } from "../video";
 import { ErrorReport } from "../copy";
 import { waitingReason } from "../jobs";
+import { DeviceRoles } from "../device-roles";
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
@@ -17,6 +18,14 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
   const jobs = useLoad(api.jobs, feed, (m) => m.type === "job.updated");
   // A computer links as soon as its worker connects, which also sends node.updated.
   const devices = useLoad(api.desktopDevices, feed, (m) => m.type === "node.updated");
+  // The newest build, to say when a computer's app is behind it.
+  const [latest, setLatest] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .desktopInstaller()
+      .then((r) => setLatest(r.installer?.version.split("+")[0] ?? null))
+      .catch(() => {});
+  }, []);
   const query = useRouteQuery();
   const linkCode = query.get("link");
   const autoKey = query.get("auto");
@@ -26,7 +35,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   return (
     <section>
-      <PageHead title="Devices" sub="Worker PCs that run ffmpeg, GPU and local Claude Code jobs." />
+      <PageHead title="Devices" sub="Worker PCs that run ffmpeg, GPU and local Claude Code jobs. Install what each one needs for its role with one click." />
       {linkCode && <LinkApproval api={api} code={linkCode} autoKey={autoKey} onLinked={devices.reload} />}
       <DesktopDownload api={api} />
       {nodes.error && <ErrorBanner>{nodes.error}</ErrorBanner>}
@@ -38,7 +47,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
         {nodes.data?.map((n) => {
           const device = deviceFor(n.id);
           return (
-            <li key={n.id} className="item static device-row">
+            <li key={n.id} className="item static device-row top">
               <span className="device-icon">
                 <Icon name="devices" />
               </span>
@@ -50,6 +59,8 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
                 <div className="muted small">
                   {n.capabilities.join(", ") || "no capabilities"} · seen {ago(n.lastSeen)}
                 </div>
+                <AppVersion version={n.setup?.appVersion ?? null} latest={latest} />
+                <DeviceRoles api={api} node={n} jobs={jobs.data ?? []} />
                 {device && <Unlink api={api} device={device} onDone={devices.reload} />}
               </div>
             </li>
@@ -297,6 +308,26 @@ function DesktopDownload({ api }: { api: Api }) {
           Windows may warn that the installer isn't signed: choose <strong>More info → Run anyway</strong>.
         </p>
       )}
+    </div>
+  );
+}
+
+/** Compares x.y.z versions. */
+export function newer(a: string, b: string): boolean {
+  const parts = (v: string) => v.split(/[+-]/)[0]!.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  return false;
+}
+
+/** Which desktop app version the computer runs, and whether a newer build is waiting for it. */
+function AppVersion({ version, latest }: { version: string | null; latest: string | null }) {
+  if (!version) return <div className="muted small">Desktop app version unknown (older apps don't report it: install the latest download once)</div>;
+  const behind = latest && newer(latest, version);
+  return (
+    <div className="muted small device-version">
+      Desktop app {version}
+      {behind ? <span className="device-version-behind"> · {latest} available: choose Check for updates in its tray menu</span> : latest ? " · up to date" : null}
     </div>
   );
 }

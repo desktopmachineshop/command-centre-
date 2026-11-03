@@ -22,6 +22,7 @@ async function refresh(fillForm) {
       else input.value = value ?? "";
     }
   }
+  if (settings.version) document.getElementById("version").textContent = `Version ${settings.version}`;
   if (settings.linked) {
     linkStatus.textContent = "This computer is linked to your command centre.";
     linkNow.textContent = "Link again";

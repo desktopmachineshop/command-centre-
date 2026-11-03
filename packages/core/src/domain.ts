@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NotificationCategory } from "./notifications";
+import { NodeSetup } from "./setup";
 
 /** Where an event entered the system. New ingress adapters add a value here. */
 export const EventSource = z.enum(["chat", "cron", "webhook", "email", "odoo", "social", "system"]);
@@ -152,6 +153,8 @@ export const Job = z.object({
   payload: z.record(z.string(), z.unknown()),
   status: JobStatus,
   nodeId: z.string().nullable(),
+  /** Set for a job only one computer may run (e.g. `setup.install` for that computer). */
+  targetNodeId: z.string().nullish(),
   progress: z.number().min(0).max(1).nullable(),
   result: z.unknown().nullable(),
   createdAt: z.string(),
@@ -163,6 +166,8 @@ export const WorkerNode = z.object({
   id: z.string(),
   name: z.string(),
   capabilities: z.array(Capability),
+  /** What's installed and whether it can install more (see ./setup.ts); null for older workers. */
+  setup: NodeSetup.nullish(),
   online: z.boolean(),
   lastSeen: z.string(),
 });

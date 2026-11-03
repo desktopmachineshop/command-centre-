@@ -1,0 +1,135 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Job } from "@cc/core";
+import { describe, expect, it } from "vitest";
+import { detectSetup, findWinget, HandlerRegistry, type JobContext, type RunCommand, setupHandler, wingetArgs } from "../src";
+
+const job = (payload: Record<string, unknown>): Job => ({
+  id: "j1",
+  kind: "setup.install",
+  requires: [],
+  payload,
+  status: "assigned",
+  nodeId: "pc",
+  targetNodeId: "pc",
+  progress: null,
+  result: null,
+  createdAt: "",
+  updatedAt: "",
+});
+
+function harness(
+  exitCodes: Record<string, number> = {},
+  platform: NodeJS.Platform = "win32",
+  opts: { hasBrowser?: boolean; captureAfter?: { ready: boolean; why?: string } } = {},
+) {
+  const calls: string[][] = [];
+  const progress: string[] = [];
+  let refreshed = 0;
+  const run: RunCommand = async (cmd, args) => {
+    calls.push([cmd, ...args]);
+    const id = args[args.indexOf("--id") + 1]!;
+    const code = exitCodes[id] ?? 0;
+    return { code, output: code ? `Downloading\n██████▒▒ 10 MB / 20 MB\nInstaller failed with exit code: ${code}\n` : "Successfully installed" };
+  };
+  const registry = new HandlerRegistry().register(
+    setupHandler({ platform, run, winget: () => "C:\\winget.exe", refreshPath: async () => {}, hasBrowser: () => opts.hasBrowser ?? false }),
+  );
+  const runJob = (payload: Record<string, unknown>) =>
+    registry.run({
+      job: job(payload),
+      dir: tmpdir(),
+      signal: new AbortController().signal,
+      progress: (_p, m) => m && progress.push(m),
+      refresh: async () => {
+        refreshed++;
+        return { capabilities: [], setup: { platform, installer: "winget" as const, installed: [], ...(opts.captureAfter ? { capture: opts.captureAfter } : {}) } };
+      },
+    } satisfies JobContext);
+  return { calls, progress, runJob, refreshed: () => refreshed };
+}
+
+describe("setup.install", () => {
+  it("installs each catalog component with winget, quietly, then reports what the computer has", async () => {
+    const h = harness();
+    const result = await h.runJob({ role: "media", components: ["ffmpeg", "browser"] });
+    expect(result).toEqual({ role: "media", installed: ["ffmpeg", "browser"] });
+    expect(h.calls).toEqual([
+      ["C:\\winget.exe", ...wingetArgs("Gyan.FFmpeg")],
+      ["C:\\winget.exe", ...wingetArgs("Google.Chrome")],
+    ]);
+    expect(h.calls[0]).toEqual(expect.arrayContaining(["--silent", "--exact", "--accept-package-agreements"]));
+    expect(h.progress).toEqual(["Installing ffmpeg", "Installing Screen capture", "Checking what's installed"]);
+    expect(h.refreshed()).toBe(1);
+  });
+
+  it("doesn't install Chrome when Edge is there, only sets capture up again, and says why if it's still off", async () => {
+    const ok = harness({}, "win32", { hasBrowser: true, captureAfter: { ready: true } });
+    expect(await ok.runJob({ role: "media", components: ["browser"] })).toEqual({ role: "media", installed: ["browser"] });
+    expect(ok.calls).toEqual([]);
+    expect(ok.refreshed()).toBe(1);
+
+    const off = harness({}, "win32", { hasBrowser: true, captureAfter: { ready: false, why: "Playwright's video recorder couldn't be downloaded" } });
+    await expect(off.runJob({ role: "media", components: ["browser"] })).rejects.toThrow(/Screen capture didn't install: Playwright's video recorder couldn't be downloaded/);
+    expect(off.calls).toEqual([]);
+  });
+
+  it("never runs anything outside the catalog", async () => {
+    const h = harness();
+    await expect(h.runJob({ components: ["gpu", "davinci", "evil; rm -rf /"] })).rejects.toThrow(/Nothing to install/);
+    expect(h.calls).toEqual([]);
+  });
+
+  it("treats already installed as done, and reports the ones that failed after trying the rest", async () => {
+    const h = harness({ "Git.Git": 0x8a150061 - 0x1_0000_0000, "Anthropic.ClaudeCode": 1603 });
+    await expect(h.runJob({ role: "claude", components: ["git", "claude-code"] })).rejects.toThrow(
+      /Installed Git\.\nClaude Code didn't install: Downloading · Installer failed with exit code: 1603/,
+    );
+    expect(h.calls).toHaveLength(2);
+    expect(h.refreshed()).toBe(1); // what did install still shows up
+  });
+
+  it("only installs on Windows", async () => {
+    const h = harness({}, "linux");
+    await expect(h.runJob({ components: ["ffmpeg"] })).rejects.toThrow(/Windows only/);
+    expect(h.calls).toEqual([]);
+  });
+});
+
+describe("detectSetup", () => {
+  /** A fake runner: `--version` works only for the given winget paths. */
+  const wingetAt = (...paths: string[]): RunCommand => async (cmd, args) => ({ code: args[0] === "--version" && paths.includes(cmd) ? 0 : 1, output: "v1.12" });
+
+  it("finds installed tools on PATH and a working winget on Windows", async () => {
+    const bin = mkdtempSync(join(tmpdir(), "cc-setup-"));
+    for (const name of ["ffmpeg.exe", "git.exe", "winget.exe"]) writeFileSync(join(bin, name), "");
+    mkdirSync(join(bin, "Google", "Chrome", "Application"), { recursive: true });
+    writeFileSync(join(bin, "Google", "Chrome", "Application", "chrome.exe"), "");
+    const env = { PATH: bin, PATHEXT: ".EXE", ProgramFiles: bin, "ProgramFiles(x86)": join(bin, "none"), PROGRAMDATA: join(bin, "none") };
+    const setup = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: ["gpu"], env, platform: "win32", run: wingetAt(join(bin, "winget.exe")) });
+    expect(setup).toEqual({ platform: "win32", installer: "winget", installed: ["ffmpeg", "browser", "gpu", "git"] });
+  });
+
+  it("finds winget's app execution alias, which isn't a file Node can see", async () => {
+    const env = { PATH: "C:\\nowhere", PATHEXT: ".EXE", LOCALAPPDATA: "C:\\Users\\dave\\AppData\\Local" };
+    const alias = join(env.LOCALAPPDATA, "Microsoft", "WindowsApps", "winget.exe");
+    expect(await findWinget(env, "win32", wingetAt(alias))).toBe(alias);
+    expect(await findWinget(env, "win32", wingetAt("winget.exe"))).toBe("winget.exe");
+    expect(await findWinget(env, "win32", wingetAt())).toBeNull();
+    expect(await findWinget(env, "linux", wingetAt("winget.exe"))).toBeNull();
+  });
+
+  it("counts screen capture only when it works, and reports why it doesn't", async () => {
+    const env = { PATH: "/nonexistent" };
+    const off = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env, platform: "linux", capture: { ready: false, why: "no recorder" } });
+    expect(off).toMatchObject({ installed: [], capture: { ready: false, why: "no recorder" } });
+    const on = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env, platform: "linux", capture: { ready: true } });
+    expect(on).toMatchObject({ installed: ["browser"], capture: { ready: true } });
+  });
+
+  it("has no installer off Windows", async () => {
+    const setup = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env: { PATH: "/nonexistent" }, platform: "linux" });
+    expect(setup).toMatchObject({ platform: "linux", installer: null });
+  });
+});

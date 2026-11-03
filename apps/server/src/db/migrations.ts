@@ -443,4 +443,22 @@ export const migrations: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // Device roles (packages/core/src/setup.ts): what each computer has installed, and jobs for one computer only.
+    id: "0018_node_setup",
+    sql: `
+      -- What the worker reported about its setup: platform, installer (winget) and installed components.
+      alter table worker_nodes add column if not exists setup jsonb;
+      -- A job only this node may run (setup.install); null for jobs any capable node can take.
+      alter table jobs add column if not exists target_node_id text;
+    `,
+  },
+  {
+    // Files attached to a reply in the chat box (src/chat-files.ts).
+    id: "0019_task_reply_files",
+    sql: `
+      -- {files: [{id, name, contentType, size}], prompt}: the files and the block the agent gets with the reply.
+      alter table task_replies add column if not exists files jsonb;
+    `,
+  },
 ];

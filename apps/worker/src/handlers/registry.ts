@@ -1,4 +1,4 @@
-import type { Job } from "@cc/core";
+import type { Capability, Job, NodeSetup } from "@cc/core";
 import { z } from "zod";
 import type { StorageUploader } from "../storage";
 
@@ -12,6 +12,8 @@ export interface JobContext {
   signal: AbortSignal;
   /** Uploads an output file to Command Centre storage; see ../storage.ts. */
   storage?: StorageUploader;
+  /** Re-detects what this computer can do and tells the server (after installing something). */
+  refresh?: () => Promise<{ capabilities: Capability[]; setup?: NodeSetup } | void>;
 }
 
 /**

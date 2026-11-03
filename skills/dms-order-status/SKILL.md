@@ -32,6 +32,12 @@ If a line is waiting on stock, check the product with `get_product`. `incoming_q
 `virtual_available` show whether more is on order, but not when it arrives. Look in the brain
 (`search` the product or supplier) for any expected restock date Dave has recorded.
 
+If the order has shipped and the `sendcloud` tools are available, call `find_parcel` with the
+order number (or the `tracking_ref`) for the carrier's latest status and tracking link. Its
+`state` is `label` (not yet collected by the carrier), `in_transit`, `pickup_point` (waiting at a
+service point for the customer), `delivered` or `problem` (delayed, failed attempt, returning).
+Prefer it over Odoo's picking state for "where is it now?", and quote the tracking link.
+
 Check the order's `messages` and the brain for anything already said to the customer, so you
 don't contradict it.
 

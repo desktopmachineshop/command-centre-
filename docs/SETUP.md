@@ -155,7 +155,7 @@ appear under Approvals. If the run fails, its error is on the task page.
 ## Accounts page (sign-ins for every platform)
 
 **Accounts** (sidebar → System → Accounts; on the phone **More → Accounts**) is where every
-platform sign-in lives: Claude, the Anthropic API, Jev, OpenAI, ElevenLabs, Odoo, email inboxes,
+platform sign-in lives: Claude, the Anthropic API, Jev, OpenAI, ElevenLabs, Odoo, Sendcloud, email inboxes,
 Google (Calendar and Drive), Instagram, Threads, X, Reddit, YouTube and Discord. Saving applies
 straight away; only the changed integration restarts, and nothing redeploys.
 
@@ -201,6 +201,33 @@ Agents never see these credentials: the Claude process gets only its own token a
 variables, not the server's environment.
 
 The env-var instructions in the sections below still work and are the fallback.
+
+## Shipping (Sendcloud)
+
+Connect Sendcloud and each business's daily digest gets a **Shipping (Sendcloud)** section, and
+its push headline counts what was delivered, what is in transit and any problems
+(e.g. `Desktop Machine Shop: 3 done, 2 delivered, 5 in transit, 1 shipping problem, $0.40`).
+
+1. In Sendcloud: **Settings → Integrations → Sendcloud API → Connect**, name it (e.g. Command
+   Centre) and copy the **public key** and **secret key**.
+2. In the app: **Accounts → Sendcloud → Add account**, pick the business, paste both keys, then
+   **Test**. (Or set `SENDCLOUD_PUBLIC_KEY`, `SENDCLOUD_SECRET_KEY` and optionally
+   `SENDCLOUD_VERTICAL`, default `dms`, in Railway.) Add one account per Sendcloud login if the
+   businesses ship from separate ones.
+
+The digest reads Sendcloud live when it is written (parcels updated in the last 30 days), so
+nothing is polled during the day. It lists:
+
+- **Needs a look**: delayed, failed delivery attempts, exceptions, returns to sender, failed
+  announcements, and parcels in transit with no tracking update for 5 days or more.
+- **Not picked up by the carrier yet**: labels made over a day ago that the carrier hasn't scanned.
+- **Waiting at a pickup point**, **Delivered today** and **In transit**, each with the order
+  number, recipient, carrier and a tracking link.
+
+If Sendcloud can't be reached the digest still goes out, with the error in its Shipping section.
+Agents in Desktop Machine Shop's Customer Support and Ops & Admin roles also get read-only
+`sendcloud` tools (`find_parcel` by order or tracking number, `recent_parcels`), so "where is my
+order?" replies use the carrier's latest status. Nothing is ever created or changed in Sendcloud.
 
 ## Triage
 
@@ -308,6 +335,29 @@ token and disconnects the computer at once; choose **Link this computer…** in 
 again. The window keeps its own session cookie (in WebView2's profile), so it stays signed in
 across restarts; it shows up under **Settings → Signed-in devices** as Edge on Windows.
 
+#### Roles: one-click installs for what a computer is for
+
+On the Devices page, every computer lists its **roles** with what each needs, ticked when it's
+installed:
+
+| Role | Needs | Installed from the page |
+| --- | --- | --- |
+| **Media production** | ffmpeg, screen capture (Chrome or Edge + Playwright's recorder), graphics card (optional), DaVinci Resolve (optional) | ffmpeg, screen capture |
+| **Local Claude Code** | Git, Claude Code | Git, Claude Code |
+
+**Install …** under a role installs what that role is missing on that computer, from the phone or
+the app. It queues a `setup.install` job only that computer takes (it waits if it's offline); the
+worker installs each piece with `winget install --exact --silent`, refreshes its PATH, detects
+again and reports back, so the ticks and its capabilities update without restarting the app.
+Windows may ask on the PC for permission to install, so be at the computer for the first run.
+Screen capture ticks only when it works; when it's off, the page shows why (no browser, Playwright
+missing, or its video recorder couldn't be downloaded), and **Install** adds Chrome only if there's
+no Chrome or Edge, then sets capture up again. DaVinci Resolve needs a Blackmagic sign-up, so it links to the download instead; a graphics card
+shows as available or not. Computers without winget (or not on Windows) show what they have and
+no button. The roles and their winget package ids are in `packages/core/src/setup.ts`; the job
+names only components from that list, and the worker ignores anything else, so the server can't
+make a computer install arbitrary software.
+
 #### Where the download comes from
 
 The **Desktop** GitHub workflow builds the installer on every push to the default branch that
@@ -342,6 +392,13 @@ A linked app updates itself (Tauri's updater, `apps/desktop/src-tauri/src/lib.rs
 - **A new key:** run `pnpm --filter @cc/desktop tauri signer generate -w command-centre.key`,
   put the `.pub` contents in `plugins.updater.pubkey`, and set the two secrets from the key file
   and its password. Apps built with the old public key must be reinstalled by hand once.
+- **Which version:** the tray menu shows **Version 0.1.N** under the worker status, the
+  **Settings…** window shows it at the bottom, and the Devices page shows each computer's version
+  (with "0.1.N available" when it's behind the latest build).
+- **Builds up to 0.1.12 can't update themselves:** they never registered the updater plugin, so
+  **Check for updates** stays on "Checking for updates…". Install a newer build once from the
+  Devices page download; after that, updates install themselves. A failed check now shows its
+  error in the tray item.
 
 Closing the window keeps the app in the tray. The tray menu has the worker's status (online/idle,
 busy with a job and its progress, or offline and retrying), **Open**, **Worker on** (untick it to

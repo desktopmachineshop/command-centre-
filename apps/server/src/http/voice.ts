@@ -1,6 +1,7 @@
 import { baseMime, UPLOAD_TYPES, VoiceProviderError } from "@cc/voice";
 import { Hono } from "hono";
 import { z } from "zod";
+import { ChatFileIds, type ChatFiles } from "../chat-files";
 import { ReplyStateError, type VoiceConversations } from "../voice/conversations";
 import type { VoiceFront } from "../voice/front";
 import type { VoiceService } from "../voice/service";
@@ -8,6 +9,8 @@ import type { VoiceService } from "../voice/service";
 export interface VoiceApiDeps {
   service: VoiceService;
   conversations: VoiceConversations;
+  /** Files attached to a reply in the chat box (see ../chat-files.ts). */
+  chatFiles?: ChatFiles;
   /** Drive mode's fast voice front (null when off, e.g. with the echo runner). */
   front?: () => VoiceFront | null;
   /** Creates the agent task for a handed-off request, as POST /api/chat with `voice: true` does. */
@@ -24,7 +27,7 @@ const providerError = (err: unknown) =>
  * - POST /voice/speak             {text, voice?} → audio
  * - GET  /voice/briefing          deterministic spoken summary
  * - GET  /voice/approvals/next    the next pending proposal, described for reading aloud
- * - POST /tasks/:id/reply         {text, voice?} continues a task's conversation
+ * - POST /tasks/:id/reply         {text, voice?, files?} continues a task's conversation (files: ids from POST /chat/files)
  * - POST /voice/warm              loads the speech engines and the voice front ahead of use
  * - POST /voice/turn              {text, ...} → NDJSON stream: {delta} chunks, then {done, handoff?: {taskId}}
  * Live transcription is a WebSocket at /ws/voice (http/voice-listen.ts).
@@ -147,9 +150,11 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
   });
 
   app.post("/tasks/:id/reply", async (c) => {
-    const body = z.object({ text: z.string().trim().min(1).max(4000), voice: z.boolean().optional() }).parse(await c.req.json());
+    const body = z.object({ text: z.string().trim().min(1).max(4000), voice: z.boolean().optional(), files: ChatFileIds.optional() }).parse(await c.req.json());
     try {
-      const task = await conversations.reply(c.req.param("id"), body.text, body.voice ?? false);
+      if (body.files?.length && !deps.chatFiles) return c.json({ error: "file attachments are not available on this server" }, 400);
+      const files = body.files?.length && deps.chatFiles ? await deps.chatFiles.context(body.files) : undefined;
+      const task = await conversations.reply(c.req.param("id"), body.text, body.voice ?? false, files);
       return task ? c.json(task, 202) : c.json({ error: "not found" }, 404);
     } catch (err) {
       if (err instanceof ReplyStateError) return c.json({ error: err.message }, 409);

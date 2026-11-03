@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { type Capability, type InboundMessage, type Job, OutboundMessage } from "@cc/core";
+import { type Capability, type InboundMessage, type Job, type NodeSetup, OutboundMessage } from "@cc/core";
 import type { HandlerRegistry } from "./handlers/registry";
 import { createStorageUploader, type StorageUploader } from "./storage";
 
@@ -16,8 +16,13 @@ export interface WorkerStatus {
 export interface WorkerClientOptions {
   wsUrl: string;
   token: string;
-  node: { id: string; name: string; capabilities: Capability[] };
+  node: { id: string; name: string; capabilities: Capability[]; setup?: NodeSetup };
   registry: HandlerRegistry;
+  /**
+   * Detects capabilities and setup again (and rebuilds the handlers for them). Jobs call it as
+   * ctx.refresh after installing software; the server then hears about the change.
+   */
+  redetect?: () => Promise<{ capabilities: Capability[]; setup?: NodeSetup; registry?: HandlerRegistry }>;
   workDir: string;
   heartbeatMs?: number;
   /** Reconnect backoff: doubles from `minMs` up to `maxMs`, with jitter. */
@@ -51,9 +56,29 @@ export class WorkerClient {
   private status: WorkerStatus = { state: "disconnected", job: null };
 
   private readonly storage: StorageUploader;
+  private node: WorkerClientOptions["node"];
+  private registry: HandlerRegistry;
 
   constructor(private readonly options: WorkerClientOptions) {
     this.storage = options.storage ?? createStorageUploader({ serverUrl: options.wsUrl, token: options.token });
+    this.node = { ...options.node };
+    this.registry = options.registry;
+  }
+
+  /** What this computer currently offers (it changes after a setup.install job). */
+  get capabilities(): Capability[] {
+    return this.node.capabilities;
+  }
+
+  /** Re-detects capabilities and setup, and tells the server if connected (or in the next hello). */
+  async refresh(): Promise<{ capabilities: Capability[]; setup?: NodeSetup } | void> {
+    if (!this.options.redetect) return;
+    const next = await this.options.redetect();
+    this.node = { ...this.node, capabilities: next.capabilities, ...(next.setup ? { setup: next.setup } : {}) };
+    if (next.registry) this.registry = next.registry;
+    this.log(`now offering [${this.node.capabilities.join(", ") || "no capabilities"}]`);
+    this.send({ type: "worker.capabilities", capabilities: this.node.capabilities, setup: this.node.setup });
+    return { capabilities: this.node.capabilities, setup: this.node.setup };
   }
 
   get state(): WorkerStatus {
@@ -122,7 +147,7 @@ export class WorkerClient {
 
     ws.addEventListener("open", () => {
       clearTimeout(connectTimer);
-      this.send({ type: "hello", role: "worker", token: this.options.token, node: this.options.node });
+      this.send({ type: "hello", role: "worker", token: this.options.token, node: this.node });
     });
     ws.addEventListener("message", (evt) => {
       let msg: OutboundMessage;
@@ -141,7 +166,7 @@ export class WorkerClient {
     switch (msg.type) {
       case "welcome":
         this.attempt = 0;
-        this.log(`connected as ${this.options.node.name} [${this.options.node.capabilities.join(", ") || "no capabilities"}]`);
+        this.log(`connected as ${this.node.name} [${this.node.capabilities.join(", ") || "no capabilities"}]`);
         this.setStatus({ state: "connected" });
         if (this.heartbeat) clearInterval(this.heartbeat);
         this.heartbeat = setInterval(() => this.send({ type: "worker.heartbeat" }), this.options.heartbeatMs ?? 20_000);
@@ -179,11 +204,12 @@ export class WorkerClient {
     try {
       const dir = join(this.options.workDir, "jobs", job.id);
       mkdirSync(dir, { recursive: true });
-      const result = await this.options.registry.run({
+      const result = await this.registry.run({
         job,
         dir,
         signal: abort.signal,
         storage: this.storage,
+        refresh: () => this.refresh(),
         progress: (progress, message) => {
           run.progress = Math.max(0, Math.min(1, progress));
           this.setStatus({});
