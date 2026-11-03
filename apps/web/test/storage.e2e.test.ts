@@ -102,7 +102,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Storage page (Playwright)", () => {
     const video = page.locator(".storage-files li", { hasText: "spindle-tram/final.mp4" });
     await video.getByRole("button", { name: "Preview" }).click();
     expect(await video.locator("video").getAttribute("controls")).not.toBeNull();
-    await page.screenshot({ path: process.env.STORAGE_SHOT ?? "/dev/null", fullPage: true });
+    if (process.env.STORAGE_SHOT) await page.screenshot({ path: process.env.STORAGE_SHOT, fullPage: true });
 
     // A file without a public URL can't be previewed or opened, only deleted.
     const pdf = page.locator(".storage-files li", { hasText: "arc-euro-pricelist.pdf" });

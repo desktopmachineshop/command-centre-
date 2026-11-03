@@ -3503,3 +3503,155 @@ details[open] > summary .brain-tree-chevron {
   margin-top: var(--sp-2);
   border-radius: var(--r-md);
 }
+
+/* Dictation mic in the chat composer (Chat.tsx, voice/dictation.ts): left of Send. */
+.composer.has-mic {
+  grid-template-columns: auto 1fr auto auto;
+  grid-template-areas:
+    "text text text text"
+    "select hint mic send";
+}
+.composer button.mic {
+  grid-area: mic;
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  justify-content: center;
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.composer button.mic.is-listening {
+  background: var(--danger-solid);
+  border-color: var(--danger-solid);
+  color: #fff;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer button.mic.is-listening {
+    animation: none;
+  }
+}
+
+/*
+ * Task page (TaskView.tsx): the conversation, and the proposed actions beside it. Wide: two
+ * columns, the actions sticky on the right so they stay in view at the bottom of a long
+ * conversation. Narrow: tabs (Conversation | Actions, with a count) stuck to the top.
+ */
+.shell.page-task .main {
+  max-width: calc(1180px + 2 * var(--sp-8));
+}
+.task-layout {
+  display: block;
+}
+.task-tabs {
+  position: sticky;
+  top: calc(var(--topbar-h, 56px) + env(safe-area-inset-top));
+  z-index: 4;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--sp-3);
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+.task-tabs button {
+  flex: 1;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--text-2);
+  box-shadow: none;
+  gap: 6px;
+  justify-content: center;
+}
+.task-tabs button.on {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--border-strong);
+}
+.task-tabs .badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-full);
+  background: var(--danger-solid);
+  color: #fff;
+  font-size: var(--fs-xs);
+  line-height: 20px;
+  text-align: center;
+}
+.task-layout.has-actions.show-actions .task-main,
+.task-layout.has-actions.show-conversation .task-actions {
+  display: none;
+}
+.task-actions .section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+@media (min-width: 1180px) {
+  .task-tabs {
+    display: none;
+  }
+  .task-layout.has-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+    gap: var(--sp-6);
+    align-items: start;
+  }
+  .task-layout.has-actions.show-actions .task-main,
+  .task-layout.has-actions.show-conversation .task-actions {
+    display: block;
+  }
+  .task-actions {
+    position: sticky;
+    /* Below the sticky top bar. */
+    top: calc(var(--topbar-h) + var(--sp-4));
+    max-height: calc(100dvh - var(--topbar-h) - 2 * var(--sp-4));
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .task-actions .section-title:first-child {
+    margin-top: 0;
+  }
+}
+
+/* Error reports (copy.tsx): the failure, its full text folded away, and Copy error. */
+.error-report {
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+}
+.error-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.error-report-head .error {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+}
+.error-report pre {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: var(--fs-xs);
+}
+.copy-btn {
+  flex-shrink: 0;
+  gap: 4px;
+}
+.error-copy {
+  margin-left: auto;
+}
+.proposal > .error-report {
+  margin: var(--sp-2) var(--sp-4);
+}

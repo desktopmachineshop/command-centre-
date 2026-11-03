@@ -6,8 +6,12 @@ import { Icon } from "../icons";
 import { Empty, ErrorBanner, PageHead, VTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
+import { joinDictation, useDictation } from "../voice/dictation";
+import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
+import { useStickToBottom } from "../scroll";
+import { ErrorReport } from "../copy";
 
-type Turn = { key: number; text: string; task: Task; messages: AgentMessage[]; result?: string };
+type Turn = { key: number; text: string; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
 
 /** A task in these states has answered, so a follow-up can continue it. */
 const REPLYABLE: Task["status"][] = ["done", "awaiting_approval", "failed"];
@@ -77,14 +81,68 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [error, setError] = useState<string | null>(null);
   /** The task follow-ups continue; null starts a new one. */
   const [threadId, setThreadId] = useState<string | null>(null);
+  // Dictation (the mic by Send): what was typed before it started, and a send waiting for it to finish.
+  const dictation = useDictation(api);
+  const typedBefore = useRef("");
+  const sendWhenDone = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
   }, [api]);
 
+  // The conversation outlives the page: restore it (replies fetched again from its tasks) ...
+  const [restoring, setRestoring] = useState(() => loadChat() !== null);
+  useEffect(() => {
+    const saved = loadChat();
+    if (!saved) return;
+    setVertical(saved.vertical);
+    setThreadId(saved.threadId);
+    let cancelled = false;
+    void (async () => {
+      const ids = [...new Set(saved.turns.map((t) => t.taskId))];
+      const details = new Map(await Promise.all(ids.map(async (id) => [id, await api.task(id).catch(() => null)] as const)));
+      if (cancelled) return;
+      const restored: Turn[] = [];
+      for (const id of ids) {
+        const detail = details.get(id);
+        if (!detail) continue; // the task is gone: drop its turns
+        const mine = saved.turns.map((t, i) => ({ t, i })).filter(({ t }) => t.taskId === id);
+        const messages = messagesByTurn(mine.map(({ t }) => t), detail.runs);
+        mine.forEach(({ t, i }, n) => restored.push({ key: i, text: t.text, task: detail.task, messages: messages[n]!, at: t.at }));
+      }
+      restored.sort((a, b) => a.key - b.key);
+      // Turns sent while restoring stay after the restored ones.
+      setTurns((live) => [...restored, ...live.map((t, n) => ({ ...t, key: restored.length + n }))]);
+      setRestoring(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  // ... and save it on every change: what was sent, where, and when there was last activity.
+  useEffect(() => {
+    if (restoring) return;
+    saveChat({ threadId, vertical, lastActive: Date.now(), turns: turns.map((t) => ({ text: t.text, taskId: t.task.id, at: t.at })) });
+  }, [turns, threadId, vertical, restoring]);
+
+  /** "New chat": a clean screen and a new thread. */
+  const newChat = () => {
+    dictation.stop();
+    clearChat();
+    setTurns([]);
+    setThreadId(null);
+    setError(null);
+  };
+
   // Proposals show inline on the latest turn of each task (follow-ups continue the same task).
   const latestTurnOf = new Map(turns.map((t) => [t.task.id, t.key]));
   const chains = useChainProposals(api, feed, [...latestTurnOf.keys()]);
+
+  // Newest at the bottom, followed as it streams in (unless scrolled up to read).
+  const lastTurn = turns[turns.length - 1];
+  useStickToBottom(`${turns.length}:${lastTurn?.messages.length ?? 0}:${lastTurn?.task.status ?? ""}:${Object.values(chains).reduce((n, c) => n + c.proposals.length, 0)}`, !restoring);
 
   useLive(feed, (m) => {
     if (m.type === "run.message") {
@@ -95,8 +153,27 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
     }
   });
 
+  const toggleMic = () => {
+    if (dictation.listening) return dictation.stop();
+    typedBefore.current = text;
+    void dictation.start((spoken, final) => {
+      setText(joinDictation(typedBefore.current, spoken));
+      if (final && sendWhenDone.current) {
+        sendWhenDone.current = false;
+        // Let the final words reach the box before the form reads it.
+        setTimeout(() => formRef.current?.requestSubmit(), 0);
+      }
+    });
+  };
+
   const send = async (e: FormEvent) => {
     e.preventDefault();
+    // Send while dictating: finish listening first, then send everything that was said.
+    if (dictation.listening) {
+      sendWhenDone.current = true;
+      dictation.stop();
+      return;
+    }
     const message = text.trim();
     if (!message) return;
     const thread = threadId ? turns.findLast((t) => t.task.id === threadId)?.task : undefined;
@@ -109,7 +186,8 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
     try {
       const task = threadId ? await api.replyToTask(threadId, message, false) : (await api.chat(message, vertical || undefined)).task;
       setThreadId(task.id);
-      setTurns((ts) => [...ts, { key: ts.length, text: message, task, messages: [] }]);
+      // A follow-up's task timestamp is when the server took the reply; a new chat's is its creation.
+      setTurns((ts) => [...ts, { key: ts.length, text: message, task, messages: [], at: threadId ? task.updatedAt : task.createdAt }]);
     } catch (err) {
       setError((err as Error).message);
       setText(message);
@@ -123,7 +201,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         sub="You're talking to the Chief of Staff, who hands work to the right role and tells you the outcome here. Follow-ups continue the chat until you start a new one."
       >
         {threadId && (
-          <button type="button" onClick={() => setThreadId(null)}>
+          <button type="button" onClick={newChat}>
             New chat
           </button>
         )}
@@ -150,13 +228,21 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
                 </a>
               </div>
               <Transcript messages={t.messages} />
+              {t.task.status === "failed" && latestTurnOf.get(t.task.id) === t.key && (
+                <ErrorReport
+                  title="This didn't finish"
+                  error={t.task.note ?? "The agent's run failed without a message. Open the task for details."}
+                  facts={[["Task", t.task.id], ["Business", t.task.vertical], ["Role", t.task.role], ["Asked", t.text.slice(0, 200)]]}
+                />
+              )}
               {latestTurnOf.get(t.task.id) === t.key && <InlineProposals api={api} proposals={chains[t.task.id]?.proposals ?? []} />}
             </div>
           </div>
         ))}
       </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      <form className="composer" onSubmit={send}>
+      {dictation.error && <ErrorBanner>{dictation.error}</ErrorBanner>}
+      <form ref={formRef} className={`composer ${dictation.available ? "has-mic" : ""}`} onSubmit={send}>
         <select
           value={vertical}
           onChange={(e) => {
@@ -175,7 +261,8 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="What needs doing?"
+          placeholder={dictation.listening ? "Listening… press the mic again when you're done" : "What needs doing?"}
+          aria-label="Message"
           rows={2}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -184,7 +271,19 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             }
           }}
         />
-        <button className="primary" aria-label="Send">
+        {dictation.available && (
+          <button
+            type="button"
+            className={`mic ${dictation.listening ? "is-listening" : ""}`}
+            onClick={toggleMic}
+            aria-pressed={dictation.listening}
+            aria-label={dictation.listening ? "Stop dictating" : "Dictate"}
+            title={dictation.listening ? "Stop dictating" : "Dictate: talk instead of typing"}
+          >
+            <Icon name={dictation.listening ? "stop" : "mic"} size={16} />
+          </button>
+        )}
+        <button className="primary send" aria-label="Send">
           <Icon name="send" size={16} />
           Send
         </button>

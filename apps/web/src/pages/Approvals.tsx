@@ -8,6 +8,7 @@ import { go, routeQuery } from "../router";
 import { SocialProposalBody, useSocialAccounts } from "../social";
 import { Empty, ErrorBanner, PageHead, Skeleton, Status, VTag } from "../ui";
 import { VideoPreview, videoOf } from "../video";
+import { ErrorReport } from "../copy";
 
 export function Approvals({ api, feed, id }: { api: Api; feed: LiveFeed; id?: string }) {
   const { data, error } = useLoad(() => api.proposals("pending"), feed, (m) => m.type === "proposal.updated");
@@ -101,6 +102,21 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
       <p className="title">{proposal.summary}</p>
       {video && <VideoPreview video={video} title={typeof proposal.payload.title === "string" ? proposal.payload.title : proposal.summary} />}
       {social && <SocialProposalBody proposal={proposal} accounts={socialAccounts} />}
+      {proposal.status === "failed" && (
+        <ErrorReport
+          title={`${proposal.actionType} failed`}
+          error={failureText(proposal.result)}
+          facts={[
+            ["Approval", proposal.id],
+            ["Action", proposal.actionType],
+            ["Summary", proposal.summary],
+            ["Business", proposal.vertical],
+            ["Task", proposal.taskId],
+            ["Proposed", proposal.createdAt],
+            ["Decided", proposal.decidedAt],
+          ]}
+        />
+      )}
       <details>
         <summary className="muted small">Details</summary>
         <pre>{JSON.stringify(proposal.payload, null, 2)}</pre>
@@ -296,4 +312,10 @@ function ChangesForm({ busy, cancel, send }: { busy: boolean; cancel: () => void
       </div>
     </form>
   );
+}
+
+/** The error an executor left in a failed proposal's result ({ ok: false, error }), or the result itself. */
+function failureText(result: unknown): string {
+  if (result && typeof result === "object" && typeof (result as { error?: unknown }).error === "string") return (result as { error: string }).error;
+  return result == null ? "It failed without a message." : JSON.stringify(result, null, 2);
 }

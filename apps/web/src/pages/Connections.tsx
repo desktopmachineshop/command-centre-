@@ -32,6 +32,7 @@ import { type LiveFeed, useLoad } from "../live";
 import { routeQuery, useRouteQuery } from "../router";
 import { platformLabel } from "../social";
 import { Dialog, Empty, ErrorBanner, PageHead, Skeleton, VerticalsContext, VTag } from "../ui";
+import { CopyButton } from "../copy";
 
 /**
  * Accounts: every platform Command Centre signs in to, managed here instead of in Railway's
@@ -521,30 +522,6 @@ function factsOf(def: KindDef, entry: EntryView): [string, string, boolean?][] {
   if (entry.meta.expiresAt) out.push(["Token expires", new Date(entry.meta.expiresAt).toLocaleDateString()]);
   if (entry.updatedAt && entry.source === "app") out.push(["Changed", ago(entry.updatedAt)]);
   return out;
-}
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Older browsers / insecure origins: fall back to a selection copy.
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
-  };
-  return (
-    <button type="button" className="small" onClick={() => void copy()} aria-label={`Copy ${label}`}>
-      <Icon name={copied ? "check" : "copy"} size={14} /> {copied ? "Copied" : "Copy"}
-    </button>
-  );
 }
 
 function RedirectUris({ base, providers }: { base: string | null; providers: string[] }) {

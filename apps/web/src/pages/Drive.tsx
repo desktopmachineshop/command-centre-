@@ -6,23 +6,19 @@ import { go } from "../router";
 import { type Aliases, buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole, type RoleBook, type RoleChoice, type VoiceMode } from "../voice/commands";
 import { type Approval, type DriveState, driveReducer, type Expect, initialDriveState, LATCHED_TURN_MS, listenTimeoutMs, type Say } from "../voice/machine";
 import {
-  BrowserListener,
   BrowserSpeaker,
   earcon,
-  hasBrowserRecognition,
-  hasRecorder,
   hasSynthesis,
   HeadsetButton,
-  isIosStandalone,
   type Listener,
   loadVoices,
   pickVoice,
-  RecorderListener,
   ScreenWakeLock,
   ServerSpeaker,
   type Speaker,
   VoicePermissionError,
 } from "../voice/speech";
+import { pickListener } from "../voice/dictation";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
 const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", serverVoice: "cc.drive.serverVoice", talkTo: "cc.drive.talkTo" };
@@ -128,15 +124,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     return () => void lock.release();
   }, []);
 
-  const listener = useMemo<Listener | null>(() => {
-    const browser = hasBrowserRecognition();
-    const server = Boolean(config?.stt) && hasRecorder();
-    const transcribe = async (audio: Blob, seconds: number, language: string) => (await api.transcribe(audio, seconds, language)).text;
-    // iOS home-screen apps expose SpeechRecognition without it working, so prefer the server there.
-    if (browser && !(isIosStandalone() && server)) return new BrowserListener();
-    if (server) return new RecorderListener(transcribe, Math.min(30, config?.maxSeconds ?? 30));
-    return browser ? new BrowserListener() : null;
-  }, [api, config]);
+  const listener = useMemo<Listener | null>(() => pickListener(api, config), [api, config]);
 
   const browserVoice = useMemo(() => pickVoice(voices, lang), [voices, lang]);
   const speaker = useMemo<Speaker | null>(() => {
