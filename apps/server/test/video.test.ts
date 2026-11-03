@@ -123,6 +123,23 @@ describe("video.produce chain", () => {
     await f.productions.onJobSettled({ id: "x", kind: "video.render", requires: [], payload: {}, status: "succeeded", nodeId: null, progress: 1, result: null, createdAt: "", updatedAt: "" });
   });
 
+  it("refuses a malformed spec when proposed, with a readable error", async () => {
+    const { productions, jobs } = fakes();
+    const executor = productions.executors()["video.produce"]!;
+    const bad = { spec: { title: "Demo", product: "OpenD", type: "promo", format: "vertical", scenes: [{ type: "intro" }] } };
+    let message = "";
+    try {
+      await executor.validate!(bad, { vertical: "opend" });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain("video-scriptwriter skill");
+    expect(message).toContain("spec.product");
+    expect(message).not.toContain('"code"');
+    expect(() => executor.validate!({ spec }, { vertical: "openv" })).not.toThrow();
+    expect(jobs).toHaveLength(0);
+  });
+
   it("takes TTS keys from the documented voice settings", () => {
     const tts = (env: Record<string, string>) => videoTtsFromConfig(loadConfig({ ...env, DATABASE_URL: "postgres://x", ADMIN_TOKEN: "admin-token-for-tests-0123456789" }).voice.providers);
     expect(tts({})).toEqual({});

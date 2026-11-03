@@ -86,7 +86,7 @@ manifests and on the Org page. All schedules ship turned off.
 | openv, opend | **Product Lead** (`product-lead`) | chief-of-staff | Owns the product's direction on Dave's behalf. | feature-request | brain-notes, email-triage-and-reply | brain; brain.write, notify, email.reply | – |
 | openv, opend | **Support Engineer** (`support-engineer`) | product-lead | Helps users get unstuck. | support, bug | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
 | opend | **Docs Writer** (`docs-writer`) | product-lead | Keeps the OpenD documentation clear and current. | – | brain-notes | brain; brain.write | – |
-| openv, opend | **DevRel & Content** (`devrel-content`) | product-lead | Tells people what the product does and why it matters. | – | brain-notes, social-platform-guide | brain; social.post, social.campaign, brain.write | – |
+| openv, opend | **DevRel & Content** (`devrel-content`) | product-lead | Tells people what the product does and why it matters. | – | brain-notes, social-platform-guide, video-scriptwriter | brain; social.post, social.campaign, video.produce, brain.write | – |
 | openv, opend | **Billing & Admin** (`billing-admin`) | product-lead | Handles subscriptions, invoices and payment questions. | billing | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
 | command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. | software | brain-notes, software-lead | brain; github.pr.create (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre- | – |
 

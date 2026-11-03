@@ -71,6 +71,18 @@ export const VideoProducePayload = z.object({
 });
 export type VideoProducePayload = z.infer<typeof VideoProducePayload>;
 
+/**
+ * Parses a video.produce payload, with an error an agent (or Dave) can act on
+ * instead of zod's raw JSON issue list.
+ */
+export function parseProducePayload(raw: unknown): VideoProducePayload {
+  const r = VideoProducePayload.safeParse(raw);
+  if (r.success) return r.data;
+  throw new Error(
+    `video.produce payload is not a valid VideoSpec; write it as the video-scriptwriter skill shows (id, product "openv"|"opend", type, format "9:16"|"16:9"|"1:1", brand, scenes with kind title|capture|slide|image|outro):\n${z.prettifyError(r.error)}`,
+  );
+}
+
 /** What a job carries so the next stage can be submitted when it finishes. */
 const Production = z.object({
   id: z.string(),
@@ -91,6 +103,9 @@ export class VideoProductions {
         description:
           "Produce a product video from a VideoSpec (see the video-scriptwriter skill) on a desktop worker, then propose a social.campaign with it. " +
           "payload: { spec, targets?: [{ accountId, text, title? }], publishAt?, encoder? }",
+        validate: (payload) => {
+          parseProducePayload(payload);
+        },
         execute: (payload) => this.start(payload),
       },
     };
@@ -98,7 +113,7 @@ export class VideoProductions {
 
   /** Validates the request, voices it if needed and submits the first job. */
   async start(raw: Record<string, unknown>) {
-    const input = VideoProducePayload.parse(raw);
+    const input = parseProducePayload(raw);
     const { spec } = input;
     const id = randomUUID();
     const media = this.deps.media;
