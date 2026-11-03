@@ -1,5 +1,5 @@
 import { type ComponentState, type Job, roleStatus, SETUP_COMPONENTS, SETUP_ROLES, type SetupRoleId, type WorkerNode } from "@cc/core";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { Api } from "./api";
 import { Icon } from "./icons";
 
@@ -66,8 +66,11 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
         const names = status.installable.map((id) => SETUP_COMPONENTS[id].label);
         const installingThis = !!active && activeRole === role.id;
         return (
-          <section key={role.id} className="device-role" aria-label={`${role.label} on ${node.name}`}>
-            <div className="device-role-head">
+          <RoleBox key={role.id} label={`${role.label} on ${node.name}`} ready={status.ready}>
+            <summary className="device-role-head">
+              <span className="device-role-fold" aria-hidden>
+                <Icon name="chevron" size={14} />
+              </span>
               <div className="grow">
                 <span className="device-role-title">{role.label}</span>
                 <span className={`device-role-badge ${status.ready ? "ok" : ""}`}>{status.ready ? "Ready" : `${status.components.filter((c) => c.state !== "installed" && c.state !== "unknown" && !c.component.optional).length || "?"} missing`}</span>
@@ -77,14 +80,23 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
                   type="button"
                   className="small primary"
                   disabled={!node.online || !!active || starting !== null}
-                  onClick={() => void install(role.id)}
+                  onClick={(e) => {
+                    e.preventDefault(); // inside the summary: don't fold or unfold
+                    void install(role.id);
+                  }}
                   title={`Installs ${names.join(", ")} on ${node.name}`}
                 >
                   <Icon name="install" size={14} />{" "}
                   {installingThis ? "Installing…" : starting === role.id ? "Starting…" : `Install ${names.join(", ")}`}
                 </button>
               )}
-            </div>
+              {/* In the header, so it shows while the box is folded too. */}
+            {installingThis && active && (
+              <div className="progress device-role-progress" role="progressbar" aria-label={`Installing ${role.label}`} aria-valuenow={Math.round((active.progress ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}>
+                <span style={{ width: `${Math.max(4, Math.round((active.progress ?? 0) * 100))}%` }} />
+              </div>
+            )}
+            </summary>
             <ul className="device-role-items">
               {status.components.map(({ component, state }) => (
                 <li key={component.id} className={`device-role-item ${state}`}>
@@ -114,12 +126,7 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
                 </li>
               ))}
             </ul>
-            {installingThis && active && (
-              <div className="progress" role="progressbar" aria-label={`Installing ${role.label}`} aria-valuenow={Math.round((active.progress ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}>
-                <span style={{ width: `${Math.max(4, Math.round((active.progress ?? 0) * 100))}%` }} />
-              </div>
-            )}
-          </section>
+          </RoleBox>
         );
       })}
       {active && <p className="small muted">{node.online ? "Installing on the computer. Windows may ask there for permission to install." : "Waits until the computer is online."}</p>}
@@ -127,5 +134,18 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
       {error && <p className="error small">{error}</p>}
       {!active && last?.status === "failed" && <p className="error small device-role-error">{jobError(last)}</p>}
     </div>
+  );
+}
+
+/**
+ * One role's box, folded to its header (name, Ready / N missing, Install) when you close it. It
+ * starts open only when something it needs is missing; after that, it stays as you left it.
+ */
+function RoleBox({ label, ready, children }: { label: string; ready: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(!ready);
+  return (
+    <details className="device-role" aria-label={label} open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      {children}
+    </details>
   );
 }
