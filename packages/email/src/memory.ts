@@ -1,4 +1,5 @@
-import type { ImapConnector, ImapSession } from "./imap";
+import type { ImapConnector, ImapSession, MailSearch } from "./imap";
+import { parseEmail } from "./parse";
 
 /**
  * An in-memory IMAP stand-in for tests and local runs: `deliver()` drops a raw
@@ -26,6 +27,25 @@ export class MemoryMailbox {
     this.uidValidity = uidValidity;
   }
 
+  /** IMAP-like SEARCH over the delivered messages (dates compare by day, as IMAP does). */
+  async search(c: MailSearch): Promise<number[]> {
+    const has = (hay: string, needle?: string) => !needle || hay.toLowerCase().includes(needle.toLowerCase());
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const hits: number[] = [];
+    for (const m of this.messages) {
+      const mail = await parseEmail(m.source);
+      const from = mail.from ? `${mail.from.name} ${mail.from.address}` : "";
+      const id = (mail.messageId ?? "").replace(/^<|>$/g, "");
+      if (!has(from, c.from) || !has(mail.subject, c.subject) || !has(mail.text, c.text)) continue;
+      if (c.messageId && id !== c.messageId.trim().replace(/^<|>$/g, "")) continue;
+      const date = mail.date ? day(new Date(mail.date)) : null;
+      if (c.since && (!date || date < day(c.since))) continue;
+      if (c.before && (!date || date >= day(c.before))) continue;
+      hits.push(m.uid);
+    }
+    return hits;
+  }
+
   readonly connector: ImapConnector = async () => {
     this.connects++;
     if (this.failConnects > 0) {
@@ -36,6 +56,7 @@ export class MemoryMailbox {
     const session: ImapSession = {
       open: async () => ({ uidValidity: this.uidValidity, uidNext: this.nextUid }),
       uidsAfter: async (lastUid) => this.messages.filter((m) => m.uid > lastUid).map((m) => m.uid),
+      search: (criteria) => this.search(criteria),
       fetchSource: async (uid) => this.messages.find((m) => m.uid === uid)?.source ?? null,
       waitForMail: (timeoutMs, signal) =>
         new Promise<void>((resolve, reject) => {

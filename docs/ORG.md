@@ -69,16 +69,16 @@ manifests and on the Org page. All schedules ship turned off.
 
 | Vertical | Role (id) | Reports to | Mission | Intents | Skills | Tools | Schedules |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| all | **Chief of Staff** (`chief-of-staff`) | Dave | Keeps Dave's whole portfolio pointed at what matters today. | – | brain-notes | brain; notify, brain.journal, brain.write; sees approvals in every vertical | morning-brief (07:00 weekdays) |
-| personal | **Personal Assistant** (`pa`) | chief-of-staff | Dave's first stop for anything personal. | question | brain-notes, email-triage-and-reply | brain; brain.journal, brain.write, notify, email.reply | – |
+| all | **Chief of Staff** (`chief-of-staff`) | Dave | Keeps Dave's whole portfolio pointed at what matters today. | – | brain-notes | brain, mail (every mailbox); notify, brain.journal, brain.write; sees approvals in every vertical | morning-brief (07:00 weekdays) |
+| personal | **Personal Assistant** (`pa`) | chief-of-staff | Dave's first stop for anything personal. | question | brain-notes, email-triage-and-reply | brain, mail; brain.journal, brain.write, notify, email.reply | – |
 | personal | **Calendar & Reminders** (`calendar-reminders`) | pa | Makes sure nothing with a date slips. | reminder | brain-notes | brain; notify, brain.journal, brain.write | – |
 | personal | **Home & Family** (`home-family`) | pa | Plans the family side of life: trips, outings, events, gifts and household purchases. | plan | brain-notes, email-triage-and-reply | brain; brain.write, notify, email.send | – |
-| personal | **Finance Admin** (`finance-admin`) | pa | Keeps personal paperwork in order. | admin | brain-notes, email-triage-and-reply | brain; brain.write, notify, email.reply | – |
-| dms | **Shop Lead** (`shop-lead`) | chief-of-staff | Runs Desktop Machine Shop day to day on Dave's behalf. | (unowned: spam, other) | brain-notes, email-triage-and-reply, dms-customer-reply, dms-order-status | brain, odoo; brain.write, notify, email.reply | – |
-| dms | **Customer Support** (`customer-support`) | shop-lead | Answers customers the way Dave would. | presales-question, order-status, return-warranty | brain-notes, email-triage-and-reply, dms-customer-reply, dms-order-status, social-platform-guide, social-voice-dms | brain, odoo; email.reply, odoo.message.post, social.reply, social.dm, brain.write | – |
+| personal | **Finance Admin** (`finance-admin`) | pa | Keeps personal paperwork in order. | admin | brain-notes, email-triage-and-reply | brain, mail; brain.write, notify, email.reply | – |
+| dms | **Shop Lead** (`shop-lead`) | chief-of-staff | Runs Desktop Machine Shop day to day on Dave's behalf. | (unowned: spam, other) | brain-notes, email-triage-and-reply, dms-customer-reply, dms-order-status | brain, odoo, mail; brain.write, notify, email.reply | – |
+| dms | **Customer Support** (`customer-support`) | shop-lead | Answers customers the way Dave would. | presales-question, order-status, return-warranty | brain-notes, email-triage-and-reply, dms-customer-reply, dms-order-status, social-platform-guide, social-voice-dms | brain, odoo, mail; email.reply, odoo.message.post, social.reply, social.dm, brain.write | – |
 | dms | **Catalogue & Pricing** (`catalogue-pricing`) | shop-lead | Keeps the Odoo catalogue accurate and the prices competitive. | – | brain-notes, dms-catalogue-pricing | brain, odoo; odoo.product.update_price, brain.write | – |
 | dms | **Marketing & Social** (`marketing-social`) | shop-lead | Gets the shop in front of hobbyist machinists. | – | brain-notes, social-voice-dms, social-platform-guide | brain, odoo; social.post, social.campaign, odoo.blog.draft | – |
-| dms | **Ops & Admin** (`ops-admin`) | shop-lead | Handles the back office: suppliers, stock, invoices and bills. | supplier, invoice-admin | brain-notes, email-triage-and-reply | brain, odoo; email.reply, odoo.message.post, notify, brain.write | low-stock-check (08:15 weekdays) |
+| dms | **Ops & Admin** (`ops-admin`) | shop-lead | Handles the back office: suppliers, stock, price lists, invoices and bills. | supplier, invoice-admin | brain-notes, email-triage-and-reply, dms-supplier-pricelists | brain, odoo, mail; email.reply, odoo.message.post, notify, brain.write | low-stock-check (08:15 weekdays) |
 | 3dpandme | **Content Lead** (`content-lead`) | chief-of-staff | Owns the 3dpandme content plan. | content-idea, collab | brain-notes, social-voice-3dpandme, social-platform-guide, email-triage-and-reply | brain, odoo; brain.write, notify, email.reply | – |
 | 3dpandme | **Video Producer** (`video-producer`) | content-lead | Takes a video from plan to published. | publishing | brain-notes, social-voice-3dpandme, social-platform-guide | brain; social.campaign, brain.write | – |
 | 3dpandme | **Blog Writer** (`blog-writer`) | content-lead | Writes 3dpandme blog posts in Dave's maker voice. | – | brain-notes, social-voice-3dpandme | brain, odoo; odoo.blog.draft, brain.write | – |
@@ -90,7 +90,7 @@ manifests and on the Org page. All schedules ship turned off.
 | openv, opend | **Billing & Admin** (`billing-admin`) | product-lead | Handles subscriptions, invoices and payment questions. | billing | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
 | command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. | software | brain-notes, software-lead | brain; github.pr.create (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre- | – |
 
-`dms-catalogue-pricing` is the only skill added for the org. The other roles reuse the existing
+`dms-catalogue-pricing` and `dms-supplier-pricelists` are the skills added for the org. The other roles reuse the existing
 skills bank; their charter travels in the system prompt.
 
 ## How a task gets its role
@@ -128,6 +128,10 @@ Tasks from before roles have no role and count as the vertical lead's.
   run token carries the role, and `/mcp/<server>` refuses servers the role doesn't have.
 - **System prompt:** the role charter (title, mission, who it reports to, intents, usual actions,
   autonomy notes) and the other roles it can hand work to, each with one line and its intents.
+- **Mail:** a role with the `mail` server can search its business's mailboxes and read attachments
+  itself, so work that didn't start from an email (a chat, a handoff) doesn't have to be passed
+  on to find the mail. Mail it reads is outside input: its later proposals are drafts and its
+  handoffs carry that (see SETUP.md, Email).
 - **Concurrency and budgets** stay per vertical. The Chief of Staff runs in its home vertical,
   `personal`.
 

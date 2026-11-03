@@ -18,7 +18,8 @@ export default defineVertical({
   color: "#7c5cd6",
   intents: ["plan", "reminder", "question", "admin"],
   skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
-  mcpServers: ["brain", "pa"],
+  // mail: read-only lookups in this business's mailboxes (and, for the Chief of Staff, every one).
+  mcpServers: ["brain", "pa", "mail"],
   // The morning brief moved to the Chief of Staff (src/org.ts), whose tasks run in this vertical.
   // notify only reaches Dave's own devices, so the brief is sent without an approval step and reported in the digest.
   policies: { "brain.write": "auto", notify: "auto-with-digest", "email.label": "auto" },
@@ -32,7 +33,7 @@ export default defineVertical({
         "Dave's first stop for anything personal: answers questions, does the small bits of research and keeps track of loose ends. Passes calendar, household and money matters to the specialist who owns them, and keeps the personal notes in the brain tidy.",
       intents: ["question"],
       skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
-      mcpServers: ["brain", "pa"],
+      mcpServers: ["brain", "pa", "mail"],
       actions: ["brain.journal", "brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Questions answered the same day", "Personal inbox at zero open threads"],
       autonomyNotes: "May file notes and notify Dave. Every email or message to another person is a draft for Dave to approve.",
@@ -79,7 +80,7 @@ export default defineVertical({
         "Keeps personal paperwork in order: bills, bank, insurance, utilities, tax and government letters. Files what came in, works out what needs doing by when and flags anything unusual.",
       intents: ["admin"],
       skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
-      mcpServers: ["brain", "pa"],
+      mcpServers: ["brain", "pa", "mail"],
       actions: ["brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Every bill filed with its due date", "No late-payment charges"],
       autonomyNotes:

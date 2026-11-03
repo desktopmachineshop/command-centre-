@@ -26,7 +26,7 @@ export const chiefOfStaff = defineOrgRoot({
   homeVertical: "personal",
   aliases: ["cos", "chief"],
   skills: ["brain-notes", "personal-assistant"],
-  mcpServers: ["brain", "pa"],
+  mcpServers: ["brain", "pa", "mail"],
   actions: ["notify", "brain.journal", "brain.write"],
   schedules: [
     // To turn the morning brief on, set enabled: true.

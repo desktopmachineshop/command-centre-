@@ -18,8 +18,9 @@ export default defineVertical({
     // Odoo events (rules triager, see @cc/triage odoo.ts)
     "new-order", "customer-message", "stock-low", "delivery-late", "review", "rfq", "supplier-reply",
   ],
-  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-voice-dms", "social-platform-guide"],
-  mcpServers: ["brain", "odoo", "pa"],
+  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide"],
+  // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
+  mcpServers: ["brain", "odoo", "pa", "mail"],
   policies: { "brain.write": "auto", "email.label": "auto" },
   roles: [
     {
@@ -44,7 +45,7 @@ export default defineVertical({
         "Answers customers the way Dave would: pre-sales and compatibility questions, where an order is, returns and warranty claims. Works from live Odoo data and the brain, never from memory, and keeps each customer's history in the brain.",
       intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review", "rfq"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
-      mcpServers: ["brain", "odoo"],
+      mcpServers: ["brain", "odoo", "mail"],
       actions: ["email.reply", "email.label", "odoo.message.post", "social.reply", "social.dm", "brain.write"],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
       autonomyNotes:
@@ -58,6 +59,7 @@ export default defineVertical({
       mission:
         "Keeps the Odoo catalogue accurate and the prices competitive: product facts, descriptions, gaps in the range and price checks against competitors. Proposes price changes with the net and VAT-inclusive figures and the reason.",
       skills: ["brain-notes", "dms-catalogue-pricing"],
+      // Supplier costs come from the price lists Ops & Admin files under dms/pricelists/ in the brain.
       mcpServers: ["brain", "odoo"],
       actions: ["odoo.product.update_price", "brain.write"],
       kpis: ["Price review of top sellers each month", "Catalogue facts with no gaps (SKU, weight, HS code)"],
@@ -80,18 +82,18 @@ export default defineVertical({
       id: "ops-admin",
       title: "Ops & Admin",
       reportsTo: "shop-lead",
-      aliases: ["ops"],
+      aliases: ["ops", "suppliers", "pricelists", "pricelist", "price-lists"],
       mission:
-        "Handles the back office: supplier emails, stock and lead times, purchase prices, invoices and bills. Files each one in the brain, flags low stock early and keeps supplier notes current.",
+        "Handles the back office: supplier emails, stock and lead times, purchase prices, supplier price lists, invoices and bills. Files each one in the brain (price lists by vendor and date under dms/pricelists/), flags low stock early and keeps supplier notes current.",
       intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late", "supplier-reply"],
-      skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status"],
-      mcpServers: ["brain", "odoo", "pa"],
+      skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status", "dms-supplier-pricelists"],
+      mcpServers: ["brain", "odoo", "pa", "mail"],
       actions: ["email.reply", "email.label", "email.send", "odoo.message.post", "notify", "brain.write"],
       schedules: [
         // Turn on once the Odoo low_stock threshold is agreed.
         { id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", prompt: LOW_STOCK_CHECK, enabled: false },
       ],
-      kpis: ["No stock-out without warning", "Every invoice filed within a day"],
+      kpis: ["No stock-out without warning", "Every invoice filed within a day", "Every supplier price list in the brain within a day"],
       autonomyNotes:
         "May file notes and post internal Odoo notes for review. Purchase orders, payments and any commitment to a supplier always need Dave.",
     },
