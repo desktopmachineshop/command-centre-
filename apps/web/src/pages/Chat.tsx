@@ -1,9 +1,10 @@
-import type { AgentMessage, Task } from "@cc/core";
-import { type FormEvent, useEffect, useState } from "react";
+import type { AgentMessage, Proposal, Task } from "@cc/core";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import type { Api } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { Icon } from "../icons";
 import { Empty, ErrorBanner, PageHead, VTag } from "../ui";
+import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
 
 type Turn = { key: number; text: string; task: Task; messages: AgentMessage[]; result?: string };
@@ -15,6 +16,53 @@ const REPLYABLE: Task["status"][] = ["done", "awaiting_approval", "failed"];
 function onLatest(ts: Turn[], taskId: string, f: (t: Turn) => Turn): Turn[] {
   for (let i = ts.length - 1; i >= 0; i--) if (ts[i]!.task.id === taskId) return ts.map((t, j) => (j === i ? f(t) : t));
   return ts;
+}
+
+type Chain = { taskIds: string[]; proposals: Proposal[] };
+
+/**
+ * The approvals of a chat thread, wherever the work went: the task's own and those of every role
+ * it handed off to. Kept live: an update to a known proposal patches it in place, and anything
+ * new in the chain (a handoff starting, a proposal from a role we haven't seen yet) refetches.
+ */
+function useChainProposals(api: Api, feed: LiveFeed, taskIds: string[]) {
+  const [chains, setChains] = useState<Record<string, Chain>>({});
+  const known = useRef(chains);
+  known.current = chains;
+  const ids = taskIds.join(",");
+
+  const refresh = useCallback(
+    (only?: string[]) => {
+      for (const id of only ?? taskIds) {
+        api
+          .chainProposals(id)
+          .then((chain) => setChains((cs) => ({ ...cs, [id]: chain })))
+          .catch(() => {});
+      }
+    },
+    [api, ids],
+  );
+  useEffect(() => refresh(), [refresh]);
+
+  useLive(feed, (m) => {
+    if (m.type === "proposal.updated") {
+      const p = m.proposal;
+      const owners = Object.entries(known.current).filter(([, c]) => p.taskId && c.taskIds.includes(p.taskId));
+      if (!owners.length) return refresh(); // maybe from a role a thread just handed work to
+      setChains((cs) => {
+        const next = { ...cs };
+        for (const [id, c] of owners) {
+          const has = c.proposals.some((x) => x.id === p.id);
+          next[id] = { ...c, proposals: has ? c.proposals.map((x) => (x.id === p.id ? p : x)) : [...c.proposals, p] };
+        }
+        return next;
+      });
+    }
+    if (m.type === "task.updated" && !Object.values(known.current).some((c) => c.taskIds.includes(m.task.id))) {
+      refresh(); // a new handoff task joins a chain
+    }
+  });
+  return chains;
 }
 
 /**
@@ -33,6 +81,10 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
   }, [api]);
+
+  // Proposals show inline on the latest turn of each task (follow-ups continue the same task).
+  const latestTurnOf = new Map(turns.map((t) => [t.task.id, t.key]));
+  const chains = useChainProposals(api, feed, [...latestTurnOf.keys()]);
 
   useLive(feed, (m) => {
     if (m.type === "run.message") {
@@ -98,6 +150,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
                 </a>
               </div>
               <Transcript messages={t.messages} />
+              {latestTurnOf.get(t.task.id) === t.key && <InlineProposals api={api} proposals={chains[t.task.id]?.proposals ?? []} />}
             </div>
           </div>
         ))}
@@ -137,5 +190,34 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         </button>
       </form>
     </section>
+  );
+}
+
+/** Approvals in the chat thread: the pending ones in full, the decided ones folded away. */
+function InlineProposals({ api, proposals }: { api: Api; proposals: Proposal[] }) {
+  if (!proposals.length) return null;
+  const pending = proposals.filter((p) => p.status === "pending");
+  const decided = proposals.filter((p) => p.status !== "pending");
+  return (
+    <div className="inline-proposals">
+      {pending.length > 0 && (
+        <p className="small muted">
+          {pending.length === 1 ? "Waiting for your approval:" : `${pending.length} waiting for your approval:`}
+        </p>
+      )}
+      {pending.map((p) => (
+        <ProposalCard key={p.id} api={api} proposal={p} />
+      ))}
+      {decided.length > 0 && (
+        <details>
+          <summary className="small muted">
+            {decided.length} action{decided.length === 1 ? "" : "s"} done or decided
+          </summary>
+          {decided.map((p) => (
+            <ProposalCard key={p.id} api={api} proposal={p} />
+          ))}
+        </details>
+      )}
+    </div>
   );
 }

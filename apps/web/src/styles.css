@@ -3446,3 +3446,36 @@ details[open] > summary .brain-tree-chevron {
   display: flex;
   align-items: center;
 }
+
+/* Video preview (video.tsx): rendered videos in approvals, chat and the Devices job list. */
+.video-preview {
+  margin: var(--sp-2) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+}
+.video-preview video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: #000;
+}
+.video-preview.portrait {
+  max-width: min(100%, 360px);
+}
+/* Approvals inside a chat reply (Chat.tsx). */
+.inline-proposals {
+  margin-top: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.inline-proposals > p {
+  margin: 0;
+}
+.inline-proposals .card {
+  margin: 0;
+}

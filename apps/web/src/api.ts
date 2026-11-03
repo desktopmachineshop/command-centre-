@@ -323,6 +323,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     digest: (options: { vertical?: string; date?: string } = {}) =>
       call<DigestDay>(`/digest?${new URLSearchParams(Object.entries(options).filter(([, v]) => v) as [string, string][])}`),
     proposals: (status?: string) => call<Proposal[]>(`/proposals${status ? `?status=${status}` : ""}`),
+    /** A task's proposals plus those of every task it handed off (the chat shows them inline). */
+    chainProposals: (taskId: string) => call<{ taskIds: string[]; proposals: Proposal[] }>(`/tasks/${encodeURIComponent(taskId)}/chain-proposals`),
     approve: (id: string) => post<Proposal>(`/proposals/${id}/approve`),
     reject: (id: string) => post<Proposal>(`/proposals/${id}/reject`),
     /** Change what a pending proposal will do before approving it. */

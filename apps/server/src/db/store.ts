@@ -523,6 +523,29 @@ export class Store {
     return rows.map(toProposal);
   }
 
+  /**
+   * A task and every task it handed off, at any depth (handoff events carry `fromTaskId`), with
+   * all their proposals oldest first: what a chat thread shows inline, wherever the work went.
+   */
+  async chainProposals(taskId: string): Promise<{ taskIds: string[]; proposals: Proposal[] }> {
+    const { rows: chain } = await this.pool.query(
+      `with recursive chain(id, depth) as (
+         select id, 0 from tasks where id = $1::uuid
+         union
+         select t.id, c.depth + 1 from tasks t
+           join events e on e.id = t.event_id and e.source = 'system' and e.kind = 'handoff'
+           join chain c on e.payload->>'fromTaskId' = c.id::text
+          where c.depth < 10
+       )
+       select id from chain`,
+      [taskId],
+    );
+    const taskIds = chain.map((r) => r.id as string);
+    if (!taskIds.length) return { taskIds, proposals: [] };
+    const { rows } = await this.pool.query("select * from proposals where task_id = any($1::uuid[]) order by created_at", [taskIds]);
+    return { taskIds, proposals: rows.map(toProposal) };
+  }
+
   /** Proposals of a vertical and policy that finished (executed or failed) within `[start, end)`. */
   async listProposalsDecidedBetween(vertical: string, policy: Policy, start: Date, end: Date): Promise<Proposal[]> {
     const { rows } = await this.pool.query(

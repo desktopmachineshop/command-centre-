@@ -198,6 +198,13 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json({ task, event, runs, proposals });
   });
 
+  /** The proposals of a task and of everything it handed off: a chat shows them inline. */
+  app.get("/tasks/:id/chain-proposals", async (c) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    if (!id.success || !(await store.getTask(id.data))) return c.json({ error: "not found" }, 404);
+    return c.json(await store.chainProposals(id.data));
+  });
+
   /** Re-runs a failed or deferred task now. An explicit retry ignores the daily budget once. */
   app.post("/tasks/:id/retry", async (c) => {
     const id = c.req.param("id");

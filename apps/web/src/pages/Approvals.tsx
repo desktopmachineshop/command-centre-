@@ -7,6 +7,7 @@ import { type LiveFeed, useLoad } from "../live";
 import { go, routeQuery } from "../router";
 import { SocialProposalBody, useSocialAccounts } from "../social";
 import { Empty, ErrorBanner, PageHead, Skeleton, Status, VTag } from "../ui";
+import { VideoPreview, videoOf } from "../video";
 
 export function Approvals({ api, feed, id }: { api: Api; feed: LiveFeed; id?: string }) {
   const { data, error } = useLoad(() => api.proposals("pending"), feed, (m) => m.type === "proposal.updated");
@@ -74,6 +75,8 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
   const [mode, setMode] = useState<"view" | "edit" | "changes">("view");
   const [sent, setSent] = useState(false);
   const social = proposal.actionType.startsWith("social.");
+  /** A rendered video to watch before approving (video productions propose social.campaign with `video`). */
+  const video = videoOf(proposal.payload);
   const socialAccounts = useSocialAccounts(api);
   const act = async (fn: (id: string) => Promise<unknown>) => {
     setBusy(true);
@@ -96,6 +99,7 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
         <Status value={proposal.status} />
       </div>
       <p className="title">{proposal.summary}</p>
+      {video && <VideoPreview video={video} title={typeof proposal.payload.title === "string" ? proposal.payload.title : proposal.summary} />}
       {social && <SocialProposalBody proposal={proposal} accounts={socialAccounts} />}
       <details>
         <summary className="muted small">Details</summary>
