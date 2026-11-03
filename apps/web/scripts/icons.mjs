@@ -12,7 +12,7 @@ const out = join(root, "public", "icons");
 mkdirSync(out, { recursive: true });
 
 const logo = readFileSync(join(root, "public", "icon.svg"), "utf8");
-const BRAND_BG = "#16181d";
+const BRAND_BG = "#0f172a";
 const ACCENT = "#2c5bd1";
 
 // Same paths as src/icons.tsx, drawn on a 24px grid.
@@ -33,7 +33,7 @@ const jobs = [
     "maskable-512.png",
     512,
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="${BRAND_BG}"/>` +
-      `<g transform="translate(256 256) scale(0.72) translate(-256 -256)"><circle cx="256" cy="256" r="150" fill="none" stroke="#5b8def" stroke-width="36"/><circle cx="256" cy="256" r="52" fill="#5b8def"/></g></svg>`,
+      `<g transform="translate(256 256) scale(0.72) translate(-256 -256)"><path d="M363.2 166 A140 140 0 1 0 363.2 346" fill="none" stroke="#2dd4bf" stroke-width="50"/><circle cx="256" cy="256" r="45" fill="#2dd4bf"/></g></svg>`,
   ],
   ...Object.entries(GLYPHS).map(([name, d]) => [
     `shortcut-${name}.png`,
