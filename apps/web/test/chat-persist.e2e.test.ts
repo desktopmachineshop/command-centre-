@@ -107,6 +107,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
       if (path === "/stats") return json({ pendingApprovals: 0, costTodayUsd: 0 });
       if (path === "/voice/config") return json({ stt: null, tts: null, maxUploadBytes: 0, maxSeconds: 60, language: "en-GB", calendar: false });
       if (path === "/chat") return json({ event: { id: "e1" }, task: { ...task, status: "queued" } }, 201);
+      if (path === `/tasks/${TASK}/reply`) return json({ ...task, status: "queued" });
       if (path === `/tasks/${TASK}/chain-proposals`) return json({ taskIds: [TASK], proposals: [] });
       if (path === `/tasks/${TASK}`) return json({ task, event: null, proposals: [], runs: [run("r1", 1, "Order 1042 shipped on Monday.")] });
       return json({ error: `unmocked ${path}` }, 404);
@@ -215,12 +216,44 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   }, 60_000);
 
+  it("dictates into the task's reply box too, and Send while dictating sends the reply", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    const { calls } = await setup(page, true);
+    await page.goto(`${base}/#/task/${TASK}`);
+    const reply = page.locator("form.reply-box");
+    await reply.waitFor({ timeout: 20_000 });
+    const box = reply.getByRole("textbox", { name: "Reply to the agent" });
+    await box.fill("Yes,");
+
+    await reply.getByRole("button", { name: "Dictate" }).click();
+    const stop = reply.getByRole("button", { name: "Stop dictating" });
+    expect(await stop.getAttribute("aria-pressed")).toBe("true");
+    await page.evaluate(() => (window as unknown as { __say: (t: string) => void }).__say("send it today"));
+    await expect.poll(() => box.inputValue()).toBe("Yes, send it today");
+    if (process.env.TASK_SHOTS) await page.screenshot({ path: `${process.env.TASK_SHOTS}/task-reply-dictating.png` });
+    await stop.click();
+    await reply.getByRole("button", { name: "Dictate" }).waitFor();
+    expect(calls.some((c) => c.path === `/tasks/${TASK}/reply`)).toBe(false); // dictation never sends by itself
+
+    await box.fill("");
+    await reply.getByRole("button", { name: "Dictate" }).click();
+    await page.evaluate(() => (window as unknown as { __say: (t: string) => void }).__say("use the tracked courier"));
+    await reply.getByRole("button", { name: "Send" }).click();
+    await expect.poll(() => calls.find((c) => c.path === `/tasks/${TASK}/reply`)?.body).toMatchObject({ text: "use the tracked courier" });
+    expect(errors).toEqual([]);
+  }, 60_000);
+
   it("hides the mic where the device can't listen", async () => {
     const page = await browser.newPage();
     await setup(page, false);
     await page.goto(`${base}/#/chat`);
     await page.getByRole("textbox", { name: "Message" }).waitFor({ timeout: 20_000 });
     // No recognition engine on the device, and no speech-to-text on the server.
+    expect(await page.getByRole("button", { name: "Dictate" }).count()).toBe(0);
+    await page.goto(`${base}/#/task/${TASK}`);
+    await page.locator("form.reply-box").waitFor({ timeout: 20_000 });
     expect(await page.getByRole("button", { name: "Dictate" }).count()).toBe(0);
   }, 60_000);
 });
