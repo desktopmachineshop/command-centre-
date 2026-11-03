@@ -11,6 +11,7 @@
 import { createContext, type CSSProperties, type ReactNode, useContext, useEffect, useId, useRef } from "react";
 import { Icon, type IconName } from "./icons";
 import type { ThemePref } from "./theme";
+import { CopyButton, errorReport } from "./copy";
 
 export type VerticalInfo = { id: string; name: string; color?: string | null };
 
@@ -70,10 +71,18 @@ export function Skeleton({ rows = 3 }: { rows?: number }) {
   );
 }
 
+/** An error line; a plain-text one gets a Copy button with a full report (see copy.tsx). */
 export function ErrorBanner({ children }: { children: ReactNode }) {
   return (
     <p className="error" role="alert">
       {children}
+      {typeof children === "string" && children.trim() && (
+        <span className="error-copy">
+          <CopyButton text={() => errorReport("Something went wrong", children)} label="error">
+            Copy error
+          </CopyButton>
+        </span>
+      )}
     </p>
   );
 }

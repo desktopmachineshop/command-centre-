@@ -7,6 +7,8 @@ import { type LiveFeed, useLive, useLoad } from "../live";
 import { ErrorBanner, Skeleton, Status, VTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
+import { useStickToBottom } from "../scroll";
+import { ErrorReport, type ReportFacts } from "../copy";
 
 export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: string }) {
   const { data, error } = useLoad(
@@ -18,16 +20,23 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   // Messages streamed while the run is in progress, before they are in the loaded detail.
   const [live, setLive] = useState<Record<string, AgentMessage[]>>({});
   const [retrying, setRetrying] = useState(false);
+  /** Narrow screens: Conversation or Actions. Wide screens show both side by side. */
+  const [tab, setTab] = useState<"conversation" | "actions">("conversation");
   const [retryError, setRetryError] = useState<string | null>(null);
   useLive(feed, (m) => {
     if (m.type === "run.message" && m.taskId === id) setLive((s) => ({ ...s, [m.runId]: [...(s[m.runId] ?? []), m.message] }));
   });
+
+  // The latest answer is at the bottom, above the reply box: open there and follow it as it streams.
+  const streamed = Object.values(live).reduce((n, m) => n + m.length, 0);
+  useStickToBottom(`${data?.runs.length ?? 0}:${streamed}:${data?.task.status ?? ""}:${tab}`, !!data && tab === "conversation");
 
   if (error) return <ErrorBanner>{error}</ErrorBanner>;
   if (!data) return <Skeleton rows={2} />;
   const { task, runs, proposals } = data;
   const liveOnly = Object.keys(live).filter((runId) => !runs.some((r) => r.id === runId));
   const canRetry = task.status === "failed" || task.status === "deferred";
+  const pending = proposals.filter((p) => p.status === "pending").length;
   const retry = async () => {
     setRetrying(true);
     setRetryError(null);
@@ -45,6 +54,28 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
       <a className="back-link" href="#/inbox">
         <Icon name="back" size={16} /> Inbox
       </a>
+      {proposals.length > 0 && (
+        <div className="task-tabs" role="tablist" aria-label="Task view">
+          <button type="button" role="tab" aria-selected={tab === "conversation"} className={tab === "conversation" ? "on" : ""} onClick={() => setTab("conversation")}>
+            Conversation
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "actions"}
+            className={tab === "actions" ? "on" : ""}
+            onClick={() => {
+              setTab("actions");
+              window.scrollTo({ top: 0 });
+            }}
+          >
+            Actions
+            {pending > 0 && <span className="badge">{pending}</span>}
+          </button>
+        </div>
+      )}
+      <div className={`task-layout ${proposals.length ? "has-actions" : ""} show-${tab}`}>
+      <div className="task-main">
       <div className="card">
         <div className="task-head">
           <VTag id={task.vertical} />
@@ -58,7 +89,12 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           <span>urgency {task.urgency.toFixed(1)}</span>
           <span>{ago(task.createdAt)}</span>
         </div>
-        {task.note && <p className={`small note status ${task.status}`}>{task.note}</p>}
+        {task.note &&
+          (task.status === "failed" ? (
+            <ErrorReport title="Task failed" error={task.note} facts={taskFacts(task)} />
+          ) : (
+            <p className={`small note status ${task.status}`}>{task.note}</p>
+          ))}
         {task.duplicateOf && (
           <p className="small">
             <a href={`#/task/${task.duplicateOf}`}>Open the original task</a>
@@ -76,22 +112,9 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
         {retryError && <ErrorBanner>{retryError}</ErrorBanner>}
       </div>
 
-      {(task.status === "done" || task.status === "awaiting_approval" || task.status === "failed") && <ReplyBox api={api} taskId={task.id} />}
-
-      {proposals.length > 0 && (
-        <>
-          <div className="section-title">
-            <h3>Proposed actions</h3>
-          </div>
-          {proposals.map((p) => (
-            <ProposalCard key={p.id} api={api} proposal={p} />
-          ))}
-        </>
-      )}
-
       {(runs.length > 0 || liveOnly.length > 0) && (
         <div className="section-title">
-          <h3>Runs</h3>
+          <h3>Conversation</h3>
         </div>
       )}
       {runs.map((run) => (
@@ -104,7 +127,13 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           </div>
           <div className="run-body">
             <Transcript messages={run.messages.length ? run.messages : (live[run.id] ?? [])} />
-            {run.error && <ErrorBanner>{run.error}</ErrorBanner>}
+            {run.error && (
+              <ErrorReport
+                title="Run failed"
+                error={run.error}
+                facts={[...taskFacts(task), ["Run", run.id], ["Runner", run.runner], ["Run started", run.startedAt], ["Run finished", run.finishedAt], ["Cost", usd(run.costUsd)]]}
+              />
+            )}
           </div>
         </div>
       ))}
@@ -120,6 +149,23 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           </div>
         </div>
       ))}
+      {(task.status === "done" || task.status === "awaiting_approval" || task.status === "failed") && <ReplyBox api={api} taskId={task.id} />}
+      </div>
+      {proposals.length > 0 && (
+        <aside className="task-actions" aria-label="Proposed actions">
+          <div className="section-title">
+            <h3>Proposed actions</h3>
+            {pending > 0 && <span className="muted small">{pending} waiting for you</span>}
+          </div>
+          {/* Waiting ones first: they're what this column is for. */}
+          {[...proposals]
+            .sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending"))
+            .map((p) => (
+              <ProposalCard key={p.id} api={api} proposal={p} />
+            ))}
+        </aside>
+      )}
+      </div>
     </section>
   );
 }
@@ -199,4 +245,16 @@ function TaskAsk({ prompt }: { prompt: string }) {
       )}
     </>
   );
+}
+
+/** What identifies a task in an error report. */
+function taskFacts(task: import("@cc/core").Task): ReportFacts {
+  return [
+    ["Task", task.id],
+    ["Business", task.vertical],
+    ["Role", task.role],
+    ["Status", task.status],
+    ["Created", task.createdAt],
+    ["Asked", askText(task.prompt).split("\n")[0]?.slice(0, 200)],
+  ];
 }

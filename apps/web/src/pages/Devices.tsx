@@ -6,6 +6,7 @@ import { type LiveFeed, useLoad } from "../live";
 import { go, useRouteQuery } from "../router";
 import { Empty, ErrorBanner, PageHead, Skeleton, Status } from "../ui";
 import { VideoPreview, videoOf } from "../video";
+import { ErrorReport } from "../copy";
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
@@ -87,6 +88,17 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
               {j.progress != null && ` · ${Math.round(j.progress * 100)}%`} · {ago(j.updatedAt)}
             </div>
             {j.status === "succeeded" && videoOf(j.result) && <VideoPreview video={videoOf(j.result)!} title={j.kind} />}
+            {j.status === "failed" && (
+              <ErrorReport
+                title={`${j.kind} job failed`}
+                error={
+                  j.result && typeof j.result === "object" && typeof (j.result as { error?: unknown }).error === "string"
+                    ? (j.result as { error: string }).error
+                    : JSON.stringify(j.result ?? "It failed without a message.")
+                }
+                facts={[["Job", j.id], ["Kind", j.kind], ["Computer", j.nodeId], ["Created", j.createdAt], ["Updated", j.updatedAt], ["Needs", j.requires.join(", ")]]}
+              />
+            )}
             {j.progress != null && j.status === "running" && (
               <div className="progress" role="progressbar" aria-valuenow={Math.round(j.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
                 <span style={{ width: `${Math.round(j.progress * 100)}%` }} />
