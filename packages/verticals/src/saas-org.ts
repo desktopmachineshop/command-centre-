@@ -52,7 +52,7 @@ export function saasRoles(product: string, options: { docsWriter?: boolean } = {
       reportsTo: "product-lead",
       aliases: ["devrel"],
       mission: `Tells people what ${product} does and why it matters: release notes, short demo videos and social posts. Works from what actually shipped, never from the roadmap.`,
-      skills: ["brain-notes", "social-platform-guide", "video-scriptwriter"],
+      skills: ["brain-notes", "social-platform-guide", "video-reel"],
       actions: ["social.post", "social.campaign", "video.produce", "brain.write"],
       kpis: ["Release note for every release", "One demo video a month"],
       autonomyNotes: "All posts and campaigns wait for Dave.",

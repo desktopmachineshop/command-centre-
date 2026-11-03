@@ -133,7 +133,7 @@ describe("video.produce chain", () => {
     } catch (err) {
       message = (err as Error).message;
     }
-    expect(message).toContain("video-scriptwriter skill");
+    expect(message).toContain("video-reel skill");
     expect(message).toContain("spec.product");
     expect(message).not.toContain('"code"');
     expect(() => executor.validate!({ spec }, { vertical: "openv" })).not.toThrow();

@@ -20,7 +20,7 @@ import type { ActionExecutor } from "./actions";
 
 /**
  * `video.produce`: Dave approves a VideoSpec (written by an agent with the
- * video-scriptwriter skill), then this turns it into worker jobs:
+ * video-reel skill), then this turns it into worker jobs:
  *
  *   [server TTS, if a cloud voice] → video.capture (browser) → video.render (ffmpeg, GPU optional)
  *     → social.campaign proposal (always held for approval) or a notification.
@@ -79,7 +79,7 @@ export function parseProducePayload(raw: unknown): VideoProducePayload {
   const r = VideoProducePayload.safeParse(raw);
   if (r.success) return r.data;
   throw new Error(
-    `video.produce payload is not a valid VideoSpec; write it as the video-scriptwriter skill shows (id, product "openv"|"opend", type, format "9:16"|"16:9"|"1:1", brand, scenes with kind title|capture|slide|image|outro):\n${z.prettifyError(r.error)}`,
+    `video.produce payload is not a valid VideoSpec; write it as the video-reel skill shows (id, product "openv"|"opend"|"dms"|"3dpandme", type, format "9:16"|"16:9"|"1:1", brand, scenes with kind title|capture|slide|image|outro):\n${z.prettifyError(r.error)}`,
   );
 }
 
@@ -101,7 +101,7 @@ export class VideoProductions {
     return {
       "video.produce": {
         description:
-          "Produce a product video from a VideoSpec (see the video-scriptwriter skill) on a desktop worker, then propose a social.campaign with it. " +
+          "Produce a product video from a VideoSpec (see the video-reel skill) on a desktop worker, then propose a social.campaign with it. " +
           "payload: { spec, targets?: [{ accountId, text, title? }], publishAt?, encoder? }",
         validate: (payload) => {
           parseProducePayload(payload);

@@ -7,7 +7,7 @@ export default defineVertical({
   brainFolder: "3dpandme",
   color: "#cf4f8f",
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
-  skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide"],
+  skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
   mcpServers: ["brain", "odoo", "pa"],
   policies: { "brain.write": "auto", "email.label": "auto" },
   roles: [
@@ -32,9 +32,10 @@ export default defineVertical({
       mission:
         "Takes a video from plan to published: outline and shot list, title, description and chapters, then the announcement across every 3dpandme account. Heavy edits and renders run as jobs on Dave's PCs.",
       intents: ["publishing"],
-      skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide"],
-      mcpServers: ["brain"],
-      actions: ["social.campaign", "brain.write"],
+      skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
+      // odoo for blog posts and DMS products the reels mention.
+      mcpServers: ["brain", "odoo"],
+      actions: ["social.campaign", "video.produce", "brain.write"],
       kpis: ["One video a fortnight", "Announcement campaign ready on publish day"],
       autonomyNotes: "May write outlines and metadata in the brain. Uploads, publishing and announcement campaigns wait for Dave.",
     },
