@@ -3504,7 +3504,7 @@ details[open] > summary .brain-tree-chevron {
   border-radius: var(--r-md);
 }
 
-/* Dictation mic in the chat composer (Chat.tsx, voice/dictation.ts): left of Send. */
+/* Dictation mic in the composer (composer.tsx, voice/dictation.ts): left of Send. */
 .composer.has-mic {
   grid-template-columns: auto 1fr auto auto;
   grid-template-areas:
