@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
+import { clientIp } from "../accounts/http";
 import { bearer, tokenMatches } from "../auth";
 import { type DesktopService, LinkError } from "../desktop";
 import { DESKTOP_UPLOAD_AUDIENCE, type GithubOidcVerifier, OidcError } from "../github-oidc";
@@ -13,6 +14,8 @@ export interface DesktopApiDeps {
   /** `owner/repo` whose Desktop workflow may upload installers. */
   repository: string;
   installerMaxBytes: number;
+  /** Proxies in front of the server, for the client IP automatic linking compares (TRUSTED_PROXY_HOPS). */
+  trustedProxyHops?: number;
 }
 
 const onError = (err: Error, c: Context) => {
@@ -24,6 +27,7 @@ const onError = (err: Error, c: Context) => {
 };
 
 const Start = z.object({ name: z.string().max(200).default("") });
+const Approve = z.object({ autoKey: z.string().min(1).max(200).optional() });
 const Poll = z.object({ pollToken: z.string().min(1).max(200) });
 const InstallerMeta = z.object({
   version: z.string().regex(/^[\w.+-]{1,64}$/),
@@ -41,7 +45,7 @@ export function desktopPublicRoutes(deps: DesktopApiDeps) {
 
   app.post("/desktop/link", async (c) => {
     const body = Start.parse(await c.req.json().catch(() => ({})));
-    return c.json(deps.desktop.startLink(body.name), 201);
+    return c.json(deps.desktop.startLink(body.name, clientIp(c, deps.trustedProxyHops ?? 1)), 201);
   });
 
   app.post("/desktop/link/poll", async (c) => {
@@ -77,7 +81,9 @@ export function desktopApiRoutes(deps: DesktopApiDeps) {
 
   app.post("/desktop/link/:code/approve", async (c) => {
     const p = c.get("principal");
-    const device = await deps.desktop.approve(c.req.param("code"), p.kind === "user" ? p.user.id : null);
+    const body = Approve.parse(await c.req.json().catch(() => ({})));
+    const auto = body.autoKey ? { key: body.autoKey, ip: clientIp(c, deps.trustedProxyHops ?? 1) } : undefined;
+    const device = await deps.desktop.approve(c.req.param("code"), p.kind === "user" ? p.user.id : null, auto);
     return c.json(device, 201);
   });
 

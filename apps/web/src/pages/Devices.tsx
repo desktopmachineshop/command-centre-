@@ -14,7 +14,9 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
   const jobs = useLoad(api.jobs, feed, (m) => m.type === "job.updated");
   // A computer links as soon as its worker connects, which also sends node.updated.
   const devices = useLoad(api.desktopDevices, feed, (m) => m.type === "node.updated");
-  const linkCode = useRouteQuery().get("link");
+  const query = useRouteQuery();
+  const linkCode = query.get("link");
+  const autoKey = query.get("auto");
 
   const deviceFor = (nodeId: string) => devices.data?.find((d) => d.nodeId === nodeId);
   const waiting = devices.data?.filter((d) => !d.nodeId || !nodes.data?.some((n) => n.id === d.nodeId)) ?? [];
@@ -22,7 +24,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
   return (
     <section>
       <PageHead title="Devices" sub="Worker PCs that run ffmpeg, GPU and local Claude Code jobs." />
-      {linkCode && <LinkApproval api={api} code={linkCode} onLinked={devices.reload} />}
+      {linkCode && <LinkApproval api={api} code={linkCode} autoKey={autoKey} onLinked={devices.reload} />}
       <DesktopDownload api={api} />
       {nodes.error && <ErrorBanner>{nodes.error}</ErrorBanner>}
       {!nodes.data && !nodes.error && <Skeleton rows={1} />}
@@ -95,8 +97,12 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
   );
 }
 
-/** The desktop app opens `#/devices?link=<code>` after you sign in: approve that computer here. */
-function LinkApproval({ api, code, onLinked }: { api: Api; code: string; onLinked: () => void }) {
+/**
+ * The desktop app opens `#/devices?link=<code>&auto=<key>` in its own window: once you are signed
+ * in, that links the computer by itself (the server checks the key and that it's the same network).
+ * Without a key, or if the server says no, you approve it with the button.
+ */
+function LinkApproval({ api, code, autoKey, onLinked }: { api: Api; code: string; autoKey: string | null; onLinked: () => void }) {
   const [info, setInfo] = useState<{ name: string; code: string } | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "linking" | "linked" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -105,15 +111,24 @@ function LinkApproval({ api, code, onLinked }: { api: Api; code: string; onLinke
     setState("loading");
     api
       .desktopLink(code)
-      .then((l) => {
+      .then(async (l) => {
         setInfo(l);
-        setState(l.approved ? "linked" : "ready");
+        if (l.approved) return setState("linked");
+        if (!autoKey) return setState("ready");
+        setState("linking");
+        try {
+          await api.approveDesktopLink(code, autoKey);
+          setState("linked");
+          onLinked();
+        } catch {
+          setState("ready"); // not allowed automatically from here: ask with the button
+        }
       })
       .catch((e: Error) => {
         setError(e instanceof ApiError && e.status === 404 ? "This link code has expired. Choose Link this computer in the desktop app's tray menu to start again." : e.message);
         setState("error");
       });
-  }, [code]);
+  }, [code, autoKey]);
 
   const approve = async () => {
     setState("linking");

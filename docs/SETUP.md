@@ -289,12 +289,20 @@ There are no Railway variables to set: the app links to your command centre when
 1. In the app, open **Devices** and press **Download for Windows**. Run the `-setup.exe`. The
    installer is unsigned, so SmartScreen asks you to confirm (**More info → Run anyway**).
 2. On first start the app opens your command centre. Sign in with your email and password, as
-   on the phone, and press **Link this computer** on the card that appears. Check the code it
-   shows matches the one in the desktop app (tray tooltip or **Settings…**).
+   on the phone. That's all: the computer links itself. (If the card asks you to press **Link this
+   computer** instead, check the code matches the one in the desktop app, tray tooltip or
+   **Settings…**, and press it.)
 3. A few seconds later the computer shows on the Devices page as online.
 
-Behind the scenes the app asked the server for a link code, opened `#/devices?link=<code>`, and
-polled until you approved it. The server then handed it this computer's own worker token, which it
+Behind the scenes the app asked the server for a link code, opened
+`#/devices?link=<code>&auto=<key>` in its own window, and polled until it was approved.
+- **Automatic approval:** once you're signed in, that page approves the link by itself. The
+  server allows it only when the key matches the one it gave this app and the approval comes from
+  the same IP address as the app. A link someone sends you from another network carries their own
+  code and key, so it still shows the button, and so do installs from before this.
+- **No expiry while it waits:** the code stays alive while the app keeps polling, up to a day, so
+  taking a while to sign in (or resetting your password first) doesn't break the link. If the
+  server loses the code (a restart or deploy), the app gets a new one and opens the page again. The server then handed it this computer's own worker token, which it
 keeps in `worker.json` (the server stores only a hash). **Unlink** on the Devices page revokes that
 token and disconnects the computer at once; choose **Link this computer…** in the tray to link it
 again. The window keeps its own session cookie (in WebView2's profile), so it stays signed in

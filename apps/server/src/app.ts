@@ -312,6 +312,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     verifyOidc: overrides.githubOidc ?? createGithubOidcVerifier(),
     repository: config.desktopRepo,
     installerMaxBytes: 1024 * 1024 * 1024,
+    trustedProxyHops: config.trustedProxyHops,
   };
   // --- end desktop ---
   const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerAuth };

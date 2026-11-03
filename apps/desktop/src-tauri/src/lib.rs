@@ -3,14 +3,17 @@
 //! is open, and lives in the tray.
 //!
 //! Linking: the app has no shared token to type in. It asks the server for a link
-//! code, opens the server's app at `#/devices?link=<code>` where Dave signs in and
-//! presses "Link this computer", and polls until the server hands it this
-//! computer's own worker token (see apps/server/src/desktop.ts).
+//! code, opens the server's app at `#/devices?link=<code>&auto=<key>` where Dave
+//! signs in, and polls until the server hands it this computer's own worker token
+//! (see apps/server/src/desktop.ts). The `auto` key lets that page approve by
+//! itself once Dave is signed in, so no button press is needed; the server also
+//! checks the approval comes from this computer's network. The code stays alive
+//! while the app polls, and a code the server has lost (a restart) is replaced.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -299,6 +302,9 @@ fn forget_link(app: &AppHandle) {
 struct LinkStart {
     code: String,
     poll_token: String,
+    /// Older servers don't send one; the page then asks for the button.
+    #[serde(default)]
+    auto_key: String,
 }
 
 #[derive(Deserialize)]
@@ -341,10 +347,10 @@ fn begin_link(app: &AppHandle) {
         let current = |app: &AppHandle| app.state::<AppState>().link_generation.load(Ordering::SeqCst) == generation;
         *app.state::<AppState>().link_code.lock().unwrap() = Some(start.code.clone());
         set_status(&app, &format!("waiting for you to approve {} in the window", start.code));
-        open_main_at(&app, &format!("{base}/#/devices?link={}", start.code));
+        open_main_at(&app, &link_page_url(&base, &start.code, &start.auto_key));
 
-        let deadline = Instant::now() + Duration::from_secs(11 * 60);
-        while Instant::now() < deadline {
+        // No deadline of our own: the server keeps the code alive while we poll (up to a day).
+        loop {
             std::thread::sleep(Duration::from_secs(2));
             if !current(&app) {
                 return; // a newer link attempt took over
@@ -376,10 +382,24 @@ fn begin_link(app: &AppHandle) {
             }
         }
         if current(&app) {
+            // The server lost the code (it restarted, or a day passed): start again with a new one.
             *app.state::<AppState>().link_code.lock().unwrap() = None;
-            set_status(&app, "link code expired - choose Link this computer");
+            set_status(&app, "link code expired - getting a new one");
+            std::thread::sleep(Duration::from_secs(5));
+            if current(&app) && load_settings(&app).token.is_empty() {
+                begin_link(&app);
+            }
         }
     });
+}
+
+/// The approval page the app opens in its own window. The key only ever goes in this URL.
+fn link_page_url(base: &str, code: &str, auto_key: &str) -> String {
+    if auto_key.is_empty() {
+        format!("{base}/#/devices?link={code}")
+    } else {
+        format!("{base}/#/devices?link={code}&auto={auto_key}")
+    }
 }
 
 fn stop_worker(app: &AppHandle) {
@@ -601,7 +621,13 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{describe_status, is_unlinked};
+    use super::{describe_status, is_unlinked, link_page_url};
+
+    #[test]
+    fn puts_the_auto_key_only_in_the_link_page() {
+        assert_eq!(link_page_url("https://cc.example", "ABCD-EFGH", "k3y_-x"), "https://cc.example/#/devices?link=ABCD-EFGH&auto=k3y_-x");
+        assert_eq!(link_page_url("https://cc.example", "ABCD-EFGH", ""), "https://cc.example/#/devices?link=ABCD-EFGH");
+    }
 
     #[test]
     fn spots_an_unlinked_computer() {
