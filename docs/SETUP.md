@@ -308,6 +308,27 @@ token and disconnects the computer at once; choose **Link this computer…** in 
 again. The window keeps its own session cookie (in WebView2's profile), so it stays signed in
 across restarts; it shows up under **Settings → Signed-in devices** as Edge on Windows.
 
+#### Roles: one-click installs for what a computer is for
+
+On the Devices page, every computer lists its **roles** with what each needs, ticked when it's
+installed:
+
+| Role | Needs | Installed from the page |
+| --- | --- | --- |
+| **Media production** | ffmpeg, Chrome (Edge also counts), graphics card (optional), DaVinci Resolve (optional) | ffmpeg, Chrome |
+| **Local Claude Code** | Git, Claude Code | Git, Claude Code |
+
+**Install …** under a role installs what that role is missing on that computer, from the phone or
+the app. It queues a `setup.install` job only that computer takes (it waits if it's offline); the
+worker installs each piece with `winget install --exact --silent`, refreshes its PATH, detects
+again and reports back, so the ticks and its capabilities update without restarting the app.
+Windows may ask on the PC for permission to install, so be at the computer for the first run.
+DaVinci Resolve needs a Blackmagic sign-up, so it links to the download instead; a graphics card
+shows as available or not. Computers without winget (or not on Windows) show what they have and
+no button. The roles and their winget package ids are in `packages/core/src/setup.ts`; the job
+names only components from that list, and the worker ignores anything else, so the server can't
+make a computer install arbitrary software.
+
 #### Where the download comes from
 
 The **Desktop** GitHub workflow builds the installer on every push to the default branch that

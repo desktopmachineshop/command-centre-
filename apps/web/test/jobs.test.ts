@@ -9,7 +9,7 @@ describe("why a queued job is waiting", () => {
   it("names the missing capability on the closest online computer, and how to get it", () => {
     const reason = waitingReason(capture, [pc("Laptop", []), pc("Workshop PC", ["ffmpeg", "gpu"]), pc("Old PC", ["ffmpeg", "browser"], false)]);
     expect(reason).toContain("no online computer has browser (Workshop PC is missing it)");
-    expect(reason).toContain("update the desktop app");
+    expect(reason).toContain("press Install under Media production");
     expect(reason).toContain("Or cancel it.");
   });
 
@@ -24,5 +24,15 @@ describe("why a queued job is waiting", () => {
 
   it("has nothing to say about jobs that aren't queued", () => {
     expect(waitingReason({ ...capture, status: "running" as never }, [])).toBeNull();
+  });
+});
+
+describe("a job for one computer", () => {
+  const install = { status: "queued" as const, requires: [] as never, targetNodeId: "studio" };
+  it("waits for that computer, not any other", () => {
+    expect(waitingReason(install, [{ ...pc("Laptop", []), id: "laptop" }, { ...pc("Studio PC", [], false), id: "studio" }])).toBe(
+      "Waiting for Studio PC to come online. Open the desktop app on it.",
+    );
+    expect(waitingReason(install, [{ ...pc("Studio PC", []), id: "studio" }])).toBe("Waiting for Studio PC to finish its current job.");
   });
 });

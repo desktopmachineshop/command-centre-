@@ -8,6 +8,7 @@ import { Empty, ErrorBanner, PageHead, Skeleton, Status } from "../ui";
 import { VideoPreview, videoOf } from "../video";
 import { ErrorReport } from "../copy";
 import { waitingReason } from "../jobs";
+import { DeviceRoles } from "../device-roles";
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
@@ -26,7 +27,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   return (
     <section>
-      <PageHead title="Devices" sub="Worker PCs that run ffmpeg, GPU and local Claude Code jobs." />
+      <PageHead title="Devices" sub="Worker PCs that run ffmpeg, GPU and local Claude Code jobs. Install what each one needs for its role with one click." />
       {linkCode && <LinkApproval api={api} code={linkCode} autoKey={autoKey} onLinked={devices.reload} />}
       <DesktopDownload api={api} />
       {nodes.error && <ErrorBanner>{nodes.error}</ErrorBanner>}
@@ -38,7 +39,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
         {nodes.data?.map((n) => {
           const device = deviceFor(n.id);
           return (
-            <li key={n.id} className="item static device-row">
+            <li key={n.id} className="item static device-row top">
               <span className="device-icon">
                 <Icon name="devices" />
               </span>
@@ -50,6 +51,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
                 <div className="muted small">
                   {n.capabilities.join(", ") || "no capabilities"} · seen {ago(n.lastSeen)}
                 </div>
+                <DeviceRoles api={api} node={n} jobs={jobs.data ?? []} />
                 {device && <Unlink api={api} device={device} onDone={devices.reload} />}
               </div>
             </li>

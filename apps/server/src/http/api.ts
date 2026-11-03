@@ -1,5 +1,5 @@
 import { BrainConflictError, parseNote, type PgBrain, serializeNote } from "@cc/brain";
-import { Capability, leadOf, ProposalStatus, ROOT_ROLE_ID, TaskStatus } from "@cc/core";
+import { Capability, leadOf, ProposalStatus, ROOT_ROLE_ID, SetupRoleId, TaskStatus } from "@cc/core";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
@@ -18,7 +18,7 @@ import { notificationRoutes } from "../notifications/routes";
 import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
-import type { WorkerService } from "../workers";
+import { SetupError, type WorkerService } from "../workers";
 import { type IntegrationService, integrationRoutes } from "../integrations";
 import type { ClaudeSetup } from "../integrations/claude-setup";
 import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
@@ -250,6 +250,16 @@ export function apiRoutes(deps: ApiDeps) {
   });
 
   app.get("/nodes", async (c) => c.json(await store.listNodes()));
+  /** Installs what a role (media, claude) is missing on that computer: a setup.install job for it alone. */
+  app.post("/nodes/:id/setup", async (c) => {
+    const { role } = z.object({ role: SetupRoleId }).parse(await c.req.json().catch(() => ({})));
+    try {
+      return c.json(await workers.installRole(c.req.param("id"), role), 201);
+    } catch (err) {
+      if (err instanceof SetupError) return c.json({ error: err.message }, err.status);
+      throw err;
+    }
+  });
   app.get("/jobs", async (c) => c.json(await store.listJobs({ limit: limit.parse(c.req.query("limit")) })));
   app.post("/jobs", async (c) => {
     const body = z

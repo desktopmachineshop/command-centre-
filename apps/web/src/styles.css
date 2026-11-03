@@ -2238,6 +2238,106 @@ a.stat:hover {
   align-items: center;
   gap: var(--sp-3);
 }
+.device-row.top {
+  align-items: flex-start;
+}
+
+/* Device roles: what each computer needs for media production / Claude Code (device-roles.tsx) */
+.device-roles {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 var(--sp-2);
+}
+.device-roles > p {
+  margin: 0;
+}
+.device-role {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  display: grid;
+  gap: var(--sp-2);
+}
+.device-role-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.device-role-head .grow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 10rem;
+}
+.device-role-title {
+  font-weight: 650;
+}
+.device-role-badge {
+  font-size: var(--fs-xs);
+  font-weight: 650;
+  color: var(--text-2);
+}
+.device-role-badge.ok {
+  color: var(--success);
+}
+.device-role-head button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+.device-role-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.device-role-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  column-gap: var(--sp-2);
+  align-items: baseline;
+  font-size: var(--fs-sm);
+}
+.device-role-mark {
+  display: inline-grid;
+  place-items: center;
+  align-self: start;
+  padding-top: 2px;
+  color: var(--text-3);
+}
+.device-role-item.installed .device-role-mark {
+  color: var(--success);
+}
+.device-role-item.missing .device-role-mark {
+  color: var(--danger);
+}
+.device-role-name {
+  font-weight: 550;
+}
+.device-role-state {
+  justify-self: end;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.device-role-item.installed .device-role-state {
+  color: var(--success);
+}
+.device-role-item.missing .device-role-state {
+  color: var(--danger);
+}
+.device-role-why {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  font-size: var(--fs-xs);
+}
+.device-role-error {
+  white-space: pre-line;
+}
 .device-icon {
   display: grid;
   place-items: center;

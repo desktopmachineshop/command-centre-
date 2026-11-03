@@ -224,6 +224,43 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(nodes.map((n: any) => [n.id, n.online])).toEqual([["desktop", true], ["laptop", true]]);
   });
 
+  it("installs a role's missing software on one computer only, and picks up what it installed", async () => {
+    const studioFrames: string[] = [];
+    const otherFrames: string[] = [];
+    const winget = { platform: "win32", installer: "winget" as const, installed: ["ffmpeg" as const] };
+    const peers: Record<string, Peer> = { "other-pc": { send: (d) => otherFrames.push(d) }, "studio-pc": { send: (d) => studioFrames.push(d) }, "old-pc": { send: () => {} } };
+    await ctx.server.workers.connect({ id: "other-pc", name: "Other PC", capabilities: [], setup: { ...winget, installed: [] } }, peers["other-pc"]!);
+    await ctx.server.workers.connect({ id: "studio-pc", name: "Studio PC", capabilities: ["ffmpeg"], setup: winget }, peers["studio-pc"]!);
+    await ctx.server.workers.connect({ id: "old-pc", name: "Old PC", capabilities: [] }, peers["old-pc"]!);
+    expect((await ctx.api("/api/nodes")).body.find((n: any) => n.id === "studio-pc").setup).toEqual(winget);
+
+    const res = await ctx.api("/api/nodes/studio-pc/setup", { method: "POST", json: { role: "media" } });
+    expect(res.status).toBe(201);
+    // Only what's missing and installable from here: Chrome (no GPU or DaVinci).
+    expect(res.body).toMatchObject({ kind: "setup.install", targetNodeId: "studio-pc", payload: { role: "media", components: ["browser"] } });
+    expect(studioFrames.some((f) => f.includes(`"job.assign"`) && f.includes(res.body.id))).toBe(true);
+    expect(otherFrames.some((f) => f.includes(res.body.id))).toBe(false);
+
+    // One install at a time per computer; unknown roles, computers and older apps are refused.
+    expect((await ctx.api("/api/nodes/studio-pc/setup", { method: "POST", json: { role: "claude" } })).status).toBe(409);
+    expect((await ctx.api("/api/nodes/studio-pc/setup", { method: "POST", json: { role: "everything" } })).status).toBe(400);
+    expect((await ctx.api("/api/nodes/nope/setup", { method: "POST", json: { role: "media" } })).status).toBe(404);
+    expect((await ctx.api("/api/nodes/old-pc/setup", { method: "POST", json: { role: "media" } })).body.error).toMatch(/older desktop app/);
+
+    // The worker installed it, says what it has now, and finishes the job.
+    await ctx.server.workers.handle("studio-pc", { type: "worker.capabilities", capabilities: ["ffmpeg", "browser"], setup: { ...winget, installed: ["ffmpeg", "browser"] } });
+    await ctx.server.workers.handle("studio-pc", { type: "job.complete", jobId: res.body.id, result: { installed: ["browser"] } });
+    const studio = (await ctx.api("/api/nodes")).body.find((n: any) => n.id === "studio-pc");
+    expect(studio).toMatchObject({ capabilities: ["ffmpeg", "browser"], setup: { installed: ["ffmpeg", "browser"] } });
+    expect((await ctx.api("/api/nodes/studio-pc/setup", { method: "POST", json: { role: "media" } })).body.error).toMatch(/has everything/);
+
+    // A capture job now goes to it.
+    const capture = (await ctx.api("/api/jobs", { method: "POST", json: { kind: "video.capture", requires: ["browser"] } })).body;
+    expect(studioFrames.some((f) => f.includes(`"job.assign"`) && f.includes(capture.id))).toBe(true);
+    await ctx.server.workers.handle("studio-pc", { type: "job.complete", jobId: capture.id, result: null });
+    for (const [id, peer] of Object.entries(peers)) await ctx.server.workers.disconnect(id, peer);
+  });
+
   it("cancels a job still waiting for a computer, and only then", async () => {
     // No connected computer has a browser, so it stays queued.
     const job = (await ctx.api("/api/jobs", { method: "POST", json: { kind: "video.capture", requires: ["browser"] } })).body;

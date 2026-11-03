@@ -2,11 +2,11 @@ import type { Capability, Job, WorkerNode } from "@cc/core";
 
 /** What to do on the PC to get a missing capability. */
 const HOW_TO_GET: Record<Capability, string> = {
-  browser: "update the desktop app (it brings screen capture) and make sure Chrome or Edge is installed",
-  ffmpeg: "install ffmpeg on the PC and restart the desktop app",
+  browser: "press Install under Media production for that PC below (or install Chrome or Edge on it)",
+  ffmpeg: "press Install under Media production for that PC below",
   gpu: "use a PC with a graphics card",
   davinci: "install DaVinci Resolve on the PC",
-  "claude-local": "install Claude Code on the PC",
+  "claude-local": "press Install under Local Claude Code for that PC below",
 };
 
 /**
@@ -14,8 +14,17 @@ const HOW_TO_GET: Record<Capability, string> = {
  * with everything it needs (and which capabilities are missing), or the capable ones are busy.
  * Null for jobs that aren't queued.
  */
-export function waitingReason(job: Pick<Job, "status" | "requires">, nodes: Pick<WorkerNode, "name" | "online" | "capabilities">[]): string | null {
+export function waitingReason(
+  job: Pick<Job, "status" | "requires"> & Pick<Partial<Job>, "targetNodeId">,
+  nodes: (Pick<WorkerNode, "name" | "online" | "capabilities"> & Partial<Pick<WorkerNode, "id">>)[],
+): string | null {
   if (job.status !== "queued") return null;
+  if (job.targetNodeId) {
+    // For one computer only (installing software on it).
+    const target = nodes.find((n) => n.id === job.targetNodeId);
+    if (!target) return "Waiting for a computer that is no longer listed. Cancel it.";
+    return target.online ? `Waiting for ${target.name} to finish its current job.` : `Waiting for ${target.name} to come online. Open the desktop app on it.`;
+  }
   const online = nodes.filter((n) => n.online);
   if (online.length === 0) return "Waiting: no computer is online. Open the desktop app on your PC.";
   const missingOn = (n: (typeof online)[number]) => job.requires.filter((c) => !n.capabilities.includes(c));

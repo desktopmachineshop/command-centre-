@@ -1,4 +1,4 @@
-import type { Event, Job, OrgConfig, OrgConfigVersion, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
+import type { Event, Job, SetupRoleId, OrgConfig, OrgConfigVersion, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
 import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
 import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
 
@@ -333,6 +333,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     /** Reject it and send the feedback to the agent, which proposes a revised version. */
     reviseProposal: (id: string, feedback: string) => post<{ proposal: Proposal; task: Task }>(`/proposals/${id}/revise`, { feedback }),
     nodes: () => call<WorkerNode[]>("/nodes"),
+    /** One click on the Devices page: install what a role is missing on that computer (a setup.install job). */
+    installRole: (nodeId: string, role: SetupRoleId) => post<Job>(`/nodes/${encodeURIComponent(nodeId)}/setup`, { role }),
     // --- desktop app: linking computers by signing in, and the installer download ---
     desktopDevices: () => call<DesktopDevice[]>("/desktop/devices"),
     unlinkDesktop: (id: string) => call<{ revoked: true }>(`/desktop/devices/${id}`, { method: "DELETE" }),

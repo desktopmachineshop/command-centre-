@@ -12,6 +12,8 @@ export interface JobContext {
   signal: AbortSignal;
   /** Uploads an output file to Command Centre storage; see ../storage.ts. */
   storage?: StorageUploader;
+  /** Re-detects what this computer can do and tells the server (after installing something). */
+  refresh?: () => Promise<void>;
 }
 
 /**
