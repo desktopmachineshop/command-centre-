@@ -36,3 +36,21 @@ describe("a job for one computer", () => {
     expect(waitingReason(install, [{ ...pc("Studio PC", []), id: "studio" }])).toBe("Waiting for Studio PC to finish its current job.");
   });
 });
+
+describe("desktop app versions", async () => {
+  const { newer } = await import("../src/pages/Devices");
+  it("compares x.y.z numerically", () => {
+    expect(newer("0.1.13", "0.1.12")).toBe(true);
+    expect(newer("0.1.9", "0.1.10")).toBe(false);
+    expect(newer("0.1.12", "0.1.12")).toBe(false);
+    expect(newer("1.0.0", "0.99.99")).toBe(true);
+  });
+});
+
+describe("screen capture that's off", () => {
+  it("says why on the closest computer", () => {
+    const job = { status: "queued" as const, requires: ["browser"] as never };
+    const node = { ...pc("mr-oreo", ["ffmpeg"]), setup: { platform: "win32", installer: "winget" as const, installed: [], capture: { ready: false, why: "Playwright's video recorder couldn't be downloaded." } } };
+    expect(waitingReason(job, [node])).toContain("(mr-oreo is missing it). Screen capture is off on mr-oreo: Playwright's video recorder couldn't be downloaded. To run it, press Install");
+  });
+});

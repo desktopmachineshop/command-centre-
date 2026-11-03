@@ -2,7 +2,7 @@ import type { Capability, Job, WorkerNode } from "@cc/core";
 
 /** What to do on the PC to get a missing capability. */
 const HOW_TO_GET: Record<Capability, string> = {
-  browser: "press Install under Media production for that PC below (or install Chrome or Edge on it)",
+  browser: "press Install under Media production for that PC below (it sets screen capture up again)",
   ffmpeg: "press Install under Media production for that PC below",
   gpu: "use a PC with a graphics card",
   davinci: "install DaVinci Resolve on the PC",
@@ -16,7 +16,7 @@ const HOW_TO_GET: Record<Capability, string> = {
  */
 export function waitingReason(
   job: Pick<Job, "status" | "requires"> & Pick<Partial<Job>, "targetNodeId">,
-  nodes: (Pick<WorkerNode, "name" | "online" | "capabilities"> & Partial<Pick<WorkerNode, "id">>)[],
+  nodes: (Pick<WorkerNode, "name" | "online" | "capabilities"> & Partial<Pick<WorkerNode, "id" | "setup">>)[],
 ): string | null {
   if (job.status !== "queued") return null;
   if (job.targetNodeId) {
@@ -33,5 +33,7 @@ export function waitingReason(
   const best = online.reduce((a, b) => (missingOn(b).length < missingOn(a).length ? b : a));
   const missing = missingOn(best);
   const how = missing.map((c) => HOW_TO_GET[c]).join("; ");
-  return `Waiting: no online computer has ${missing.join(" and ")} (${best.name} is missing ${missing.length > 1 ? "them" : "it"}). To run it, ${how}. Or cancel it.`;
+  const captureWhy = missing.includes("browser") ? best.setup?.capture?.why : undefined;
+  const why = captureWhy ? ` Screen capture is off on ${best.name}: ${captureWhy.replace(/\.$/, "")}.` : "";
+  return `Waiting: no online computer has ${missing.join(" and ")} (${best.name} is missing ${missing.length > 1 ? "them" : "it"}).${why} To run it, ${how}. Or cancel it.`;
 }

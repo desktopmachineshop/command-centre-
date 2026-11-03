@@ -46,11 +46,25 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
         id: "studio",
         name: "Studio PC",
         capabilities: ["ffmpeg", "gpu"],
-        setup: { platform: "win32", installer: "winget", installed: ["ffmpeg", "gpu", "git"] },
+        setup: {
+          platform: "win32",
+          installer: "winget",
+          installed: ["ffmpeg", "gpu", "git"],
+          capture: { ready: false, why: "Playwright's video recorder couldn't be downloaded" },
+          appVersion: "0.1.12",
+        },
         online: true,
         lastSeen: now,
       },
       { id: "old", name: "Old Laptop", capabilities: ["ffmpeg"], online: false, lastSeen: now },
+      {
+        id: "edit",
+        name: "Edit Bay",
+        capabilities: ["ffmpeg", "browser", "claude-local"],
+        setup: { platform: "win32", installer: "winget", installed: ["ffmpeg", "browser", "git", "claude-code"], appVersion: "0.1.13" },
+        online: true,
+        lastSeen: now,
+      },
     ];
     const jobs: unknown[] = [];
     const installs: unknown[] = [];
@@ -63,7 +77,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
       if (path === "/nodes") return json(nodes);
       if (path === "/jobs") return json(jobs);
       if (path === "/desktop/devices") return json([]);
-      if (path === "/desktop/installer") return json({ installer: null });
+      if (path === "/desktop/installer") return json({ installer: { version: "0.1.13", filename: "setup.exe", size: 1, sha256: "x", commit: null, uploadedAt: now } });
       if (path === "/nodes/studio/setup" && route.request().method() === "POST") {
         installs.push(route.request().postDataJSON());
         const job = { id: "j1", kind: "setup.install", requires: [], payload: { role: "claude", components: ["claude-code"] }, status: "queued", nodeId: null, targetNodeId: "studio", progress: null, result: null, createdAt: now, updatedAt: now };
@@ -82,20 +96,37 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
       expect.stringContaining("ffmpeg"),
       expect.stringContaining("Graphics card"),
     ]);
-    expect(await media.locator(".device-role-item", { hasText: "Chrome" }).textContent()).toContain("Not installed");
+    const capture = media.locator(".device-role-item", { hasText: "Screen capture" });
+    expect(await capture.textContent()).toContain("Not installed");
+    expect(await capture.locator(".device-role-reason").textContent()).toBe("Off: Playwright's video recorder couldn't be downloaded");
     expect(await media.locator(".device-role-item", { hasText: "DaVinci" }).getByRole("link").getAttribute("href")).toContain("blackmagicdesign.com");
-    await media.getByRole("button", { name: "Install Chrome" }).waitFor();
+    await media.getByRole("button", { name: "Install Screen capture" }).waitFor();
+
+    expect(await studio.locator(".device-version").textContent()).toBe("Desktop app 0.1.12 · 0.1.13 available: choose Check for updates in its tray menu");
+    expect(await page.locator(".device-row", { hasText: "Old Laptop" }).textContent()).toContain("Desktop app version unknown");
 
     const claude = studio.locator(".device-role", { hasText: "Local Claude Code" });
     expect(await claude.textContent()).toContain("1 missing");
     if (process.env.DEVICES_SHOT) await page.screenshot({ path: process.env.DEVICES_SHOT, fullPage: true });
     await claude.getByRole("button", { name: "Install Claude Code" }).click();
     await expect.poll(() => installs).toEqual([{ role: "claude" }]);
+    // Install doesn't fold the box; clicking a role's header does, and again unfolds it.
+    expect(await claude.getAttribute("open")).not.toBeNull();
+    await media.locator("summary .device-role-title").click();
+    expect(await media.getAttribute("open")).toBeNull();
+    expect(await media.locator(".device-role-item").first().isVisible()).toBe(false);
+    expect(await media.getByRole("button", { name: /^Install/ }).isVisible()).toBe(true);
+    await media.locator("summary .device-role-title").click();
+    expect(await media.getAttribute("open")).not.toBeNull();
 
     // An older app (no setup report) shows what its capabilities say, and how to get the button.
     const old = page.locator(".device-row", { hasText: "Old Laptop" });
     expect(await old.textContent()).toContain("Update the desktop app on this computer to install from here.");
     expect(await old.getByRole("button", { name: /^Install/ }).count()).toBe(0);
+    // Roles with everything they need start folded.
+    const edit = page.locator(".device-row", { hasText: "Edit Bay" });
+    expect(await edit.locator(".device-role[open]").count()).toBe(0);
+    expect(await edit.locator(".device-role-badge").allTextContents()).toEqual(["Ready", "Ready"]);
     expect(errors).toEqual([]);
   }, 60_000);
 });

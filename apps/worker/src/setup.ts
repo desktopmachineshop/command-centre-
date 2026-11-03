@@ -20,6 +20,10 @@ export interface SetupProbe {
   capabilities: Capability[];
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
+  /** Screen capture as prepareCapture found it; `browser` counts as installed only when it's ready. */
+  capture?: { ready: boolean; why?: string };
+  /** The desktop app's version, reported with the setup. */
+  appVersion?: string | null;
   /** Runs `winget --version` to see that it works; see findWinget. */
   run?: RunCommand;
 }
@@ -50,7 +54,7 @@ export async function detectSetup(options: SetupProbe): Promise<NodeSetup> {
   const platform = options.platform ?? process.platform;
   const has: Record<SetupComponentId, boolean> = {
     ffmpeg: which(options.ffmpegBin, env, platform) !== null,
-    browser: findBrowser(options.chromiumBin, env, platform) !== null,
+    browser: options.capture ? options.capture.ready : findBrowser(options.chromiumBin, env, platform) !== null,
     gpu: options.capabilities.includes("gpu"),
     davinci: options.capabilities.includes("davinci") || davinciPaths(platform, env).some((p) => existsSync(p)),
     git: which("git", env, platform) !== null,
@@ -60,6 +64,8 @@ export async function detectSetup(options: SetupProbe): Promise<NodeSetup> {
     platform,
     installer: (await findWinget(env, platform, options.run)) ? "winget" : null,
     installed: (Object.keys(has) as SetupComponentId[]).filter((id) => has[id]),
+    ...(options.capture ? { capture: { ready: options.capture.ready, ...(options.capture.why ? { why: options.capture.why.slice(0, 300) } : {}) } } : {}),
+    ...(options.appVersion ? { appVersion: options.appVersion } : {}),
   };
 }
 
@@ -113,6 +119,8 @@ export interface SetupHandlerOptions {
   /** winget's path; defaults to findWinget. */
   winget?: () => Promise<string | null> | string | null;
   run?: RunCommand;
+  /** Whether a browser is already there: then `browser` needs no Chrome, only capture set up again. */
+  hasBrowser?: () => boolean;
   /** Updates this process's PATH after installing (Windows: from the registry). */
   refreshPath?: () => Promise<void>;
 }
@@ -156,6 +164,11 @@ export function setupHandler(options: SetupHandlerOptions = {}) {
       for (const [i, pkg] of packages.entries()) {
         if (ctx.signal.aborted) break;
         const label = SETUP_COMPONENTS[pkg.component].label;
+        if (pkg.component === "browser" && (options.hasBrowser ?? (() => findBrowser(null) !== null))()) {
+          // Chrome or Edge is there: capture is set up again below (ctx.refresh), nothing to install.
+          results.push({ component: pkg.component, label, ok: true });
+          continue;
+        }
         ctx.progress(i / packages.length, `Installing ${label}`);
         try {
           const { code, output } = await run(winget, wingetArgs(pkg.id), ctx.signal);
@@ -167,7 +180,13 @@ export function setupHandler(options: SetupHandlerOptions = {}) {
       }
       ctx.progress(1, "Checking what's installed");
       await refreshPath().catch(() => {});
-      await ctx.refresh?.().catch(() => {});
+      const now = await ctx.refresh?.().catch(() => undefined);
+      // Chrome or Edge is there but capture still isn't: say why (usually the recorder download).
+      const capture = results.find((r) => r.component === "browser" && r.ok);
+      if (capture && now?.setup?.capture && !now.setup.capture.ready) {
+        capture.ok = false;
+        capture.error = now.setup.capture.why ?? "it still isn't ready";
+      }
 
       const failed = results.filter((r) => !r.ok);
       if (failed.length) {

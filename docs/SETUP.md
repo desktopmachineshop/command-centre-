@@ -315,7 +315,7 @@ installed:
 
 | Role | Needs | Installed from the page |
 | --- | --- | --- |
-| **Media production** | ffmpeg, Chrome (Edge also counts), graphics card (optional), DaVinci Resolve (optional) | ffmpeg, Chrome |
+| **Media production** | ffmpeg, screen capture (Chrome or Edge + Playwright's recorder), graphics card (optional), DaVinci Resolve (optional) | ffmpeg, screen capture |
 | **Local Claude Code** | Git, Claude Code | Git, Claude Code |
 
 **Install …** under a role installs what that role is missing on that computer, from the phone or
@@ -323,7 +323,9 @@ the app. It queues a `setup.install` job only that computer takes (it waits if i
 worker installs each piece with `winget install --exact --silent`, refreshes its PATH, detects
 again and reports back, so the ticks and its capabilities update without restarting the app.
 Windows may ask on the PC for permission to install, so be at the computer for the first run.
-DaVinci Resolve needs a Blackmagic sign-up, so it links to the download instead; a graphics card
+Screen capture ticks only when it works; when it's off, the page shows why (no browser, Playwright
+missing, or its video recorder couldn't be downloaded), and **Install** adds Chrome only if there's
+no Chrome or Edge, then sets capture up again. DaVinci Resolve needs a Blackmagic sign-up, so it links to the download instead; a graphics card
 shows as available or not. Computers without winget (or not on Windows) show what they have and
 no button. The roles and their winget package ids are in `packages/core/src/setup.ts`; the job
 names only components from that list, and the worker ignores anything else, so the server can't
@@ -363,6 +365,13 @@ A linked app updates itself (Tauri's updater, `apps/desktop/src-tauri/src/lib.rs
 - **A new key:** run `pnpm --filter @cc/desktop tauri signer generate -w command-centre.key`,
   put the `.pub` contents in `plugins.updater.pubkey`, and set the two secrets from the key file
   and its password. Apps built with the old public key must be reinstalled by hand once.
+- **Which version:** the tray menu shows **Version 0.1.N** under the worker status, the
+  **Settings…** window shows it at the bottom, and the Devices page shows each computer's version
+  (with "0.1.N available" when it's behind the latest build).
+- **Builds up to 0.1.12 can't update themselves:** they never registered the updater plugin, so
+  **Check for updates** stays on "Checking for updates…". Install a newer build once from the
+  Devices page download; after that, updates install themselves. A failed check now shows its
+  error in the tray item.
 
 Closing the window keeps the app in the tray. The tray menu has the worker's status (online/idle,
 busy with a job and its progress, or offline and retrying), **Open**, **Worker on** (untick it to

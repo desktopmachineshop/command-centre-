@@ -39,8 +39,8 @@ export const SETUP_COMPONENTS: Record<SetupComponentId, SetupComponent> = {
   ffmpeg: { id: "ffmpeg", label: "ffmpeg", why: "renders and converts video", capability: "ffmpeg", install: { kind: "winget", id: "Gyan.FFmpeg" } },
   browser: {
     id: "browser",
-    label: "Chrome",
-    why: "screen capture for walkthrough videos (Edge works too)",
+    label: "Screen capture",
+    why: "records walkthrough videos with Chrome or Edge (Install adds Chrome if neither is there, and sets capture up again)",
     capability: "browser",
     install: { kind: "winget", id: "Google.Chrome" },
   },
@@ -95,6 +95,13 @@ export const NodeSetup = z.object({
   /** The package manager it can install with; null when it can't install anything itself. */
   installer: z.enum(["winget"]).nullable(),
   installed: z.array(SetupComponentId),
+  /**
+   * Screen capture: whether it works and, if not, why (no browser, Playwright missing, or its
+   * video recorder couldn't be downloaded). `installed` has `browser` only when it works.
+   */
+  capture: z.object({ ready: z.boolean(), why: z.string().max(300).optional() }).optional(),
+  /** The desktop app version on this computer (absent for a worker run by hand). */
+  appVersion: z.string().max(32).optional(),
 });
 export type NodeSetup = z.infer<typeof NodeSetup>;
 
