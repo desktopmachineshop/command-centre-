@@ -9,6 +9,12 @@
 //! itself once Dave is signed in, so no button press is needed; the server also
 //! checks the approval comes from this computer's network. The code stays alive
 //! while the app polls, and a code the server has lost (a restart) is replaced.
+//!
+//! Updates: a linked app asks the server for a newer build (`/api/desktop/update`,
+//! with its device token) when it starts, installing it straight away, and every
+//! few hours after, offering it in the tray. Installers are signed in the Desktop
+//! workflow and the updater checks that signature against the public key in
+//! tauri.conf.json before running anything.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,6 +29,10 @@ use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder,
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
+
+/// How often a running app looks for a newer build.
+const UPDATE_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// The server this build was made for (the Desktop workflow sets it), so a fresh
 /// install needs no typing: it goes straight to signing in.
@@ -68,6 +78,8 @@ struct AppState {
     worker: Mutex<Worker>,
     status_item: MenuItem<Wry>,
     worker_item: CheckMenuItem<Wry>,
+    /// "Check for updates", or "Install update x.y.z" once one is found.
+    update_item: MenuItem<Wry>,
     /// Bumped by every new link attempt, so an older one stops polling.
     link_generation: AtomicU64,
     /// The code of the link waiting for approval, shown on the settings page.
@@ -402,6 +414,74 @@ fn link_page_url(base: &str, code: &str, auto_key: &str) -> String {
     }
 }
 
+/// The update check URL for this server; the updater fills in the `{{...}}` parts.
+fn update_endpoint(base: &str) -> String {
+    format!("{base}/api/desktop/update?current_version={{{{current_version}}}}&target={{{{target}}}}&arch={{{{arch}}}}")
+}
+
+/// Looks for a newer signed build on the server. With `install`, downloads and runs it
+/// (the app restarts into the new version); otherwise offers it in the tray menu.
+/// Only a linked computer can ask: the server checks its device token.
+fn check_for_update(app: &AppHandle, install: bool) {
+    let settings = load_settings(app);
+    let Some(base) = server_base(&settings.server_url) else { return };
+    if settings.token.is_empty() {
+        if install {
+            set_update_item(app, "Check for updates (link this computer first)");
+        }
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = async {
+            let endpoint = Url::parse(&update_endpoint(&base)).map_err(|e| e.to_string())?;
+            let stopper = app.clone();
+            let updater = app
+                .updater_builder()
+                .endpoints(vec![endpoint])
+                .and_then(|b| b.header("Authorization", format!("Bearer {}", settings.token)))
+                .map_err(|e| e.to_string())?
+                .timeout(Duration::from_secs(120))
+                // The installer replaces the worker's files too: stop it first.
+                .on_before_exit(move || stop_worker(&stopper))
+                .build()
+                .map_err(|e| e.to_string())?;
+            let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+                return Ok::<Option<String>, String>(None);
+            };
+            if !install {
+                return Ok(Some(update.version.clone()));
+            }
+            set_update_item(&app, &format!("Updating to {}...", update.version));
+            update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+            // Windows exits inside download_and_install; elsewhere, restart into the new version.
+            app.restart();
+        }
+        .await;
+        match result {
+            Ok(Some(version)) => set_update_item(&app, &format!("Install update {version}")),
+            Ok(None) => set_update_item(&app, &format!("Check for updates (up to date, {})", app.package_info().version)),
+            Err(err) => {
+                eprintln!("update check: {err}");
+                set_update_item(&app, "Check for updates (last check failed)");
+            }
+        }
+    });
+}
+
+fn set_update_item(app: &AppHandle, text: &str) {
+    let _ = app.state::<AppState>().update_item.set_text(text);
+}
+
+/// Checks again every few hours while the app runs; a found update waits in the tray menu.
+fn schedule_update_checks(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(UPDATE_EVERY);
+        check_for_update(&app, false);
+    });
+}
+
 fn stop_worker(app: &AppHandle) {
     let state = app.state::<AppState>();
     let mut worker = state.worker.lock().unwrap();
@@ -556,14 +636,16 @@ pub fn run() {
             let worker_item = CheckMenuItem::with_id(app, "worker", "Worker on", true, settings.worker_enabled, None::<&str>)?;
             let link_item = MenuItem::with_id(app, "link", "Link this computer...", true, None::<&str>)?;
             let settings_item = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
+            let update_item = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&status_item, &separator, &open_item, &worker_item, &link_item, &settings_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&status_item, &separator, &open_item, &worker_item, &link_item, &settings_item, &update_item, &quit_item])?;
 
             app.manage(AppState {
                 worker: Mutex::new(Worker { child: None, generation: 0 }),
                 status_item,
                 worker_item,
+                update_item,
                 link_generation: AtomicU64::new(0),
                 link_code: Mutex::new(None),
             });
@@ -576,6 +658,10 @@ pub fn run() {
                     "open" => show_main(app, true),
                     "settings" => show_settings(app),
                     "link" => begin_link(app),
+                    "update" => {
+                        set_update_item(app, "Checking for updates...");
+                        check_for_update(app, true);
+                    }
                     "worker" => {
                         let mut settings = load_settings(app);
                         settings.worker_enabled = app.state::<AppState>().worker_item.is_checked().unwrap_or(true);
@@ -596,6 +682,10 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+
+            // A newer build is installed at once, before the worker has taken any jobs.
+            check_for_update(handle, true);
+            schedule_update_checks(handle);
 
             // Started by launch-at-login: stay in the tray until opened.
             let minimized = std::env::args().any(|a| a == "--minimized");
@@ -621,7 +711,15 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{describe_status, is_unlinked, link_page_url};
+    use super::{describe_status, is_unlinked, link_page_url, update_endpoint};
+
+    #[test]
+    fn builds_the_update_check_url() {
+        assert_eq!(
+            update_endpoint("https://cc.example"),
+            "https://cc.example/api/desktop/update?current_version={{current_version}}&target={{target}}&arch={{arch}}"
+        );
+    }
 
     #[test]
     fn puts_the_auto_key_only_in_the_link_page() {

@@ -313,6 +313,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     repository: config.desktopRepo,
     installerMaxBytes: 1024 * 1024 * 1024,
     trustedProxyHops: config.trustedProxyHops,
+    publicBaseUrl: () => config.publicBaseUrl,
   };
   // --- end desktop ---
   const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerAuth };

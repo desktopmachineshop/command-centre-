@@ -9,6 +9,12 @@ name: Desktop
 # (apps/server/src/github-oidc.ts). The server address defaults to
 # command.desktopmachineshop.com; set the CC_SERVER_URL repository variable to
 # use another.
+#
+# In-app updates: each build gets its own version (0.1.<run number>) and, when the
+# TAURI_SIGNING_PRIVATE_KEY (+ _PASSWORD) secrets are set, is signed for the Tauri
+# updater. The signature is uploaded with the installer, and linked apps then
+# update themselves (apps/desktop/src-tauri/src/lib.rs, /api/desktop/update).
+# Without the secrets the build still publishes, just not as an update.
 on:
   workflow_dispatch:
   push:
@@ -47,15 +53,30 @@ jobs:
       - name: Build the worker sidecar (cc-worker-x86_64-pc-windows-msvc.exe)
         run: pnpm --filter @cc/worker build:sea
       - name: Build the installers
+        shell: pwsh
         env:
           # Baked into the app, so a fresh install goes straight to signing in.
           CC_DEFAULT_SERVER_URL: ${{ env.CC_SERVER_URL }}
-        run: pnpm --filter @cc/desktop tauri build
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          # A version per build (major.minor from tauri.conf.json, patch = run number), so updates always move forward.
+          $base = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version.Split(".")
+          $version = "$($base[0]).$($base[1]).$env:GITHUB_RUN_NUMBER"
+          $signed = [bool]$env:TAURI_SIGNING_PRIVATE_KEY
+          if (-not $signed) { Write-Host "::warning::TAURI_SIGNING_PRIVATE_KEY isn't set: this build won't be offered as an in-app update" }
+          $config = @{ version = $version; bundle = @{ createUpdaterArtifacts = $signed } } | ConvertTo-Json -Compress
+          Set-Content -Path "$env:RUNNER_TEMP/tauri-ci.json" -Value $config
+          "CC_DESKTOP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          pnpm --filter @cc/desktop tauri build --config "$env:RUNNER_TEMP/tauri-ci.json"
+          if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
       - uses: actions/upload-artifact@v4
         with:
           name: command-centre-windows
           path: |
             apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.sig
             apps/desktop/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
       - name: Publish to the Devices page
@@ -65,11 +86,14 @@ jobs:
           $oidc = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" } `
             -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=command-centre-desktop"
           $exe = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
-          $base = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          $version = "$base+$env:GITHUB_RUN_NUMBER"
+          $version = $env:CC_DESKTOP_VERSION
+          # The updater signature, if this build was signed: sent with the installer.
+          $sigFile = "$($exe.FullName).sig"
+          $sigHeader = @()
+          if (Test-Path $sigFile) { $sigHeader = @("-H", "X-CC-Update-Signature: $((Get-Content $sigFile -Raw).Trim())") }
           $query = "version=$([uri]::EscapeDataString($version))&filename=$([uri]::EscapeDataString($exe.Name))&commit=$env:GITHUB_SHA"
           Write-Host "Uploading $($exe.Name) ($version) to $env:CC_SERVER_URL"
           curl.exe --fail-with-body -sS -X PUT `
-            -H "Authorization: Bearer $($oidc.value)" -H "Content-Type: application/octet-stream" `
+            -H "Authorization: Bearer $($oidc.value)" -H "Content-Type: application/octet-stream" @sigHeader `
             --data-binary "@$($exe.FullName)" "$env:CC_SERVER_URL/api/desktop/installer?$query"
           if ($LASTEXITCODE -ne 0) { throw "Upload failed" }

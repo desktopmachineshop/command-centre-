@@ -320,6 +320,29 @@ GitHub OIDC token, and the server checks GitHub signed it for this repository's 
 otherwise; it is also baked into the app, so a fresh install goes straight to signing in. The run
 also keeps the installers as the `command-centre-windows` artifact.
 
+#### Updates
+
+A linked app updates itself (Tauri's updater, `apps/desktop/src-tauri/src/lib.rs`):
+
+- **When it starts**, it asks the server for a newer build. If there is one, it downloads it,
+  stops the worker, installs it quietly and starts again on the new version.
+- **Every 6 hours** while it runs, it checks again. A newer build shows as **Install update
+  0.1.N** in the tray menu. **Check for updates** in the same menu checks on demand.
+- **Versions:** each build is `0.1.<run number>` (major and minor from `tauri.conf.json`), so a
+  later build is always newer.
+- **Signatures:** the Desktop workflow signs each installer with the key in the
+  `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets, and uploads
+  the signature with it (`X-CC-Update-Signature`). The app checks that signature against the
+  public key in `tauri.conf.json` (`plugins.updater.pubkey`) before running anything, so even a
+  compromised server can't push its own build. Without the secrets, builds still publish to the
+  Devices page but are never offered as updates.
+- **Server endpoints:** `GET /api/desktop/update?current_version=` answers 204 when up to date,
+  else `{ version, url, signature, pub_date, notes }`; `GET /api/desktop/update/download` serves
+  the installer. Both need a linked computer's device token, so an unlinked app doesn't update.
+- **A new key:** run `pnpm --filter @cc/desktop tauri signer generate -w command-centre.key`,
+  put the `.pub` contents in `plugins.updater.pubkey`, and set the two secrets from the key file
+  and its password. Apps built with the old public key must be reinstalled by hand once.
+
 Closing the window keeps the app in the tray. The tray menu has the worker's status (online/idle,
 busy with a job and its progress, or offline and retrying), **Open**, **Worker on** (untick it to
 stop taking jobs, for example while gaming), **Settings…** (including **Start Command Centre when
