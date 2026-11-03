@@ -3,6 +3,7 @@ import type {
   AgentMessage,
   AgentRun,
   Capability,
+  NodeSetup,
   Event,
   Job,
   JobStatus,
@@ -81,6 +82,7 @@ const toNode = (r: Row): WorkerNode => ({
   id: r.id,
   name: r.name,
   capabilities: r.capabilities,
+  setup: r.setup ?? null,
   online: r.online,
   lastSeen: iso(r.last_seen)!,
 });
@@ -92,6 +94,7 @@ const toJob = (r: Row): Job => ({
   payload: r.payload,
   status: r.status,
   nodeId: r.node_id,
+  targetNodeId: r.target_node_id ?? null,
   progress: r.progress,
   result: r.result,
   createdAt: iso(r.created_at)!,
@@ -578,14 +581,28 @@ export class Store {
 
   // Worker nodes & jobs
 
-  async upsertNode(n: { id: string; name: string; capabilities: Capability[] }): Promise<WorkerNode> {
+  async upsertNode(n: { id: string; name: string; capabilities: Capability[]; setup?: NodeSetup | null }): Promise<WorkerNode> {
     const { rows } = await this.pool.query(
-      `insert into worker_nodes (id, name, capabilities, online, last_seen) values ($1, $2, $3, true, now())
-       on conflict (id) do update set name = excluded.name, capabilities = excluded.capabilities, online = true, last_seen = now()
+      `insert into worker_nodes (id, name, capabilities, setup, online, last_seen) values ($1, $2, $3, $4, true, now())
+       on conflict (id) do update set name = excluded.name, capabilities = excluded.capabilities, setup = excluded.setup, online = true, last_seen = now()
        returning *`,
-      [n.id, n.name, n.capabilities],
+      [n.id, n.name, n.capabilities, n.setup ? JSON.stringify(n.setup) : null],
     );
     return toNode(rows[0]!);
+  }
+
+  /** A connected worker re-detected what it has (after installing something). */
+  async updateNodeCapabilities(id: string, capabilities: Capability[], setup: NodeSetup | null | undefined): Promise<WorkerNode | null> {
+    const { rows } = await this.pool.query(
+      "update worker_nodes set capabilities = $2, setup = coalesce($3, setup), last_seen = now() where id = $1 returning *",
+      [id, capabilities, setup ? JSON.stringify(setup) : null],
+    );
+    return rows[0] ? toNode(rows[0]) : null;
+  }
+
+  async getNode(id: string): Promise<WorkerNode | null> {
+    const { rows } = await this.pool.query("select * from worker_nodes where id = $1", [id]);
+    return rows[0] ? toNode(rows[0]) : null;
   }
 
   async touchNode(id: string): Promise<void> {
@@ -609,10 +626,10 @@ export class Store {
     return rows.map(toNode);
   }
 
-  async insertJob(j: { kind: string; requires: Capability[]; payload: Record<string, unknown> }): Promise<Job> {
+  async insertJob(j: { kind: string; requires: Capability[]; payload: Record<string, unknown>; targetNodeId?: string | null }): Promise<Job> {
     const { rows } = await this.pool.query(
-      "insert into jobs (id, kind, requires, payload, status) values ($1, $2, $3, $4, 'queued') returning *",
-      [randomUUID(), j.kind, j.requires, j.payload],
+      "insert into jobs (id, kind, requires, payload, status, target_node_id) values ($1, $2, $3, $4, 'queued', $5) returning *",
+      [randomUUID(), j.kind, j.requires, j.payload, j.targetNodeId ?? null],
     );
     return toJob(rows[0]!);
   }
@@ -644,6 +661,7 @@ export class Store {
        where id = (
          select id from jobs
          where status = 'queued' and requires <@ $2::text[]
+           and (target_node_id is null or target_node_id = $1)
            and not exists (select 1 from jobs busy where busy.node_id = $1 and busy.status in ('assigned', 'running'))
          order by created_at
          for update skip locked

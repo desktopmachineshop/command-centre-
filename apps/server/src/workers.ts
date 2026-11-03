@@ -1,4 +1,4 @@
-import type { Capability, InboundMessage, Job } from "@cc/core";
+import { type Capability, type InboundMessage, type Job, type NodeSetup, roleStatus, SETUP_ROLES, type SetupRoleId } from "@cc/core";
 import type { Store } from "./db/store";
 import type { Hub, Peer } from "./hub";
 
@@ -15,7 +15,7 @@ export class WorkerService {
     private readonly hub: Hub,
   ) {}
 
-  async connect(node: { id: string; name: string; capabilities: Capability[] }, peer: Peer): Promise<void> {
+  async connect(node: { id: string; name: string; capabilities: Capability[]; setup?: NodeSetup }, peer: Peer): Promise<void> {
     // Save the node before it can be dispatched to: a job claimed for a node with no row fails jobs_node_id_fkey.
     const saved = await this.store.upsertNode(node);
     this.hub.addWorker(node.id, peer);
@@ -38,6 +38,14 @@ export class WorkerService {
       case "worker.heartbeat":
         await this.store.touchNode(nodeId);
         return;
+      case "worker.capabilities": {
+        // It installed something (a setup.install job): it may take jobs it couldn't before.
+        const node = await this.store.updateNodeCapabilities(nodeId, message.capabilities, message.setup);
+        if (this.online.has(nodeId)) this.online.set(nodeId, message.capabilities);
+        if (node) this.hub.broadcast({ type: "node.updated", node });
+        await this.dispatch();
+        return;
+      }
       case "job.progress": {
         const job = await this.store.updateJob(message.jobId, nodeId, { status: "running", progress: message.progress });
         if (job) this.hub.broadcast({ type: "job.updated", job });
@@ -60,11 +68,31 @@ export class WorkerService {
     }
   }
 
-  async submit(job: { kind: string; requires: Capability[]; payload: Record<string, unknown> }) {
+  async submit(job: { kind: string; requires: Capability[]; payload: Record<string, unknown>; targetNodeId?: string | null }) {
     const created = await this.store.insertJob(job);
     this.hub.broadcast({ type: "job.updated", job: created });
     await this.dispatch();
     return created;
+  }
+
+  /**
+   * One click on the Devices page: installs what a role is missing on one computer, as a
+   * `setup.install` job only that computer takes. The job names components from the catalog in
+   * @cc/core; the worker maps them to its own package list and ignores anything else.
+   */
+  async installRole(nodeId: string, roleId: SetupRoleId): Promise<Job> {
+    const role = SETUP_ROLES.find((r) => r.id === roleId)!;
+    const node = await this.store.getNode(nodeId);
+    if (!node) throw new SetupError("No such computer.", 404);
+    if (!node.setup) throw new SetupError(`${node.name} runs an older desktop app that can't install software. Update it from the tray menu first.`, 409);
+    if (!node.setup.installer) throw new SetupError(`${node.name} can't install software by itself (it needs Windows with winget, the App Installer from the Microsoft Store).`, 409);
+    const { installable } = roleStatus(role, node);
+    if (installable.length === 0) throw new SetupError(`${node.name} has everything ${role.label} can install from here.`, 409);
+    const busy = (await this.store.listJobs({ limit: 200 })).find(
+      (j) => j.kind === "setup.install" && j.targetNodeId === nodeId && (j.status === "queued" || j.status === "assigned" || j.status === "running"),
+    );
+    if (busy) throw new SetupError(`${node.name} is already installing. Wait for it to finish.`, 409);
+    return this.submit({ kind: "setup.install", requires: [], targetNodeId: nodeId, payload: { role: role.id, components: installable } });
   }
 
   /**
@@ -103,5 +131,14 @@ export class WorkerService {
         for (const j of await this.store.requeueJobsForNode(nodeId)) this.hub.broadcast({ type: "job.updated", job: j });
       }
     }
+  }
+}
+
+export class SetupError extends Error {
+  constructor(
+    message: string,
+    readonly status: 404 | 409,
+  ) {
+    super(message);
   }
 }

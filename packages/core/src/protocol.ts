@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentMessage, Capability, Event, Job, Proposal, Task, WorkerNode } from "./domain";
+import { NodeSetup } from "./setup";
 
 /** Voice mode: the spoken answer of a run. `converse` waits for Dave's reply, `final` is done. */
 export const VoiceResponse = z.object({ text: z.string(), type: z.enum(["converse", "final"]), structured: z.boolean() });
@@ -16,11 +17,13 @@ export const ClientHello = z.object({
   token: z.string(),
   /** Workers only: stable node id, display name and capabilities. */
   node: z
-    .object({ id: z.string(), name: z.string(), capabilities: z.array(Capability) })
+    .object({ id: z.string(), name: z.string(), capabilities: z.array(Capability), setup: NodeSetup.optional() })
     .optional(),
 });
 
 export const WorkerHeartbeat = z.object({ type: z.literal("worker.heartbeat") });
+/** Workers only: capabilities and setup changed while connected (e.g. after a setup.install job). */
+export const WorkerCapabilities = z.object({ type: z.literal("worker.capabilities"), capabilities: z.array(Capability), setup: NodeSetup.optional() });
 export const JobProgress = z.object({
   type: z.literal("job.progress"),
   jobId: z.string(),
@@ -33,6 +36,7 @@ export const JobFail = z.object({ type: z.literal("job.fail"), jobId: z.string()
 export const InboundMessage = z.discriminatedUnion("type", [
   ClientHello,
   WorkerHeartbeat,
+  WorkerCapabilities,
   JobProgress,
   JobComplete,
   JobFail,
