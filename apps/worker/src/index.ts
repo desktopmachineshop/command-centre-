@@ -48,7 +48,7 @@ export async function createWorker(config: WorkerConfig, options: { onStatus?: (
     // Screen capture: find a browser and Playwright, and fetch its recorder once. `browser` is
     // only offered when all of it is in place (browser.ts), unless worker.json switches it off.
     const captureOff = config.capabilityOverrides.browser === false || (config.capabilities !== null && !config.capabilities.includes("browser"));
-    const capture = captureOff ? { chromiumBin: null, ready: false, why: "switched off in the worker's settings" } : await prepareCapture(config.chromiumBin, { log });
+    const capture = captureOff ? { chromiumBin: null, ready: false, why: "switched off in the worker's settings" } : await prepareCapture(config.chromiumBin, { log, ffmpegBin: config.ffmpegBin });
     log(capture.ready ? `[capture] screen capture ready with ${capture.chromiumBin}` : `[capture] screen capture off: ${capture.why}`);
     const capabilities =
       config.capabilities ??

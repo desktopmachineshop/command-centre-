@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::webview::{DownloadEvent, NewWindowResponse};
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -538,11 +539,64 @@ fn open_main_at(app: &AppHandle, url: &str) {
     }
 }
 
+/// Opens a web address in the default browser.
+fn open_in_browser(app: &AppHandle, url: &str) {
+    #[allow(deprecated)]
+    let _ = app.shell().open(url.to_string(), None);
+}
+
+/// Shows a downloaded file selected in its folder (Explorer on Windows).
+fn show_in_folder(app: &AppHandle, path: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        let _ = app;
+        let _ = std::process::Command::new("explorer").arg("/select,").arg(path).spawn();
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(dir) = path.parent() {
+            #[allow(deprecated)]
+            let _ = app.shell().open(dir.to_string_lossy().to_string(), None);
+        }
+    }
+}
+
 fn build_main(app: &AppHandle, url: WebviewUrl, visible: bool) {
+    let links = app.clone();
+    let downloads = app.clone();
     let built = WebviewWindowBuilder::new(app, "main", url)
         .title("Command Centre")
         .inner_size(1280.0, 860.0)
         .visible(visible)
+        // Links that open a new window (target="_blank", e.g. "Install yourself") go to the
+        // default browser; the app has only this one window.
+        .on_new_window(move |url, _features| {
+            open_in_browser(&links, url.as_str());
+            NewWindowResponse::Deny
+        })
+        // Downloads ("Download for Windows") are saved to the Downloads folder and shown there.
+        .on_download(move |_webview, event| {
+            match event {
+                DownloadEvent::Requested { destination, .. } => {
+                    if let Ok(dir) = downloads.path().download_dir() {
+                        let name = destination
+                            .file_name()
+                            .map(|n| n.to_owned())
+                            .unwrap_or_else(|| "Command Centre download".into());
+                        *destination = dir.join(name);
+                    }
+                }
+                DownloadEvent::Finished { path, success, .. } => {
+                    if success {
+                        if let Some(path) = path {
+                            show_in_folder(&downloads, &path);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            true
+        })
         .build();
     if let Ok(window) = built {
         // Closing the window keeps the app (and the worker) running in the tray.
