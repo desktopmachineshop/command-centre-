@@ -141,7 +141,8 @@ export type Proposal = z.infer<typeof Proposal>;
 export const Capability = z.enum(["gpu", "ffmpeg", "davinci", "claude-local", "browser"]);
 export type Capability = z.infer<typeof Capability>;
 
-export const JobStatus = z.enum(["queued", "assigned", "running", "succeeded", "failed"]);
+/** `cancelled`: stopped from the Devices page while still queued; it never ran. */
+export const JobStatus = z.enum(["queued", "assigned", "running", "succeeded", "failed", "cancelled"]);
 export type JobStatus = z.infer<typeof JobStatus>;
 
 export const Job = z.object({

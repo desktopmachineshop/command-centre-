@@ -29,6 +29,9 @@
     "externalBin": [
       "binaries/cc-worker"
     ],
+    "resources": {
+      "binaries/playwright-core/": "playwright-core/"
+    },
     "shortDescription": "Command Centre desktop app and worker node",
     "windows": {
       "nsis": {

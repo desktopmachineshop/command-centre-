@@ -7,6 +7,7 @@ import { go, useRouteQuery } from "../router";
 import { Empty, ErrorBanner, PageHead, Skeleton, Status } from "../ui";
 import { VideoPreview, videoOf } from "../video";
 import { ErrorReport } from "../copy";
+import { waitingReason } from "../jobs";
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
@@ -87,6 +88,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
               {j.nodeId && ` · on ${j.nodeId}`}
               {j.progress != null && ` · ${Math.round(j.progress * 100)}%`} · {ago(j.updatedAt)}
             </div>
+            {j.status === "queued" && <QueuedJob api={api} job={j} reason={nodes.data ? waitingReason(j, nodes.data) : null} />}
             {j.status === "succeeded" && videoOf(j.result) && <VideoPreview video={videoOf(j.result)!} title={j.kind} />}
             {j.status === "failed" && (
               <ErrorReport
@@ -108,6 +110,31 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+/** A job no computer has picked up: why it's waiting, and a way to cancel it. */
+function QueuedJob({ api, job, reason }: { api: Api; job: { id: string; kind: string }; reason: string | null }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cancel = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.cancelJob(job.id); // the list refreshes from job.updated
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="queued-job">
+      {reason && <p className="small queued-reason">{reason}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <button type="button" className="small" onClick={cancel} disabled={busy} aria-label={`Cancel ${job.kind} job`}>
+        <Icon name="close" size={14} /> {busy ? "Cancelling…" : "Cancel"}
+      </button>
+    </div>
   );
 }
 

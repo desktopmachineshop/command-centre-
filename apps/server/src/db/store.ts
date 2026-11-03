@@ -668,6 +668,15 @@ export class Store {
     return rows[0] ? toJob(rows[0]) : null;
   }
 
+  /** Cancels a job that no computer has picked up yet; null if it isn't queued (or doesn't exist). */
+  async cancelQueuedJob(id: string): Promise<Job | null> {
+    const { rows } = await this.pool.query(
+      "update jobs set status = 'cancelled', updated_at = now() where id = $1 and status = 'queued' returning *",
+      [id],
+    );
+    return rows[0] ? toJob(rows[0]) : null;
+  }
+
   /** Puts a disconnected node's unfinished jobs back on the queue. */
   async requeueJobsForNode(nodeId: string): Promise<Job[]> {
     const { rows } = await this.pool.query(

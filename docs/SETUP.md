@@ -362,7 +362,7 @@ At startup the worker checks what the PC can do, and the server only sends it jo
 | `gpu`          | `nvidia-smi` lists a GPU, or Windows reports an NVIDIA, AMD or Intel Arc adapter      |
 | `davinci`      | DaVinci Resolve or its scripting module is in the default install location            |
 | `claude-local` | `claude` is on `PATH` and logged in (use the native installer, which gives `claude.exe`) |
-| `browser`      | `chromiumBin` (or `CC_CHROMIUM_BIN`) points at Chromium/Chrome that exists            |
+| `browser`      | Screen capture is ready: Chrome, Edge or Chromium is installed (or `chromiumBin` / `CC_CHROMIUM_BIN` points at one), `playwright-core` is beside the worker (the desktop app ships it), and Playwright's recorder is downloaded (the worker does this once, on start) |
 
 To force one on or off, add to `worker.json`, then use **Worker on** to restart the worker:
 
@@ -372,7 +372,8 @@ To force one on or off, add to `worker.json`, then use **Worker on** to restart 
 
 Other `worker.json` keys: `ffmpegBin` and `claudeBin` (full paths, if they're not on `PATH`),
 `workDir`, and `claudeDirs`, the folders `claude.local` jobs may use as their working directory
-(besides the work dir). For video: `chromiumBin` (the browser `video.capture` drives) and
+(besides the work dir). For video: `chromiumBin` (the browser `video.capture` drives, if not the
+installed Chrome or Edge it finds by itself) and
 `captureProfiles` (`{ "opend-demo": "C:\\...\\opend-demo.json" }`, Playwright storage states for
 signed-in captures).
 
@@ -388,6 +389,9 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   options or filters (`-filter_script`, `movie=`…) are rejected. The result is `{outputPath, bytes}`.
 - `claude.local` `{prompt, cwd?, maxTurns?}`: runs headless Claude Code on the PC's own login. The
   result is `{result, sessionId, costUsd}`.
+- A job no online computer can run stays **queued**: the Devices page says which capability is
+  missing on which PC and how to get it, and **Cancel** removes it (`POST /api/jobs/:id/cancel`,
+  queued jobs only).
 - `video.capture` `{spec, scenes?, uploads?}` (needs `browser`): records a VideoSpec's capture
   scenes with Playwright. The result is `{clips: {<scene>: {path, trimStartSec, durationSec, url?}}}`.
 - `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?}` (needs `ffmpeg`;

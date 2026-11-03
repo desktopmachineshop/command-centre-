@@ -352,6 +352,7 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       return res.blob();
     },
     jobs: () => call<Job[]>("/jobs"),
+    cancelJob: (id: string) => post<Job>(`/jobs/${id}/cancel`),
     brainSearch: (q: string) => call<{ path: string; title: string; snippet: string }[]>(`/brain/search?q=${encodeURIComponent(q)}`),
     brainList: (folder = "") => call<string[]>(`/brain/list?folder=${encodeURIComponent(folder)}`),
     brainNote: (path: string) => call<BrainNote>(`/brain/note?path=${encodeURIComponent(path)}`),

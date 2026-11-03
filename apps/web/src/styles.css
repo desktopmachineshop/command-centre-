@@ -3655,3 +3655,18 @@ details[open] > summary .brain-tree-chevron {
 .proposal > .error-report {
   margin: var(--sp-2) var(--sp-4);
 }
+
+/* Devices page: a queued job says why it hasn't started, with Cancel (Devices.tsx, jobs.ts). */
+.queued-job {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.queued-reason {
+  flex: 1 1 18rem;
+  margin: 0;
+  color: var(--text-2);
+}

@@ -1,3 +1,4 @@
+import { playwrightScript, runPlaywrightScript } from "./browser";
 import { createWorker, loadConfig } from "./index";
 
 /**
@@ -21,7 +22,18 @@ async function main() {
   process.on("SIGTERM", shutdown);
 }
 
-main().catch((err) => {
-  console.error(`[worker] ${err instanceof Error ? err.message : err}`);
-  process.exit(1);
-});
+// Playwright runs its own scripts with `process.execPath`: its installer (browser.ts,
+// installRecorder) and the download helper it forks. Inside the desktop app's single
+// executable that's this worker, so run the script instead of starting the worker.
+if (playwrightScript(process.argv[2])) {
+  runPlaywrightScript(process.argv[2]!, process.argv.slice(3));
+} else {
+  start();
+}
+
+function start() {
+  main().catch((err) => {
+    console.error(`[worker] ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  });
+}
