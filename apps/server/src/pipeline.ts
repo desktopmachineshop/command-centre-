@@ -137,10 +137,12 @@ export class Pipeline {
     if (chain.includes(target_)) {
       throw new HandoffError(`The ${to.title} already worked on this chain (${chain.join(" -> ")}). Finish it yourself, or escalate to "${ROOT_ROLE_ID}".`);
     }
-    const originSource =
+    const origin =
       fromEvent?.source === "system" && fromEvent.kind === "handoff" && typeof payload.originSource === "string"
         ? payload.originSource
         : (fromEvent?.source ?? "unknown");
+    // A chat task that read mail (the mail MCP server) hands on that mail's trust, not the chat's.
+    const originSource = ["chat", "cron", "system"].includes(origin) && (await this.deps.actions.untrustedSource(from.id)) === "email" ? "email" : origin;
     const untrusted = !["chat", "cron", "system"].includes(originSource);
     const fromVertical = verticals.require(from.vertical);
     const prompt = [

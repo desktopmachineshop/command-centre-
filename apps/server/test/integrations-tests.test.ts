@@ -78,6 +78,7 @@ describe("connection tests", () => {
         return { uidValidity: "1", uidNext: 1 };
       },
       uidsAfter: async () => [],
+      search: async () => [],
       fetchSource: async () => null,
       waitForMail: async () => {},
       appendToSent: async () => null,

@@ -11,6 +11,11 @@ export interface ImapSession {
   open(mailbox: string): Promise<{ uidValidity: string; uidNext: number }>;
   /** UIDs above `lastUid` in the open mailbox, ascending. */
   uidsAfter(lastUid: number): Promise<number[]>;
+  /**
+   * UIDs in the open mailbox matching every given criterion, ascending. Used by the read-only mail
+   * MCP server (agents looking mail up from a chat); the poller never searches.
+   */
+  search(criteria: MailSearch): Promise<number[]>;
   /** The raw RFC 822 source of one message, or null if it has gone. */
   fetchSource(uid: number): Promise<Buffer | null>;
   /**
@@ -22,6 +27,20 @@ export interface ImapSession {
   /** Appends a sent message to the Sent folder; returns its path, or null if there is none. */
   appendToSent(raw: Buffer): Promise<string | null>;
   close(): Promise<void>;
+}
+
+/** IMAP SEARCH criteria (all optional, ANDed; text matches are case-insensitive substrings). */
+export interface MailSearch {
+  from?: string;
+  subject?: string;
+  /** Anywhere in the body (IMAP BODY). */
+  text?: string;
+  /** The Message-ID header, with or without angle brackets. */
+  messageId?: string;
+  /** Received on or after this date (IMAP compares dates, not times). */
+  since?: Date;
+  /** Received before this date. */
+  before?: Date;
 }
 
 export type ImapConnector = (account: EmailAccount) => Promise<ImapSession>;
@@ -53,6 +72,18 @@ export const imapflowConnector: ImapConnector = async (account) => {
       const uids = await client.search({ uid: `${lastUid + 1}:*` }, { uid: true });
       // "N:*" always matches the newest message, even when its UID is below N.
       return (uids || []).filter((u) => u > lastUid).sort((a, b) => a - b);
+    },
+    async search(c) {
+      const query: Record<string, unknown> = {};
+      if (c.from) query.from = c.from;
+      if (c.subject) query.subject = c.subject;
+      if (c.text) query.body = c.text;
+      if (c.messageId) query.header = { "message-id": c.messageId.trim().replace(/^<|>$/g, "") };
+      if (c.since) query.since = c.since;
+      if (c.before) query.before = c.before;
+      if (Object.keys(query).length === 0) query.all = true;
+      const uids = await client.search(query, { uid: true });
+      return (uids || []).sort((a, b) => a - b);
     },
     async fetchSource(uid) {
       const msg = await client.fetchOne(String(uid), { uid: true, source: true }, { uid: true });

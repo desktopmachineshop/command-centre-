@@ -504,6 +504,18 @@ Gmail, Google Workspace, Microsoft 365 / Outlook.com, or Odoo's own mail server.
   and `archive` too, and the conversation is filed once the reply is sent. The label scheme is
   in the `email-triage-and-reply` skill, or your own in the brain note
   `<vertical>/email-labels.md`. Inboxes signed in with a password, and Outlook, can't be filed.
+- **Looking mail up (`/mcp/mail`):** an agent can search and read mail it wasn't started by, e.g.
+  when you ask in chat "file the new price lists". The read-only `mail` MCP server has
+  `list_mail_accounts`, `search_mail` (sender, subject, body text, dates, with attachments),
+  `read_mail` and `read_attachment`, which returns PDFs page by page, spreadsheets (xlsx, xls,
+  ods, csv) sheet by sheet as CSV, and HTML or text files as text (scanned PDFs, images and Word
+  files have no text it can read). An email task's prompt lists its attachments with the call
+  that reads them. A run sees only its own business's mailboxes, while the Chief of Staff sees
+  every one. Roles get it through `mcpServers: [..., "mail"]` (Ops & Admin, Customer Support, the
+  Shop Lead, the Personal Assistant, Finance Admin and the Chief of Staff in the shipped org). It
+  is mounted only while at least one inbox is configured. Mail is outside input: once a run has
+  read mail, its proposals are drafts (brain notes still save) and its handoffs carry that, just
+  as for a task started by an email.
 - A mailbox that fails to connect is retried with backoff (5 s doubling to 5 min) and logged as
   `[email]`. It never stops the server or the other inboxes.
 

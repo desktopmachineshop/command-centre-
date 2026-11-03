@@ -19,7 +19,7 @@ apps/desktop           Tauri app for Windows: the PWA in a window, the worker as
 packages/core          shared types and WebSocket protocol
 packages/agent-runtime AgentRunner harness + Claude Code adapter (+ API-key fallback)
 packages/brain         markdown brain in Postgres (history, search, git mirror) + MCP server
-packages/email         IMAP inbox poller + email.reply / email.send executors
+packages/email         IMAP inbox poller, read-only mail MCP server (/mcp/mail, attachments as text), email.* executors
 packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/mcp/odoo), Odoo actions
 packages/pa            personal assistant: reminders, to-do lists, Google Calendar, MCP server (/mcp/pa)
 packages/social        social platform adapters, inbound watcher, social.* executors, scheduled posts

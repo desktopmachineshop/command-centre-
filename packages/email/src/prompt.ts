@@ -55,6 +55,12 @@ export function emailPrompt(payload: Record<string, unknown>): string {
     str(payload.text) || "(empty body)",
     "----- END EMAIL -----",
     ...(notes.length ? ["", ...notes] : []),
+    ...(attachments.length && messageId
+      ? [
+          "",
+          `Only the attachment names are above. To read one (a price list, invoice or spec sheet), call the mail tool read_attachment with ${JSON.stringify({ accountId: reply.accountId, messageId, index: 0 })} (index counts from 0 in the order listed). If you hand this on, pass the accountId and messageId in your note.`,
+        ]
+      : []),
     "",
     "Decide whether it needs a reply (see the email-triage-and-reply skill). Never send email directly.",
     messageId

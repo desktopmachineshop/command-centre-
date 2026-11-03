@@ -7,3 +7,5 @@ export * from "./poller";
 export * from "./prompt";
 export * from "./oauth";
 export * from "./gmail";
+export * from "./attachments";
+export * from "./mcp";

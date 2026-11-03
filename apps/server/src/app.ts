@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { GitBrain, GitMirror, PgBrain } from "@cc/brain";
-import { configureEmailOAuth, createEmailExecutors, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
+import { ROOT_ROLE_ID } from "@cc/core";
+import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
 import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
 import {
@@ -454,10 +455,25 @@ export function createServer(config: Config, overrides: Overrides = {}) {
             },
       propose: (p) => actions.propose(p),
     });
-  /** The servers at /mcp/<name> besides brain and actions; odoo only while Odoo is configured. */
+  // mail: read-only search and attachments. A run reads its own business's mailboxes (the Chief of
+  // Staff every one), and once it has read mail its proposals are drafts, as for an emailed task.
+  const mailMcpServer = (caller: Caller) => {
+    const all = email.current.accounts;
+    const scope = caller.kind === "run" ? caller.scope : null;
+    return createMailMcpServer({
+      accounts: !scope || scope.role === ROOT_ROLE_ID ? all : all.filter((a) => a.vertical === scope.vertical),
+      connect: overrides.imap,
+      onRead: scope ? () => actions.markReadMail(scope.taskId) : undefined,
+    });
+  };
+  /** The servers at /mcp/<name> besides brain and actions; odoo only while Odoo is configured, mail while a mailbox is. */
   const extraMcpServers = (): Record<string, (caller: Caller) => McpServer> => {
     const client = odoo.current.client;
-    return { ...(client ? { odoo: () => createOdooMcpServer(client) } : {}), pa: paMcpServer };
+    return {
+      ...(client ? { odoo: () => createOdooMcpServer(client) } : {}),
+      ...(email.current.accounts.length ? { mail: mailMcpServer } : {}),
+      pa: paMcpServer,
+    };
   };
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.

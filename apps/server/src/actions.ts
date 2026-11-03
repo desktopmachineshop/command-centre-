@@ -88,6 +88,17 @@ export class ActionService {
     private readonly executorSource: Record<string, ActionExecutor> | (() => Record<string, ActionExecutor>) = builtinExecutors,
   ) {}
 
+  /**
+   * Tasks whose runs read mail through the mail MCP server. Kept in memory: after a restart a
+   * resumed run that reads mail again is marked again, and handoffs carry it (Pipeline.handoff).
+   */
+  private readonly readMail = new Set<string>();
+
+  /** Marks a task as having read outside mail: its later proposals are drafts (see untrustedSource). */
+  markReadMail(taskId: string): void {
+    this.readMail.add(taskId);
+  }
+
   /** The executors in use now: a proposal approved after a reload runs with the new credentials. */
   get executors(): Record<string, ActionExecutor> {
     return typeof this.executorSource === "function" ? this.executorSource() : this.executorSource;
@@ -154,6 +165,8 @@ export class ActionService {
    */
   async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
     if (!taskId) return null;
+    // A run that looked mail up itself (the mail MCP server) has read outside input too.
+    if (this.readMail.has(taskId)) return "email";
     const task = await this.store.getTask(taskId);
     const event = task ? await this.store.getEvent(task.eventId) : null;
     if (!event) return "unknown";
