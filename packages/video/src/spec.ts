@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * VideoSpec: everything needed to produce one video, written by the
- * scriptwriter agent (skills/video-scriptwriter) and checked here before any
+ * agent following skills/video-reel and checked here before any
  * job runs. Timing is not written by hand: each scene lasts as long as its
  * narration (plus lead-in and tail), see `planTimeline`.
  */
@@ -51,8 +51,10 @@ export const Brand = z.object({
 export type Brand = z.infer<typeof Brand>;
 
 /**
- * Default brand kits. The colours and fonts are placeholders until Dave
- * confirms the real ones (see docs/VIDEO.md, open questions).
+ * Default brand kits, one per brand that makes videos. The colours and fonts
+ * are placeholders until Dave confirms the real ones (see docs/VIDEO.md, open
+ * questions). Each brand's guidelines, with this same kit, are in
+ * skills/video-reel/brands/<brand>.md (a test keeps the two in step).
  */
 export const BRANDS = {
   opend: {
@@ -65,7 +67,20 @@ export const BRANDS = {
     colours: { primary: "#7c3aed", background: "#1a1033", text: "#ffffff", accent: "#22d3ee" },
     fonts: { heading: "Inter", body: "Inter" },
   },
+  dms: {
+    name: "Desktop Machine Shop",
+    colours: { primary: "#d9822b", background: "#1c1f24", text: "#ffffff", accent: "#f2c14e" },
+    fonts: { heading: "Inter", body: "Inter" },
+  },
+  "3dpandme": {
+    name: "3dpandme",
+    colours: { primary: "#cf4f8f", background: "#1b1420", text: "#ffffff", accent: "#7ee0c3" },
+    fonts: { heading: "Inter", body: "Inter" },
+  },
 } satisfies Record<string, Brand>;
+
+/** Brands (= vertical ids) a video can be made for. */
+export const PRODUCTS = ["openv", "opend", "dms", "3dpandme"] as const;
 
 const Selector = z.string().min(1).max(500);
 const Ms = (max: number) => z.number().int().min(0).max(max);
@@ -152,7 +167,8 @@ export const VideoSpec = z
     version: z.literal(1).default(1),
     id: Id,
     title: z.string().min(1).max(120),
-    product: z.enum(["openv", "opend"]),
+    /** The brand, which is also the vertical the finished video is proposed in. */
+    product: z.enum(PRODUCTS),
     /** demo, walkthrough, announcement, short (social clip) or explainer (long-form YouTube). */
     type: z.enum(["demo", "walkthrough", "announcement", "short", "explainer"]),
     format: Format,

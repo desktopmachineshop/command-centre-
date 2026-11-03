@@ -20,7 +20,7 @@ Sample output (rendered here with no paid APIs, flite voice, 42 s, 1920×1080, 2
 | Stage | Runs on | What happens | Code |
 | --- | --- | --- | --- |
 | Brief | Dave (chat) or a schedule | "A 45 s short on OpenD's web editor for X and Instagram" | vertical schedules |
-| Script → spec | Server, Claude Code agent | Reads the docs/product with the MCP tools, writes narration and scripted capture steps as a `VideoSpec`, lists its sources | `skills/video-scriptwriter`, `packages/video/src/spec.ts` |
+| Script → spec | Server, Claude Code agent | Reads the docs/product with the MCP tools, writes narration and scripted capture steps as a `VideoSpec`, lists its sources | `skills/video-reel` (master) + `skills/video-reel/brands/<brand>.md`, `packages/video/src/spec.ts` |
 | Storyboard check | Server | zod validation + `lintSpec` (length vs type, slow hook, missing CTA, no sources); warnings go back in the proposal result | `spec.ts` |
 | Approve script | Dave | `video.produce` proposal (draft) | `apps/server/src/video.ts` |
 | Voice | Server for cloud TTS (keys stay on the server); worker for `silent`/`flite` | Narration per scene + word timings; scene length = lead-in + voice + tail (or the recording, if longer) | `src/tts/*`, `src/timeline.ts` |

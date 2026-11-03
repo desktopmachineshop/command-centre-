@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { lintSpec, parseSpec, VideoRenderPayload, VideoSpec } from "../src";
+import { BRANDS, Brand, lintSpec, PRODUCTS, parseSpec, VideoRenderPayload, VideoSpec } from "../src";
 import { sampleSpec } from "../sample/opend-walkthrough";
 import { minimalSpec } from "./helpers";
 
@@ -8,6 +10,17 @@ describe("VideoSpec", () => {
     const spec = parseSpec(minimalSpec());
     expect(spec).toMatchObject({ version: 1, fps: 30, voice: { provider: "silent", speed: 1 }, captions: { enabled: true, style: "word" }, sources: [] });
     expect(spec.scenes[1]).toMatchObject({ kind: "capture", fit: "contain", cursor: true, leadInSec: 0.3, tailSec: 0.4 });
+  });
+
+  it("keeps each brand's guidelines in skills/video-reel/brands with the same brand kit as the code", () => {
+    expect(Object.keys(BRANDS).sort()).toEqual([...PRODUCTS].sort());
+    for (const product of PRODUCTS) {
+      const md = readFileSync(fileURLToPath(new URL(`../../../skills/video-reel/brands/${product}.md`, import.meta.url)), "utf8");
+      const kit = md.match(/## Brand kit[\s\S]*?```json\n([\s\S]*?)\n```/)?.[1];
+      expect(kit, product).toBeDefined();
+      expect(Brand.parse(JSON.parse(kit!)), product).toEqual(BRANDS[product]);
+      expect(() => parseSpec({ ...minimalSpec(), product, brand: BRANDS[product] }), product).not.toThrow();
+    }
   });
 
   it("accepts the sample walkthrough", () => {

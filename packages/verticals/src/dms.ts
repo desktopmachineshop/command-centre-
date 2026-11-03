@@ -18,7 +18,7 @@ export default defineVertical({
     // Odoo events (rules triager, see @cc/triage odoo.ts)
     "new-order", "customer-message", "stock-low", "delivery-late", "review", "rfq", "supplier-reply",
   ],
-  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide"],
+  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide", "video-reel"],
   // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
   mcpServers: ["brain", "odoo", "pa", "mail"],
   policies: { "brain.write": "auto", "email.label": "auto" },
@@ -72,9 +72,9 @@ export default defineVertical({
       aliases: ["marketing", "social"],
       mission:
         "Gets the shop in front of hobbyist machinists: product posts, launch announcements and shop blog posts built from real Odoo facts. Keeps a steady, never pushy cadence across the DMS social accounts.",
-      skills: ["brain-notes", "social-voice-dms", "social-platform-guide"],
+      skills: ["brain-notes", "social-voice-dms", "social-platform-guide", "video-reel"],
       mcpServers: ["brain", "odoo"],
-      actions: ["social.post", "social.campaign", "odoo.blog.draft"],
+      actions: ["social.post", "social.campaign", "video.produce", "odoo.blog.draft"],
       kpis: ["2 to 3 posts a week", "Every post grounded in live product data"],
       autonomyNotes: "All posts, campaigns and blog drafts wait for Dave. Paid ads and promotions are never proposed without his ask.",
     },

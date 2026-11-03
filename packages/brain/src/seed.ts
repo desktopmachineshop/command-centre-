@@ -29,7 +29,7 @@ It is running in **echo mode** (no Claude runs, no cost) until you add your Clau
 | **Email** | Polls your inboxes; replies are drafted for approval. |
 | **Odoo** | Agents read products, orders, customers and chatter. New orders, customer messages, tickets, low stock, late deliveries and reviews become tasks or digest entries automatically. |
 | **Social** | Discord, Instagram, Threads, X (posting only), Reddit, YouTube: replies to comments, mentions and DMs drafted for approval; one-approval multi-platform campaigns, scheduling, media hosting. **Social** page with composer. |
-| **Video** | Pipeline for OpenV/OpenD demo videos: script, then screen capture, voice, burned-in captions and render (on your PC's worker), then a draft social post. Sample: \`docs/media/sample-opend-walkthrough.mp4\`. Design: \`docs/VIDEO.md\`. |
+| **Video** | Pipeline for marketing videos and reels (OpenV, OpenD, DMS, 3dpandme; one master \`video-reel\` skill with per-brand guidelines): script, then screen capture, voice, burned-in captions and render (on your PC's worker), then a draft social post. Sample: \`docs/media/sample-opend-walkthrough.mp4\`. Design: \`docs/VIDEO.md\`. |
 | **Storage** | Large files can live in your Google Drive (only files the app creates, \`drive.file\`), with a local cache. Public media links stay on our domain. |
 | **Desktop** | Windows app + worker (GPU/ffmpeg/DaVinci/Claude jobs). Build via the GitHub "Desktop" workflow. |
 | **Cost control** | Daily budget caps, digests that make no Claude calls, run guardrails, duplicate detection. |

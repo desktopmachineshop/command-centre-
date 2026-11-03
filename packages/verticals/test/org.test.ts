@@ -34,6 +34,20 @@ describe("the drafted org", () => {
     }
   });
 
+  it("gives every marketing video role the master reel skill and video.produce", () => {
+    const videoRoles = verticals.flatMap((v) => rolesOf(v).filter((r) => r.actions.includes("video.produce")).map((r) => `${v.id}/${r.id}`));
+    expect(videoRoles.sort()).toEqual(["3dpandme/video-producer", "dms/marketing-social", "opend/devrel-content", "openv/devrel-content"]);
+    for (const v of verticals) {
+      for (const r of rolesOf(v)) {
+        expect(r.skills.includes("video-reel"), `${v.id}/${r.id}`).toBe(r.actions.includes("video.produce"));
+        // Each brand's guidelines sit beside the master skill.
+        if (r.actions.includes("video.produce")) {
+          expect(existsSync(fileURLToPath(new URL(`../../../skills/video-reel/brands/${v.id}.md`, import.meta.url))), v.id).toBe(true);
+        }
+      }
+    }
+  });
+
   it("moves the morning brief to the Chief of Staff", () => {
     expect(verticals.find((v) => v.id === "personal")!.schedules).toEqual([]);
     expect(chiefOfStaff.schedules.map((s) => s.id)).toEqual(["morning-brief"]);
