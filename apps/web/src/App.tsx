@@ -17,6 +17,7 @@ import { Login } from "./pages/Login";
 import { Org } from "./pages/Org";
 import { Settings } from "./pages/Settings";
 import { Social } from "./pages/Social";
+import { Storage } from "./pages/Storage";
 import { TaskView } from "./pages/TaskView";
 import { Today } from "./pages/Today";
 import { BrandMark, Icon, type IconName } from "./icons";
@@ -123,6 +124,7 @@ export const NAV: NavItem[] = [
   { key: "brain", label: "Brain", icon: "brain", group: "Knowledge" },
   { key: "accounts", label: "Accounts", icon: "link", group: "System" },
   { key: "devices", label: "Devices", icon: "devices", group: "System" },
+  { key: "storage", label: "Storage", icon: "storage", group: "System" },
   { key: "settings", label: "Settings", icon: "settings", group: "System" },
   { key: "notification-settings", label: "Notification settings", icon: "bell", group: "System" },
 ];
@@ -230,6 +232,9 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
       break;
     case "devices":
       body = <Devices api={api} feed={feed} />;
+      break;
+    case "storage":
+      body = <Storage api={api} />;
       break;
     case "settings":
       body = <Settings api={api} onSignOut={onSignOut} />;

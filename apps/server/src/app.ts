@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { GitBrain, GitMirror, PgBrain } from "@cc/brain";
 import { ROOT_ROLE_ID } from "@cc/core";
-import { storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
+import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
 import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
 import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
@@ -325,6 +325,10 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     uploadMaxBytes: config.storage.uploadMaxBytes,
     workerAuth,
     refuseUpload: (bytes: number) => uploadRefusal(storage, housekeeping, bytes),
+    volume: async () => {
+      const disk = await diskSpace(config.dataDir);
+      return disk && { ...disk, minFreeBytes: housekeeping.minFreeBytes, renderRetentionDays: housekeeping.renderRetentionDays };
+    },
   };
   // --- end storage ---
 

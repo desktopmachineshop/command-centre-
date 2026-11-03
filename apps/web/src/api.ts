@@ -336,6 +336,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     // --- desktop app: linking computers by signing in, and the installer download ---
     desktopDevices: () => call<DesktopDevice[]>("/desktop/devices"),
     unlinkDesktop: (id: string) => call<{ revoked: true }>(`/desktop/devices/${id}`, { method: "DELETE" }),
+    /** Usage by folder, the server volume and the newest files (Storage page). */
+    storage: (folder?: string) => call<StorageOverview>(`/storage?limit=500${folder ? `&folder=${encodeURIComponent(folder)}` : ""}`),
+    deleteStoredFile: (id: string) => call<{ ok: true }>(`/storage/${encodeURIComponent(id)}`, { method: "DELETE" }),
     desktopLink: (code: string) => call<{ code: string; name: string; createdAt: string; approved: boolean }>(`/desktop/link/${encodeURIComponent(code)}`),
     /** `autoKey`: the key the desktop app put in the page it opened, to approve without the button. */
     approveDesktopLink: (code: string, autoKey?: string) => post<DesktopDevice>(`/desktop/link/${encodeURIComponent(code)}/approve`, autoKey ? { autoKey } : undefined),
@@ -492,3 +495,26 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
 }
 
 export type Api = ReturnType<typeof createApi>;
+
+/** A stored file (GET /api/storage). `url` is its public /media link when it has one. */
+export interface StoredFile {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string;
+  folder: string;
+  backend: "local" | "gdrive";
+  createdAt: string;
+  url: string | null;
+}
+
+export interface StorageOverview {
+  backend: "local" | "gdrive";
+  byFolder: { folder: string; backend: "local" | "gdrive"; files: number; bytes: number }[];
+  totalBytes: number;
+  files: StoredFile[];
+  /** The server volume (null when it can't be read). */
+  volume: { free: number; total: number; minFreeBytes: number; renderRetentionDays: number } | null;
+  drive: { folderUrl: string; quota: { limit: number | null; usage: number; usageInDrive: number } | null } | null;
+  cache: { bytes: number; maxBytes: number; files: number } | null;
+}

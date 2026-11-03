@@ -18,6 +18,8 @@ export interface StorageApiDeps {
    * refuses uploads that would fill its own volume (./storage-housekeeping.ts).
    */
   refuseUpload?: (bytes: number) => Promise<string | null>;
+  /** The server volume's free and total bytes and the housekeeping limits, for the Storage page. */
+  volume?: () => Promise<{ free: number; total: number; minFreeBytes: number; renderRetentionDays: number } | null>;
 }
 
 /** 507 Insufficient Storage when the volume can't take the upload. */
@@ -86,7 +88,7 @@ export function storageApiRoutes(deps: StorageApiDeps) {
     const folder = z.enum(FOLDERS).optional().parse(c.req.query("folder") || undefined);
     const limit = z.coerce.number().int().min(1).max(1000).default(200).parse(c.req.query("limit"));
     const files = await storage.list(folder, { limit });
-    return c.json({ ...(await storage.usage()), files: files.map((f) => withUrl(c, deps, f)) });
+    return c.json({ ...(await storage.usage()), volume: (await deps.volume?.()) ?? null, files: files.map((f) => withUrl(c, deps, f)) });
   });
 
   app.delete("/storage/:id", async (c) => {
