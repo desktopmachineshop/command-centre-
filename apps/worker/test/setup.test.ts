@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Job } from "@cc/core";
 import { describe, expect, it } from "vitest";
-import { detectSetup, HandlerRegistry, type JobContext, type RunCommand, setupHandler, wingetArgs } from "../src";
+import { detectSetup, findWinget, HandlerRegistry, type JobContext, type RunCommand, setupHandler, wingetArgs } from "../src";
 
 const job = (payload: Record<string, unknown>): Job => ({
   id: "j1",
@@ -80,18 +80,30 @@ describe("setup.install", () => {
 });
 
 describe("detectSetup", () => {
-  it("finds installed tools on PATH and winget on Windows", () => {
+  /** A fake runner: `--version` works only for the given winget paths. */
+  const wingetAt = (...paths: string[]): RunCommand => async (cmd, args) => ({ code: args[0] === "--version" && paths.includes(cmd) ? 0 : 1, output: "v1.12" });
+
+  it("finds installed tools on PATH and a working winget on Windows", async () => {
     const bin = mkdtempSync(join(tmpdir(), "cc-setup-"));
     for (const name of ["ffmpeg.exe", "git.exe", "winget.exe"]) writeFileSync(join(bin, name), "");
     mkdirSync(join(bin, "Google", "Chrome", "Application"), { recursive: true });
     writeFileSync(join(bin, "Google", "Chrome", "Application", "chrome.exe"), "");
     const env = { PATH: bin, PATHEXT: ".EXE", ProgramFiles: bin, "ProgramFiles(x86)": join(bin, "none"), PROGRAMDATA: join(bin, "none") };
-    const setup = detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: ["gpu"], env, platform: "win32" });
+    const setup = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: ["gpu"], env, platform: "win32", run: wingetAt(join(bin, "winget.exe")) });
     expect(setup).toEqual({ platform: "win32", installer: "winget", installed: ["ffmpeg", "browser", "gpu", "git"] });
   });
 
-  it("has no installer off Windows", () => {
-    const setup = detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env: { PATH: "/nonexistent" }, platform: "linux" });
+  it("finds winget's app execution alias, which isn't a file Node can see", async () => {
+    const env = { PATH: "C:\\nowhere", PATHEXT: ".EXE", LOCALAPPDATA: "C:\\Users\\dave\\AppData\\Local" };
+    const alias = join(env.LOCALAPPDATA, "Microsoft", "WindowsApps", "winget.exe");
+    expect(await findWinget(env, "win32", wingetAt(alias))).toBe(alias);
+    expect(await findWinget(env, "win32", wingetAt("winget.exe"))).toBe("winget.exe");
+    expect(await findWinget(env, "win32", wingetAt())).toBeNull();
+    expect(await findWinget(env, "linux", wingetAt("winget.exe"))).toBeNull();
+  });
+
+  it("has no installer off Windows", async () => {
+    const setup = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env: { PATH: "/nonexistent" }, platform: "linux" });
     expect(setup).toMatchObject({ platform: "linux", installer: null });
   });
 });
