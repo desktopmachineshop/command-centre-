@@ -26,6 +26,7 @@ import { type SocialApiDeps, socialApiRoutes } from "./social";
 import { type StorageApiDeps, storageApiRoutes } from "./storage";
 import { type VoiceApiDeps, voiceApiRoutes } from "./voice";
 import { type DesktopApiDeps, desktopApiRoutes } from "./desktop";
+import { type HelpConfig, helpRoutes } from "./help";
 
 export interface ApiDeps {
   store: Store;
@@ -59,6 +60,8 @@ export interface ApiDeps {
   org?: OrgConfigService;
   /** Desktop app: approving a computer's link, linked computers, installer download (see ./desktop.ts). */
   desktop?: DesktopApiDeps;
+  /** In-app help: the OpenD docs site and embed tokens for its help panel (see ./help.ts). */
+  help?: HelpConfig;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -360,6 +363,7 @@ export function apiRoutes(deps: ApiDeps) {
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
   if (deps.integrations) app.route("/", integrationRoutes(deps.integrations, deps.claudeSetup));
+  if (deps.help) app.route("/", helpRoutes(deps.help));
 
   return app;
 }

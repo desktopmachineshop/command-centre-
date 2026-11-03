@@ -211,7 +211,7 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
         </>
       }
     >
-      <form id="org-role-form" className="org-edit" onSubmit={save}>
+      <form id="org-role-form" data-help-pane="org.role" className="org-edit" onSubmit={save}>
         {error && <ErrorBanner>{error}</ErrorBanner>}
         <label className="field">
           <span>Title</span>
@@ -396,7 +396,7 @@ function PoliciesDialog({ api, config, unit, onSaved, close }: { api: Api; confi
         </>
       }
     >
-      <form id="org-policy-form" className="org-edit" onSubmit={save}>
+      <form id="org-policy-form" data-help-pane="org.policies" className="org-edit" onSubmit={save}>
         {error && <ErrorBanner>{error}</ErrorBanner>}
         <p className="muted small">Work that started with an email, webhook or other outside message always waits for approval, whatever is set here.</p>
         <label className="field">
@@ -473,7 +473,7 @@ function HistoryDialog({ api, config, unit, onSaved, close }: { api: Api; config
       ) : versions.length === 0 ? (
         <p className="muted small">No changes yet.</p>
       ) : (
-        <ol className="org-history">
+        <ol className="org-history" data-help-pane="org.history">
           {versions.map((v) => (
             <li key={v.version} className="row between">
               <span>

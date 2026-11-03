@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE map PUBLIC "-//OASIS//DTD DITA Map//EN" "map.dtd">
+<map>
+  <title>Command Centre Help</title>
+
+  <keydef keys="app-name">
+    <topicmeta><keywords><keyword>Command Centre</keyword></keywords></topicmeta>
+  </keydef>
+
+  <topicref href="../topics/overview.dita"/>
+
+  <topichead navtitle="Get started">
+    <topicref href="../topics/start/sign-in.dita"/>
+    <topicref href="../topics/start/install.dita"/>
+    <topicref href="../topics/start/find-your-way.dita"/>
+    <topicref href="../topics/concepts/how-it-works.dita"/>
+  </topichead>
+
+  <topichead navtitle="Work">
+    <topicref href="../topics/work/inbox.dita"/>
+    <topicref href="../topics/work/task.dita"/>
+    <topicref href="../topics/work/today.dita"/>
+    <topicref href="../topics/work/approvals.dita"/>
+    <topicref href="../topics/work/chat.dita"/>
+    <topicref href="../topics/work/drive.dita"/>
+    <topicref href="../topics/work/notifications.dita"/>
+  </topichead>
+
+  <topichead navtitle="Business">
+    <topicref href="../topics/business/social.dita"/>
+    <topicref href="../topics/business/org.dita"/>
+  </topichead>
+
+  <topichead navtitle="Knowledge">
+    <topicref href="../topics/knowledge/brain.dita"/>
+  </topichead>
+
+  <topichead navtitle="System">
+    <topicref href="../topics/system/accounts.dita"/>
+    <topicref href="../topics/system/devices.dita"/>
+    <topicref href="../topics/system/storage.dita"/>
+    <topicref href="../topics/system/settings.dita"/>
+    <topicref href="../topics/system/notification-settings.dita"/>
+  </topichead>
+
+  <topichead navtitle="Administration">
+    <topicref href="../topics/admin/in-app-help.dita"/>
+  </topichead>
+</map>

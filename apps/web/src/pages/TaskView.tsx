@@ -153,7 +153,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
       {(task.status === "done" || task.status === "awaiting_approval" || task.status === "failed") && <ReplyBox api={api} taskId={task.id} />}
       </div>
       {proposals.length > 0 && (
-        <aside className="task-actions" aria-label="Proposed actions">
+        <aside className="task-actions" data-help-pane="inbox.task.actions" aria-label="Proposed actions">
           <div className="section-title">
             <h3>Proposed actions</h3>
             {pending > 0 && <span className="muted small">{pending} waiting for you</span>}
@@ -193,7 +193,7 @@ function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
     }
   };
   return (
-    <>
+    <div className="task-reply" data-help-pane="inbox.task.reply">
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <Composer
         api={api}
@@ -205,7 +205,7 @@ function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
         label="Reply to the agent"
         placeholder="Reply to the agent: answer its question, change the plan, or ask for something else"
       />
-    </>
+    </div>
   );
 }
 

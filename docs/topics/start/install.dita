@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE task PUBLIC "-//OASIS//DTD DITA Task//EN" "task.dtd">
+<task id="install">
+  <title>Install the app on your phone and PC</title>
+  <shortdesc>Command Centre is a web app you can install: its own icon, full screen, push notifications. On Windows there is also a desktop app that makes the PC a worker.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="settings.app"/>
+  </prolog>
+  <taskbody>
+    <context>
+      <p>Installing is optional, but on an iPhone push notifications only work from an installed app.</p>
+    </context>
+    <steps-unordered>
+      <step>
+        <cmd>Android or Chrome on a PC: choose <uicontrol>Install</uicontrol> on the <wintitle>Install Command Centre</wintitle> banner, or <menucascade><uicontrol>Settings</uicontrol><uicontrol>Install app</uicontrol></menucascade>.</cmd>
+        <info><p>Chrome's own menu works too: <menucascade><uicontrol>⋮</uicontrol><uicontrol>Install app</uicontrol></menucascade>.</p></info>
+      </step>
+      <step>
+        <cmd>iPhone or iPad: open the site in Safari, then <menucascade><uicontrol>Share</uicontrol><uicontrol>Add to Home Screen</uicontrol></menucascade>.</cmd>
+      </step>
+      <step>
+        <cmd>Windows, as a worker PC: download the desktop app from <xref href="../system/devices.dita">Devices</xref>.</cmd>
+        <info><p>It is the same app in a window, plus a worker that runs video, GPU and local Claude Code jobs while it is open.</p></info>
+      </step>
+    </steps-unordered>
+    <result>
+      <p>Then turn on push for this device in <xref href="../system/notification-settings.dita#devices">Notification settings</xref>.</p>
+    </result>
+  </taskbody>
+  <concept id="updates">
+    <title>Updates</title>
+    <conbody>
+      <p>When a new version is deployed, a banner says <systemoutput>A new version of Command Centre is ready</systemoutput>. Choose <uicontrol>Update</uicontrol>. <wintitle>Settings</wintitle> shows the version you are on, with <uicontrol>Check for updates</uicontrol>.</p>
+    </conbody>
+  </concept>
+  <concept id="cant-install">
+    <title>Can't install?</title>
+    <conbody>
+      <p>The browser only offers to install a site served over HTTPS with a valid certificate. Check the address shows a padlock.</p>
+    </conbody>
+  </concept>
+</task>

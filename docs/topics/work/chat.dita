@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="chat">
+  <title>Chat</title>
+  <shortdesc>Ask for anything in plain words. The Chief of Staff answers, or hands it to the right role and reports back in the same chat.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="chat"/>
+  </prolog>
+  <body>
+    <fig id="fig-chat">
+      <title>Chat on a phone</title>
+      <image href="../../screenshots/chat-phone-light.png" placement="break" width="300">
+        <alt>Chat on a phone: your message, the agent's answer with its business and status, and the message box.</alt>
+      </image>
+    </fig>
+    <p>Type in <uicontrol>Message</uicontrol> and press Enter (Shift+Enter for a new line). Each answer shows which business handled it and links to its task. Follow-ups continue the same thread, so the agent remembers what you were talking about; <uicontrol>New chat</uicontrol> starts afresh. Wait for one answer before sending the next.</p>
+    <p>If the work needs your approval, the proposals appear right under the answer, so you can approve them without leaving Chat.</p>
+    <p>The <uicontrol>Drive mode</uicontrol> link switches to hands-free voice. See <xref href="drive.dita">Drive mode</xref>.</p>
+  </body>
+  <topic id="send-to">
+    <title>Choose who you are talking to</title>
+    <prolog><resourceid appname="command-centre" appid="chat.send-to"/></prolog>
+    <body>
+      <p><uicontrol>Send to</uicontrol> is the <uicontrol>Chief of Staff</uicontrol> by default. Pick a business to send straight to its lead instead; changing it starts a new thread.</p>
+      <p>You can also name the business or role at the start of the message:</p>
+      <ul>
+        <li><userinput>dms: what sold yesterday?</userinput> goes to Desktop Machine Shop.</li>
+        <li><userinput>support: where is S00042?</userinput> goes to Customer Support.</li>
+        <li><userinput>dms/pricing: check ER11 collets</userinput> names the business and the role.</li>
+        <li><userinput>cos: what matters today?</userinput> is the Chief of Staff.</li>
+      </ul>
+      <p>A role's id, title or any name in its <uicontrol>Address as</uicontrol> list on the <xref href="../business/org.dita">Org</xref> page works.</p>
+    </body>
+  </topic>
+  <topic id="dictate">
+    <title>Dictate instead of typing</title>
+    <prolog><resourceid appname="command-centre" appid="chat.dictate"/></prolog>
+    <body>
+      <p>The microphone button fills the message box with what you say. Press it again when you are done, check the text, and send. It is hidden where the device can't listen.</p>
+    </body>
+  </topic>
+</topic>

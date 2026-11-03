@@ -719,6 +719,14 @@ p.error {
   top: 2px;
   right: 0;
 }
+/* The header "?" (help.ts): a button styled like the bell link. */
+button.icon-link.help-btn {
+  min-height: 0;
+  color: var(--text-2);
+}
+button.icon-link.help-btn:hover:not(:disabled) {
+  color: var(--text);
+}
 .shell.is-phone .icon-link {
   width: 44px;
   height: 44px;

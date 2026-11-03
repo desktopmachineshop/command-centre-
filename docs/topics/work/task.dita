@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="task">
+  <title>A task, its conversation and its actions</title>
+  <shortdesc>A task page shows what came in, every agent run with its full transcript and cost, and the actions it proposed.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="inbox.task"/>
+  </prolog>
+  <body>
+    <fig id="fig-task">
+      <title>A task on a PC</title>
+      <image href="../../screenshots/task-desktop-light.png" placement="break" width="900">
+        <alt>A task page: the email that came in and the agent's conversation on the left, its proposed actions on the right.</alt>
+      </image>
+    </fig>
+    <dl>
+      <dlentry><dt>The task card</dt><dd>The business, status and what came in. An email shows its sender, date and attachments; automated mail is folded away (<uicontrol>Show it</uicontrol>). Below: the role, kind of work, route, urgency and age.</dd></dlentry>
+      <dlentry><dt><uicontrol>Retry</uicontrol> and <uicontrol>Run now</uicontrol></dt><dd>A failed task can be retried. A deferred one can be run now, ignoring the daily budget for this one run.</dd></dlentry>
+      <dlentry><dt><wintitle>Conversation</wintitle></dt><dd>Each agent run, with its cost and transcript. Tool calls are folded as <systemoutput>→ tool</systemoutput> and their results as <systemoutput>← result</systemoutput>; open one to see exactly what the agent sent and got back.</dd></dlentry>
+      <dlentry><dt>Duplicates</dt><dd>The same request for the same business within a few minutes is linked to the first task instead of running again. <uicontrol>Open the original task</uicontrol> goes there.</dd></dlentry>
+    </dl>
+    <p>On a phone, <uicontrol>Conversation</uicontrol> and <uicontrol>Actions</uicontrol> tabs switch between the two halves; the <uicontrol>Actions</uicontrol> badge counts what waits for you.</p>
+  </body>
+  <topic id="reply">
+    <title>Reply to the agent</title>
+    <prolog><resourceid appname="command-centre" appid="inbox.task.reply"/></prolog>
+    <body>
+      <p>When a task is done, failed or waiting for approval, the box under the conversation sends the agent a reply: answer its question, change the plan, or ask for something else. The task runs again with your reply and its earlier work. Enter sends; Shift+Enter starts a new line; the microphone dictates.</p>
+    </body>
+  </topic>
+  <topic id="actions">
+    <title>Proposed actions</title>
+    <prolog><resourceid appname="command-centre" appid="inbox.task.actions"/></prolog>
+    <body>
+      <p>The actions this task proposed, pending ones first. They work exactly as in <xref href="approvals.dita">Approvals</xref>.</p>
+    </body>
+  </topic>
+</topic>
