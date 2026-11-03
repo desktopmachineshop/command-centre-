@@ -3504,7 +3504,7 @@ details[open] > summary .brain-tree-chevron {
   border-radius: var(--r-md);
 }
 
-/* Dictation mic (voice/dictation.ts), left of Send: in the chat composer (Chat.tsx) and the task's reply box (TaskView.tsx). */
+/* Dictation mic in the composer (composer.tsx, voice/dictation.ts): left of Send. */
 .composer.has-mic {
   grid-template-columns: auto 1fr auto auto;
   grid-template-areas:
@@ -3513,9 +3513,6 @@ details[open] > summary .brain-tree-chevron {
 }
 .composer button.mic {
   grid-area: mic;
-}
-.composer button.mic,
-.reply-box button.mic {
   width: 40px;
   min-width: 40px;
   padding: 0;
@@ -3523,16 +3520,14 @@ details[open] > summary .brain-tree-chevron {
   background: var(--surface-2);
   border-color: var(--border);
 }
-.composer button.mic.is-listening,
-.reply-box button.mic.is-listening {
+.composer button.mic.is-listening {
   background: var(--danger-solid);
   border-color: var(--danger-solid);
   color: #fff;
   animation: pulse 1.4s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .composer button.mic.is-listening,
-  .reply-box button.mic.is-listening {
+  .composer button.mic.is-listening {
     animation: none;
   }
 }

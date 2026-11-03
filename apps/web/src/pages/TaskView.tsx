@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@cc/core";
-import { type FormEvent, useRef, useState } from "react";
+import { useState } from "react";
 import type { Api } from "../api";
 import { ago, askText, emailAsk, readableEmailBody, usd } from "../format";
 import { Icon } from "../icons";
@@ -9,7 +9,7 @@ import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport, type ReportFacts } from "../copy";
-import { joinDictation, useDictation } from "../voice/dictation";
+import { Composer } from "../composer";
 
 export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: string }) {
   const { data, error } = useLoad(
@@ -174,44 +174,17 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
 /**
  * Talk back to the agent on this task: answer its question, change its plan or
  * ask for more. The task runs again, resuming the agent's earlier session.
- * The mic dictates into the box, like the chat's: nothing is sent by itself.
+ * The same message box as the Chat page, mic included.
  */
 function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Dictation: what was typed before it started, and a send waiting for it to finish.
-  const dictation = useDictation(api);
-  const typedBefore = useRef("");
-  const sendWhenDone = useRef(false);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  const toggleMic = () => {
-    if (dictation.listening) return dictation.stop();
-    typedBefore.current = text;
-    void dictation.start((spoken, final) => {
-      setText(joinDictation(typedBefore.current, spoken));
-      if (final && sendWhenDone.current) {
-        sendWhenDone.current = false;
-        // Let the final words reach the box before the form reads it.
-        setTimeout(() => formRef.current?.requestSubmit(), 0);
-      }
-    });
-  };
-
-  const send = async (e: FormEvent) => {
-    e.preventDefault();
-    // Send while dictating: finish listening first, then send everything that was said.
-    if (dictation.listening) {
-      sendWhenDone.current = true;
-      dictation.stop();
-      return;
-    }
-    if (!text.trim()) return;
+  const send = async (message: string) => {
     setBusy(true);
     setError(null);
     try {
-      await api.replyToTask(taskId, text.trim(), false);
+      await api.replyToTask(taskId, message, false);
       setText("");
     } catch (err) {
       setError((err as Error).message);
@@ -220,36 +193,19 @@ function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
     }
   };
   return (
-    <form ref={formRef} className="card reply-box" onSubmit={send}>
-      <label className="field">
-        <span>Reply to the agent</span>
-        <textarea
-          value={text}
-          rows={2}
-          placeholder={dictation.listening ? "Listening… press the mic again when you're done" : "Answer its question, change the plan, or ask for something else"}
-          onChange={(e) => setText(e.target.value)}
-        />
-      </label>
+    <>
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      {dictation.error && <ErrorBanner>{dictation.error}</ErrorBanner>}
-      <div className="row">
-        {dictation.available && (
-          <button
-            type="button"
-            className={`mic ${dictation.listening ? "is-listening" : ""}`}
-            onClick={toggleMic}
-            aria-pressed={dictation.listening}
-            aria-label={dictation.listening ? "Stop dictating" : "Dictate"}
-            title={dictation.listening ? "Stop dictating" : "Dictate: talk instead of typing"}
-          >
-            <Icon name={dictation.listening ? "stop" : "mic"} size={16} />
-          </button>
-        )}
-        <button type="submit" className="primary" disabled={busy || (!text.trim() && !dictation.listening)}>
-          <Icon name="chat" size={16} /> {busy ? "Sending…" : "Send"}
-        </button>
-      </div>
-    </form>
+      <Composer
+        api={api}
+        value={text}
+        onChange={setText}
+        onSend={send}
+        busy={busy}
+        className="reply-box"
+        label="Reply to the agent"
+        placeholder="Reply to the agent: answer its question, change the plan, or ask for something else"
+      />
+    </>
   );
 }
 

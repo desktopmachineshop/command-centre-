@@ -1,12 +1,12 @@
 import type { AgentMessage, Proposal, Task } from "@cc/core";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Api } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { Icon } from "../icons";
 import { Empty, ErrorBanner, PageHead, VTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
-import { joinDictation, useDictation } from "../voice/dictation";
+import { Composer } from "../composer";
 import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
@@ -81,11 +81,6 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [error, setError] = useState<string | null>(null);
   /** The task follow-ups continue; null starts a new one. */
   const [threadId, setThreadId] = useState<string | null>(null);
-  // Dictation (the mic by Send): what was typed before it started, and a send waiting for it to finish.
-  const dictation = useDictation(api);
-  const typedBefore = useRef("");
-  const sendWhenDone = useRef(false);
-  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
@@ -129,7 +124,6 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   /** "New chat": a clean screen and a new thread. */
   const newChat = () => {
-    dictation.stop();
     clearChat();
     setTurns([]);
     setThreadId(null);
@@ -153,29 +147,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
     }
   });
 
-  const toggleMic = () => {
-    if (dictation.listening) return dictation.stop();
-    typedBefore.current = text;
-    void dictation.start((spoken, final) => {
-      setText(joinDictation(typedBefore.current, spoken));
-      if (final && sendWhenDone.current) {
-        sendWhenDone.current = false;
-        // Let the final words reach the box before the form reads it.
-        setTimeout(() => formRef.current?.requestSubmit(), 0);
-      }
-    });
-  };
-
-  const send = async (e: FormEvent) => {
-    e.preventDefault();
-    // Send while dictating: finish listening first, then send everything that was said.
-    if (dictation.listening) {
-      sendWhenDone.current = true;
-      dictation.stop();
-      return;
-    }
-    const message = text.trim();
-    if (!message) return;
+  const send = async (message: string) => {
     const thread = threadId ? turns.findLast((t) => t.task.id === threadId)?.task : undefined;
     if (thread && !REPLYABLE.includes(thread.status)) {
       setError("Still working on the last message: wait for its answer, or start a new chat.");
@@ -241,8 +213,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         ))}
       </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      {dictation.error && <ErrorBanner>{dictation.error}</ErrorBanner>}
-      <form ref={formRef} className={`composer ${dictation.available ? "has-mic" : ""}`} onSubmit={send}>
+      <Composer api={api} value={text} onChange={setText} onSend={send} label="Message" placeholder="What needs doing?">
         <select
           value={vertical}
           onChange={(e) => {
@@ -258,36 +229,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             </option>
           ))}
         </select>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={dictation.listening ? "Listening… press the mic again when you're done" : "What needs doing?"}
-          aria-label="Message"
-          rows={2}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              e.currentTarget.form?.requestSubmit();
-            }
-          }}
-        />
-        {dictation.available && (
-          <button
-            type="button"
-            className={`mic ${dictation.listening ? "is-listening" : ""}`}
-            onClick={toggleMic}
-            aria-pressed={dictation.listening}
-            aria-label={dictation.listening ? "Stop dictating" : "Dictate"}
-            title={dictation.listening ? "Stop dictating" : "Dictate: talk instead of typing"}
-          >
-            <Icon name={dictation.listening ? "stop" : "mic"} size={16} />
-          </button>
-        )}
-        <button className="primary send" aria-label="Send">
-          <Icon name="send" size={16} />
-          Send
-        </button>
-      </form>
+      </Composer>
     </section>
   );
 }
