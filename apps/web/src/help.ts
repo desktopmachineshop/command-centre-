@@ -5,8 +5,9 @@
  * - The server says where the docs are (GET /api/help/config). With an embed secret set
  *   there, the OpenD widget is loaded from the docs site and the "?" button (or F1) opens
  *   its side panel, signed in as the current user (GET /api/help/token).
- * - Without one, or when the docs site can't be reached, "?" opens the same help in a new
- *   tab through a context link (works while the docs site is public).
+ * - Without one, or when the docs site can't be reached, "?" opens the help page itself in a
+ *   new tab (help-topics.json, generated from docs/ by scripts/help-topics.ts). That works on
+ *   a private docs site too: it signs the reader in, then shows the page.
  *
  * Markup: `data-help-key="approvals.revise"` on a field, button or group, and
  * `data-help-pane="org.edit"` on a tab, pane or dialog. The widget watches focus and
@@ -16,6 +17,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { Connection } from "./api";
+import TOPICS from "./help-topics.json";
 
 export interface HelpConfig {
   docsUrl: string;
@@ -58,10 +60,28 @@ export function helpSignals(el: Element | null): { focus?: string; pane?: string
   return { ...(key ? { focus: key } : {}), ...(pane ? { pane } : {}) };
 }
 
-/** A context link: the docs site resolves it for anonymous readers and redirects to the topic. */
-export function contextLink(cfg: Pick<HelpConfig, "docsUrl" | "app">, path: string, signals: { focus?: string; pane?: string } = {}): string {
-  const params = new URLSearchParams({ ...signals, path });
-  return `${cfg.docsUrl}/context/${encodeURIComponent(cfg.app)}?${params}`;
+/** Hash routes whose help key isn't the route's own name (see docs/help-contexts.yaml). */
+const ROUTE_KEYS: Record<string, string> = { "": "inbox", task: "inbox.task", briefing: "notifications.briefing" };
+
+/** The help key of the page at an app path, e.g. "/task/123" → "inbox.task". */
+export function viewKey(path: string): string {
+  const page = path.replace(/^\//, "").split("/")[0] ?? "";
+  return ROUTE_KEYS[page] ?? page;
+}
+
+/**
+ * The docs page for the first signal that has help (focus, then pane, then the view), each
+ * falling back to its parents (approvals.revise → approvals), else the docs' front page.
+ */
+export function topicUrl(docsUrl: string, path: string, signals: { focus?: string; pane?: string } = {}, topics: Record<string, string> = TOPICS): string {
+  for (const key of [signals.focus, signals.pane, viewKey(path)]) {
+    const parts = key ? key.split(".") : [];
+    for (let n = parts.length; n > 0; n--) {
+      const hit = topics[parts.slice(0, n).join(".")];
+      if (hit) return `${docsUrl}/${hit}`;
+    }
+  }
+  return `${docsUrl}/`;
 }
 
 let widget: Promise<OpenDHelpApi | null> | null = null;
@@ -144,8 +164,8 @@ export function useHelp(conn: Connection, route: string): Help {
 
   const toggle = useCallback(() => {
     if (api) return api.toggle();
-    const docs = cfg ?? { docsUrl: "https://command-centre.opend.app", app: "command-centre" };
-    window.open(contextLink(docs, helpPath(), helpSignals(document.activeElement)), "_blank", "noopener");
+    const docsUrl = cfg?.docsUrl ?? "https://command-centre.opend.app";
+    window.open(topicUrl(docsUrl, helpPath(), helpSignals(document.activeElement)), "_blank", "noopener");
   }, [api, cfg]);
 
   // F1 opens help for the focused field, wherever focus is (the widget then reads it).

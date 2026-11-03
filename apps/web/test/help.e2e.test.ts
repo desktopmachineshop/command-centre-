@@ -11,7 +11,9 @@ import { fileURLToPath } from "node:url";
 import { type Browser, chromium, type Page } from "playwright-core";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { contextLink, helpPath } from "../src/help";
+import { helpTopics } from "../scripts/help-topics";
+import { helpPath, topicUrl, viewKey } from "../src/help";
+import TOPICS from "../src/help-topics.json";
 
 const CHROMIUM = process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium";
 const SHOTS = process.env.HELP_SHOTS; // a folder for screenshots, when set
@@ -54,13 +56,23 @@ describe("help keys", () => {
     }
   });
 
-  it("maps hash routes to app paths and builds context links", () => {
+  it("help-topics.json is up to date with docs/ (pnpm --filter @cc/web help-topics)", () => {
+    expect(TOPICS).toEqual(helpTopics());
+  });
+
+  it("maps hash routes to pages, and signals to sections, falling back to parents", () => {
     expect(helpPath("")).toBe("/inbox");
     expect(helpPath("#/task/abc?n=1")).toBe("/task/abc");
     expect(helpPath("#/brain/dms%2Fnote.md")).toBe("/brain/dms%2Fnote.md");
-    expect(contextLink({ docsUrl: DOCS, app: "command-centre" }, "/approvals", { focus: "approvals.revise" })).toBe(
-      `${DOCS}/context/command-centre?focus=approvals.revise&path=%2Fapprovals`,
-    );
+    expect(viewKey("/task/abc")).toBe("inbox.task");
+    expect(topicUrl(DOCS, "/approvals", { focus: "approvals.revise" })).toBe(`${DOCS}/topics/work/approvals.html#revise`);
+    expect(topicUrl(DOCS, "/approvals", { focus: "approvals.revise.note" })).toBe(`${DOCS}/topics/work/approvals.html#revise`);
+    expect(topicUrl(DOCS, "/org", { pane: "org.policies" })).toBe(`${DOCS}/topics/business/org.html#policies`);
+    expect(topicUrl(DOCS, "/task/abc")).toBe(`${DOCS}/topics/work/task.html`);
+    expect(topicUrl(DOCS, "/nowhere")).toBe(`${DOCS}/`);
+    // Every page in NAV, and the routes without one, open a real page.
+    const nav = [...readFileSync(here("../src/App.tsx"), "utf8").matchAll(/\{ key: "([\w-]+)", label:/g)].map((m) => m[1]!);
+    for (const page of [...nav, "task/x", "briefing/x", ""]) expect(topicUrl(DOCS, `/${page}`), page).not.toBe(`${DOCS}/`);
   });
 });
 
@@ -145,13 +157,13 @@ describe.skipIf(!existsSync(CHROMIUM))("help button (Playwright)", () => {
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("without an embed secret, ? opens the context link for the route and the focused field", async () => {
+  it("without an embed secret, ? opens the help page for the route and the focused field", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
     await open(page, false, "#/chat");
     await page.getByRole("combobox", { name: "Send to" }).focus();
     await page.keyboard.press("F1");
     const opened = await page.evaluate(() => (window as unknown as { __opened?: string[] }).__opened ?? []);
-    expect(opened).toEqual([`${DOCS}/context/command-centre?focus=chat.send-to&path=%2Fchat`]);
+    expect(opened).toEqual([`${DOCS}/topics/work/chat.html#send-to`]);
     expect(await calls(page)).toEqual([]); // no widget loaded
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/help-button-phone.png` });
   }, 60_000);

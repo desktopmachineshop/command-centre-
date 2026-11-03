@@ -2092,6 +2092,8 @@ In the app, the **?** button in the top bar and **F1** open help for the page in
 - Topics declare keys with `<resourceid appname="command-centre" appid="…"/>`, in the prolog of the page or
   of a nested topic (which opens the page at that section). `apps/web/test/help.e2e.test.ts` fails if the
   app uses a key the docs don't declare, or a page in `NAV` has no route.
+- Without the help panel, **?** opens the page for the key in a new tab, from `apps/web/src/help-topics.json`.
+  After changing keys in the docs, regenerate it with `pnpm --filter @cc/web help-topics`; the test fails until you do.
 
 Settings:
 
@@ -2099,7 +2101,7 @@ Settings:
 | --- | --- | --- |
 | `OPEND_DOCS_URL` | `https://command-centre.opend.app` | The docs site, and the `aud` of embed tokens: it must match the site's public URL exactly. |
 | `OPEND_HELP_APP` | `command-centre` | The app name in `help-contexts.yaml` and in each `resourceid`. |
-| `OPEND_EMBED_SECRET` | unset | The docs site's embed secret (32+ characters). Without it, **?** opens a context link in a new tab, which only resolves while the docs site is public. |
+| `OPEND_EMBED_SECRET` | unset | The docs site's embed secret (32+ characters). Without it, **?** opens the help page in a new tab (the docs site signs you in first if it is private). |
 | `OPEND_ORG` | unset | The OpenD organization slug the users are readers in, if any. |
 
 With `OPEND_EMBED_SECRET` set, the PWA loads `/embed/opend-help.js` from the docs site and the panel signs in
