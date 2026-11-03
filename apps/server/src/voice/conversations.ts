@@ -3,6 +3,7 @@ import type { AgentRunResult } from "@cc/agent-runtime";
 import type { Task, TaskStatus, VoiceResponse } from "@cc/core";
 import { parseVoiceResponse, voiceResponseInstructions } from "@cc/voice";
 import { voicePrompt } from "../agent-context";
+import type { ChatFilesContext } from "../chat-files";
 import type { Store } from "../db/store";
 import type { Hub } from "../hub";
 import type { TaskQueue } from "../queue";
@@ -82,7 +83,7 @@ export class VoiceConversations {
     return rows.length > 0;
   }
 
-  async reply(taskId: string, text: string, voice: boolean): Promise<Task | null> {
+  async reply(taskId: string, text: string, voice: boolean, files?: ChatFilesContext): Promise<Task | null> {
     const queued = await this.store.transaction(async (tx) => {
       const { rows } = await tx.pool.query("select status from tasks where id = $1 for update", [taskId]);
       if (!rows[0]) return null;
@@ -94,8 +95,8 @@ export class VoiceConversations {
         [taskId],
       );
       await tx.pool.query(
-        "insert into task_replies (id, task_id, text, voice, resume_session_id) values ($1, $2, $3, $4, $5)",
-        [randomUUID(), taskId, text, voice, session.rows[0]?.session_id ?? null],
+        "insert into task_replies (id, task_id, text, voice, resume_session_id, files) values ($1, $2, $3, $4, $5, $6)",
+        [randomUUID(), taskId, text, voice, session.rows[0]?.session_id ?? null, files?.files.length ? files : null],
       );
       return tx.setTaskStatus(taskId, "queued");
     });
@@ -121,8 +122,9 @@ export class VoiceConversations {
     if (!reply) return null;
     // Dave's own reply, or a report from a role this task handed work to.
     const fromDave = !reply.author || reply.author === "dave";
-    const said = fromDave ? `Dave replies: ${reply.text}` : `Report back from ${reply.author}, who took the work you handed off:\n\n${reply.text}\n\nUse it to finish your task: give the outcome in a sentence or two (what was done, and anything waiting for Dave's approval or decision). Don't redo their work.`;
-    const marker = fromDave ? `Dave replied: ${reply.text}` : `${reply.author} reported back: ${reply.text}`;
+    const attached = reply.files as ChatFilesContext | null;
+    const said = fromDave ? `Dave replies: ${reply.text}${attached?.prompt ? `\n\n${attached.prompt}` : ""}` : `Report back from ${reply.author}, who took the work you handed off:\n\n${reply.text}\n\nUse it to finish your task: give the outcome in a sentence or two (what was done, and anything waiting for Dave's approval or decision). Don't redo their work.`;
+    const marker = fromDave ? `Dave replied: ${reply.text}${attached?.files.length ? ` [attached: ${attached.files.map((f) => f.name).join(", ")}]` : ""}` : `${reply.author} reported back: ${reply.text}`;
     this.store.appendRunMessage(runId, { type: "system", text: marker }).catch(() => {});
     this.hub.broadcast({ type: "run.message", runId, taskId: task.id, message: { type: "system", text: marker } });
 

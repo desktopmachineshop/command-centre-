@@ -7,6 +7,14 @@ import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
  * cookie at sign-in, and nothing is stored here. With "Use an admin token instead",
  * the token (and optionally another server's URL) is kept in localStorage as before.
  */
+/** A file uploaded from the chat box (POST /api/chat/files). */
+export interface ChatFile {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+}
+
 export interface Connection {
   baseUrl: string;
   token: string | null;
@@ -303,8 +311,26 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     token: conn.token,
     verticals: () => call<VerticalManifest[]>("/verticals"),
     /** `role` (an org role id, with its `vertical`) sends it to that role rather than whichever fits. */
-    chat: (text: string, vertical?: string, options: { voice?: boolean; role?: string } = {}) =>
-      post<{ event: Event; task: Task }>("/chat", { text, vertical, ...(options.role ? { role: options.role } : {}), ...(options.voice ? { voice: true } : {}) }),
+    /** `files`: ids from `uploadChatFile`, handed to the agent with the message. */
+    chat: (text: string, vertical?: string, options: { voice?: boolean; role?: string; files?: string[] } = {}) =>
+      post<{ event: Event; task: Task }>("/chat", {
+        text,
+        vertical,
+        ...(options.role ? { role: options.role } : {}),
+        ...(options.voice ? { voice: true } : {}),
+        ...(options.files?.length ? { files: options.files } : {}),
+      }),
+    /** A file pasted, dropped or attached in the chat box, uploaded ahead of the message that sends it. */
+    uploadChatFile: async (file: File, signal?: AbortSignal) => {
+      const res = await fetch(`${base}/api/chat/files?name=${encodeURIComponent(file.name || "pasted file")}`, {
+        method: "POST",
+        ...authed({ "content-type": file.type || "application/octet-stream" }),
+        body: file,
+        signal,
+      });
+      if (!res.ok) throw await failed(res);
+      return (await res.json()) as ChatFile;
+    },
     tasks: (status?: string, filter: { vertical?: string; role?: string } = {}) => {
       const q = new URLSearchParams(Object.entries({ status, ...filter }).filter(([, v]) => v) as [string, string][]).toString();
       return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);
@@ -395,7 +421,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     voiceConfig: () => call<VoiceConfig>("/voice/config"),
     voiceBriefing: () => call<VoiceBriefing>("/voice/briefing"),
     nextApproval: (skip: string[] = []) => call<NextApproval>(`/voice/approvals/next${skip.length ? `?skip=${skip.join(",")}` : ""}`),
-    replyToTask: (id: string, text: string, voice = true) => post<Task>(`/tasks/${id}/reply`, { text, voice }),
+    replyToTask: (id: string, text: string, voice = true, files?: string[]) =>
+      post<Task>(`/tasks/${id}/reply`, { text, voice, ...(files?.length ? { files } : {}) }),
     transcribe: async (audio: Blob, seconds: number, language?: string) => {
       const query = new URLSearchParams({ seconds: seconds.toFixed(1), ...(language ? { language } : {}) });
       const res = await fetch(`${base}/api/voice/transcribe?${query}`, {

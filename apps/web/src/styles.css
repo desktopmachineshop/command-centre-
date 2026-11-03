@@ -3665,6 +3665,119 @@ details[open] > summary .brain-tree-chevron {
 }
 
 /*
+ * Files in the composer (composer.tsx): the paperclip next to the mic, chips for attached files
+ * above the text, and a dashed outline while files are dragged over the box. The grid gains an
+ * "attach" column and, with files, a "files" row.
+ */
+.composer.has-attach {
+  grid-template-columns: auto 1fr auto auto;
+  grid-template-areas:
+    "text text text text"
+    "select hint attach send";
+}
+.composer.has-attach.has-mic {
+  grid-template-columns: auto 1fr auto auto auto;
+  grid-template-areas:
+    "text text text text text"
+    "select hint attach mic send";
+}
+.composer.has-files {
+  grid-template-areas:
+    "files files files"
+    "text text text"
+    "select hint send";
+}
+.composer.has-files.has-mic {
+  grid-template-areas:
+    "files files files files"
+    "text text text text"
+    "select hint mic send";
+}
+.composer.has-files.has-attach {
+  grid-template-areas:
+    "files files files files"
+    "text text text text"
+    "select hint attach send";
+}
+.composer.has-files.has-attach.has-mic {
+  grid-template-areas:
+    "files files files files files"
+    "text text text text text"
+    "select hint attach mic send";
+}
+.composer button.attach {
+  grid-area: attach;
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  justify-content: center;
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.composer.is-dragging {
+  border-style: dashed;
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.composer-files,
+.attached-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.composer-files {
+  grid-area: files;
+  padding: 4px 4px 0;
+}
+.attached-files {
+  margin-top: 6px;
+}
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.attached-files .file-chip {
+  padding-right: 10px;
+}
+.file-chip .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 16rem;
+}
+.file-chip .file-size {
+  white-space: nowrap;
+}
+.file-chip.is-uploading {
+  opacity: 0.75;
+}
+.file-chip.is-failed {
+  border-color: var(--danger-solid);
+}
+.composer .file-chip button {
+  grid-area: auto;
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  height: 24px;
+  padding: 0;
+  justify-content: center;
+}
+
+/*
  * Task page (TaskView.tsx): the conversation, and the proposed actions beside it. Wide: two
  * columns, the actions sticky on the right so they stay in view at the bottom of a long
  * conversation. Narrow: tabs (Conversation | Actions, with a count) stuck to the top.

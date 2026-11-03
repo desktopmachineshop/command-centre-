@@ -43,6 +43,7 @@ import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { storagePublicRoutes } from "./http/storage";
 import { createStorage, videoMediaFromStorage } from "./storage";
+import { ChatFiles } from "./chat-files";
 import { type WorkerAuth, wsHandler } from "./http/ws";
 import { desktopPublicRoutes } from "./http/desktop";
 import { DesktopService } from "./desktop";
@@ -330,6 +331,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       return disk && { ...disk, minFreeBytes: housekeeping.minFreeBytes, renderRetentionDays: housekeeping.renderRetentionDays };
     },
   };
+  // Files pasted, dropped or attached in the chat box (./chat-files.ts).
+  const chatFiles = new ChatFiles({ storage, dataDir: config.dataDir, uploadMaxBytes: config.storage.uploadMaxBytes, refuseUpload: storageDeps.refuseUpload });
   // --- end storage ---
 
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
@@ -562,6 +565,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     mcpServers: () => ["brain", ...Object.keys(extraMcpServers())],
     voice: voiceConversations,
+    chatFilesReadRule: chatFiles.readRule(),
   });
 
   const app = new Hono();
@@ -605,7 +609,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles }));
   app.route(
     "/mcp",
     mcpRoutes({

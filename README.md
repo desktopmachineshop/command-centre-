@@ -9,7 +9,7 @@ Desktop Machine Shop, 3dpandme, OpenV, OpenD and personal.
 - Agents read and write a markdown **brain** and use a shared **skills bank**.
 - Anything outward-facing becomes a **proposal**, which runs straight away or waits for approval
   depending on policy.
-- A **PWA** (phone and desktop) shows the inbox, approvals, chat, brain (edit notes there), the org chart (edit roles and policies there) and worker devices.
+- A **PWA** (phone and desktop) shows the inbox, approvals, chat (type, dictate, or attach, paste and drop files for the agent), brain (edit notes there), the org chart (edit roles and policies there) and worker devices.
 
 ```
 apps/server            API, WebSocket hub, pipeline, scheduler, MCP endpoints (/mcp/brain, /mcp/actions)
