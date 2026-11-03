@@ -8,6 +8,7 @@ import { type ActionService, ProposalInvalidError, ProposalStateError } from "..
 import { ReplyStateError } from "../voice/conversations";
 import { tokenMatches } from "../auth";
 import type { BudgetService } from "../budget";
+import { ChatFileError, ChatFileIds, chatFileRoutes, type ChatFiles } from "../chat-files";
 import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
 import type { DigestService } from "../digest";
@@ -62,6 +63,8 @@ export interface ApiDeps {
   desktop?: DesktopApiDeps;
   /** In-app help: the OpenD docs site and embed tokens for its help panel (see ./help.ts). */
   help?: HelpConfig;
+  /** Files pasted, dropped or attached in the chat box (see ../chat-files.ts). */
+  chatFiles?: ChatFiles;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -76,6 +79,7 @@ export function apiRoutes(deps: ApiDeps) {
     if (err instanceof ProposalStateError) return c.json({ error: err.message }, 409);
     if (err instanceof ProposalInvalidError) return c.json({ error: err.message }, 400);
     if (err instanceof ReplyStateError) return c.json({ error: err.message }, 409);
+    if (err instanceof ChatFileError) return c.json({ error: err.message }, 400);
     if (err instanceof BrainConflictError) return c.json({ error: err.message, version: err.currentVersion }, 409);
     if (err instanceof OrgConflictError) return c.json({ error: err.message, version: err.currentVersion }, 409);
     if (err instanceof OrgError) return c.json({ error: err.message, issues: err.issues }, 400);
@@ -116,15 +120,23 @@ export function apiRoutes(deps: ApiDeps) {
   app.post("/chat", async (c) => {
     // `role` (optional) asks a specific org role, as a "role: ..." prefix would.
     // `voice: true` (Drive mode) asks the agent for a short spoken answer; see agent-context voicePrompt.
+    // `files` (optional): ids from POST /chat/files, handed to the agent with the message (../chat-files.ts).
     const body = z
-      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional(), voice: z.boolean().optional() })
+      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional(), voice: z.boolean().optional(), files: ChatFileIds.optional() })
       .parse(await c.req.json());
+    if (body.files?.length && !deps.chatFiles) return c.json({ error: "file attachments are not available on this server" }, 400);
+    const attached = body.files?.length && deps.chatFiles ? await deps.chatFiles.context(body.files) : null;
     const result = await pipeline.ingest({
       source: "chat",
       vertical: body.vertical ?? null,
       kind: "message",
       title: body.text.slice(0, 120),
-      payload: { text: body.text, ...(body.role ? { role: body.role } : {}), ...(body.voice ? { voice: true } : {}) },
+      payload: {
+        text: body.text,
+        ...(body.role ? { role: body.role } : {}),
+        ...(body.voice ? { voice: true } : {}),
+        ...(attached ? { files: attached.files, filesPrompt: attached.prompt } : {}),
+      },
     });
     return c.json(result, 201);
   });
@@ -357,9 +369,10 @@ export function apiRoutes(deps: ApiDeps) {
   // /social/* and /media, behind the admin check above.
   if (deps.social) app.route("/", socialApiRoutes(deps.social));
   if (deps.storage) app.route("/", storageApiRoutes(deps.storage)); // storage
+  if (deps.chatFiles) app.route("/", chatFileRoutes(deps.chatFiles)); // chat files
   if (deps.desktop) app.route("/", desktopApiRoutes(deps.desktop)); // desktop
   // /voice/* and /tasks/:id/reply, behind the admin check above.
-  if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
+  if (deps.voice) app.route("/", voiceApiRoutes({ ...deps.voice, chatFiles: deps.chatFiles }));
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
   if (deps.integrations) app.route("/", integrationRoutes(deps.integrations, deps.claudeSetup));

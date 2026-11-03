@@ -11,6 +11,8 @@ export const CHAT_IDLE_MS = 60 * 60_000;
 
 export interface SavedTurn {
   text: string;
+  /** Files attached to it: what to show, the agent has them already. */
+  files?: { name: string; size: number }[];
   taskId: string;
   /**
    * When the server took it (ISO, the task's own timestamp, so it compares with run start times

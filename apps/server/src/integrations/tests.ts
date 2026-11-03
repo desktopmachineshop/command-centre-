@@ -1,6 +1,7 @@
 import { type EmailAccount, type ImapConnector, imapflowConnector, sendRoute, smtpAuth, verifyHttpsSending } from "@cc/email";
 import { OdooClient } from "@cc/odoo";
 import { createGoogleTokenProvider } from "@cc/pa";
+import { SENDCLOUD_API, SendcloudClient } from "@cc/sendcloud";
 import { IG_GRAPH_BASE, REDDIT_API, REDDIT_TOKEN_URL, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
 import nodemailer from "nodemailer";
 import { emailAccountOf, type EntryInput } from "./effective";
@@ -22,6 +23,7 @@ export interface TestEndpoints {
   redditToken: string;
   redditApi: string;
   discord: string;
+  sendcloud: string;
 }
 
 export const DEFAULT_TEST_ENDPOINTS: TestEndpoints = {
@@ -35,6 +37,7 @@ export const DEFAULT_TEST_ENDPOINTS: TestEndpoints = {
   redditToken: REDDIT_TOKEN_URL,
   redditApi: REDDIT_API,
   discord: "https://discord.com/api/v10",
+  sendcloud: SENDCLOUD_API,
 };
 
 export interface TestDeps {
@@ -211,6 +214,19 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
         return ok(`Signed in to Odoo as ${name}`, name);
       } catch (err) {
         return fail(redact(`Odoo: ${(err as Error).message}`, [apiKey]).slice(0, 300));
+      }
+    },
+
+    async sendcloud(entry) {
+      const publicKey = (entry.data.publicKey as string | undefined)?.trim();
+      const secretKey = entry.secrets.secretKey;
+      if (!publicKey || !secretKey) return fail("Public key and secret key are both needed");
+      try {
+        const user = await new SendcloudClient({ publicKey, secretKey, baseUrl: urls.sendcloud, fetch: f, timeoutMs }).user();
+        const account = user.companyName ?? user.username ?? undefined;
+        return ok(`Sendcloud accepted the keys${account ? ` (${account})` : ""}`, account);
+      } catch (err) {
+        return fail(redact((err as Error).message, [secretKey, publicKey]).slice(0, 300));
       }
     },
 

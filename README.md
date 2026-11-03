@@ -9,7 +9,7 @@ Desktop Machine Shop, 3dpandme, OpenV, OpenD and personal.
 - Agents read and write a markdown **brain** and use a shared **skills bank**.
 - Anything outward-facing becomes a **proposal**, which runs straight away or waits for approval
   depending on policy.
-- A **PWA** (phone and desktop) shows the inbox, approvals, chat, brain (edit notes there), the org chart (edit roles and policies there) and worker devices.
+- A **PWA** (phone and desktop) shows the inbox, approvals, chat (type, dictate, or attach, paste and drop files for the agent), brain (edit notes there), the org chart (edit roles and policies there) and worker devices.
 
 ```
 apps/server            API, WebSocket hub, pipeline, scheduler, MCP endpoints (/mcp/brain, /mcp/actions)
@@ -21,6 +21,7 @@ packages/agent-runtime AgentRunner harness + Claude Code adapter (+ API-key fall
 packages/brain         markdown brain in Postgres (history, search, git mirror) + MCP server
 packages/email         IMAP inbox poller, read-only mail MCP server (/mcp/mail, attachments as text), email.* executors
 packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/mcp/odoo), Odoo actions
+packages/sendcloud     Sendcloud client (read-only): parcel tracking for the daily digest, MCP server (/mcp/sendcloud)
 packages/pa            personal assistant: reminders, to-do lists, Google Calendar, MCP server (/mcp/pa)
 packages/social        social platform adapters, inbound watcher, social.* executors, scheduled posts
 packages/storage       BlobStore: large files on the volume or Google Drive, LRU cache, resumable uploads

@@ -39,7 +39,7 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
     const c = await config();
     expect(c.verticals.map((v) => v.unit)).toEqual(["personal", "dms", "3dpandme", "openv", "opend", "command-centre"]);
     const dms = c.verticals[1]!;
-    expect(dms).toMatchObject({ overridden: false, version: 0, problem: null, name: "Desktop Machine Shop", mcpServers: ["brain", "odoo", "pa", "mail"] });
+    expect(dms).toMatchObject({ overridden: false, version: 0, problem: null, name: "Desktop Machine Shop", mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"] });
     expect(dms.current).toEqual(dms.base);
     expect(dms.current.policies).toEqual({ "brain.write": "auto", "email.label": "auto" });
     expect(c.root).toMatchObject({ unit: ROOT_ROLE_ID, homeVertical: "personal", version: 0 });

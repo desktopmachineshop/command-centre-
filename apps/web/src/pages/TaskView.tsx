@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@cc/core";
 import { useState } from "react";
-import type { Api } from "../api";
+import type { Api, ChatFile } from "../api";
 import { ago, askText, emailAsk, readableEmailBody, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLive, useLoad } from "../live";
@@ -9,7 +9,7 @@ import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport, type ReportFacts } from "../copy";
-import { Composer } from "../composer";
+import { AttachedFiles, chatFilesOf, Composer } from "../composer";
 
 export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: string }) {
   const { data, error } = useLoad(
@@ -83,6 +83,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           <Status value={task.status} />
         </div>
         <TaskAsk prompt={task.prompt} />
+        <AttachedFiles files={chatFilesOf(data.event?.payload)} />
         <div className="meta">
           {task.role && <span className="role">{task.role}</span>}
           <span>{task.intent}</span>
@@ -180,14 +181,16 @@ function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const send = async (message: string) => {
+  const send = async (message: string, files: ChatFile[]) => {
     setBusy(true);
     setError(null);
     try {
-      await api.replyToTask(taskId, message, false);
+      await api.replyToTask(taskId, message, false, files.map((f) => f.id));
       setText("");
+      return true;
     } catch (err) {
       setError((err as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }

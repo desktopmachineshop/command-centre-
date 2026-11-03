@@ -5,7 +5,7 @@
  */
 
 export type Section = "ai" | "business" | "google" | "social" | "apps" | "settings";
-export type Group = "runner" | "triage" | "voice" | "odoo" | "email" | "social" | "calendar" | "storage";
+export type Group = "runner" | "triage" | "voice" | "odoo" | "shipping" | "email" | "social" | "calendar" | "storage";
 export type FieldType = "text" | "secret" | "url" | "email" | "number" | "boolean" | "select" | "list" | "json";
 
 export interface FieldDef {
@@ -91,6 +91,7 @@ export const GROUP_LABELS: Record<Group, string> = {
   triage: "Triage",
   voice: "Voice",
   odoo: "Odoo",
+  shipping: "Sendcloud",
   email: "Email",
   social: "Social",
   calendar: "Calendar",

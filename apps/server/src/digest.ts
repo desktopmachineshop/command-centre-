@@ -6,6 +6,7 @@ import type { Store } from "./db/store";
 import { dayRange, localDay } from "./days";
 import { type OdooDigest, type OdooSnapshot, odooHeadline, renderLowStockSummary, renderOdooDigest, summariseOdooEvents } from "./odoo-digest";
 import type { Notifier } from "./push";
+import { renderShippingDigest, type ShippingDigest, shippingHeadline } from "@cc/sendcloud";
 
 export interface Digest {
   vertical: string;
@@ -25,6 +26,8 @@ export interface Digest {
   jobs: { id: string; kind: string; status: string }[];
   /** The day's orders, RFQs and supplier replies, plus what is low and late now; null if Odoo had nothing. */
   odoo: OdooDigest | null;
+  /** Sendcloud parcels: delivered today, in transit, problems; null without Sendcloud or news. */
+  shipping: ShippingDigest | null;
   /** One line with the headline numbers, used for the push notification. */
   headline: string;
   markdown: string;
@@ -49,6 +52,8 @@ export class DigestService {
     private readonly timezone: string,
     /** What the Odoo pollers last saw as low and late (null without Odoo): the buying and late lists. */
     private readonly odooSnapshot: () => Promise<OdooSnapshot | null> = async () => null,
+    /** The Shipping section for a business and day, read live from Sendcloud (null without it). */
+    private readonly shipping: (vertical: string, start: Date, end: Date, now: Date) => Promise<ShippingDigest | null> = async () => null,
   ) {}
 
   today(now = new Date()): string {
@@ -113,6 +118,10 @@ export class DigestService {
     // --- Odoo events ---
     const odoo = summariseOdooEvents(await store.listOdooEventsBetween(vertical.id, start, end), await this.odooSnapshot(), vertical.id);
     // --- end odoo events ---
+    // Sendcloud is read live; if it fails the digest still goes out, with the error in its section.
+    const shipping = await this.shipping(vertical.id, start, end, now).catch((err: Error) => ({
+      deliveredToday: [], problems: [], atPickupPoint: [], inTransit: [], notCollected: [], labelsToday: 0, errors: [`Sendcloud: ${err.message}`],
+    }));
     const myJobs = jobs.filter((j) => jobVertical(j) === vertical.id && (j.status === "succeeded" || j.status === "failed"));
     const digest: Omit<Digest, "headline" | "markdown"> = {
       vertical: vertical.id,
@@ -136,6 +145,7 @@ export class DigestService {
       pendingApprovals: pending.map((p) => ({ id: p.id, actionType: p.actionType, summary: p.summary })),
       jobs: myJobs.map((j) => ({ id: j.id, kind: j.kind, status: j.status })),
       odoo,
+      shipping,
     };
     return { ...digest, headline: headline(digest), markdown: render(digest) };
   }
@@ -202,7 +212,7 @@ function jobVertical(job: Job): string {
 
 function isActive(d: Digest): boolean {
   const c = d.counts;
-  return c.done + c.failed + c.deferred + c.autoActions + c.pendingApprovals + c.jobs > 0 || d.costUsd > 0 || d.odoo !== null;
+  return c.done + c.failed + c.deferred + c.autoActions + c.pendingApprovals + c.jobs > 0 || d.costUsd > 0 || d.odoo !== null || d.shipping !== null;
 }
 
 function headline(d: Omit<Digest, "headline" | "markdown">): string {
@@ -214,6 +224,7 @@ function headline(d: Omit<Digest, "headline" | "markdown">): string {
   if (c.pendingApprovals) parts.push(`${c.pendingApprovals} to approve`);
   if (c.jobs) parts.push(`${c.jobs} jobs`);
   parts.push(...odooHeadline(d.odoo)); // Odoo events
+  parts.push(...shippingHeadline(d.shipping)); // Sendcloud
   parts.push(usd(d.costUsd));
   return `${d.name}: ${parts.join(", ")}`;
 }
@@ -241,5 +252,6 @@ function render(d: Omit<Digest, "headline" | "markdown">): string {
   section("Awaiting approval", d.pendingApprovals.map((p) => `${p.actionType}: ${p.summary}`));
   section("Jobs", d.jobs.map((j) => `${j.kind}: ${j.status}`));
   lines.push(...renderOdooDigest(d.odoo)); // Odoo events
+  lines.push(...renderShippingDigest(d.shipping)); // Sendcloud
   return `${lines.join("\n")}\n`;
 }

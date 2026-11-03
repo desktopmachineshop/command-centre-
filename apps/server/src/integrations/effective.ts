@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { EmailAccount } from "@cc/email";
 import { parseOdooEventsConfig } from "@cc/odoo";
 import { type CalendarAccount, GoogleCalendarAccount } from "@cc/pa";
+import { SendcloudAccount } from "@cc/sendcloud";
 import type { Platform, SocialAccount } from "@cc/social";
 import type { Config } from "../config";
 import { DEFAULT_ID, type Field, type Group, KINDS, type KindDef } from "./catalog";
@@ -313,6 +314,15 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
     if (!built) odooEvents = undefined;
   }
 
+  // --- shipping (Sendcloud) ---
+  const sendcloudEntries = entries.filter((e) => e.kind === "sendcloud");
+  const sendcloudAccounts = mergeById(
+    base.shipping.accounts,
+    sendcloudEntries.flatMap(
+      (e) => attempt(e, () => SendcloudAccount.parse({ id: e.id, vertical: e.data.vertical ?? "dms", publicKey: str(e.data.publicKey), secretKey: str(e.secrets.secretKey) })) ?? [],
+    ),
+  );
+
   // --- email ---
   const emailEntries = entries.filter((e) => e.kind === "email" || e.kind === "outlook" || e.kind === "gmail");
   const emailAccounts = mergeById(
@@ -365,6 +375,7 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
       voice: { ...base.voice, providers },
       odoo,
       odooEvents,
+      shipping: { ...base.shipping, accounts: sendcloudAccounts },
       email: { ...base.email, accounts: emailAccounts },
       social: { ...base.social, accounts: socialAccounts },
       pa: { ...base.pa, calendarAccounts },
@@ -390,6 +401,8 @@ export function groupSection(config: Config, group: Group): unknown {
       return config.voice.providers;
     case "odoo":
       return { odoo: config.odoo, events: config.odooEvents };
+    case "shipping":
+      return config.shipping.accounts;
     case "email":
       return config.email.accounts;
     case "social":
@@ -434,6 +447,7 @@ export function railwayEntries(base: Config): EntryInput[] {
   if (p.openaiApiKey) add("openai", DEFAULT_ID, {}, { apiKey: p.openaiApiKey });
   if (p.elevenlabsApiKey) add("elevenlabs", DEFAULT_ID, {}, { apiKey: p.elevenlabsApiKey });
   if (base.odoo) add("odoo", DEFAULT_ID, { url: base.odoo.url, db: base.odoo.db, username: base.odoo.username, api: base.odoo.api }, { apiKey: base.odoo.apiKey });
+  for (const a of base.shipping.accounts) add("sendcloud", a.id, { vertical: a.vertical, publicKey: a.publicKey }, { secretKey: a.secretKey });
   for (const m of base.email.accounts) {
     if (m.oauth?.provider === "google") {
       add("gmail", m.id, { vertical: m.vertical, address: m.address, displayName: m.displayName, mailbox: m.mailbox, ignoreFrom: m.ignoreFrom }, { refreshToken: m.oauth.refreshToken });

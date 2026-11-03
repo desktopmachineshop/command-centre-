@@ -43,8 +43,12 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(request.prompt).toBe("dms: what sold yesterday?");
     expect(request.systemPrompt).toContain("Desktop Machine Shop");
     expect(Object.keys(request.mcpServers!)).toEqual(["actions", "brain", "pa"]);
-    // Plus read-only access to the role's own skill folders (their supporting files live in the bank).
-    expect(request.allowedTools).toEqual(["Skill", "mcp__actions", "mcp__brain", "mcp__pa", "WebSearch", "WebFetch", expect.stringMatching(/^Read\(\/\/.*\/skills\/brain-notes\/\*\*\)$/)]);
+    // Plus read-only access to files attached in the chat box, and to the role's own skill folders (their supporting files live in the bank).
+    expect(request.allowedTools).toEqual([
+      "Skill", "mcp__actions", "mcp__brain", "mcp__pa", "WebSearch", "WebFetch",
+      expect.stringMatching(/^Read\(\/\/.*\/chat-files\/\*\*\)$/),
+      expect.stringMatching(/^Read\(\/\/.*\/skills\/brain-notes\/\*\*\)$/),
+    ]);
     expect(request.systemPrompt).toContain("You can search the web (WebSearch) and read pages (WebFetch)");
     expect(request.cwd).toMatch(/workspaces\/dms\/shop-lead$/);
   });
