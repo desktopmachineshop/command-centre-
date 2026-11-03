@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="inbox">
+  <title>Inbox</title>
+  <shortdesc>Every task the agents have worked on, newest first, with today's spend and counts at the top.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="inbox"/>
+  </prolog>
+  <body>
+    <fig id="fig-inbox-phone">
+      <title>The Inbox on a phone</title>
+      <image href="../../screenshots/inbox-phone-light.png" placement="break" width="300">
+        <alt>The Inbox on a phone: the Today card with spend and counts, then a list of tasks.</alt>
+      </image>
+    </fig>
+    <p>Each row is one task: its business, status, the first line of what came in, the role that has it, the kind of work and how long ago. Choose a row to open the <xref href="task.dita">task</xref>.</p>
+    <p>Task statuses are <term>queued</term>, <term>running</term>, <term>awaiting approval</term>, <term>deferred</term> (held by a daily budget), <term>done</term> and <term>failed</term>.</p>
+    <p>Nothing yet? Ask for something in <xref href="chat.dita">Chat</xref>.</p>
+  </body>
+  <topic id="digest">
+    <title>The Today card</title>
+    <prolog><resourceid appname="command-centre" appid="inbox.digest"/></prolog>
+    <body>
+      <p>The card at the top shows what has been spent today against the budget, how many tasks are done or failed, how many actions ran by themselves, and how many are <uicontrol>to approve</uicontrol> (choose it to go to Approvals). Below that is one line per business.</p>
+      <p>When tasks were deferred by a budget, the card says so: they run after midnight, or choose <uicontrol>retry one now</uicontrol> to list them and run one.</p>
+    </body>
+  </topic>
+  <topic id="filter">
+    <title>Filter the list</title>
+    <prolog><resourceid appname="command-centre" appid="inbox.filter"/></prolog>
+    <body>
+      <p><uicontrol>Filter by status</uicontrol> shows only tasks with one status. Choosing a role on the <xref href="../business/org.dita">Org</xref> page opens the Inbox on that role's tasks; the subtitle says <systemoutput>Showing …</systemoutput>, and <uicontrol>show all</uicontrol> clears it.</p>
+    </body>
+  </topic>
+</topic>

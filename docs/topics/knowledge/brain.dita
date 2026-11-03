@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="brain">
+  <title>Brain: notes the agents share</title>
+  <shortdesc>Long-term Markdown notes about customers, products, decisions and playbooks, read and written by the agents and by you. Every save is kept.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="brain"/>
+  </prolog>
+  <body>
+    <fig id="fig-brain">
+      <title>The Brain on a PC</title>
+      <image href="../../screenshots/brain-desktop-light.png" placement="break" width="900">
+        <alt>The Brain page: a search box, the folder tree and an open note.</alt>
+      </image>
+    </fig>
+    <p>Notes are in a folder per area: <filepath>dms/</filepath>, <filepath>3dpandme/</filepath>, <filepath>personal/</filepath> and so on, with <filepath>customers</filepath>, <filepath>products</filepath>, <filepath>decisions</filepath> and <filepath>playbooks</filepath> inside, plus <filepath>journal/</filepath> for the daily log and <filepath>people/</filepath>. Open a folder to see its notes; the <uicontrol>+</uicontrol> beside a folder starts a note in it.</p>
+    <p>What you write here is what the agents know. Correcting a note, such as a customer's preferred courier or a pricing rule, is the way to change how they act.</p>
+  </body>
+  <topic id="search">
+    <title>Search</title>
+    <prolog><resourceid appname="command-centre" appid="brain.search"/></prolog>
+    <body>
+      <p>Type in <uicontrol>Search notes</uicontrol> and choose <uicontrol>Search</uicontrol>. Results show a snippet and the path. An empty search, or <uicontrol>Show all folders</uicontrol>, brings back the folders.</p>
+    </body>
+  </topic>
+  <topic id="editor">
+    <title>Write or edit a note</title>
+    <prolog><resourceid appname="command-centre" appid="brain.editor"/></prolog>
+    <body>
+      <ol>
+        <li>Choose <uicontrol>New note</uicontrol>, or <uicontrol>Edit</uicontrol> on a note.</li>
+        <li>For a new note, set the <uicontrol>Path</uicontrol>, such as <filepath>personal/ideas.md</filepath>. It must end in <filepath>.md</filepath> and can't be changed later.</li>
+        <li>Write the <uicontrol>Note</uicontrol> in Markdown. The block between <codeph>---</codeph> lines at the top is its frontmatter (type, vertical, entities).</li>
+        <li>Choose <uicontrol>Save</uicontrol>. It is live straight away.</li>
+      </ol>
+      <p>If you see <systemoutput>Someone (or an agent) saved this note after you opened it</systemoutput>, choose <uicontrol>Load the latest</uicontrol> and make your change again.</p>
+    </body>
+  </topic>
+  <topic id="history">
+    <title>History and restore</title>
+    <prolog><resourceid appname="command-centre" appid="brain.history"/></prolog>
+    <body>
+      <p><uicontrol>History</uicontrol> lists every version with who saved it, you or an agent. <uicontrol>View</uicontrol> shows an old version and <uicontrol>Restore</uicontrol> makes it current again. <uicontrol>Delete</uicontrol> keeps the history, so a deleted note can be restored.</p>
+    </body>
+  </topic>
+</topic>

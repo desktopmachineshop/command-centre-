@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="social">
+  <title>Social</title>
+  <shortdesc>Write once and post to several accounts of one business. Nothing goes out until you approve it.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="social"/>
+  </prolog>
+  <body>
+    <fig id="fig-social">
+      <title>Social on a PC</title>
+      <image href="../../screenshots/social-desktop-light.png" placement="break" width="900">
+        <alt>The Social page: the New post form with text, media and account chips, and lists of scheduled posts, recent comments and accounts.</alt>
+      </image>
+    </fig>
+    <p>Accounts (Instagram, Threads, X, Reddit, YouTube and Discord) are connected in <xref href="../system/accounts.dita#social">Accounts</xref>. The <wintitle>Accounts</wintitle> list here shows each one's business, what it can do (publish, reply, DM) and whether its comments and messages are being watched.</p>
+    <p><wintitle>Recent</wintitle> lists the comments, mentions and messages that came in, each linked to the task that handled it. Replies the agents draft go to <xref href="../work/approvals.dita">Approvals</xref> like everything else.</p>
+  </body>
+  <topic id="composer">
+    <title>Write a post</title>
+    <prolog><resourceid appname="command-centre" appid="social.composer"/></prolog>
+    <body>
+      <ol>
+        <li>Give it a <uicontrol>Title</uicontrol>. It names the post in Approvals and is the title on Reddit and YouTube.</li>
+        <li>Write the <uicontrol>Text</uicontrol>, and add a <uicontrol>Link</uicontrol> if you want one.</li>
+        <li>Add <uicontrol>Media</uicontrol>: pick image or video files, or paste a public URL and choose <uicontrol>Add</uicontrol>.</li>
+        <li>Under <uicontrol>Post to</uicontrol>, pick the accounts. They must all belong to one business.</li>
+        <li>For each account, check its box: the character count against that platform's limit, a subreddit or channel where needed, and <uicontrol>Customise text</uicontrol> to write that platform's version. Problems such as <systemoutput>over 280 characters</systemoutput> or <systemoutput>needs an image or video</systemoutput> are listed there.</li>
+        <li>Optionally set <uicontrol>Publish at</uicontrol>. Empty means as soon as you approve.</li>
+        <li>Choose <uicontrol>Send for approval</uicontrol>, then approve it in Approvals.</li>
+      </ol>
+    </body>
+  </topic>
+  <topic id="scheduled">
+    <title>Scheduled posts</title>
+    <prolog><resourceid appname="command-centre" appid="social.scheduled"/></prolog>
+    <body>
+      <p>Approved posts with a publish time wait here. <uicontrol>Cancel</uicontrol> stops one before it goes out; once published, <uicontrol>view post</uicontrol> opens it. A failed post shows why.</p>
+    </body>
+  </topic>
+</topic>

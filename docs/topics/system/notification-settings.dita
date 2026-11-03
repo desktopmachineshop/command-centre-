@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="notification-settings">
+  <title>Notification settings</title>
+  <shortdesc>Choose what pushes to which device, what waits for a digest, and when to be left alone. Every change saves straight away.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="notification-settings"/>
+  </prolog>
+  <body>
+    <fig id="fig-notification-settings">
+      <title>Notification settings on a phone</title>
+      <image href="../../screenshots/notification-settings-phone-light.png" placement="break" width="300">
+        <alt>Notification settings: the categories table, quiet hours and devices.</alt>
+      </image>
+    </fig>
+  </body>
+  <topic id="categories">
+    <title>Categories</title>
+    <prolog><resourceid appname="command-centre" appid="notification-settings.categories"/></prolog>
+    <body>
+      <p>One row per category (approvals, briefings, reminders, alerts, digests, social, orders and the rest). For each:</p>
+      <ul>
+        <li><uicontrol>On</uicontrol> turns it off entirely.</li>
+        <li><uicontrol>Delivery</uicontrol>: <uicontrol>Push now</uicontrol>, <uicontrol>Next digest</uicontrol> or <uicontrol>In app only</uicontrol>.</li>
+        <li><uicontrol>Sound</uicontrol> and <uicontrol>Priority</uicontrol>. Urgent always pushes, even in quiet hours.</li>
+        <li><uicontrol>Test</uicontrol> sends one now.</li>
+      </ul>
+      <p>When one category pushes many times in a few minutes, the rest collapse into one <q>and N more</q>. The number field sets how many before that happens; 0 means no limit.</p>
+    </body>
+  </topic>
+  <topic id="verticals">
+    <title>Per business</title>
+    <prolog><resourceid appname="command-centre" appid="notification-settings.verticals"/></prolog>
+    <body>
+      <p>Override a category for one business, for example turn off 3dpandme social: pick the business, the category and the behaviour, and choose <uicontrol>Add override</uicontrol>.</p>
+    </body>
+  </topic>
+  <topic id="quiet-hours">
+    <title>Quiet hours and the quick briefing</title>
+    <prolog><resourceid appname="command-centre" appid="notification-settings.quiet-hours"/></prolog>
+    <body>
+      <p>Between <uicontrol>From</uicontrol> and <uicontrol>To</uicontrol>, everything except urgent notifications (and approvals, if you tick <uicontrol>Let approvals through</uicontrol>) is held and arrives as one summary when quiet hours end.</p>
+      <p>The <wintitle>Quick briefing</wintitle> is one push at the time you set with today's counts: approvals waiting, tasks and spend. It doesn't run an agent.</p>
+    </body>
+  </topic>
+  <topic id="devices">
+    <title>Devices that get pushes</title>
+    <prolog><resourceid appname="command-centre" appid="notification-settings.devices"/></prolog>
+    <body>
+      <ol>
+        <li>On the phone or PC, choose <uicontrol>Enable on this device</uicontrol> and allow notifications.</li>
+        <li>Name the device.</li>
+        <li>Set what it <uicontrol>Gets</uicontrol>: <uicontrol>Urgent only</uicontrol>, <uicontrol>High and urgent</uicontrol>, <uicontrol>Normal and up</uicontrol> or <uicontrol>Everything</uicontrol>.</li>
+      </ol>
+      <p><uicontrol>Send test</uicontrol> checks it; <uicontrol>Remove</uicontrol> stops pushes to it. On an iPhone, push only works from the app added to the home screen. If the page says push is not configured, the server is missing its VAPID keys; notifications still appear in the app.</p>
+    </body>
+  </topic>
+</topic>

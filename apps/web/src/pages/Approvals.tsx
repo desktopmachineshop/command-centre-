@@ -51,7 +51,7 @@ function ConfirmAction({ api, proposal, action }: { api: Api; proposal: Proposal
     }
   };
   return (
-    <div className="card confirm" role="alertdialog" aria-label={`Confirm ${action}`}>
+    <div className="card confirm" data-help-pane="approvals.confirm" role="alertdialog" aria-label={`Confirm ${action}`}>
       <p className="title">
         {action === "approve" ? "Approve" : "Reject"} this {proposal.actionType} for {proposal.vertical}?
       </p>
@@ -124,11 +124,11 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
       </details>
       {proposal.status === "pending" && mode === "view" && !sent && (
         <div className="proposal-tools row wrap">
-          <button className="ghost" disabled={busy} onClick={() => setMode("edit")}>
+          <button className="ghost" data-help-key="approvals.edit" disabled={busy} onClick={() => setMode("edit")}>
             <Icon name="edit" size={16} /> Edit
           </button>
           {proposal.taskId && (
-            <button className="ghost" disabled={busy} onClick={() => setMode("changes")}>
+            <button className="ghost" data-help-key="approvals.revise" disabled={busy} onClick={() => setMode("changes")}>
               <Icon name="chat" size={16} /> Ask for changes
             </button>
           )}
@@ -162,7 +162,7 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
       )}
       {sent && <p className="small muted proposal-sent">Sent to the agent. It will propose a new version for you to approve.</p>}
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      <div className="proposal-foot">
+      <div className="proposal-foot" data-help-key="approvals.decide">
         <span className="muted small">
           {ago(proposal.createdAt)}
           {proposal.taskId && (
@@ -239,7 +239,7 @@ function PayloadEditor({ payload, busy, cancel, save }: { payload: Record<string
   };
 
   return (
-    <form className="proposal-edit" onSubmit={submit}>
+    <form className="proposal-edit" data-help-pane="approvals.edit" onSubmit={submit}>
       {keys.length === 0 && <p className="muted small">This action has nothing to edit.</p>}
       {keys.map((k) => {
         const original = payload[k];
@@ -292,6 +292,7 @@ function ChangesForm({ busy, cancel, send }: { busy: boolean; cancel: () => void
   return (
     <form
       className="proposal-edit"
+      data-help-pane="approvals.revise"
       onSubmit={(e) => {
         e.preventDefault();
         if (text.trim()) send(text.trim());

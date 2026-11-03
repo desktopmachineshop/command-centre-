@@ -77,7 +77,7 @@ function ChangePassword({ api }: { api: Api }) {
   };
 
   return (
-    <form className="card form" onSubmit={submit}>
+    <form className="card form" data-help-pane="settings.password" onSubmit={submit}>
       <div className="card-head">
         <Icon name="key" />
         <h3>Change password</h3>
@@ -147,7 +147,7 @@ function TwoFactor({ api, me, onChange }: { api: Api; me: Extract<Me, { via: "se
   };
 
   return (
-    <div className="card">
+    <div className="card" data-help-pane="settings.two-factor">
       <div className="card-head">
         <Icon name="shield" />
         <h3>Two-factor authentication</h3>
@@ -246,7 +246,7 @@ function Sessions({ api }: { api: Api }) {
 
   const others = sessions?.filter((s) => !s.current).length ?? 0;
   return (
-    <div className="card">
+    <div className="card" data-help-pane="settings.sessions">
       <div className="card-head">
         <Icon name="devices" />
         <h3>Signed-in devices</h3>

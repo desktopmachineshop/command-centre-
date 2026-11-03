@@ -60,7 +60,7 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
         : null;
 
   return (
-    <div className="device-roles">
+    <div className="device-roles" data-help-pane="devices.roles">
       {SETUP_ROLES.map((role) => {
         const status = roleStatus(role, node);
         const names = status.installable.map((id) => SETUP_COMPONENTS[id].label);

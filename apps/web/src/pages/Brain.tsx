@@ -116,7 +116,7 @@ export function Brain({ api, path }: { api: Api; path?: string }) {
   };
 
   const editor = draft && (
-    <form className="card note-card brain-editor" onSubmit={save}>
+    <form className="card note-card brain-editor" data-help-pane="brain.editor" onSubmit={save}>
       <label className="field">
         <span>Path</span>
         <input
@@ -171,7 +171,7 @@ export function Brain({ api, path }: { api: Api; path?: string }) {
           </button>
         )}
       </PageHead>
-      <form className="search-row" onSubmit={search} role="search">
+      <form className="search-row" data-help-pane="brain.search" onSubmit={search} role="search">
         <span className="search-input">
           <Icon name="search" size={18} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search notes" aria-label="Search notes" type="search" />
@@ -203,7 +203,7 @@ export function Brain({ api, path }: { api: Api; path?: string }) {
               </button>
             </div>
             {history && (
-              <div className="note-history">
+              <div className="note-history" data-help-pane="brain.history">
                 <ul className="list">
                   {history.map((h) => (
                     <li key={h.version} className="item">

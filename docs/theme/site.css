@@ -1,0 +1,11 @@
+/* Command Centre's accent and type, so the docs and the help panel match the app. */
+:root {
+  --opend-accent: #2c5bd1;
+  --opend-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --opend-accent: #8eadff;
+  }
+}

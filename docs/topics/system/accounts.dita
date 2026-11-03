@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="accounts">
+  <title>Accounts: connect everything Command Centre uses</title>
+  <shortdesc>Sign in to Claude, Odoo, your mailboxes, Google and social accounts from one page. Changes apply straight away, with no redeploy.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="accounts"/>
+  </prolog>
+  <body>
+    <fig id="fig-accounts">
+      <title>Accounts on a PC</title>
+      <image href="../../screenshots/accounts-desktop-light.png" placement="break" width="900">
+        <alt>The Accounts page: cards for AI, business, Google and social connections, each with a status and Connect, Test and Edit buttons.</alt>
+      </image>
+    </fig>
+    <p>The page is in sections: <wintitle>AI</wintitle> (Claude, the Anthropic API, Jev, and OpenAI or ElevenLabs for voice), <wintitle>Business</wintitle> (Odoo and email inboxes), <wintitle>Google</wintitle>, <wintitle>Social</wintitle> and <wintitle>Settings</wintitle> (voice and file storage).</p>
+    <p>Each card has a status: <systemoutput>Connected</systemoutput>, <systemoutput>Not set</systemoutput>, <systemoutput>Not connected</systemoutput>, <systemoutput>Error</systemoutput>, <systemoutput>Expires in N days</systemoutput>, <systemoutput>Expired</systemoutput> (sign in again) or <systemoutput>From Railway</systemoutput>. Secrets are shown masked and stored encrypted on the server.</p>
+  </body>
+  <topic id="connect">
+    <title>Connect, test and disconnect</title>
+    <prolog><resourceid appname="command-centre" appid="accounts.connect"/></prolog>
+    <body>
+      <dl>
+        <dlentry><dt><uicontrol>Connect</uicontrol> / <uicontrol>Reconnect</uicontrol></dt><dd>Signs in through the provider (Google, Microsoft, Meta, X, Reddit). You come back to this page with <systemoutput>… connected as …</systemoutput>.</dd></dlentry>
+        <dlentry><dt><uicontrol>Paste a token</uicontrol>, <uicontrol>Set up</uicontrol>, <uicontrol>Edit</uicontrol></dt><dd>Enter keys and settings by hand. Leave a secret blank to keep the saved one. For an IMAP mailbox, <uicontrol>Fill in Gmail settings</uicontrol> fills in the servers; use an app password, not your Google password.</dd></dlentry>
+        <dlentry><dt><uicontrol>Test</uicontrol></dt><dd>Checks the connection now and shows the result on the card.</dd></dlentry>
+        <dlentry><dt><uicontrol>Calendars</uicontrol></dt><dd>For a Google account: which calendars the personal assistant reads.</dd></dlentry>
+        <dlentry><dt><uicontrol>Move into app</uicontrol></dt><dd>A value from Railway's variables is copied into the app, where you can change it; you can then delete the Railway variable.</dd></dlentry>
+        <dlentry><dt><uicontrol>Disconnect</uicontrol></dt><dd>Stops using it straight away and forgets its keys. If the same thing is set in Railway, that value is used again.</dd></dlentry>
+      </dl>
+    </body>
+  </topic>
+  <topic id="claude">
+    <title>Connect Claude</title>
+    <prolog><resourceid appname="command-centre" appid="accounts.claude"/></prolog>
+    <body>
+      <p>The agents run on a Claude subscription. Choose <uicontrol>Connect</uicontrol> on the Claude card, then <uicontrol>Open Claude sign-in</uicontrol>, sign in with the account whose subscription the agents should use, paste the code the page shows and choose <uicontrol>Finish</uicontrol>. The link works for 10 minutes. If it fails, run <cmdname>claude setup-token</cmdname> on any computer and use <uicontrol>Paste a token</uicontrol>.</p>
+    </body>
+  </topic>
+  <topic id="social">
+    <title>Add social accounts</title>
+    <prolog><resourceid appname="command-centre" appid="accounts.social"/></prolog>
+    <body>
+      <p>In <wintitle>Social</wintitle>, choose <uicontrol>Add account</uicontrol>, pick the <uicontrol>Platform</uicontrol> and the business, give it a short <uicontrol>Name</uicontrol> the agents refer to it by (such as <userinput>dms-instagram</userinput>), and continue to the platform's sign-in. Add one per platform per business. Accounts are grouped by business.</p>
+    </body>
+  </topic>
+  <topic id="developer-apps">
+    <title>Developer apps</title>
+    <prolog><resourceid appname="command-centre" appid="accounts.developer-apps"/></prolog>
+    <body>
+      <p>Each platform's <uicontrol>Connect</uicontrol> button signs in through an app you register once in that platform's developer console: a Google OAuth client, a Meta app for Instagram and Threads, an X app, a Reddit app, a Microsoft app. Paste its keys here, and add the redirect address shown on the card, with <uicontrol>Copy</uicontrol>, to the app's allowed callbacks. If you choose <uicontrol>Connect</uicontrol> before the keys are in, the page asks for them first.</p>
+      <p>The redirect address needs the server's <codeph>PUBLIC_BASE_URL</codeph>, set in Railway.</p>
+    </body>
+  </topic>
+  <topic id="railway">
+    <title>Set in Railway</title>
+    <prolog><resourceid appname="command-centre" appid="accounts.railway"/></prolog>
+    <body>
+      <p>A few settings, such as the database address and the admin token, are needed before the server can read its database, so they stay in Railway's variables. This section shows which are set.</p>
+    </body>
+  </topic>
+</topic>

@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useHelp } from "./help";
 import { useInstall } from "./install";
 import { checkForUpdate, useUpdate } from "./update";
 import { ApiError, COOKIE_SESSION, type Connection, createApi, loadConnection, saveConnection } from "./api";
@@ -162,6 +163,8 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   const install = useInstall();
   const update = useUpdate();
   const [verticals, setVerticals] = useState<Record<string, VerticalInfo>>({});
+  // Context-sensitive help: the "?" button and F1 open the docs for this page (see help.ts).
+  const help = useHelp(conn, `${page}/${id ?? ""}`);
 
   useEffect(() => {
     feed.onStatus = (connected) => {
@@ -311,6 +314,15 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
                 <Icon name="bell" />
                 {unread > 0 && <span className="badge">{unread > 99 ? "99+" : unread}</span>}
               </a>
+              <button
+                type="button"
+                className="ghost icon-btn icon-link help-btn"
+                onClick={help.toggle}
+                aria-label="Help for this page (F1)"
+                title={help.embedded ? "Help for this page (F1)" : "Help for this page (opens the docs, F1)"}
+              >
+                <Icon name="help" />
+              </button>
               <span className="live" title={online ? "Live" : "Reconnecting"} role="status" aria-label={online ? "Live" : "Reconnecting"}>
                 <span className={`dot ${online ? "on" : ""}`} />
                 {!phone && <span className="small muted">{online ? "Live" : "Reconnecting…"}</span>}

@@ -2073,3 +2073,38 @@ write) on that repository only, and set it as `GITHUB_TOKEN` in Railway.
   `policies` says otherwise.
 - **New ingress** (an email inbox, Odoo polling): call `pipeline.ingest({...})` with a `source`,
   `kind`, `title` and `payload`. Set `dedupeKey` so repeats are ignored.
+
+## In-app help
+
+The user guide is an [OpenD](https://docs.opend.app) docs project in this folder: `opend.config.yaml`,
+`maps/command-centre.ditamap` and the DITA topics in `topics/`. The OpenD site
+<https://command-centre.opend.app> builds it on every push to the default branch (`site.releaseRefs` in
+`opend.config.yaml`). The Markdown files here are developer notes and are not published.
+
+In the app, the **?** button in the top bar and **F1** open help for the page in use (`apps/web/src/help.ts`):
+
+- The hash route is sent as a path (`#/task/123` is `/task/123`), and `docs/help-contexts.yaml` maps it to a
+  context key such as `inbox.task`.
+- Fields, buttons and panes carry more specific keys: `data-help-key="approvals.revise"` on a control, and
+  `data-help-pane="org.policies"` on a pane or dialog. The panel opens on the focused field's help, then
+  the last button pressed, then the pane, then the page. A key without its own topic falls back to its
+  parent.
+- Topics declare keys with `<resourceid appname="command-centre" appid="…"/>`, in the prolog of the page or
+  of a nested topic (which opens the page at that section). `apps/web/test/help.e2e.test.ts` fails if the
+  app uses a key the docs don't declare, or a page in `NAV` has no route.
+
+Settings:
+
+| Variable | Default | |
+| --- | --- | --- |
+| `OPEND_DOCS_URL` | `https://command-centre.opend.app` | The docs site, and the `aud` of embed tokens: it must match the site's public URL exactly. |
+| `OPEND_HELP_APP` | `command-centre` | The app name in `help-contexts.yaml` and in each `resourceid`. |
+| `OPEND_EMBED_SECRET` | unset | The docs site's embed secret (32+ characters). Without it, **?** opens a context link in a new tab, which only resolves while the docs site is public. |
+| `OPEND_ORG` | unset | The OpenD organization slug the users are readers in, if any. |
+
+With `OPEND_EMBED_SECRET` set, the PWA loads `/embed/opend-help.js` from the docs site and the panel signs in
+with a 5-minute HS256 token from `GET /api/help/token` (`apps/server/src/http/help.ts`), naming the signed-in
+user's email. On the docs site, set the same embed secret, add the app's origin (such as
+`https://command.desktopmachineshop.com`) to the embed origins, and register each user's email as a reader. A
+session signed in with the admin token has no email, so it always gets the new-tab fallback.
+
