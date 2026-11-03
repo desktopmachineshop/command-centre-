@@ -1,7 +1,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createGithubOidcVerifier, DESKTOP_UPLOAD_AUDIENCE, GITHUB_OIDC_ISSUER, OidcError } from "../src/github-oidc";
-import { DesktopService } from "../src/desktop";
+import { compareVersions, DesktopService } from "../src/desktop";
 import { ADMIN, DB_URL, makeServer, resetDatabase, serveServer } from "./helpers";
 
 const FAST = { ln: 10, r: 8, p: 1 };
@@ -36,6 +36,15 @@ function fakeGithub() {
   };
   return { fetch, token };
 }
+
+describe("desktop versions", () => {
+  it("compares x.y.z, ignoring build metadata", () => {
+    expect(compareVersions("0.1.41", "0.1.0")).toBe(1);
+    expect(compareVersions("0.1.9", "0.1.10")).toBe(-1);
+    expect(compareVersions("0.1.0+12", "0.1.0")).toBe(0);
+    expect(compareVersions("1.0.0", "0.99.99")).toBe(1);
+  });
+});
 
 describe("GitHub OIDC verification", () => {
   const gh = fakeGithub();
@@ -247,5 +256,46 @@ describe.skipIf(!DB_URL)("desktop app linking and installer", () => {
     // The admin token can upload too (e.g. a build made by hand).
     expect((await put(ADMIN, "version=0.1.1&filename=setup.exe")).status).toBe(201);
     expect((await req("/api/desktop/installer", { cookie })).body.installer.version).toBe("0.1.1");
+  });
+
+  it("offers a signed build to linked apps as an in-app update", async () => {
+    const { token } = await link("UPDATING-PC");
+    const auth = { authorization: `Bearer ${token}` };
+    const file = Buffer.from("MZ signed installer bytes");
+    const signature = Buffer.from("untrusted comment: signature from tauri secret key\nRWQ...").toString("base64");
+    const upload = (version: string, sig?: string) =>
+      req(`/api/desktop/installer?version=${version}&filename=Command%20Centre_${version}_x64-setup.exe&commit=def5678`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${ADMIN}`, ...(sig ? { "x-cc-update-signature": sig } : {}) },
+        body: file,
+      });
+    const check = (current: string, headers: Record<string, string> = auth) => req(`/api/desktop/update?current_version=${current}&target=windows&arch=x86_64`, { headers });
+
+    // An unsigned build is downloadable but never offered as an update.
+    expect((await upload("0.1.40")).status).toBe(201);
+    expect((await check("0.1.0")).status).toBe(204);
+
+    expect((await upload("0.1.41", "not base64!")).status).toBe(400);
+    expect((await upload("0.1.41", signature)).body).toMatchObject({ version: "0.1.41", signature });
+    const offer = await check("0.1.0");
+    expect(offer.status).toBe(200);
+    expect(offer.body).toEqual({
+      version: "0.1.41",
+      pub_date: expect.any(String),
+      url: expect.stringMatching(/\/api\/desktop\/update\/download$/),
+      signature,
+      notes: "Build def5678",
+    });
+    // Up to date (or newer): nothing to do.
+    expect((await check("0.1.41")).status).toBe(204);
+    expect((await check("0.2.0")).status).toBe(204);
+
+    // Only a linked computer can ask or download: not signed-in browsers, not strangers.
+    expect((await check("0.1.0", {})).status).toBe(401);
+    expect((await check("0.1.0", { authorization: "Bearer ccd_made-up" })).status).toBe(401);
+    expect((await req("/api/desktop/update/download", { cookie })).status).toBe(401);
+    const got = await req("/api/desktop/update/download", { headers: auth });
+    expect(got.status).toBe(200);
+    expect(Buffer.from(got.body)).toEqual(file);
   });
 });

@@ -37,6 +37,28 @@ export interface InstallerInfo {
   sha256: string;
   commit: string | null;
   uploadedAt: string;
+  /**
+   * The updater signature (the `.sig` file Tauri writes next to a signed installer). Without one
+   * the build is downloadable but never offered as an in-app update.
+   */
+  signature?: string | null;
+}
+
+/** What an app on `current` should install, or null when it is up to date (see /api/desktop/update). */
+export function updateFor(info: InstallerInfo | null, current: string): InstallerInfo | null {
+  if (!info?.signature) return null;
+  return compareVersions(info.version, current) > 0 ? info : null;
+}
+
+/** Compares `x.y.z` versions (build metadata after `+` and pre-release tags after `-` ignored). */
+export function compareVersions(a: string, b: string): number {
+  const parts = (v: string) => v.split(/[+-]/)[0]!.split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d) return Math.sign(d);
+  }
+  return 0;
 }
 
 interface LinkRequest {
@@ -253,7 +275,11 @@ export class DesktopService {
   }
 
   /** Stores a new installer (from the Desktop GitHub workflow), replacing the previous one. */
-  async saveInstaller(body: ReadableStream<Uint8Array>, meta: { version: string; filename: string; commit: string | null }, maxBytes: number): Promise<InstallerInfo> {
+  async saveInstaller(
+    body: ReadableStream<Uint8Array>,
+    meta: { version: string; filename: string; commit: string | null; signature?: string | null },
+    maxBytes: number,
+  ): Promise<InstallerInfo> {
     mkdirSync(this.installerDir, { recursive: true });
     const partial = join(this.installerDir, `upload-${randomUUID()}.part`);
     const hash = createHash("sha256");
@@ -269,7 +295,7 @@ export class DesktopService {
     try {
       await pipeline(Readable.fromWeb(body as import("node:stream/web").ReadableStream), count, createWriteStream(partial));
       if (size === 0) throw new LinkError("Empty installer", 400);
-      const info: InstallerInfo = { ...meta, size, sha256: hash.digest("hex"), uploadedAt: new Date(this.now()).toISOString() };
+      const info: InstallerInfo = { ...meta, signature: meta.signature ?? null, size, sha256: hash.digest("hex"), uploadedAt: new Date(this.now()).toISOString() };
       renameSync(partial, join(this.installerDir, "installer.bin"));
       writeFileSync(join(this.installerDir, "installer.json"), `${JSON.stringify(info, null, 2)}\n`);
       return info;

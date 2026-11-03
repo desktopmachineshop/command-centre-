@@ -264,6 +264,14 @@ describe.skipIf(!DB_URL)("org roles (integration)", () => {
     expect(thread.runs).toHaveLength(2);
     // The Shop Lead's task holds the approval; reporting back didn't run it twice.
     expect(runner.requests.filter((r) => r.cwd!.endsWith("dms/shop-lead"))).toHaveLength(1);
+
+    // The chat shows that approval inline: the thread's chain covers the Shop Lead's task.
+    const chain = (await ctx.api(`/api/tasks/${body.task.id}/chain-proposals`)).body;
+    expect(chain.taskIds).toHaveLength(2);
+    expect(chain.taskIds[0]).toBe(body.task.id);
+    expect(chain.proposals).toMatchObject([{ actionType: "brain.journal", summary: "Log the 1042 check", vertical: "dms" }]);
+    expect(chain.proposals[0].taskId).not.toBe(body.task.id);
+    expect((await ctx.api("/api/tasks/not-a-uuid/chain-proposals")).status).toBe(404);
   });
 
   it("keeps untrusted input untrusted across a handoff", async () => {

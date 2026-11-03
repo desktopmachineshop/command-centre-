@@ -13,7 +13,23 @@ export interface StorageApiDeps {
   uploadMaxBytes: number;
   /** Worker credentials: a linked desktop app's token, or WORKER_TOKEN / ADMIN_TOKEN (see ./ws.ts). */
   workerAuth: WorkerAuth;
+  /**
+   * Why an upload of this many bytes (0: not known yet) can't be taken, or null. The server
+   * refuses uploads that would fill its own volume (./storage-housekeeping.ts).
+   */
+  refuseUpload?: (bytes: number) => Promise<string | null>;
 }
+
+/** 507 Insufficient Storage when the volume can't take the upload. */
+async function full(c: Context, deps: StorageApiDeps, bytes: number) {
+  const why = await deps.refuseUpload?.(bytes);
+  return why ? c.json({ error: why }, 507) : null;
+}
+
+const declaredLength = (c: Context) => {
+  const n = Number(c.req.header("content-length"));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
 
 const SessionRequest = z.object({
   name: z.string().trim().min(1).max(255),
@@ -34,6 +50,8 @@ async function createSession(c: Context, deps: StorageApiDeps, folders: readonly
   const body = SessionRequest.parse(await c.req.json());
   if (!folders.includes(body.folder)) return c.json({ error: `folder must be one of ${folders.join(", ")}` }, 400);
   if (body.size > deps.uploadMaxBytes) return c.json({ error: `file is larger than ${Math.round(deps.uploadMaxBytes / 1024 / 1024)} MB` }, 413);
+  const refused = await full(c, deps, body.size);
+  if (refused) return refused;
   const session = await deps.storage.createUploadSession({
     ...body,
     origin: c.req.header("origin") || undefined,
@@ -117,6 +135,9 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
   app.put("/storage/uploads/:id", async (c) => {
     const row = await deps.storage.local.pendingUpload(c.req.param("id"), c.req.query("key") ?? "");
     if (!row) return c.json({ error: "not found" }, 404);
+    // The session was checked for the whole file; a chunk is refused only if the disk filled up since.
+    const refused = await full(c, deps, declaredLength(c));
+    if (refused) return refused;
     // One chunk at a time: they all append to the same partial file.
     if (!(await deps.storage.index.transition(row.id, "pending", "uploading"))) return c.json({ error: "another request for this upload is in progress" }, 409);
     let out: Awaited<ReturnType<typeof deps.storage.local.receiveChunk>>;
@@ -134,6 +155,8 @@ export function storagePublicRoutes(deps: StorageApiDeps) {
     const id = c.req.param("id");
     const body = c.req.raw.body;
     if (!body) return c.json({ error: "empty body" }, 400);
+    const refused = await full(c, deps, declaredLength(c));
+    if (refused) return refused;
     const r = await deps.storage.claimReservation(id, c.req.query("key") ?? "");
     if (!r) return c.json({ error: "not found" }, 404);
     let seen = 0;

@@ -124,6 +124,10 @@ const Env = z.object({
   STORAGE_DRIVE_FOLDER: z.string().min(1).default("Command Centre"),
   /** Largest direct upload (POST /api/storage/upload-session) accepted, in MB. */
   STORAGE_UPLOAD_MAX_MB: z.coerce.number().positive().default(20_480),
+  /** Uploads to the server's own volume are refused when they'd leave less than this free (local backend). */
+  STORAGE_MIN_FREE_MB: z.coerce.number().min(0).default(500),
+  /** Rendered videos on the volume are deleted after this many days, unless an approval still waits on them. 0 keeps them. */
+  STORAGE_RENDER_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
   /** Google OAuth client and refresh token (shared with Calendar; `google:auth` grants drive.file too). */
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -309,6 +313,8 @@ function storageConfig(e: z.infer<typeof Env>) {
     cacheBytes: Math.round(e.STORAGE_CACHE_MB * 1024 * 1024),
     driveFolder: e.STORAGE_DRIVE_FOLDER,
     uploadMaxBytes: Math.round(e.STORAGE_UPLOAD_MAX_MB * 1024 * 1024),
+    minFreeBytes: Math.round(e.STORAGE_MIN_FREE_MB * 1024 * 1024),
+    renderRetentionDays: e.STORAGE_RENDER_RETENTION_DAYS,
   };
 }
 // --- end storage ---

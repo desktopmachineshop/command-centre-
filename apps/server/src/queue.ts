@@ -62,13 +62,28 @@ export class PgBossTaskQueue implements TaskQueue {
 /** Runs tasks in-process as soon as they are enqueued. For tests. */
 export class InlineTaskQueue implements TaskQueue {
   private handler?: (taskId: string) => Promise<void>;
+  private stopped = false;
+  /** Delayed tasks not yet due: stop() cancels them, as a stopped pg-boss would leave them queued. */
+  private readonly timers = new Map<ReturnType<typeof setTimeout>, () => void>();
   readonly pending: Promise<void>[] = [];
 
   async enqueue(taskId: string, options: EnqueueOptions = {}): Promise<void> {
     const handler = this.handler;
     if (!handler) throw new Error("No worker registered");
     const ms = (options.delaySeconds ?? 0) * 1000;
-    this.pending.push(ms ? new Promise((r) => setTimeout(r, ms)).then(() => handler(taskId)) : handler(taskId));
+    if (!ms) {
+      this.pending.push(handler(taskId));
+      return;
+    }
+    this.pending.push(
+      new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          this.timers.delete(timer);
+          resolve(true);
+        }, ms);
+        this.timers.set(timer, () => resolve(false));
+      }).then((due) => (due && !this.stopped ? handler(taskId) : undefined)),
+    );
   }
 
   async work(handler: (taskId: string) => Promise<void>): Promise<void> {
@@ -79,5 +94,17 @@ export class InlineTaskQueue implements TaskQueue {
     while (this.pending.length) await this.pending.shift();
   }
 
-  async stop(): Promise<void> {}
+  /**
+   * Waits for the tasks already running, like pg-boss's graceful stop, so a server shutting down
+   * (the end of a test) never closes the database under a run that is still finishing.
+   */
+  async stop(): Promise<void> {
+    this.stopped = true;
+    for (const [timer, cancel] of this.timers) {
+      clearTimeout(timer);
+      cancel();
+    }
+    this.timers.clear();
+    await Promise.allSettled(this.pending.splice(0));
+  }
 }

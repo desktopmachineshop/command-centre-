@@ -5,6 +5,7 @@ import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
 import { go, useRouteQuery } from "../router";
 import { Empty, ErrorBanner, PageHead, Skeleton, Status } from "../ui";
+import { VideoPreview, videoOf } from "../video";
 
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
@@ -85,6 +86,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
               {j.nodeId && ` · on ${j.nodeId}`}
               {j.progress != null && ` · ${Math.round(j.progress * 100)}%`} · {ago(j.updatedAt)}
             </div>
+            {j.status === "succeeded" && videoOf(j.result) && <VideoPreview video={videoOf(j.result)!} title={j.kind} />}
             {j.progress != null && j.status === "running" && (
               <div className="progress" role="progressbar" aria-valuenow={Math.round(j.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
                 <span style={{ width: `${Math.round(j.progress * 100)}%` }} />

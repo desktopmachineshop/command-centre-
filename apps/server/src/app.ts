@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { GitBrain, GitMirror, PgBrain } from "@cc/brain";
 import { ROOT_ROLE_ID } from "@cc/core";
+import { storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
 import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
 import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
@@ -313,9 +314,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     repository: config.desktopRepo,
     installerMaxBytes: 1024 * 1024 * 1024,
     trustedProxyHops: config.trustedProxyHops,
+    publicBaseUrl: () => config.publicBaseUrl,
   };
   // --- end desktop ---
-  const storageDeps = { storage, publicBaseUrl: config.publicBaseUrl, uploadMaxBytes: config.storage.uploadMaxBytes, workerAuth };
+  // --- storage housekeeping: keep the volume from filling while files live on it (./storage-housekeeping.ts) ---
+  const housekeeping = { dataDir: config.dataDir, minFreeBytes: config.storage.minFreeBytes, renderRetentionDays: config.storage.renderRetentionDays };
+  const storageDeps = {
+    storage,
+    publicBaseUrl: config.publicBaseUrl,
+    uploadMaxBytes: config.storage.uploadMaxBytes,
+    workerAuth,
+    refuseUpload: (bytes: number) => uploadRefusal(storage, housekeeping, bytes),
+  };
   // --- end storage ---
 
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
@@ -742,6 +752,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         socialPublish: publishScheduledPosts, // a no-op until a social account is set up
         paReminders: deliverReminders,
         integrationsRefresh: () => refreshExpiringTokens({ service: integrations, notifier, fetch: overrides.integrationsFetch }), // --- integrations oauth ---
+        storageHousekeeping: () =>
+          storageHousekeeping({
+            storage,
+            options: housekeeping,
+            pendingPayloads: async () => (await store.listProposals({ status: "pending", limit: 1000 })).map((p) => p.payload),
+            notify: (n) => notifier.notify({ ...n, category: "alert", tag: "storage-full" }),
+          }),
       });
       notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
       started = true;
