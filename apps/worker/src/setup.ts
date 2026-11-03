@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { type Capability, type NodeSetup, SETUP_COMPONENTS, type SetupComponentId, wingetPackages } from "@cc/core";
 import { z } from "zod";
 import { findBrowser } from "./browser";
@@ -19,10 +20,32 @@ export interface SetupProbe {
   capabilities: Capability[];
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
+  /** Runs `winget --version` to see that it works; see findWinget. */
+  run?: RunCommand;
+}
+
+/**
+ * winget's path on Windows, or null. It's an app execution alias in
+ * `%LOCALAPPDATA%\Microsoft\WindowsApps`: a zero-byte link Windows runs fine but Node's
+ * existsSync/stat can't see, so it is found by running `winget --version`, which also proves it works.
+ */
+export async function findWinget(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, run: RunCommand = runCommand): Promise<string | null> {
+  if (platform !== "win32") return null;
+  const candidates = [
+    which("winget", env, platform),
+    env.LOCALAPPDATA ? join(env.LOCALAPPDATA, "Microsoft", "WindowsApps", "winget.exe") : null,
+    "winget.exe",
+  ].filter((c, i, all): c is string => !!c && all.indexOf(c) === i);
+  for (const candidate of candidates) {
+    const signal = AbortSignal.timeout(20_000);
+    const result = await run(candidate, ["--version"], signal).catch(() => null);
+    if (result?.code === 0) return candidate;
+  }
+  return null;
 }
 
 /** What this computer has, and whether it can install more (winget on Windows). */
-export function detectSetup(options: SetupProbe): NodeSetup {
+export async function detectSetup(options: SetupProbe): Promise<NodeSetup> {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
   const has: Record<SetupComponentId, boolean> = {
@@ -35,7 +58,7 @@ export function detectSetup(options: SetupProbe): NodeSetup {
   };
   return {
     platform,
-    installer: platform === "win32" && which("winget", env, platform) ? "winget" : null,
+    installer: (await findWinget(env, platform, options.run)) ? "winget" : null,
     installed: (Object.keys(has) as SetupComponentId[]).filter((id) => has[id]),
   };
 }
@@ -87,8 +110,8 @@ export async function refreshWindowsPath(run: RunCommand = runCommand, signal = 
 
 export interface SetupHandlerOptions {
   platform?: NodeJS.Platform;
-  /** winget's path; defaults to finding it on PATH. */
-  winget?: () => string | null;
+  /** winget's path; defaults to findWinget. */
+  winget?: () => Promise<string | null> | string | null;
   run?: RunCommand;
   /** Updates this process's PATH after installing (Windows: from the registry). */
   refreshPath?: () => Promise<void>;
@@ -124,7 +147,7 @@ export function setupHandler(options: SetupHandlerOptions = {}) {
     payload: Payload,
     async run(payload, ctx) {
       if (platform !== "win32") throw new JobError("Installing from the Devices page works on Windows only. Install the software on this computer yourself.");
-      const winget = (options.winget ?? (() => which("winget")))();
+      const winget = await (options.winget ?? (() => findWinget(process.env, platform, run)))();
       if (!winget) throw new JobError("winget isn't on this computer. Install App Installer from the Microsoft Store, then try again.");
       const packages = wingetPackages(payload.components);
       if (packages.length === 0) throw new JobError("Nothing to install: none of those can be installed from here.");
