@@ -453,4 +453,12 @@ export const migrations: { id: string; sql: string }[] = [
       alter table jobs add column if not exists target_node_id text;
     `,
   },
+  {
+    // Files attached to a reply in the chat box (src/chat-files.ts).
+    id: "0019_task_reply_files",
+    sql: `
+      -- {files: [{id, name, contentType, size}], prompt}: the files and the block the agent gets with the reply.
+      alter table task_replies add column if not exists files jsonb;
+    `,
+  },
 ];

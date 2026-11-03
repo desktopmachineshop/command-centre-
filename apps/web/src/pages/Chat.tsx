@@ -1,17 +1,17 @@
 import type { AgentMessage, Proposal, Task } from "@cc/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Api } from "../api";
+import type { Api, ChatFile } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { Icon } from "../icons";
 import { Empty, ErrorBanner, PageHead, VTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
-import { Composer } from "../composer";
+import { AttachedFiles, Composer } from "../composer";
 import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
 
-type Turn = { key: number; text: string; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
+type Turn = { key: number; text: string; files?: { name: string; size: number }[]; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
 
 /** A task in these states has answered, so a follow-up can continue it. */
 const REPLYABLE: Task["status"][] = ["done", "awaiting_approval", "failed"];
@@ -104,7 +104,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         if (!detail) continue; // the task is gone: drop its turns
         const mine = saved.turns.map((t, i) => ({ t, i })).filter(({ t }) => t.taskId === id);
         const messages = messagesByTurn(mine.map(({ t }) => t), detail.runs);
-        mine.forEach(({ t, i }, n) => restored.push({ key: i, text: t.text, task: detail.task, messages: messages[n]!, at: t.at }));
+        mine.forEach(({ t, i }, n) => restored.push({ key: i, text: t.text, files: t.files, task: detail.task, messages: messages[n]!, at: t.at }));
       }
       restored.sort((a, b) => a.key - b.key);
       // Turns sent while restoring stay after the restored ones.
@@ -119,7 +119,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   // ... and save it on every change: what was sent, where, and when there was last activity.
   useEffect(() => {
     if (restoring) return;
-    saveChat({ threadId, vertical, lastActive: Date.now(), turns: turns.map((t) => ({ text: t.text, taskId: t.task.id, at: t.at })) });
+    saveChat({ threadId, vertical, lastActive: Date.now(), turns: turns.map((t) => ({ text: t.text, ...(t.files?.length ? { files: t.files } : {}), taskId: t.task.id, at: t.at })) });
   }, [turns, threadId, vertical, restoring]);
 
   /** "New chat": a clean screen and a new thread. */
@@ -147,22 +147,26 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
     }
   });
 
-  const send = async (message: string) => {
+  const send = async (message: string, files: ChatFile[]) => {
     const thread = threadId ? turns.findLast((t) => t.task.id === threadId)?.task : undefined;
     if (thread && !REPLYABLE.includes(thread.status)) {
       setError("Still working on the last message: wait for its answer, or start a new chat.");
-      return;
+      return false;
     }
     setText("");
     setError(null);
+    const ids = files.map((f) => f.id);
     try {
-      const task = threadId ? await api.replyToTask(threadId, message, false) : (await api.chat(message, vertical || undefined)).task;
+      const task = threadId ? await api.replyToTask(threadId, message, false, ids) : (await api.chat(message, vertical || undefined, { files: ids })).task;
       setThreadId(task.id);
       // A follow-up's task timestamp is when the server took the reply; a new chat's is its creation.
-      setTurns((ts) => [...ts, { key: ts.length, text: message, task, messages: [], at: threadId ? task.updatedAt : task.createdAt }]);
+      const shown = files.map((f) => ({ name: f.name, size: f.size }));
+      setTurns((ts) => [...ts, { key: ts.length, text: message, ...(shown.length ? { files: shown } : {}), task, messages: [], at: threadId ? task.updatedAt : task.createdAt }]);
+      return true;
     } catch (err) {
       setError((err as Error).message);
       setText(message);
+      return false;
     }
   };
 
@@ -191,7 +195,10 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         )}
         {turns.map((t) => (
           <div key={t.key} className="turn">
-            <div className="bubble me">{t.text}</div>
+            <div className="bubble me">
+              {t.text}
+              <AttachedFiles files={t.files ?? []} />
+            </div>
             <div className="bubble agent">
               <div className="row between small">
                 <VTag id={t.task.vertical} />

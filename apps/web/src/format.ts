@@ -15,8 +15,9 @@ export function usd(n: number | null | undefined): string {
  * stored prompt carry them after a blank line ("VOICE MODE: ..."): those are for the agent only.
  */
 export function askText(prompt: string): string {
-  const i = prompt.indexOf("\n\nVOICE MODE:");
-  return (i >= 0 ? prompt.slice(0, i) : prompt).trim();
+  // The voice-mode rules and the text of attached files (server chat-files.ts) are for the agent, not for reading here.
+  const cuts = ["\n\nVOICE MODE:", "\n\nDave attached "].map((m) => prompt.indexOf(m)).filter((i) => i >= 0);
+  return (cuts.length ? prompt.slice(0, Math.min(...cuts)) : prompt).trim();
 }
 
 /** An agent message without the voice-mode protocol line (`{"voice": {...}}`) it ends with: that is for the app, not for reading. */
@@ -80,4 +81,11 @@ export function readableEmailBody(body: string): string {
     .replace(/[ \t ]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** A file size for a chip: 820 B, 340 KB, 2.1 MB. */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 ** 2).toFixed(1)} MB`;
 }
