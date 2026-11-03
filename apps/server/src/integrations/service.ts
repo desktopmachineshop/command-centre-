@@ -346,6 +346,7 @@ function mergeFailed(next: Config, prev: Config, failed: Partial<Record<Group, s
   if (failed.triage) out.triage = prev.triage;
   if (failed.voice) out.voice = { ...out.voice, providers: prev.voice.providers };
   if (failed.odoo) Object.assign(out, { odoo: prev.odoo, odooEvents: prev.odooEvents });
+  if (failed.shipping) out.shipping = prev.shipping;
   if (failed.email) out.email = { ...out.email, accounts: prev.email.accounts };
   if (failed.social) out.social = { ...out.social, accounts: prev.social.accounts };
   if (failed.calendar) out.pa = { ...out.pa, calendarAccounts: prev.pa.calendarAccounts };

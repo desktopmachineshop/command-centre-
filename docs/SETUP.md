@@ -155,7 +155,7 @@ appear under Approvals. If the run fails, its error is on the task page.
 ## Accounts page (sign-ins for every platform)
 
 **Accounts** (sidebar → System → Accounts; on the phone **More → Accounts**) is where every
-platform sign-in lives: Claude, the Anthropic API, Jev, OpenAI, ElevenLabs, Odoo, email inboxes,
+platform sign-in lives: Claude, the Anthropic API, Jev, OpenAI, ElevenLabs, Odoo, Sendcloud, email inboxes,
 Google (Calendar and Drive), Instagram, Threads, X, Reddit, YouTube and Discord. Saving applies
 straight away; only the changed integration restarts, and nothing redeploys.
 
@@ -201,6 +201,33 @@ Agents never see these credentials: the Claude process gets only its own token a
 variables, not the server's environment.
 
 The env-var instructions in the sections below still work and are the fallback.
+
+## Shipping (Sendcloud)
+
+Connect Sendcloud and each business's daily digest gets a **Shipping (Sendcloud)** section, and
+its push headline counts what was delivered, what is in transit and any problems
+(e.g. `Desktop Machine Shop: 3 done, 2 delivered, 5 in transit, 1 shipping problem, $0.40`).
+
+1. In Sendcloud: **Settings → Integrations → Sendcloud API → Connect**, name it (e.g. Command
+   Centre) and copy the **public key** and **secret key**.
+2. In the app: **Accounts → Sendcloud → Add account**, pick the business, paste both keys, then
+   **Test**. (Or set `SENDCLOUD_PUBLIC_KEY`, `SENDCLOUD_SECRET_KEY` and optionally
+   `SENDCLOUD_VERTICAL`, default `dms`, in Railway.) Add one account per Sendcloud login if the
+   businesses ship from separate ones.
+
+The digest reads Sendcloud live when it is written (parcels updated in the last 30 days), so
+nothing is polled during the day. It lists:
+
+- **Needs a look**: delayed, failed delivery attempts, exceptions, returns to sender, failed
+  announcements, and parcels in transit with no tracking update for 5 days or more.
+- **Not picked up by the carrier yet**: labels made over a day ago that the carrier hasn't scanned.
+- **Waiting at a pickup point**, **Delivered today** and **In transit**, each with the order
+  number, recipient, carrier and a tracking link.
+
+If Sendcloud can't be reached the digest still goes out, with the error in its Shipping section.
+Agents in Desktop Machine Shop's Customer Support and Ops & Admin roles also get read-only
+`sendcloud` tools (`find_parcel` by order or tracking number, `recent_parcels`), so "where is my
+order?" replies use the carrier's latest status. Nothing is ever created or changed in Sendcloud.
 
 ## Triage
 

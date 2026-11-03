@@ -121,7 +121,7 @@ describe("org tree", () => {
     expect(shop).toMatchObject({ name: "Desktop Machine Shop", color: "#d9822b", stats: { openTasks: 4, doneTasks: 5, pendingApprovals: 1 } });
     expect(shop.lead).toMatchObject({ id: "shop-lead", reportsTo: ROOT_ROLE_ID, stats: { openTasks: 2 } });
     expect(shop.lead.children.map((r) => r.id)).toEqual(["customer-support", "catalogue-pricing", "marketing-social", "ops-admin"]);
-    expect(shop.lead.children[0]).toMatchObject({ stats: { openTasks: 2, doneTasks: 5, costUsd: 0.5, pendingApprovals: 1 }, mcpServers: ["brain", "odoo", "mail"] });
+    expect(shop.lead.children[0]).toMatchObject({ stats: { openTasks: 2, doneTasks: 5, costUsd: 0.5, pendingApprovals: 1 }, mcpServers: ["brain", "odoo", "mail", "sendcloud"] });
     expect(shop.lead.children[3]!.schedules).toEqual([{ id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", enabled: false }]);
     // The Chief of Staff is not repeated inside its home vertical.
     const personal = tree.root.verticals[0]!;
