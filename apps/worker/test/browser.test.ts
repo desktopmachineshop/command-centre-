@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { browserCandidates, findBrowser, findPlaywrightDir, loadPlaywrightFrom, prepareCapture } from "../src/browser";
+import { browserCandidates, findBrowser, findPlaywrightDir, installRecorder, loadPlaywrightFrom, prepareCapture, recorderPath, useSystemFfmpeg } from "../src/browser";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "cc-browser-"));
 
@@ -69,6 +69,7 @@ describe("getting capture ready", () => {
           return true;
         },
         usePlaywright: async (dir: string) => void calls.push(`use ${dir}`),
+        useSystemFfmpeg: () => null,
         ...over,
       },
     };
@@ -90,5 +91,54 @@ describe("getting capture ready", () => {
     const broken = deps({ usePlaywright: async () => Promise.reject(new Error("Cannot find module './lib/coreBundle'")) }).deps;
     expect(await prepareCapture(null, { deps: broken })).toMatchObject({ ready: false, why: expect.stringMatching(/couldn't be loaded: Cannot find module/) });
     expect(await prepareCapture(null, { deps: deps({ installRecorder: async () => false }).deps })).toMatchObject({ ready: false, why: expect.stringMatching(/recorder couldn't be downloaded/) });
+    const failed = deps({ installRecorder: async () => ({ ok: false, detail: "exit code 1: Error: getaddrinfo ENOTFOUND cdn.playwright.dev" }) }).deps;
+    expect((await prepareCapture(null, { deps: failed })).why).toBe(
+      "Playwright's video recorder couldn't be downloaded (exit code 1: Error: getaddrinfo ENOTFOUND cdn.playwright.dev), and there's no ffmpeg on this computer to record with instead. Install ffmpeg (Media production), then press Install again",
+    );
+  });
+
+  it("records with this computer's ffmpeg when the recorder can't be downloaded", async () => {
+    let installed = false;
+    const d = deps({
+      recorderInstalled: () => installed,
+      installRecorder: async () => ({ ok: false, detail: "exit code 1" }),
+      useSystemFfmpeg: () => {
+        installed = true;
+        return "C:\\ffmpeg\\bin\\ffmpeg.exe";
+      },
+    }).deps;
+    expect(await prepareCapture(null, { deps: d })).toEqual({ chromiumBin: "/usr/bin/chromium", ready: true });
+  });
+});
+
+describe("Playwright's recorder", () => {
+  const pwDir = () => {
+    const dir = mkdtempSync(join(tmpdir(), "cc-pw-"));
+    writeFileSync(join(dir, "browsers.json"), JSON.stringify({ browsers: [{ name: "chromium", revision: "1" }, { name: "ffmpeg", revision: "1011" }] }));
+    return dir;
+  };
+
+  it("is looked for where Playwright keeps it", () => {
+    const dir = pwDir();
+    expect(recorderPath(dir, { LOCALAPPDATA: "C:\\Users\\dave\\AppData\\Local" }, "win32")).toBe(join("C:\\Users\\dave\\AppData\\Local", "ms-playwright", "ffmpeg-1011", "ffmpeg-win64.exe"));
+    expect(recorderPath(dir, { PLAYWRIGHT_BROWSERS_PATH: "/pw" }, "linux")).toBe(join("/pw", "ffmpeg-1011", "ffmpeg-linux"));
+  });
+
+  it("can be this computer's ffmpeg, copied there", () => {
+    const dir = pwDir();
+    const cache = mkdtempSync(join(tmpdir(), "cc-pw-cache-"));
+    const bin = mkdtempSync(join(tmpdir(), "cc-bin-"));
+    writeFileSync(join(bin, "ffmpeg"), "#!/bin/sh\n");
+    chmodSync(join(bin, "ffmpeg"), 0o755);
+    const env = { PATH: bin, PLAYWRIGHT_BROWSERS_PATH: cache };
+    expect(useSystemFfmpeg(dir, "ffmpeg", env, "linux")).toBe(join(bin, "ffmpeg"));
+    expect(readFileSync(join(cache, "ffmpeg-1011", "ffmpeg-linux"), "utf8")).toBe("#!/bin/sh\n");
+    expect(useSystemFfmpeg(dir, "ffmpeg", { PATH: "/nowhere", PLAYWRIGHT_BROWSERS_PATH: cache }, "linux")).toBeNull();
+  });
+
+  it("says why the download failed, from its last lines", async () => {
+    const dir = pwDir();
+    writeFileSync(join(dir, "cli.js"), "console.log('Downloading FFmpeg');\nconsole.log('|■■■■■■■■■■      |  10% of 2.3 MiB');\nconsole.error('Error: getaddrinfo ENOTFOUND cdn.playwright.dev');\nprocess.exit(1);\n");
+    expect(await installRecorder(dir)).toEqual({ ok: false, detail: "exit code 1: Downloading FFmpeg · Error: getaddrinfo ENOTFOUND cdn.playwright.dev" });
   });
 });
