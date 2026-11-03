@@ -39,6 +39,7 @@ import { Store } from "./db/store";
 import { type CodeOptions, createCodeExecutors } from "./code";
 import { DigestService } from "./digest";
 import type { OdooLateNow, OdooStockNow } from "./odoo-digest";
+import { createSendcloudMcpServer, ShippingService } from "@cc/sendcloud";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { storagePublicRoutes } from "./http/storage";
@@ -97,6 +98,9 @@ export interface Overrides {
   videoMedia?: VideoMediaStore;
   /** fetch for Google Calendar and its token endpoint (tests use a fake). */
   calendarFetch?: typeof fetch;
+  /** Sendcloud API stand-in (tests). */
+  sendcloudFetch?: typeof fetch;
+  sendcloudBaseUrl?: string;
   /** SMTP login check behind the Accounts page's Test (tests use a fake). */
   smtpVerify?: (account: EmailAccount) => Promise<void>;
   /** The CLI "Connect Claude" runs `setup-token` with (tests use a fake). */
@@ -349,6 +353,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   const odoo = new Live(buildOdoo(config), { start: (v) => v.events?.start(), stop: (v) => v.events?.stop() });
 
+  // Sendcloud, when an account is set: the digest's Shipping section and read tools at /mcp/sendcloud.
+  const buildShipping = (c: Config) => {
+    for (const a of c.shipping.accounts) verticals.require(a.vertical);
+    return c.shipping.accounts.length ? new ShippingService(c.shipping.accounts, { fetch: overrides.sendcloudFetch, baseUrl: overrides.sendcloudBaseUrl }) : null;
+  };
+  const shipping = new Live(buildShipping(config));
+
   // --- PA: reminders and lists (always), Google Calendar when CALENDAR_ACCOUNTS is set; /mcp/pa below ---
   const paStore = new PgPaStore(pool);
   const authAlerted = new Set<string>();
@@ -490,6 +501,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     return {
       ...(client ? { odoo: () => createOdooMcpServer(client) } : {}),
       ...(email.current.accounts.length ? { mail: mailMcpServer } : {}),
+      ...(shipping.current
+        ? {
+            // A run sees its own business's parcels (the Chief of Staff every one's).
+            sendcloud: (caller: Caller) =>
+              createSendcloudMcpServer(shipping.current!, caller.kind === "run" && caller.scope.role !== ROOT_ROLE_ID ? caller.scope.vertical : null),
+          }
+        : {}),
       pa: paMcpServer,
     };
   };
@@ -506,7 +524,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     const list = <T>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
     return { lowStock: list<OdooStockNow>(stock?.state.current), lateDeliveries: list<OdooLateNow>(deliveries?.state.current) };
   };
-  const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone, odooSnapshot);
+  const shippingDigest = async (vertical: string, start: Date, end: Date, now: Date) => shipping.current?.digest(vertical, start, end, now) ?? null;
+  const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone, odooSnapshot, shippingDigest);
   // --- Voice: server speech providers (optional), briefing, task conversations ---
   const voiceConversations = new VoiceConversations(store, hub, queue);
   // Getters: VoiceService reads these per request, so a reloaded key or calendar applies at once.
@@ -647,6 +666,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     triage: (c) => (overrides.triager ? undefined : triager.swap(() => createTriager(c))),
     voice: (c) => voice.swap(() => buildVoice(c)),
     odoo: (c) => odoo.swap(() => buildOdoo(c)),
+    shipping: (c) => shipping.swap(() => buildShipping(c)),
     email: (c) => email.swap(() => buildEmail(c)),
     social: (c) => social.swap(() => buildSocial(c)),
     calendar: (c) => calendar.swap(() => buildCalendar(c)),

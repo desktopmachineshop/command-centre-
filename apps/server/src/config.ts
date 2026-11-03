@@ -3,6 +3,7 @@ import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
 import { type OdooEventsConfig, parseOdooEventsConfig } from "@cc/odoo";
 import { type CalendarAccount, parseCalendarAccounts } from "@cc/pa";
+import { type SendcloudAccount, sendcloudAccountFromEnv } from "@cc/sendcloud";
 import { parseSocialAccounts, type SocialAccount } from "@cc/social";
 import { Cron } from "croner";
 import { z } from "zod";
@@ -142,6 +143,11 @@ const Env = z.object({
   ODOO_API: z.enum(["jsonrpc", "json2"]).default("jsonrpc"),
   /** Odoo inbound events (only with Odoo configured): unset/"on", "off", a source list, or JSON options. See @cc/odoo events.ts. */
   ODOO_EVENTS: z.string().optional(),
+  /** Sendcloud API keys (panel → Settings → Integrations → Sendcloud API): parcel tracking in the daily digest and /mcp/sendcloud. */
+  SENDCLOUD_PUBLIC_KEY: z.string().optional(),
+  SENDCLOUD_SECRET_KEY: z.string().optional(),
+  /** Which business the env Sendcloud account ships for. Default dms. */
+  SENDCLOUD_VERTICAL: z.string().optional(),
 
   // --- Voice (see docs/SETUP.md, "Voice and Drive mode"); all optional, the PWA falls back to browser speech ---
   /** Server speech-to-text: "auto" (first provider with a key), "openai", "elevenlabs" or "off". */
@@ -221,6 +227,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   } catch (err) {
     throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
   }
+  let sendcloudAccounts: SendcloudAccount[];
+  try {
+    sendcloudAccounts = sendcloudAccountFromEnv({ SENDCLOUD_PUBLIC_KEY: e.SENDCLOUD_PUBLIC_KEY, SENDCLOUD_SECRET_KEY: e.SENDCLOUD_SECRET_KEY, SENDCLOUD_VERTICAL: e.SENDCLOUD_VERTICAL });
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
   const dataDir = resolve(e.DATA_DIR);
   return {
     port: e.PORT,
@@ -271,6 +283,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     email: { accounts: emailAccounts, pollIntervalMs: e.EMAIL_POLL_INTERVAL_SECONDS * 1000 },
     odoo,
     odooEvents,
+    shipping: { accounts: sendcloudAccounts },
     publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
     social: { accounts: socialAccounts, defaultPollSeconds: e.SOCIAL_POLL_DEFAULT_SECONDS },
     media: { maxBytes: Math.round(e.MEDIA_MAX_MB * 1024 * 1024) },

@@ -4,8 +4,8 @@
  * a single entry with id "default". The page renders straight from this list, and saves are
  * checked against `fields` before effective.ts turns entries into server config.
  */
-export type Group = "runner" | "triage" | "voice" | "odoo" | "email" | "social" | "calendar" | "storage";
-export const GROUPS: readonly Group[] = ["runner", "triage", "voice", "odoo", "email", "social", "calendar", "storage"];
+export type Group = "runner" | "triage" | "voice" | "odoo" | "shipping" | "email" | "social" | "calendar" | "storage";
+export const GROUPS: readonly Group[] = ["runner", "triage", "voice", "odoo", "shipping", "email", "social", "calendar", "storage"];
 
 export type Section = "ai" | "business" | "google" | "social" | "apps" | "settings";
 
@@ -129,6 +129,20 @@ export const CATALOG: readonly KindDef[] = [
       { key: "api", label: "API", type: "select", options: ["jsonrpc", "json2"], default: "jsonrpc", help: "json2 for Odoo 19+." },
     ],
     affects: ["odoo"],
+  },
+  {
+    kind: "sendcloud",
+    label: "Sendcloud",
+    section: "business",
+    description: "Parcel tracking: each day's digest lists what was delivered, what is in transit and anything stuck or failed, and agents can look up where an order is. Read-only.",
+    multi: true,
+    fields: [
+      { ...vertical, default: "dms", help: "Which business ships with this Sendcloud account." },
+      { key: "publicKey", label: "Public key", type: "text", required: true },
+      { key: "secretKey", label: "Secret key", type: "secret", required: true, help: "Sendcloud: Settings → Integrations → Sendcloud API → Connect, then copy both keys." },
+    ],
+    affects: ["shipping"],
+    helpUrl: "https://app.sendcloud.com/v2/settings/integrations/manage",
   },
   {
     kind: "email",

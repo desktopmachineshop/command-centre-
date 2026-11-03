@@ -20,7 +20,7 @@ export default defineVertical({
   ],
   skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide", "video-reel"],
   // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
-  mcpServers: ["brain", "odoo", "pa", "mail"],
+  mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
   policies: { "brain.write": "auto", "email.label": "auto" },
   roles: [
     {
@@ -45,7 +45,7 @@ export default defineVertical({
         "Answers customers the way Dave would: pre-sales and compatibility questions, where an order is, returns and warranty claims. Works from live Odoo data and the brain, never from memory, and keeps each customer's history in the brain.",
       intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review", "rfq"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
-      mcpServers: ["brain", "odoo", "mail"],
+      mcpServers: ["brain", "odoo", "mail", "sendcloud"],
       actions: ["email.reply", "email.label", "odoo.message.post", "social.reply", "social.dm", "brain.write"],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
       autonomyNotes:
@@ -87,7 +87,7 @@ export default defineVertical({
         "Handles the back office: supplier emails, stock and lead times, purchase prices, supplier price lists, invoices and bills. Files each one in the brain (price lists by vendor and date under dms/pricelists/), flags low stock early and keeps supplier notes current.",
       intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late", "supplier-reply"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status", "dms-supplier-pricelists"],
-      mcpServers: ["brain", "odoo", "pa", "mail"],
+      mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
       actions: ["email.reply", "email.label", "email.send", "odoo.message.post", "notify", "brain.write"],
       schedules: [
         // Turn on once the Odoo low_stock threshold is agreed.
