@@ -741,6 +741,11 @@ Railway volume. A Hobby volume holds 5 GB, so the server looks after it
 With `gdrive`, new files go to Drive. The reserve and the clean-up then leave Drive alone; only
 the cache uses the volume, within `STORAGE_CACHE_MB`.
 
+The **Storage** page in the app (System → Storage) shows the disk (used, free, the reserve and
+the clean-up rule), usage by folder, and the newest 500 files. Each video, image or audio file can
+be previewed and opened, and any file can be deleted. It reads `GET /api/storage`, which includes
+`volume`, and deletes with `DELETE /api/storage/:id`.
+
 ## Storage (Google Drive)
 
 > **Easiest:** Accounts page → Google → Connect, then Settings → File storage → gdrive. The variables below are the alternative.

@@ -112,4 +112,12 @@ describe.skipIf(!DB_URL)("storage full (integration)", () => {
     expect(res.status).toBe(507);
     expect((await ctx.server.app.request(new URL(up.publicUrl).pathname)).status).toBe(404);
   });
+
+  it("shows the volume and its limits on the Storage page's listing", async () => {
+    const { body } = await ctx.api("/api/storage");
+    expect(body.backend).toBe("local");
+    expect(body.volume).toMatchObject({ minFreeBytes: 100000000 * 1024 * 1024, renderRetentionDays: 30 });
+    expect(body.volume.total).toBeGreaterThan(0);
+    expect(body.volume.free).toBeLessThanOrEqual(body.volume.total);
+  });
 });
