@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRunner, AgentRunRequest } from "@cc/agent-runtime";
@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { builtinExecutors } from "../src/actions";
 import { roleBrief, systemPrompt } from "../src/agent-context";
 import { buildOrgTree } from "../src/org";
-import { prepareWorkspace } from "../src/workspace";
+import { prepareWorkspace, skillReadRules } from "../src/workspace";
 import { DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./helpers";
 
 const registry = new VerticalRegistry();
@@ -76,6 +76,18 @@ describe("per-role workspaces", () => {
     expect(skillsIn(a)).toEqual(["brain-notes", "dms-customer-reply", "dms-order-status", "email-triage-and-reply"]);
     expect(skillsIn(b)).toEqual(["brain-notes", "dms-catalogue-pricing"]);
     expect(lstatSync(join(b, ".claude", "skills", "dms-catalogue-pricing")).isSymbolicLink()).toBe(true);
+  });
+
+  it("lets a run read its own skills' supporting files, and no other skill's", async () => {
+    const { dataDir, skillsDir } = setup();
+    mkdirSync(join(skillsDir, "dms-catalogue-pricing", "refs"), { recursive: true });
+    writeFileSync(join(skillsDir, "dms-catalogue-pricing", "refs", "vat.md"), "VAT notes");
+    const pricing = registry.roleFor("dms", "catalogue-pricing");
+    await prepareWorkspace(dataDir, skillsDir, dms, pricing);
+    const real = realpathSync(skillsDir);
+    expect(skillReadRules(skillsDir, dms, pricing)).toEqual([`Read(/${real}/brain-notes/**)`, `Read(/${real}/dms-catalogue-pricing/**)`]);
+    // Skills missing from the bank, and names that aren't plain folder names, get nothing.
+    expect(skillReadRules(skillsDir, dms, { skills: ["social-voice-dms", "../dms-catalogue-pricing", "brain-notes"] })).toEqual([`Read(/${real}/brain-notes/**)`]);
   });
 
   it("is safe to run concurrently for one role and clears the old vertical-level skills", async () => {

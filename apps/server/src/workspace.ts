@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readdir, readlink, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Role, VerticalManifest } from "@cc/core";
@@ -12,6 +12,11 @@ import type { Role, VerticalManifest } from "@cc/core";
  *
  * Runs of one role can overlap, so this never wipes the folder: it adds
  * missing links, fixes wrong ones and removes entries the role no longer has.
+ *
+ * Claude Code reads a skill's SKILL.md through the link, but any other file
+ * the skill points to (e.g. video-reel/brands/dms.md) resolves into the bank,
+ * outside the run's directory, where headless runs may not read. Pass
+ * `skillReadRules` to the run's allowed tools to let it read its own skills.
  */
 export async function prepareWorkspace(
   dataDir: string,
@@ -27,11 +32,7 @@ export async function prepareWorkspace(
   // folder, where Claude Code could still find them: remove them.
   if (role) await rm(join(verticalDir, ".claude"), { recursive: true, force: true });
 
-  const available = existsSync(skillsDir)
-    ? new Set((await readdir(skillsDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name))
-    : new Set<string>();
-  const skills = role ? role.skills : vertical.skills;
-  const wanted = new Set(skills.filter((skill) => available.has(skill) && existsSync(join(skillsDir, skill, "SKILL.md"))));
+  const wanted = new Set(linkedSkills(skillsDir, vertical, role));
 
   for (const entry of await readdir(skillsTarget)) {
     if (!wanted.has(entry)) await rm(join(skillsTarget, entry), { recursive: true, force: true });
@@ -46,6 +47,22 @@ export async function prepareWorkspace(
     await linkTo(target, link);
   }
   return cwd;
+}
+
+/** The skills a run of this role (or of the vertical, without one) gets: listed and present in the bank. */
+function linkedSkills(skillsDir: string, vertical: VerticalManifest, role?: Pick<Role, "skills">): string[] {
+  const skills = role ? role.skills : vertical.skills;
+  // A plain folder name only, so a listed skill can never point outside the bank.
+  return [...new Set(skills)].filter((skill) => /^[\w-]+$/.test(skill) && existsSync(join(skillsDir, skill, "SKILL.md")));
+}
+
+/**
+ * Read-only permission rules (`Read(//abs/path/**)`) for exactly the skill
+ * folders linked into this run's workspace, so a skill's supporting files can
+ * be read without opening the rest of the bank.
+ */
+export function skillReadRules(skillsDir: string, vertical: VerticalManifest, role?: Pick<Role, "skills">): string[] {
+  return linkedSkills(skillsDir, vertical, role).map((skill) => `Read(/${realpathSync(join(skillsDir, skill))}/**)`);
 }
 
 /** Creates the symlink; false if the path already exists (possibly made by a concurrent run). */
