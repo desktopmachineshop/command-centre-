@@ -104,7 +104,13 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
                       stateLabel(state, component.install.kind === "hardware")
                     )}
                   </span>
-                  <span className="device-role-why muted">{component.why}</span>
+                  <span className="device-role-why muted">
+                    {component.id === "browser" && state !== "installed" && node.setup?.capture?.why ? (
+                      <span className="device-role-reason">Off: {node.setup.capture.why}</span>
+                    ) : (
+                      component.why
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

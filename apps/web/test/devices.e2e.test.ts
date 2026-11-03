@@ -46,7 +46,13 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
         id: "studio",
         name: "Studio PC",
         capabilities: ["ffmpeg", "gpu"],
-        setup: { platform: "win32", installer: "winget", installed: ["ffmpeg", "gpu", "git"], appVersion: "0.1.12" },
+        setup: {
+          platform: "win32",
+          installer: "winget",
+          installed: ["ffmpeg", "gpu", "git"],
+          capture: { ready: false, why: "Playwright's video recorder couldn't be downloaded" },
+          appVersion: "0.1.12",
+        },
         online: true,
         lastSeen: now,
       },
@@ -82,9 +88,11 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
       expect.stringContaining("ffmpeg"),
       expect.stringContaining("Graphics card"),
     ]);
-    expect(await media.locator(".device-role-item", { hasText: "Chrome" }).textContent()).toContain("Not installed");
+    const capture = media.locator(".device-role-item", { hasText: "Screen capture" });
+    expect(await capture.textContent()).toContain("Not installed");
+    expect(await capture.locator(".device-role-reason").textContent()).toBe("Off: Playwright's video recorder couldn't be downloaded");
     expect(await media.locator(".device-role-item", { hasText: "DaVinci" }).getByRole("link").getAttribute("href")).toContain("blackmagicdesign.com");
-    await media.getByRole("button", { name: "Install Chrome" }).waitFor();
+    await media.getByRole("button", { name: "Install Screen capture" }).waitFor();
 
     expect(await studio.locator(".device-version").textContent()).toBe("Desktop app 0.1.12 · 0.1.13 available: choose Check for updates in its tray menu");
     expect(await page.locator(".device-row", { hasText: "Old Laptop" }).textContent()).toContain("Desktop app version unknown");

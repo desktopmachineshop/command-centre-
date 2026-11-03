@@ -58,7 +58,7 @@ export async function createWorker(config: WorkerConfig, options: { onStatus?: (
         chromiumBin: capture.ready ? capture.chromiumBin : null,
         overrides: config.capabilityOverrides,
       }));
-    const setup = await detectSetup({ appVersion: config.appVersion, ffmpegBin: config.ffmpegBin, claudeBin: config.claudeBin, chromiumBin: config.chromiumBin, capabilities });
+    const setup = await detectSetup({ capture: { ready: capture.ready, why: capture.why }, appVersion: config.appVersion, ffmpegBin: config.ffmpegBin, claudeBin: config.claudeBin, chromiumBin: config.chromiumBin, capabilities });
     const registry = defaultRegistry({ ...config, chromiumBin: capture.chromiumBin ?? config.chromiumBin }, capabilities);
     return { capabilities, setup, registry };
   };

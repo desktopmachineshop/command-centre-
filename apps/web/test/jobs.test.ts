@@ -46,3 +46,11 @@ describe("desktop app versions", async () => {
     expect(newer("1.0.0", "0.99.99")).toBe(true);
   });
 });
+
+describe("screen capture that's off", () => {
+  it("says why on the closest computer", () => {
+    const job = { status: "queued" as const, requires: ["browser"] as never };
+    const node = { ...pc("mr-oreo", ["ffmpeg"]), setup: { platform: "win32", installer: "winget" as const, installed: [], capture: { ready: false, why: "Playwright's video recorder couldn't be downloaded." } } };
+    expect(waitingReason(job, [node])).toContain("(mr-oreo is missing it). Screen capture is off on mr-oreo: Playwright's video recorder couldn't be downloaded. To run it, press Install");
+  });
+});

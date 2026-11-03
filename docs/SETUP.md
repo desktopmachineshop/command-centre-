@@ -315,7 +315,7 @@ installed:
 
 | Role | Needs | Installed from the page |
 | --- | --- | --- |
-| **Media production** | ffmpeg, Chrome (Edge also counts), graphics card (optional), DaVinci Resolve (optional) | ffmpeg, Chrome |
+| **Media production** | ffmpeg, screen capture (Chrome or Edge + Playwright's recorder), graphics card (optional), DaVinci Resolve (optional) | ffmpeg, screen capture |
 | **Local Claude Code** | Git, Claude Code | Git, Claude Code |
 
 **Install …** under a role installs what that role is missing on that computer, from the phone or
@@ -323,7 +323,9 @@ the app. It queues a `setup.install` job only that computer takes (it waits if i
 worker installs each piece with `winget install --exact --silent`, refreshes its PATH, detects
 again and reports back, so the ticks and its capabilities update without restarting the app.
 Windows may ask on the PC for permission to install, so be at the computer for the first run.
-DaVinci Resolve needs a Blackmagic sign-up, so it links to the download instead; a graphics card
+Screen capture ticks only when it works; when it's off, the page shows why (no browser, Playwright
+missing, or its video recorder couldn't be downloaded), and **Install** adds Chrome only if there's
+no Chrome or Edge, then sets capture up again. DaVinci Resolve needs a Blackmagic sign-up, so it links to the download instead; a graphics card
 shows as available or not. Computers without winget (or not on Windows) show what they have and
 no button. The roles and their winget package ids are in `packages/core/src/setup.ts`; the job
 names only components from that list, and the worker ignores anything else, so the server can't

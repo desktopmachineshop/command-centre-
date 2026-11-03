@@ -71,13 +71,14 @@ export class WorkerClient {
   }
 
   /** Re-detects capabilities and setup, and tells the server if connected (or in the next hello). */
-  async refresh(): Promise<void> {
+  async refresh(): Promise<{ capabilities: Capability[]; setup?: NodeSetup } | void> {
     if (!this.options.redetect) return;
     const next = await this.options.redetect();
     this.node = { ...this.node, capabilities: next.capabilities, ...(next.setup ? { setup: next.setup } : {}) };
     if (next.registry) this.registry = next.registry;
     this.log(`now offering [${this.node.capabilities.join(", ") || "no capabilities"}]`);
     this.send({ type: "worker.capabilities", capabilities: this.node.capabilities, setup: this.node.setup });
+    return { capabilities: this.node.capabilities, setup: this.node.setup };
   }
 
   get state(): WorkerStatus {

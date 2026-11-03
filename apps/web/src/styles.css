@@ -2339,6 +2339,9 @@ a.stat:hover {
   color: var(--warn);
   font-weight: 600;
 }
+.device-role-reason {
+  color: var(--warn);
+}
 .device-role-error {
   white-space: pre-line;
 }

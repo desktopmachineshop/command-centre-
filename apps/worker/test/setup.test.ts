@@ -19,7 +19,11 @@ const job = (payload: Record<string, unknown>): Job => ({
   updatedAt: "",
 });
 
-function harness(exitCodes: Record<string, number> = {}, platform: NodeJS.Platform = "win32") {
+function harness(
+  exitCodes: Record<string, number> = {},
+  platform: NodeJS.Platform = "win32",
+  opts: { hasBrowser?: boolean; captureAfter?: { ready: boolean; why?: string } } = {},
+) {
   const calls: string[][] = [];
   const progress: string[] = [];
   let refreshed = 0;
@@ -29,7 +33,9 @@ function harness(exitCodes: Record<string, number> = {}, platform: NodeJS.Platfo
     const code = exitCodes[id] ?? 0;
     return { code, output: code ? `Downloading\n██████▒▒ 10 MB / 20 MB\nInstaller failed with exit code: ${code}\n` : "Successfully installed" };
   };
-  const registry = new HandlerRegistry().register(setupHandler({ platform, run, winget: () => "C:\\winget.exe", refreshPath: async () => {} }));
+  const registry = new HandlerRegistry().register(
+    setupHandler({ platform, run, winget: () => "C:\\winget.exe", refreshPath: async () => {}, hasBrowser: () => opts.hasBrowser ?? false }),
+  );
   const runJob = (payload: Record<string, unknown>) =>
     registry.run({
       job: job(payload),
@@ -38,6 +44,7 @@ function harness(exitCodes: Record<string, number> = {}, platform: NodeJS.Platfo
       progress: (_p, m) => m && progress.push(m),
       refresh: async () => {
         refreshed++;
+        return { capabilities: [], setup: { platform, installer: "winget" as const, installed: [], ...(opts.captureAfter ? { capture: opts.captureAfter } : {}) } };
       },
     } satisfies JobContext);
   return { calls, progress, runJob, refreshed: () => refreshed };
@@ -53,8 +60,19 @@ describe("setup.install", () => {
       ["C:\\winget.exe", ...wingetArgs("Google.Chrome")],
     ]);
     expect(h.calls[0]).toEqual(expect.arrayContaining(["--silent", "--exact", "--accept-package-agreements"]));
-    expect(h.progress).toEqual(["Installing ffmpeg", "Installing Chrome", "Checking what's installed"]);
+    expect(h.progress).toEqual(["Installing ffmpeg", "Installing Screen capture", "Checking what's installed"]);
     expect(h.refreshed()).toBe(1);
+  });
+
+  it("doesn't install Chrome when Edge is there, only sets capture up again, and says why if it's still off", async () => {
+    const ok = harness({}, "win32", { hasBrowser: true, captureAfter: { ready: true } });
+    expect(await ok.runJob({ role: "media", components: ["browser"] })).toEqual({ role: "media", installed: ["browser"] });
+    expect(ok.calls).toEqual([]);
+    expect(ok.refreshed()).toBe(1);
+
+    const off = harness({}, "win32", { hasBrowser: true, captureAfter: { ready: false, why: "Playwright's video recorder couldn't be downloaded" } });
+    await expect(off.runJob({ role: "media", components: ["browser"] })).rejects.toThrow(/Screen capture didn't install: Playwright's video recorder couldn't be downloaded/);
+    expect(off.calls).toEqual([]);
   });
 
   it("never runs anything outside the catalog", async () => {
@@ -100,6 +118,14 @@ describe("detectSetup", () => {
     expect(await findWinget(env, "win32", wingetAt("winget.exe"))).toBe("winget.exe");
     expect(await findWinget(env, "win32", wingetAt())).toBeNull();
     expect(await findWinget(env, "linux", wingetAt("winget.exe"))).toBeNull();
+  });
+
+  it("counts screen capture only when it works, and reports why it doesn't", async () => {
+    const env = { PATH: "/nonexistent" };
+    const off = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env, platform: "linux", capture: { ready: false, why: "no recorder" } });
+    expect(off).toMatchObject({ installed: [], capture: { ready: false, why: "no recorder" } });
+    const on = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env, platform: "linux", capture: { ready: true } });
+    expect(on).toMatchObject({ installed: ["browser"], capture: { ready: true } });
   });
 
   it("has no installer off Windows", async () => {
