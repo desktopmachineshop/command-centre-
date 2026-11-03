@@ -6,10 +6,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./speakable": "./src/speakable.ts",
-    "./response": "./src/response.ts"
+    "./response": "./src/response.ts",
+    "./local": "./src/local/index.ts",
+    "./sentences": "./src/sentences.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "1.13.8"
   }
 }

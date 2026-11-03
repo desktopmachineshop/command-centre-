@@ -5,6 +5,8 @@
  * Every piece degrades: a missing API reports itself rather than throwing.
  */
 
+import { AnalyserLevel, type LevelSource, PulseLevel, SILENT } from "./level";
+
 export class VoicePermissionError extends Error {}
 
 // ---------- Listening ----------
@@ -27,7 +29,9 @@ export interface ListenOptions {
 }
 
 export interface Listener {
-  readonly kind: "browser" | "server";
+  readonly kind: "browser" | "server" | "live";
+  /** The microphone level while listening, for the waveform (0..1 per animation frame). */
+  readonly level: LevelSource;
   /** The transcript, or null when nothing was said. */
   listen(options: ListenOptions): Promise<string | null>;
   /** Stops listening now; a pending listen() resolves with what was heard so far. */
@@ -64,6 +68,11 @@ export function hasBrowserRecognition(): boolean {
   return recognitionCtor() !== null;
 }
 
+/** Microphone capture with Web Audio, what live transcription streams from. */
+export function hasLiveCapture(): boolean {
+  return typeof AudioContext !== "undefined" && typeof WebSocket !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
+}
+
 export function hasRecorder(): boolean {
   return typeof MediaRecorder !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
 }
@@ -94,6 +103,13 @@ export function collapseRepeats(parts: string[]): string[] {
 export class BrowserListener implements Listener {
   readonly kind = "browser";
   private current: Recognition | null = null;
+  private readonly pulse = new PulseLevel();
+  private meter: MicMeter | null = null;
+
+  /** The real microphone level where a second capture is safe; elsewhere, animated from recognition events. */
+  get level(): LevelSource {
+    return this.meter?.level ?? this.pulse;
+  }
 
   /**
    * Listens until Dave pauses for `endOfTurnMs` after speaking (or Send calls `stop()`), so a
@@ -122,6 +138,9 @@ export class BrowserListener implements Listener {
         clearTimeout(cap);
         if (this.current === rec) this.current = null;
         this.stopTurn = null;
+        this.pulse.active = false;
+        this.meter?.close();
+        this.meter = null;
         try {
           rec.abort();
         } catch {
@@ -155,9 +174,11 @@ export class BrowserListener implements Listener {
         rec.maxAlternatives = 1;
         rec.onspeechstart = () => {
           heard = true;
+          this.pulse.pulse(0.6);
         };
         rec.onresult = (e) => {
           heard = true;
+          this.pulse.pulse(0.9);
           // Rebuilt from the whole session each time: Android sends each word as a new result
           // repeating the sentence so far, which collapseRepeats folds back into one.
           const parts: string[] = [];
@@ -189,6 +210,14 @@ export class BrowserListener implements Listener {
       };
       try {
         start();
+        this.pulse.active = true;
+        // Android Chrome's recognition loses the microphone to a second capture; elsewhere, meter it.
+        if (!/Android/i.test(navigator.userAgent)) {
+          void MicMeter.open().then((m) => {
+            if (settled) m?.close();
+            else this.meter = m;
+          });
+        }
       } catch (err) {
         finish(null, err as Error);
       }
@@ -209,6 +238,7 @@ export class BrowserListener implements Listener {
  */
 export class RecorderListener implements Listener {
   readonly kind = "server";
+  level: LevelSource = SILENT;
   private stopNow: (() => void) | null = null;
 
   constructor(
@@ -260,6 +290,9 @@ export class RecorderListener implements Listener {
     analyser.fftSize = 1024;
     ctx.createMediaStreamSource(stream).connect(analyser);
     const samples = new Float32Array(analyser.fftSize);
+    const meter = ctx.createAnalyser();
+    ctx.createMediaStreamSource(stream).connect(meter);
+    this.level = new AnalyserLevel(meter);
     let quietSince = Date.now();
 
     const done = new Promise<void>((resolve) => {
@@ -290,6 +323,7 @@ export class RecorderListener implements Listener {
     this.stopNow = null;
     stream.getTracks().forEach((t) => t.stop());
     void ctx.close().catch(() => {});
+    this.level = SILENT;
     if (!heardAt) return null;
     const blob = new Blob(chunks, { type: recorder.mimeType || mime || "audio/webm" });
     const text = await this.transcribe(blob, (Date.now() - started) / 1000, lang);
@@ -302,17 +336,272 @@ export class RecorderListener implements Listener {
   }
 }
 
+// ---------- Live (streaming) listening ----------
+
+const MIC_CONSTRAINTS: MediaStreamConstraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } };
+
+async function openMic(): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+  } catch (err) {
+    const name = (err as DOMException).name;
+    if (name === "NotAllowedError" || name === "SecurityError") throw new VoicePermissionError("Microphone permission was refused");
+    throw new Error(`No microphone available (${name})`);
+  }
+}
+
+/** A microphone opened only to measure its level (the browser-recognition fallback). */
+class MicMeter {
+  private constructor(
+    private readonly stream: MediaStream,
+    private readonly ctx: AudioContext,
+    readonly level: LevelSource,
+  ) {}
+
+  static async open(): Promise<MicMeter | null> {
+    try {
+      const stream = await openMic();
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      return new MicMeter(stream, ctx, new AnalyserLevel(analyser));
+    } catch {
+      return null;
+    }
+  }
+
+  close() {
+    this.stream.getTracks().forEach((t) => t.stop());
+    void this.ctx.close().catch(() => {});
+  }
+}
+
+/**
+ * Float audio at the device rate → 16 kHz 16-bit PCM, what the server's recognizer takes.
+ * Averages over each output sample's window (a cheap low-pass), carrying the remainder between
+ * calls so frames join seamlessly. Pure apart from its carry.
+ */
+export class Downsampler {
+  private readonly ratio: number;
+  private carry = new Float32Array(0);
+
+  constructor(inputRate: number, readonly outputRate = 16000) {
+    this.ratio = inputRate / outputRate;
+  }
+
+  push(input: Float32Array): Int16Array {
+    const data = new Float32Array(this.carry.length + input.length);
+    data.set(this.carry);
+    data.set(input, this.carry.length);
+    const count = Math.floor(data.length / this.ratio);
+    const out = new Int16Array(count);
+    for (let n = 0; n < count; n++) {
+      const start = Math.floor(n * this.ratio);
+      const end = Math.max(start + 1, Math.floor((n + 1) * this.ratio));
+      let sum = 0;
+      for (let i = start; i < end; i++) sum += data[i]!;
+      const v = Math.max(-1, Math.min(1, sum / (end - start)));
+      out[n] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    }
+    this.carry = data.slice(Math.floor(count * this.ratio));
+    return out;
+  }
+}
+
+/** Forwards raw microphone frames to the page (AudioWorklet, registered from a Blob URL). */
+const CAPTURE_WORKLET = `class CcCapture extends AudioWorkletProcessor {
+  process(inputs) { const ch = inputs[0] && inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
+}
+registerProcessor("cc-capture", CcCapture);`;
+
+/** Calls `onFrame` with the microphone's float samples; AudioWorklet where it exists, else ScriptProcessor. */
+async function captureFrames(ctx: AudioContext, source: MediaStreamAudioSourceNode, onFrame: (samples: Float32Array) => void): Promise<() => void> {
+  const sink = ctx.createGain();
+  sink.gain.value = 0; // processing nodes only run when connected towards the output
+  sink.connect(ctx.destination);
+  if (ctx.audioWorklet) {
+    try {
+      const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: "application/javascript" }));
+      await ctx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      const node = new AudioWorkletNode(ctx, "cc-capture");
+      node.port.onmessage = (e) => onFrame(e.data as Float32Array);
+      source.connect(node).connect(sink);
+      return () => {
+        node.port.onmessage = null;
+        node.disconnect();
+      };
+    } catch {
+      // fall through to ScriptProcessor
+    }
+  }
+  const node = ctx.createScriptProcessor(2048, 1, 1);
+  node.onaudioprocess = (e) => onFrame(new Float32Array(e.inputBuffer.getChannelData(0)));
+  source.connect(node).connect(sink);
+  return () => {
+    node.onaudioprocess = null;
+    node.disconnect();
+  };
+}
+
+/**
+ * Live transcription on the server (self-hosted, `/ws/voice`): the microphone is streamed as
+ * 16 kHz PCM and the words come back as they're recognised, so the text grows while Dave talks.
+ * Unlatched, the server's end-of-phrase detection ends the turn after a short pause.
+ */
+export class StreamingListener implements Listener {
+  readonly kind = "live";
+  level: LevelSource = SILENT;
+  private stopNow: (() => void) | null = null;
+
+  constructor(
+    private readonly url: string,
+    private readonly token: string | null,
+  ) {}
+
+  async listen({ timeoutMs, onInterim, maxTurnMs = 60_000, latched = false }: ListenOptions): Promise<string | null> {
+    this.stop();
+    const stream = await openMic();
+    const ctx = new AudioContext();
+    void ctx.resume?.();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    source.connect(analyser);
+    this.level = new AnalyserLevel(analyser);
+    const ws = new WebSocket(this.url);
+    ws.binaryType = "arraybuffer";
+    const down = new Downsampler(ctx.sampleRate);
+    // Audio from before the socket is ready is kept, so the first word isn't lost.
+    const early: ArrayBuffer[] = [];
+    let ready = false;
+    let pending = new Int16Array(0);
+    const FRAME = 640; // 40 ms at 16 kHz
+    const sendAudio = (pcm: Int16Array) => {
+      const joined = new Int16Array(pending.length + pcm.length);
+      joined.set(pending);
+      joined.set(pcm, pending.length);
+      let at = 0;
+      for (; at + FRAME <= joined.length; at += FRAME) {
+        const buf = joined.slice(at, at + FRAME).buffer;
+        if (ready && ws.readyState === WebSocket.OPEN) ws.send(buf);
+        else early.push(buf);
+      }
+      pending = joined.slice(at);
+    };
+    // The socket's handlers are attached right away (below), so its events can't be missed
+    // while the capture worklet loads.
+    let stopCapture = () => {};
+    const capture = captureFrames(ctx, source, (frame) => sendAudio(down.push(frame)));
+
+    return new Promise<string | null>((resolve, reject) => {
+      let text = "";
+      let heard = false;
+      let settled = false;
+      let stopping = false;
+      const cleanup = () => {
+        clearTimeout(timer);
+        clearTimeout(cap);
+        clearTimeout(guard);
+        stopCapture();
+        stream.getTracks().forEach((t) => t.stop());
+        void ctx.close().catch(() => {});
+        this.level = SILENT;
+        this.stopNow = null;
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
+      };
+      const done = (value: string | null, error?: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (error) reject(error);
+        else resolve(value?.trim() ? value.trim() : null);
+      };
+      let guard: ReturnType<typeof setTimeout> | undefined;
+      // Ends the turn: the server finishes the last words, then sends the final text.
+      const end = () => {
+        if (stopping || settled) return;
+        stopping = true;
+        stopCapture();
+        stream.getTracks().forEach((t) => t.stop());
+        if (pending.length) {
+          const tail = new Int16Array(FRAME);
+          tail.set(pending.slice(0, FRAME));
+          pending = new Int16Array(0);
+          if (ready && ws.readyState === WebSocket.OPEN) ws.send(tail.buffer);
+        }
+        if (ready && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "stop" }));
+        guard = setTimeout(() => done(text || null), ready ? 2500 : 0);
+      };
+      this.stopNow = end;
+      const timer = setTimeout(() => {
+        if (!heard) end();
+      }, timeoutMs);
+      const cap = setTimeout(end, maxTurnMs);
+      capture.then(
+        (stop) => {
+          if (settled || stopping) stop();
+          else stopCapture = stop;
+        },
+        (err) => done(null, err as Error),
+      );
+
+      ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token: this.token ?? "", latched }));
+      ws.onmessage = (e) => {
+        if (typeof e.data !== "string") return;
+        const msg = JSON.parse(e.data) as { type: string; text?: string; message?: string };
+        if (msg.type === "ready") {
+          ready = true;
+          for (const buf of early.splice(0)) ws.send(buf);
+          if (stopping) ws.send(JSON.stringify({ type: "stop" }));
+        } else if (msg.type === "partial") {
+          text = msg.text ?? "";
+          if (text) heard = true;
+          onInterim?.(text);
+        } else if (msg.type === "endOfTurn") {
+          text = msg.text ?? text;
+          if (!latched) end();
+        } else if (msg.type === "final") {
+          done(msg.text ?? text);
+        } else if (msg.type === "error") {
+          done(null, new Error(msg.message ?? "Live transcription failed"));
+        }
+      };
+      ws.onerror = () => done(null, new Error("Couldn't reach live transcription"));
+      ws.onclose = (e) => {
+        if (settled) return;
+        if (e.code === 4003) done(null, new Error("Live transcription refused the sign-in"));
+        else done(text || null);
+      };
+    });
+  }
+
+  stop() {
+    this.stopNow?.();
+  }
+}
+
 // ---------- Speaking ----------
 
 export interface Speaker {
   readonly kind: "browser" | "server";
+  /** The voice's level while it talks, for Drive mode's orb. */
+  readonly level: LevelSource;
   speak(text: string): Promise<void>;
+  /** Speaks pieces (sentences) as they arrive, e.g. a reply that is still being written. */
+  speakStream(pieces: AsyncIterable<string>): Promise<void>;
   cancel(): void;
 }
 
 type VoiceLike = Pick<SpeechSynthesisVoice, "name" | "lang" | "localService" | "default">;
 
-const PREFERRED = [/google uk english/i, /\b(daniel|serena|kate|arthur|martha|oliver|stephanie)\b/i, /microsoft (ryan|sonia|libby|george|hazel)/i, /natural|neural|premium|enhanced/i];
+const PREFERRED = [
+  /microsoft (ryan|sonia|libby|maisie|thomas) online \(natural\)/i,
+  /\b(daniel|serena|kate|arthur|martha|oliver|stephanie)\b.*\((premium|enhanced)\)/i,
+  /google uk english/i,
+  /\b(daniel|serena|kate|arthur|martha|oliver|stephanie)\b/i,
+  /microsoft (ryan|sonia|libby|george|hazel)/i,
+  /natural|neural|premium|enhanced/i,
+];
 
 /** Best voice for `lang` (en-GB by default): exact language, then same language; known-good names first. Pure. */
 export function pickVoice<V extends VoiceLike>(voices: V[], lang = "en-GB"): V | null {
@@ -391,6 +680,8 @@ export function loadVoices(timeoutMs = 1500): Promise<SpeechSynthesisVoice[]> {
 export class BrowserSpeaker implements Speaker {
   readonly kind = "browser";
   private generation = 0;
+  private readonly pulse = new PulseLevel();
+  readonly level: LevelSource = this.pulse;
 
   constructor(
     private readonly voice: SpeechSynthesisVoice | null,
@@ -399,85 +690,192 @@ export class BrowserSpeaker implements Speaker {
   ) {}
 
   async speak(text: string): Promise<void> {
+    await this.speakStream(once(text));
+  }
+
+  async speakStream(pieces: AsyncIterable<string>): Promise<void> {
     this.cancel();
     const gen = ++this.generation;
-    for (const chunk of chunkForSpeech(text)) {
-      if (gen !== this.generation) return;
-      await new Promise<void>((resolve) => {
-        const u = new SpeechSynthesisUtterance(chunk);
-        u.lang = this.voice?.lang ?? this.lang;
-        if (this.voice) u.voice = this.voice;
-        u.rate = this.rate;
-        let done = false;
-        const finish = () => {
-          if (done) return;
-          done = true;
-          clearTimeout(guard);
-          clearInterval(poll);
-          resolve();
-        };
-        u.onend = u.onerror = finish;
-        // Some engines never fire `end`. Don't hang on them, but don't move on (and open the mic,
-        // which stops the voice) while it is still talking either: after a generous estimate,
-        // wait for the engine to go quiet.
-        let poll: ReturnType<typeof setInterval> | undefined;
-        const guard = setTimeout(() => {
-          poll = setInterval(() => {
-            if (!speechSynthesis.speaking && !speechSynthesis.pending) finish();
-          }, 250);
-        }, 3000 + chunk.length * 120);
-        speechSynthesis.speak(u);
-      });
+    this.pulse.active = true;
+    try {
+      for await (const piece of pieces) {
+        for (const chunk of chunkForSpeech(piece)) {
+          if (gen !== this.generation) return;
+          await this.utter(chunk);
+        }
+      }
+    } finally {
+      if (gen === this.generation) this.pulse.active = false;
     }
+  }
+
+  private utter(chunk: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.lang = this.voice?.lang ?? this.lang;
+      if (this.voice) u.voice = this.voice;
+      u.rate = this.rate;
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(guard);
+        clearInterval(poll);
+        resolve();
+      };
+      u.onend = u.onerror = finish;
+      u.onboundary = () => this.pulse.pulse(0.7);
+      // Some engines never fire `end`. Don't hang on them, but don't move on (and open the mic,
+      // which stops the voice) while it is still talking either: after a generous estimate,
+      // wait for the engine to go quiet.
+      let poll: ReturnType<typeof setInterval> | undefined;
+      const guard = setTimeout(() => {
+        poll = setInterval(() => {
+          if (!speechSynthesis.speaking && !speechSynthesis.pending) finish();
+        }, 250);
+      }, 3000 + chunk.length * 120);
+      speechSynthesis.speak(u);
+    });
   }
 
   cancel() {
     this.generation++;
+    this.pulse.active = false;
     if (hasSynthesis()) speechSynthesis.cancel();
   }
 }
 
-/** Server TTS through one reusable <audio> element (unlocked by the first tap, which iOS requires). */
+async function* once(text: string): AsyncIterable<string> {
+  yield text;
+}
+
+/** The pause after a piece: a breath after a sentence, a beat after a clause. Pure. */
+export function pauseAfter(piece: string): number {
+  return /[.!?]["')\]]*$/.test(piece.trim()) ? 0.24 : /[,;:—–-]$/.test(piece.trim()) ? 0.08 : 0.14;
+}
+
+/**
+ * The server's voice (self-hosted Kokoro, or a keyed provider), played through Web Audio: each
+ * sentence is synthesised on its own (the first as soon as it's known, the next two fetched while
+ * it plays) and scheduled back to back with natural pauses, so a reply starts quickly and flows.
+ * The playback level drives Drive mode's orb. A piece that fails is spoken by `fallback`.
+ */
 export class ServerSpeaker implements Speaker {
   readonly kind = "server";
-  private readonly audio = new Audio();
-  private url: string | null = null;
+  private ctx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private meter: LevelSource = SILENT;
+  private readonly sources = new Set<AudioBufferSourceNode>();
   private generation = 0;
 
-  constructor(private readonly synthesize: (text: string) => Promise<Blob>) {}
+  constructor(
+    private readonly synthesize: (text: string) => Promise<Blob>,
+    private readonly fallback: Speaker | null = null,
+  ) {}
 
-  async speak(text: string): Promise<void> {
+  get level(): LevelSource {
+    return this.meter;
+  }
+
+  /** Creates (or resumes) the audio context; call from a tap so iOS lets it play. */
+  unlock(): AudioContext {
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.connect(this.ctx.destination);
+      this.meter = new AnalyserLevel(this.analyser);
+    }
+    void this.ctx.resume?.().catch(() => {});
+    return this.ctx;
+  }
+
+  speak(text: string): Promise<void> {
+    return this.speakStream(once(text));
+  }
+
+  async speakStream(input: AsyncIterable<string>): Promise<void> {
     this.cancel();
     const gen = ++this.generation;
-    // The server speaks up to 2000 characters at a time; longer answers go in parts, the next
-    // one fetched while the current one plays.
-    const parts = chunkForSpeech(text, 1500);
-    let next = this.synthesize(parts[0]!);
-    for (let i = 0; i < parts.length; i++) {
-      const blob = await next;
-      if (gen !== this.generation) return;
-      if (i + 1 < parts.length) {
-        next = this.synthesize(parts[i + 1]!);
-        next.catch(() => {}); // handled when awaited
+    const ctx = this.unlock();
+    const live = () => gen === this.generation;
+
+    // Pieces as they arrive (long ones split at clauses: the server takes up to 2000 characters).
+    const pieces: string[] = [];
+    const buffers: (Promise<AudioBuffer | null> | undefined)[] = [];
+    let ended = false;
+    const signal: { wake: (() => void) | null } = { wake: null };
+    void (async () => {
+      try {
+        for await (const piece of input) {
+          if (!live()) break;
+          pieces.push(...chunkForSpeech(piece, 400));
+          signal.wake?.();
+        }
+      } catch {
+        // the source failed: speak what arrived
+      } finally {
+        ended = true;
+        signal.wake?.();
       }
-      if (this.url) URL.revokeObjectURL(this.url);
-      this.url = URL.createObjectURL(blob);
-      this.audio.src = this.url;
-      await new Promise<void>((resolve, reject) => {
-        this.audio.onended = () => resolve();
-        this.audio.onpause = () => resolve();
-        this.audio.onerror = () => reject(new Error("Couldn't play the server voice"));
-        this.audio.play().catch(reject);
+    })();
+    const fetchAt = (i: number) => {
+      if (i >= pieces.length || buffers[i]) return;
+      buffers[i] = this.synthesize(pieces[i]!)
+        .then(async (blob) => ctx.decodeAudioData(await blob.arrayBuffer()))
+        .catch(() => null);
+    };
+
+    let next = 0;
+    let last: Promise<void> = Promise.resolve();
+    for (let i = 0; ; ) {
+      if (!live()) return;
+      if (i >= pieces.length) {
+        if (ended) break;
+        await new Promise<void>((r) => (signal.wake = r));
+        signal.wake = null;
+        continue;
+      }
+      // Synthesise this piece and the next two ahead of playback.
+      for (let j = i; j < Math.min(pieces.length, i + 3); j++) fetchAt(j);
+      const piece = pieces[i]!;
+      const buffer = await buffers[i]!;
+      i++;
+      if (!live()) return;
+      if (!buffer) {
+        // Couldn't synthesise this one: say it with the fallback voice, after what's queued.
+        await last;
+        if (live()) await this.fallback?.speak(piece);
+        next = 0;
+        continue;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(this.analyser!);
+      const start = Math.max(ctx.currentTime + 0.03, next);
+      src.start(start);
+      next = start + buffer.duration + pauseAfter(piece);
+      this.sources.add(src);
+      last = new Promise<void>((resolve) => {
+        src.onended = () => {
+          this.sources.delete(src);
+          resolve();
+        };
       });
-      if (gen !== this.generation) return;
     }
+    await last;
   }
 
   cancel() {
     this.generation++;
-    this.audio.pause();
-    if (this.url) URL.revokeObjectURL(this.url);
-    this.url = null;
+    for (const src of this.sources) {
+      try {
+        src.stop();
+      } catch {
+        // not started
+      }
+    }
+    this.sources.clear();
+    this.fallback?.cancel();
   }
 }
 

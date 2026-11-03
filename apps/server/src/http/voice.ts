@@ -2,11 +2,16 @@ import { baseMime, UPLOAD_TYPES, VoiceProviderError } from "@cc/voice";
 import { Hono } from "hono";
 import { z } from "zod";
 import { ReplyStateError, type VoiceConversations } from "../voice/conversations";
+import type { VoiceFront } from "../voice/front";
 import type { VoiceService } from "../voice/service";
 
 export interface VoiceApiDeps {
   service: VoiceService;
   conversations: VoiceConversations;
+  /** Drive mode's fast voice front (null when off, e.g. with the echo runner). */
+  front?: () => VoiceFront | null;
+  /** Creates the agent task for a handed-off request, as POST /api/chat with `voice: true` does. */
+  handOff?: (request: { text: string; vertical?: string; role?: string }) => Promise<{ taskId: string | null }>;
 }
 
 const providerError = (err: unknown) =>
@@ -20,6 +25,9 @@ const providerError = (err: unknown) =>
  * - GET  /voice/briefing          deterministic spoken summary
  * - GET  /voice/approvals/next    the next pending proposal, described for reading aloud
  * - POST /tasks/:id/reply         {text, voice?} continues a task's conversation
+ * - POST /voice/warm              loads the speech engines and the voice front ahead of use
+ * - POST /voice/turn              {text, ...} → NDJSON stream: {delta} chunks, then {done, handoff?: {taskId}}
+ * Live transcription is a WebSocket at /ws/voice (http/voice-listen.ts).
  */
 export function voiceApiRoutes(deps: VoiceApiDeps) {
   const { service, conversations } = deps;
@@ -80,6 +88,55 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
       console.error("[voice] speak", err instanceof Error ? err.message : err);
       return c.json(providerError(err), 502);
     }
+  });
+
+  app.post("/voice/warm", async (c) => {
+    const body = z.object({ front: z.boolean().optional() }).parse(await c.req.json().catch(() => ({})));
+    void service.warm().catch((err) => console.error("[voice] warm", err));
+    if (body.front) deps.front?.()?.warm();
+    return c.json({ ok: true, front: Boolean(deps.front?.()) });
+  });
+
+  app.post("/voice/turn", async (c) => {
+    const front = deps.front?.();
+    if (!front || !deps.handOff) return c.json({ error: "the voice front is off" }, 503);
+    const body = z
+      .object({
+        text: z.string().trim().min(1).max(4000),
+        vertical: z.string().optional(),
+        role: z.string().optional(),
+        talkingTo: z.string().max(200).optional(),
+        lastSpoken: z.string().max(2000).nullish(),
+      })
+      .parse(await c.req.json());
+    const pending = await service.pendingLine().catch(() => undefined);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start: async (controller) => {
+        const line = (msg: object) => {
+          try {
+            controller.enqueue(encoder.encode(`${JSON.stringify(msg)}\n`));
+          } catch {
+            // client went away
+          }
+        };
+        try {
+          const result = await front.turn(
+            { text: body.text, talkingTo: body.talkingTo, lastSpoken: body.lastSpoken, pending },
+            { onDelta: (delta) => line({ delta }) },
+          );
+          let taskId: string | null = null;
+          if (result.handoff) taskId = (await deps.handOff!({ text: body.text, vertical: body.vertical, role: body.role })).taskId;
+          line({ done: true, text: result.text, handoff: result.handoff ? { taskId } : null });
+        } catch (err) {
+          console.error("[voice] turn", err instanceof Error ? err.message : err);
+          line({ error: (err as Error).message });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+    return c.body(stream, 200, { "content-type": "application/x-ndjson", "cache-control": "no-store", "x-accel-buffering": "no" });
   });
 
   app.get("/voice/briefing", async (c) => c.json(await service.briefing()));

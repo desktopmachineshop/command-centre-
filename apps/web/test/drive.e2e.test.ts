@@ -75,7 +75,7 @@ const MOCK_SPEECH = () => {
 
 type Calls = { method: string; path: string; body: unknown }[];
 
-async function mockApi(page: Page, calls: Calls) {
+async function mockApi(page: Page, calls: Calls, options: { front?: boolean } = {}) {
   let approved = false;
   let taskReads = 0;
   let replied = false;
@@ -93,6 +93,15 @@ async function mockApi(page: Page, calls: Calls) {
       response: { text, type, structured: true },
     });
 
+    if (path === "/voice/warm") return options.front ? json({ ok: true, front: true }) : json({ error: "off" }, 503);
+    if (path === "/voice/turn") {
+      // The voice front: a joke it answers itself; anything else it hands on to an agent (task t1).
+      const own = /joke/i.test(body.text);
+      const lines = own
+        ? [{ delta: "Why did the lathe " }, { delta: "go to therapy? " }, { delta: "Too many turns." }, { done: true, text: "", handoff: null }]
+        : [{ delta: "Sure, I'll check " }, { delta: "where order ten forty-two is." }, { done: true, text: "", handoff: { taskId: "t1" } }];
+      return route.fulfill({ status: 200, contentType: "application/x-ndjson", body: lines.map((l) => JSON.stringify(l)).join("\n") });
+    }
     if (path === "/voice/config") return json({ stt: null, tts: null, maxUploadBytes: 0, maxSeconds: 60, language: "en-GB", calendar: false });
     if (path === "/verticals") return json([{ id: "dms", name: "Desktop Machine Shop" }, { id: "personal", name: "Personal" }]);
     if (path === "/stats") return json({ pendingApprovals: 1, costTodayUsd: 0 });
@@ -216,7 +225,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await sayNext("shop: has order 1042 shipped?");
     await sayNext("the one for Jane");
     await talk.click();
-    await waitSpoken(/^Working on it\./);
+    await waitSpoken(/^On it\./);
     await waitSpoken(/^Which order, 1042 or 1043\?/);
     await waitSpoken(/^Order 1042 shipped on Monday\./);
     const chat = calls.find((c) => c.path === "/chat");
@@ -289,6 +298,47 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await picker.selectOption("");
     await pushToTalk("who am I talking to?");
     await waitSpoken(/^You're talking to the Chief of Staff, who passes things to the right role/);
+    await page.close();
+  }, 90_000);
+
+  it("speaks the voice front's reply as it streams, and follows a request it hands on", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(MOCK_SPEECH);
+    const calls: Calls = [];
+    await mockApi(page, calls, { front: true });
+    await page.goto(`${base}/#/drive`);
+    const talk = page.locator("button.drive-ptt");
+    await talk.waitFor({ timeout: 20_000 });
+    await expect.poll(() => calls.some((c) => c.path === "/voice/warm"), { timeout: 15_000 }).toBe(true);
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
+    const sayNext = (text: string) => page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
+    const pushToTalk = async (text: string) => {
+      await sayNext(text);
+      await talk.click();
+      await page.locator(".drive-caption", { hasText: text }).waitFor({ timeout: 15_000 });
+      await talk.click();
+    };
+    const waitSpoken = (pattern: RegExp) => expect.poll(async () => (await spoken()).some((s) => pattern.test(s)), { timeout: 15_000 }).toBe(true);
+
+    // Answered by the front itself, sentence by sentence; no agent task.
+    await pushToTalk("tell me a joke");
+    await waitSpoken(/^Why did the lathe go to therapy\?$/);
+    await waitSpoken(/^Too many turns\.$/);
+    await page.locator(".drive-caption", { hasText: "Too many turns." }).waitFor();
+    expect(calls.some((c) => c.path === "/chat")).toBe(false);
+    await page.getByRole("status").getByText("Tap to talk").waitFor();
+
+    // Handed on: the front's own line instead of "On it.", then the agent's answer when it comes.
+    await pushToTalk("where is order 1042?");
+    await waitSpoken(/^Sure, I'll check where order ten forty-two is\.$/);
+    await waitSpoken(/^Which order, 1042 or 1043\?/);
+    const turn = calls.find((c) => c.path === "/voice/turn" && (c.body as { text: string }).text === "where is order 1042?");
+    expect(turn?.body).toMatchObject({ text: "where is order 1042?", talkingTo: "the Chief of Staff" });
+    expect(await spoken()).not.toContain("On it.");
+    expect(calls.some((c) => c.path === "/chat")).toBe(false);
+    expect(errors).toEqual([]);
     await page.close();
   }, 90_000);
 });

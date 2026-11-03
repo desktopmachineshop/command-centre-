@@ -19,6 +19,9 @@ import {
   VoicePermissionError,
 } from "../voice/speech";
 import { pickListener } from "../voice/dictation";
+import type { LevelSource } from "../voice/level";
+import { ReplyStream } from "../voice/reply";
+import { VoiceOrb } from "../voice/Waveform";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
 const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", serverVoice: "cc.drive.serverVoice", talkTo: "cc.drive.talkTo" };
@@ -40,9 +43,13 @@ function writePref(key: string, value: string) {
 /** The org root's role id (ROOT_ROLE_ID on the server): Dave's front door, and the default here. */
 const CHIEF = "chief-of-staff";
 
-const WORKING = "Working on it.";
-const STILL_WORKING = "Still working on it.";
-const CUE_EVERY_MS = 20_000;
+/** Said when a request goes straight to an agent (the voice front, when it's on, says its own line). */
+const WORKING = "On it.";
+/** Occasional, varied progress lines on a long run: at most these, at these times. */
+const PROGRESS = [
+  { atMs: 30_000, text: "Still working on that." },
+  { atMs: 75_000, text: "This one's taking a little longer. I'll tell you as soon as it's done." },
+];
 const POLL_EVERY_MS = 4_000;
 
 /** The main button: Interrupt while it talks, Send when it's Dave's turn. */
@@ -56,8 +63,8 @@ const PTT_LABEL: Record<DriveState["phase"], string> = {
 
 const PHASE_LABEL: Record<DriveState["phase"], string> = {
   idle: "Tap to talk",
-  listening: "Your turn: speak, then pause or tap Send",
-  sending: "One moment…",
+  listening: "Listening…",
+  sending: "Thinking…",
   waiting: "Working on it…",
   speaking: "Speaking…",
 };
@@ -84,7 +91,15 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [talkingTo, setTalkingTo] = useState<RoleChoice | null>(null);
   const talkingToRef = useRef(talkingTo);
   talkingToRef.current = talkingTo;
-  const [preferServerVoice, setPreferServerVoice] = useState(readPref(PREFS.serverVoice) === "1");
+  // The server's voice (self-hosted or keyed) is the natural one, so it's the default when there is one.
+  const [preferServerVoice, setPreferServerVoice] = useState(readPref(PREFS.serverVoice) !== "0");
+  /** A reply from the voice front being spoken as it streams, and its words so far. */
+  const replyRef = useRef<ReplyStream | null>(null);
+  const [replyText, setReplyText] = useState("");
+  /** The voice front is on at the server; cleared for this visit if it fails. */
+  const frontRef = useRef(false);
+  /** The front already told Dave it's on the case, so the wait needs no "On it." */
+  const ackedRef = useRef(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [interim, setInterim] = useState("");
   const [wakeHeld, setWakeHeld] = useState(false);
@@ -97,6 +112,11 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   // ----- set-up: server config, business names, voices, wake lock -----
   useEffect(() => {
     api.voiceConfig().then(setConfig).catch(() => setConfig({ stt: null, tts: null, maxUploadBytes: 0, maxSeconds: 30, language: "en-GB", calendar: false }));
+    // Load the speech engines and start the voice front now, so the first answer is quick.
+    api
+      .voiceWarm(true)
+      .then((r) => (frontRef.current = r.front))
+      .catch(() => (frontRef.current = false));
     void (async () => {
       const verticals = await api.verticals().catch(() => []);
       const names = buildAliases(verticals);
@@ -128,19 +148,10 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   const browserVoice = useMemo(() => pickVoice(voices, lang), [voices, lang]);
   const speaker = useMemo<Speaker | null>(() => {
-    const server = config?.tts ? new ServerSpeaker((text) => api.speak(text)) : null;
     const browser = hasSynthesis() ? new BrowserSpeaker(browserVoice, lang) : null;
-    if (server && (preferServerVoice || !browser || !browserVoice)) {
-      // Fall back to the browser voice if the server one fails (offline, provider down).
-      return {
-        kind: "server",
-        speak: (text) => server.speak(text).catch(() => browser?.speak(text)),
-        cancel: () => {
-          server.cancel();
-          browser?.cancel();
-        },
-      } satisfies Speaker;
-    }
+    // The browser voice says any sentence the server can't (offline, provider down).
+    const server = config?.tts ? new ServerSpeaker((text) => api.speak(text), browser) : null;
+    if (server && (preferServerVoice || !browser || !browserVoice)) return server;
     return browser ?? server;
   }, [api, config, browserVoice, lang, preferServerVoice]);
 
@@ -203,13 +214,14 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     return () => clearInterval(timer);
   }, [state.phase, state.waitingFor, check]);
 
-  // "Working on it", then a periodic cue on long runs.
+  // "On it" (unless the voice front already said its own line), then an occasional progress line.
   useEffect(() => {
     if (state.phase !== "waiting") return;
-    void speakerRef.current?.speak(WORKING);
-    const timer = setInterval(() => void speakerRef.current?.speak(STILL_WORKING), CUE_EVERY_MS);
+    if (!ackedRef.current) void speakerRef.current?.speak(WORKING);
+    ackedRef.current = false;
+    const timers = PROGRESS.map((p) => setTimeout(() => void speakerRef.current?.speak(p.text), p.atMs));
     return () => {
-      clearInterval(timer);
+      timers.forEach(clearTimeout);
       speakerRef.current?.cancel();
     };
   }, [state.phase]);
@@ -374,6 +386,32 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
             // A role named in the request wins; a business named on its own means that business, not the chosen role.
             const current = talkingToRef.current;
             const target = cmd.role ? { vertical: cmd.vertical, role: cmd.role } : cmd.vertical ? { vertical: cmd.vertical } : current ? { vertical: current.vertical, role: current.role } : {};
+            // The voice front answers straight away, speaking as it writes; real work goes on to an agent.
+            if (frontRef.current) {
+              const reply = new ReplyStream();
+              reply.onText = setReplyText;
+              setReplyText("");
+              const who = target.role ? (roles.find((r) => r.choice.vertical === target.vertical && r.choice.role === target.role)?.choice ?? null) : null;
+              const ok = await reply.start((signal) =>
+                api.voiceTurn(
+                  { text: cmd.text, vertical: target.vertical, role: target.role, talkingTo: who ? describeRole(who) : "the Chief of Staff", lastSpoken: s.lastSpoken },
+                  signal,
+                ),
+              );
+              if (ok) {
+                replyRef.current = reply;
+                dispatch({ type: "say", text: "", expect: "none", streamed: true });
+                return;
+              }
+              // The front failed: ask the agent directly, and don't try the front again this visit.
+              if (reply.error) frontRef.current = false;
+              if (reply.handoff?.taskId) {
+                watched.current.add(reply.handoff.taskId);
+                followed.current.add(reply.handoff.taskId);
+                dispatch({ type: "waiting", taskId: reply.handoff.taskId });
+                return;
+              }
+            }
             const { task } = await api.chat(cmd.text, target.vertical, { voice: true, role: target.role });
             watched.current.add(task.id);
             followed.current.add(task.id);
@@ -436,19 +474,33 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   }, [state.phase, state.seq]);
 
   useEffect(() => {
-    if (state.phase !== "speaking" || !state.utterance) return;
+    if (state.phase !== "speaking") return;
+    const reply = state.streamed ? replyRef.current : null;
+    if (!reply && !state.utterance) return;
     const s = speakerRef.current;
+    let live = true;
+    // After a streamed reply: follow the agent it handed on to, if any.
+    const after = () => {
+      if (!live) return;
+      dispatch({ type: "spoken", text: reply?.text.trim() || undefined });
+      const taskId = reply?.handoff?.taskId;
+      if (taskId) {
+        watched.current.add(taskId);
+        followed.current.add(taskId);
+        ackedRef.current = true;
+        dispatch({ type: "waiting", taskId });
+      }
+    };
     if (!s) {
-      dispatch({ type: "spoken" });
+      after();
       return;
     }
-    let live = true;
-    void s.speak(state.utterance).finally(() => live && dispatch({ type: "spoken" }));
+    void (reply ? s.speakStream(reply.pieces()) : s.speak(state.utterance!)).catch(() => {}).finally(after);
     return () => {
       live = false;
       s.cancel();
     };
-  }, [state.phase, state.seq, state.utterance]);
+  }, [state.phase, state.seq, state.utterance, state.streamed]);
 
   // ----- input -----
   /** The main button: Talk, Interrupt while speaking, Send while listening. */
@@ -457,6 +509,8 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     if (!headsetRef.current) {
       headsetRef.current = new HeadsetButton(() => pressRef.current("headset"));
     }
+    // Unlock Web Audio playback from this tap (iOS requires a gesture).
+    if (speakerRef.current instanceof ServerSpeaker) speakerRef.current.unlock();
     // Started from a tap, as autoplay rules require; then the headset button works too.
     if (!headsetRef.current.active) void headsetRef.current.start().then(() => setHeadset(headsetRef.current?.active ?? false));
     const s = stateRef.current;
@@ -506,7 +560,19 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     go("chat");
   };
 
-  const caption = state.phase === "listening" || state.phase === "sending" ? interim : (state.utterance ?? state.lastSpoken ?? "");
+  const caption =
+    state.phase === "listening" || state.phase === "sending"
+      ? interim
+      : state.phase === "speaking" && state.streamed
+        ? replyText
+        : state.utterance || state.lastSpoken || "";
+  /** What the orb follows: the microphone while listening, the voice while speaking. */
+  const orbLevel = (): LevelSource | null => {
+    const phase = stateRef.current.phase;
+    if (phase === "listening") return listenerRef.current?.level ?? null;
+    if (phase === "speaking") return speakerRef.current?.level ?? null;
+    return null;
+  };
   const busy = state.phase === "sending";
 
   return (
@@ -571,10 +637,12 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         disabled={busy}
         aria-label={PTT_LABEL[state.phase]}
       >
-        <span className="drive-ptt-inner">
-          {state.phase === "speaking" ? <StopIcon /> : state.phase === "listening" ? <SendIcon /> : <MicIcon />}
-          <span className="drive-ptt-label">{PTT_LABEL[state.phase]}</span>
-        </span>
+        <VoiceOrb source={orbLevel} mode={state.phase}>
+          <span className="drive-ptt-inner">
+            {state.phase === "speaking" ? <StopIcon /> : state.phase === "listening" ? <SendIcon /> : <MicIcon />}
+            <span className="drive-ptt-label">{PTT_LABEL[state.phase]}</span>
+          </span>
+        </VoiceOrb>
       </button>
 
       <p className="drive-caption" aria-live="polite">
@@ -637,11 +705,11 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
                 setPreferServerVoice(e.target.checked);
               }}
             />
-            Use the server voice ({config.tts.provider})
+            {config.tts.provider === "local" ? "Use the natural voice (runs on the server)" : `Use the server voice (${config.tts.provider})`}
           </label>
         )}
         <p className="muted small">
-          Listening: {listener ? (listener.kind === "browser" ? "browser" : `server (${config?.stt?.provider})`) : "unavailable"} · Voice:{" "}
+          Listening: {listener ? (listener.kind === "browser" ? "browser" : listener.kind === "live" ? "live, on the server" : `server (${config?.stt?.provider})`) : "unavailable"} · Voice:{" "}
           {speaker ? (speaker.kind === "browser" ? (browserVoice?.name ?? "browser default") : config?.tts?.provider) : "unavailable"} · Screen:{" "}
           {wakeHeld ? "kept on" : "may sleep"} · Headset button: {headset ? "on" : "tap once to enable"}
         </p>

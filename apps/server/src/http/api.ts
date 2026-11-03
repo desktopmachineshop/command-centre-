@@ -346,7 +346,20 @@ export function apiRoutes(deps: ApiDeps) {
   if (deps.storage) app.route("/", storageApiRoutes(deps.storage)); // storage
   if (deps.desktop) app.route("/", desktopApiRoutes(deps.desktop)); // desktop
   // /voice/* and /tasks/:id/reply, behind the admin check above.
-  if (deps.voice) app.route("/", voiceApiRoutes(deps.voice));
+  if (deps.voice) {
+    // A request the voice front hands on becomes the same chat task POST /chat makes in voice mode.
+    const handOff = async (r: { text: string; vertical?: string; role?: string }) => {
+      const result = await pipeline.ingest({
+        source: "chat",
+        vertical: r.vertical ?? null,
+        kind: "message",
+        title: r.text.slice(0, 120),
+        payload: { text: r.text, ...(r.role ? { role: r.role } : {}), voice: true },
+      });
+      return { taskId: result?.task.id ?? null };
+    };
+    app.route("/", voiceApiRoutes({ handOff, ...deps.voice }));
+  }
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
   if (deps.integrations) app.route("/", integrationRoutes(deps.integrations, deps.claudeSetup));

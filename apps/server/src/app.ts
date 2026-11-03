@@ -61,6 +61,9 @@ import { OrgConfigService } from "./org-config";
 import { startSchedules, startSystemJobs } from "./scheduler";
 import { createTriager } from "./triage";
 import { VoiceConversations } from "./voice/conversations";
+import { VoiceFront } from "./voice/front";
+import { LocalSpeech } from "@cc/voice/local";
+import { voiceListenHandler } from "./http/voice-listen";
 import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
 import { WorkerService } from "./workers";
@@ -88,6 +91,10 @@ export interface Overrides {
   voiceProviders?: { stt?: SpeechToText; tts?: TextToSpeech };
   /** Calendar for the spoken briefing (the personal-assistant calendar plugs in here). */
   voiceCalendar?: VoiceCalendar;
+  /** Self-hosted speech; null turns it off (tests). */
+  localSpeech?: LocalSpeech | null;
+  /** Drive mode's voice front; null turns it off. */
+  voiceFront?: VoiceFront | null;
   /** Web Push sender behind the notification service (tests use a fake). */
   pushTransport?: PushTransport;
   /** Clock for notification quiet hours and rate limits (tests). */
@@ -506,6 +513,20 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const digests = new DigestService(store, brain, verticals, notifier, budget, config.timezone, odooSnapshot);
   // --- Voice: server speech providers (optional), briefing, task conversations ---
   const voiceConversations = new VoiceConversations(store, hub, queue);
+  // Self-hosted speech (open models on this server; no keys) and Drive mode's warm voice front.
+  const localSpeech = overrides.localSpeech !== undefined ? overrides.localSpeech : config.voice.local ? new LocalSpeech(config.voice.local) : null;
+  const voiceFront =
+    overrides.voiceFront !== undefined
+      ? overrides.voiceFront
+      : config.voice.front
+        ? new VoiceFront({
+            bin: config.agent.claudeBin,
+            env: agentEnv(config, "subscription"),
+            model: config.voice.front.model,
+            cwd: join(config.dataDir, "voice-front"),
+            timeZone: config.timezone,
+          })
+        : null;
   // Getters: VoiceService reads these per request, so a reloaded key or calendar applies at once.
   const voiceService = new VoiceService(store, verticals, budget, {
     get stt() {
@@ -518,6 +539,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       const service = calendar.current.service;
       return overrides.voiceCalendar ?? (service ? paVoiceCalendar(service) : undefined);
     },
+    local: localSpeech,
     maxUploadBytes: config.voice.maxUploadBytes,
     maxSeconds: config.voice.maxSeconds,
     language: config.voice.language,
@@ -583,6 +605,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   app.route("/oauth", oauth.callbacks);
   // --- end integrations oauth ---
 
+  app.get(
+    "/ws/voice",
+    voiceListenHandler(upgradeWebSocket, {
+      adminToken: config.adminToken,
+      sessions: wsSessions,
+      openStream: (onText) => (localSpeech?.asrReady ? localSpeech.openStream(onText) : null),
+    }),
+  );
   app.get("/ws", wsHandler(upgradeWebSocket, { hub, workers, adminToken: config.adminToken, workerAuth, devices: desktop, sessions: wsSessions }));
   const socialDeps = {
     store,
@@ -605,7 +635,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => voiceFront }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -720,6 +750,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     org,
     async start() {
       await migrate(pool);
+      // Self-hosted speech models download once in the background; until then voice uses browser speech.
+      if (localSpeech && process.env.NODE_ENV !== "test") void localSpeech.install();
       secretBox = await SecretBox.load({ key: config.credentialsKey, keyFile: join(config.dataDir, "credentials.key") }); // integrations
       await integrations.load(); // integrations: saved accounts over the env config, before anything polls
       await auth.warm();
@@ -779,6 +811,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();
       await email.stop();
+      voiceFront?.stop();
       await social.stop();
       await odoo.stop();
       await queue.stop();

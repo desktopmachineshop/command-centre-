@@ -1863,9 +1863,11 @@ the phone in the car, so it shows almost nothing to read.
      through", "chief of staff: what's on today?". Naming a business on its own ("shop: …") still
      sends that request to the business, whoever you're talking to.
 
-   Anything else goes to the agent in **voice mode**: it answers in one to three short spoken
-   sentences. While it works you hear "Working on it", then "Still working on it" every
-   20 seconds.
+   Anything else goes to the **voice front** first (see "Fast replies" below): it answers
+   straight away, speaking each sentence as it's written, and hands real work to the agents with
+   a short line of its own ("Sure, I'll check where order ten forty-two is."). The agent answers
+   in **voice mode**, in one to three short spoken sentences. A long run gets an occasional
+   progress line (at 30 seconds and 75 seconds).
 3. **Approving by voice always asks twice.** "Approve" reads the item back ("To approve: Reply to
    Jane about order 1042. Say 'yes, approve' to confirm, or 'no'"). Only "yes, approve" (or the
    on-screen **Yes, approve** button) does it. A bare "yes" never confirms anything, and a longer
@@ -1878,8 +1880,8 @@ the phone in the car, so it shows almost nothing to read.
   listening through pauses until you press again (**Send**, or the headset button), for up to
   5 minutes, so you can dictate a long message and think between sentences. If the agent asks a
   question, it reads the question and waits for your next press. What you say then answers that
-  question in the same conversation. (With the server's speech recognition, used on iPhone, a long
-  message is recorded and transcribed in pieces of up to `VOICE_MAX_SECONDS`.)
+  question in the same conversation. (With a keyed server speech-to-text and no live transcription,
+  a long message is recorded and transcribed in pieces of up to `VOICE_MAX_SECONDS`.)
 - **Conversation**: after a question from the agent, a read-out approval or a confirmation, it
   plays a "your turn" chime and listens by itself. After 8 seconds of silence it asks "Still
   there?" once, then stops. Your answer continues the same task. "Stop", "cancel" or "that's all"
@@ -1915,6 +1917,44 @@ foreground and at least one tap first.
 read the screen: everything important is spoken. Long answers are cut to about 40 seconds and end
 with "There's more on screen when you're parked". Nothing outward-facing happens without a spoken
 readback and an explicit "yes, approve". Use it only where hands-free phone use is legal.
+
+### Self-hosted speech (no keys)
+
+With `VOICE_LOCAL=auto` (the default) the server runs speech itself, with open models on its own
+CPU (sherpa-onnx), so nothing needs an API key:
+
+- **Live transcription** (streaming Zipformer, Kroko English, cased and punctuated): the browser
+  streams the microphone to `/ws/voice` as 16 kHz PCM and the words come back while you talk, in
+  the chat's dictation box and in Drive mode, on every device, including the iPhone Home Screen
+  app and the Windows desktop app, where browser recognition is unreliable. In conversation mode
+  a pause of about 0.8 s ends your turn.
+- **The voice** (Kokoro, British `bf_emma` by default): replies are synthesised a sentence at a
+  time and played back to back with natural pauses, the first sentence as soon as it's known.
+  It's the default voice when ready; **Options → Use the natural voice** switches back to the
+  device's own voice.
+
+The models (about 380 MB) download once into `DATA_DIR/models/voice` on first start (the logs say
+when each is ready); until then voice uses the browser's speech. The engines load on first use
+and unload after 10 minutes unused, so they only use memory (about 0.5 GB) while you talk.
+Recognition runs in a worker thread, so it never stalls the server.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `VOICE_LOCAL` | `auto` | `off` turns self-hosted speech off |
+| `VOICE_LOCAL_VOICE` | `bf_emma` | `bf_isabella`, `bm_george`, `bm_lewis` (British), or `af_*` / `am_*` (American) |
+| `VOICE_LOCAL_SPEED` | `1.05` | 0.7–1.3 |
+| `VOICE_FRONT` | `auto` | `off` sends every Drive request straight to the agents |
+| `VOICE_FRONT_MODEL` | `haiku` | the model the voice front uses |
+
+**Fast replies: the voice front.** Drive mode keeps one warm Claude Code session (`claude -p`
+with streaming in and out, no tools, signed in like the agents, so no API key) started when Drive
+mode opens and stopped after 10 minutes unused. It answers chit-chat, general questions and
+follow-ups itself in about a second, and for anything about your businesses or any action it says
+a short acknowledgement and ends with a hand-off marker; the server then creates the same voice
+task `POST /api/chat` would. If the front can't start or doesn't answer within a few seconds, the
+request goes straight to the agent. `POST /api/voice/turn {text, vertical?, role?, talkingTo?,
+lastSpoken?}` streams NDJSON: `{delta}` chunks, then `{done, text, handoff: {taskId} | null}`.
+`POST /api/voice/warm {front?}` loads the engines (and starts the front) ahead of use.
 
 ### Optional server voices
 
@@ -1953,7 +1993,8 @@ Typical costs (list prices, October 2026):
   is about 250 characters, so about 1p); OpenAI `gpt-4o-mini-tts` about $0.015 a minute of audio.
 - An hour of driving with a dozen requests costs a few pence.
 
-Short phrases ("Working on it", confirmations) are cached in memory by `POST /api/voice/speak`.
+Short phrases ("On it", confirmations) are cached in memory by `POST /api/voice/speak`. A keyed
+provider, when set, is used instead of the self-hosted voice; live transcription stays self-hosted.
 
 Endpoints, all behind the dashboard auth:
 
