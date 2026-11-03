@@ -13,7 +13,7 @@ import type { Notifier } from "./push";
 import type { TaskQueue } from "./queue";
 import type { RunTokens } from "./run-tokens";
 import type { VoiceConversations } from "./voice/conversations";
-import { prepareWorkspace } from "./workspace";
+import { prepareWorkspace, skillReadRules } from "./workspace";
 
 export interface PipelineDeps {
   store: Store;
@@ -333,7 +333,7 @@ export class Pipeline {
           systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief), ...workbench.notes].join("\n\n"),
           cwd,
           mcpServers,
-          allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools],
+          allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...skillReadRules(this.deps.skillsDir, vertical, role)],
           maxTurns: this.deps.maxTurns,
         },
         (message) => {
