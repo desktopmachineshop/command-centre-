@@ -54,6 +54,8 @@ export function startSystemJobs(options: {
   paReminders?: () => Promise<unknown>;
   /** Renews expiring Accounts-page sign-ins (Instagram, Threads), daily. */
   integrationsRefresh?: () => Promise<unknown>;
+  /** Deletes old renders on the volume and warns when it's nearly full, nightly. */
+  storageHousekeeping?: () => Promise<unknown>;
 }): Cron[] {
   const job = (name: string, cron: string, fn: () => Promise<unknown>) =>
     new Cron(cron, { timezone: options.timezone, protect: true }, async () => {
@@ -65,5 +67,6 @@ export function startSystemJobs(options: {
   if (options.socialPublish) jobs.push(job("social-scheduled", "* * * * *", options.socialPublish));
   if (options.paReminders) jobs.push(job("pa-reminders", "* * * * *", options.paReminders));
   if (options.integrationsRefresh) jobs.push(job("integrations-refresh", "17 4 * * *", options.integrationsRefresh));
+  if (options.storageHousekeeping) jobs.push(job("storage-housekeeping", "43 3 * * *", options.storageHousekeeping));
   return jobs;
 }

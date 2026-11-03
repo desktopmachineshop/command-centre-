@@ -721,6 +721,26 @@ under "Social: platform setup" below.
 With `SOCIAL_ACCOUNTS` empty or unset, social is off: no polling, no social actions, and the Social
 page says so.
 
+## Storage on the volume (until Drive is connected)
+
+With the `local` backend, every upload, render and attachment is stored on the server's
+Railway volume. A Hobby volume holds 5 GB, so the server looks after it
+(`apps/server/src/storage-housekeeping.ts`):
+
+- **Free-space reserve:** an upload that would leave less than `STORAGE_MIN_FREE_MB` (default
+  500) free gets a `507` with "Storage is full ...". This covers direct uploads, worker uploads
+  and a render's one-shot PUT. The rest of the server (logs, the brain mirror, the desktop
+  installer) keeps working.
+- **Old renders:** every night at 03:43, rendered videos older than
+  `STORAGE_RENDER_RETENTION_DAYS` (default 30; `0` keeps them) are deleted from the volume. A
+  render that a pending approval still points at is kept, however old. Posted videos are already
+  on the platforms.
+- **Warning:** after the clean-up, a push ("Server storage nearly full") goes out while the
+  volume is 80% full or more.
+
+With `gdrive`, new files go to Drive. The reserve and the clean-up then leave Drive alone; only
+the cache uses the volume, within `STORAGE_CACHE_MB`.
+
 ## Storage (Google Drive)
 
 > **Easiest:** Accounts page → Google → Connect, then Settings → File storage → gdrive. The variables below are the alternative.
