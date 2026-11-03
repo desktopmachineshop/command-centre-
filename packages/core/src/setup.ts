@@ -95,6 +95,8 @@ export const NodeSetup = z.object({
   /** The package manager it can install with; null when it can't install anything itself. */
   installer: z.enum(["winget"]).nullable(),
   installed: z.array(SetupComponentId),
+  /** The desktop app version on this computer (absent for a worker run by hand). */
+  appVersion: z.string().max(32).optional(),
 });
 export type NodeSetup = z.infer<typeof NodeSetup>;
 

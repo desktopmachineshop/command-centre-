@@ -36,3 +36,13 @@ describe("a job for one computer", () => {
     expect(waitingReason(install, [{ ...pc("Studio PC", []), id: "studio" }])).toBe("Waiting for Studio PC to finish its current job.");
   });
 });
+
+describe("desktop app versions", async () => {
+  const { newer } = await import("../src/pages/Devices");
+  it("compares x.y.z numerically", () => {
+    expect(newer("0.1.13", "0.1.12")).toBe(true);
+    expect(newer("0.1.9", "0.1.10")).toBe(false);
+    expect(newer("0.1.12", "0.1.12")).toBe(false);
+    expect(newer("1.0.0", "0.99.99")).toBe(true);
+  });
+});

@@ -363,6 +363,13 @@ A linked app updates itself (Tauri's updater, `apps/desktop/src-tauri/src/lib.rs
 - **A new key:** run `pnpm --filter @cc/desktop tauri signer generate -w command-centre.key`,
   put the `.pub` contents in `plugins.updater.pubkey`, and set the two secrets from the key file
   and its password. Apps built with the old public key must be reinstalled by hand once.
+- **Which version:** the tray menu shows **Version 0.1.N** under the worker status, the
+  **Settings…** window shows it at the bottom, and the Devices page shows each computer's version
+  (with "0.1.N available" when it's behind the latest build).
+- **Builds up to 0.1.12 can't update themselves:** they never registered the updater plugin, so
+  **Check for updates** stays on "Checking for updates…". Install a newer build once from the
+  Devices page download; after that, updates install themselves. A failed check now shows its
+  error in the tray item.
 
 Closing the window keeps the app in the tray. The tray menu has the worker's status (online/idle,
 busy with a job and its progress, or offline and retrying), **Open**, **Worker on** (untick it to

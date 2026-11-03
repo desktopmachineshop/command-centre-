@@ -20,6 +20,8 @@ export interface SetupProbe {
   capabilities: Capability[];
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
+  /** The desktop app's version, reported with the setup. */
+  appVersion?: string | null;
   /** Runs `winget --version` to see that it works; see findWinget. */
   run?: RunCommand;
 }
@@ -60,6 +62,7 @@ export async function detectSetup(options: SetupProbe): Promise<NodeSetup> {
     platform,
     installer: (await findWinget(env, platform, options.run)) ? "winget" : null,
     installed: (Object.keys(has) as SetupComponentId[]).filter((id) => has[id]),
+    ...(options.appVersion ? { appVersion: options.appVersion } : {}),
   };
 }
 

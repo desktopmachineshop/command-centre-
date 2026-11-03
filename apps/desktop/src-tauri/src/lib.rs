@@ -107,6 +107,8 @@ struct SettingsView {
     launch_at_login: bool,
     linked: bool,
     link_code: Option<String>,
+    /// This app's version, shown at the bottom of the settings page.
+    version: String,
 }
 
 /// `%APPDATA%\CommandCentre\worker.json`, the worker's default config path.
@@ -224,7 +226,11 @@ fn start_worker(app: &AppHandle) {
     let spawned = app
         .shell()
         .sidecar("cc-worker")
-        .map(|cmd| cmd.args(["--config", config.as_str(), "--status-json"]))
+        .map(|cmd| {
+            cmd.args(["--config", config.as_str(), "--status-json"])
+                // The worker reports it, so the Devices page shows which version each computer runs.
+                .env("CC_APP_VERSION", app.package_info().version.to_string())
+        })
         .and_then(|cmd| cmd.spawn());
     let (mut rx, child) = match spawned {
         Ok(pair) => pair,
@@ -463,7 +469,8 @@ fn check_for_update(app: &AppHandle, install: bool) {
             Ok(None) => set_update_item(&app, &format!("Check for updates (up to date, {})", app.package_info().version)),
             Err(err) => {
                 eprintln!("update check: {err}");
-                set_update_item(&app, "Check for updates (last check failed)");
+                let short: String = err.chars().take(80).collect();
+                set_update_item(&app, &format!("Check for updates (failed: {short})"));
             }
         }
     });
@@ -572,6 +579,7 @@ fn get_settings(app: AppHandle) -> SettingsView {
         launch_at_login: settings.launch_at_login,
         linked: !settings.token.is_empty(),
         link_code: app.state::<AppState>().link_code.lock().unwrap().clone(),
+        version: app.package_info().version.to_string(),
     }
 }
 
@@ -625,6 +633,8 @@ pub fn run() {
         // Must come first: a second launch just focuses the running app.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app, true)))
         .plugin(tauri_plugin_shell::init())
+        // Without this, updater_builder() has no state to read and the check task panics silently.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .invoke_handler(tauri::generate_handler![get_settings, save_settings, link_now])
         .setup(|app| {
@@ -632,6 +642,7 @@ pub fn run() {
             let settings = load_settings(handle);
 
             let status_item = MenuItem::with_id(app, "status", "Worker: starting...", false, None::<&str>)?;
+            let version_item = MenuItem::with_id(app, "version", format!("Version {}", app.package_info().version), false, None::<&str>)?;
             let open_item = MenuItem::with_id(app, "open", "Open Command Centre", true, None::<&str>)?;
             let worker_item = CheckMenuItem::with_id(app, "worker", "Worker on", true, settings.worker_enabled, None::<&str>)?;
             let link_item = MenuItem::with_id(app, "link", "Link this computer...", true, None::<&str>)?;
@@ -639,7 +650,7 @@ pub fn run() {
             let update_item = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&status_item, &separator, &open_item, &worker_item, &link_item, &settings_item, &update_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&status_item, &version_item, &separator, &open_item, &worker_item, &link_item, &settings_item, &update_item, &quit_item])?;
 
             app.manage(AppState {
                 worker: Mutex::new(Worker { child: None, generation: 0 }),

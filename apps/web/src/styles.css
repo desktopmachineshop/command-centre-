@@ -2335,6 +2335,10 @@ a.stat:hover {
   grid-row: 2;
   font-size: var(--fs-xs);
 }
+.device-version-behind {
+  color: var(--warn);
+  font-weight: 600;
+}
 .device-role-error {
   white-space: pre-line;
 }

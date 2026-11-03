@@ -46,7 +46,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
         id: "studio",
         name: "Studio PC",
         capabilities: ["ffmpeg", "gpu"],
-        setup: { platform: "win32", installer: "winget", installed: ["ffmpeg", "gpu", "git"] },
+        setup: { platform: "win32", installer: "winget", installed: ["ffmpeg", "gpu", "git"], appVersion: "0.1.12" },
         online: true,
         lastSeen: now,
       },
@@ -63,7 +63,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
       if (path === "/nodes") return json(nodes);
       if (path === "/jobs") return json(jobs);
       if (path === "/desktop/devices") return json([]);
-      if (path === "/desktop/installer") return json({ installer: null });
+      if (path === "/desktop/installer") return json({ installer: { version: "0.1.13", filename: "setup.exe", size: 1, sha256: "x", commit: null, uploadedAt: now } });
       if (path === "/nodes/studio/setup" && route.request().method() === "POST") {
         installs.push(route.request().postDataJSON());
         const job = { id: "j1", kind: "setup.install", requires: [], payload: { role: "claude", components: ["claude-code"] }, status: "queued", nodeId: null, targetNodeId: "studio", progress: null, result: null, createdAt: now, updatedAt: now };
@@ -85,6 +85,9 @@ describe.skipIf(!existsSync(CHROMIUM))("Devices page roles (Playwright)", () => 
     expect(await media.locator(".device-role-item", { hasText: "Chrome" }).textContent()).toContain("Not installed");
     expect(await media.locator(".device-role-item", { hasText: "DaVinci" }).getByRole("link").getAttribute("href")).toContain("blackmagicdesign.com");
     await media.getByRole("button", { name: "Install Chrome" }).waitFor();
+
+    expect(await studio.locator(".device-version").textContent()).toBe("Desktop app 0.1.12 · 0.1.13 available: choose Check for updates in its tray menu");
+    expect(await page.locator(".device-row", { hasText: "Old Laptop" }).textContent()).toContain("Desktop app version unknown");
 
     const claude = studio.locator(".device-role", { hasText: "Local Claude Code" });
     expect(await claude.textContent()).toContain("1 missing");

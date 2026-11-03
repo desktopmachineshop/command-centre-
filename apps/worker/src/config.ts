@@ -44,6 +44,8 @@ export interface WorkerConfig {
   captureProfiles: Record<string, string>;
   /** Print machine-readable `CC_STATUS {...}` lines for the desktop app. */
   statusJson: boolean;
+  /** The desktop app's version (CC_APP_VERSION, set by the app for its sidecar); null when run by hand. */
+  appVersion: string | null;
 }
 
 /** Per-user app-data directory: %APPDATA%\CommandCentre on Windows. */
@@ -124,5 +126,6 @@ export function loadConfig(argv: string[] = process.argv.slice(2), env: NodeJS.P
     chromiumBin: env.CC_CHROMIUM_BIN ?? file.chromiumBin ?? null,
     captureProfiles: Object.fromEntries(Object.entries(file.captureProfiles ?? {}).map(([name, path]) => [name, resolve(path)])),
     statusJson: flags["status-json"] ?? false,
+    appVersion: env.CC_APP_VERSION?.trim().slice(0, 32) || null,
   };
 }
