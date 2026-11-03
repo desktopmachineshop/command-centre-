@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -12,6 +12,13 @@ import type pg from "pg";
  * server's app at `#/devices?link=<code>`, and polls. Dave signs in there as usual and presses
  * "Link this computer". The next poll hands the app its own worker token, which it keeps in its
  * config file. No shared WORKER_TOKEN is needed, and each computer can be unlinked on its own.
+ *
+ * Automatic linking: the app also gets an `autoKey`, which it puts only in the page it opens in
+ * its own window (`&auto=<key>`). Once Dave is signed in there, that page approves by itself, but
+ * only when the key matches and the approval comes from the IP address that started the link. A
+ * link someone else sends Dave (they'd have their own code and key, on another network) still
+ * needs the button. A code stays alive while the app keeps polling, so signing in slowly (or
+ * resetting a password first) doesn't expire it.
  */
 
 export interface DesktopDevice {
@@ -38,6 +45,10 @@ interface LinkRequest {
   name: string;
   createdAt: number;
   expiresAt: number;
+  /** Secret the app puts in the page it opens, for approving without the button (see above). */
+  autoKey: string;
+  /** Client IP that started the link; automatic approval must come from the same one. */
+  ip: string | null;
   /** Set when approved; handed to the app on its next poll, then forgotten. */
   token?: string;
   deviceId?: string;
@@ -47,12 +58,23 @@ export type PollResult = { status: "pending" } | { status: "expired" } | { statu
 
 /** Link codes: 8 letters/digits without look-alikes (0/O, 1/I/L), shown as ABCD-EFGH. */
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+/** A code lasts this long after the app's last poll... */
 const LINK_TTL_MS = 10 * 60_000;
+/** ...and never longer than this in all. */
+const LINK_MAX_MS = 24 * 60 * 60_000;
 /** Unauthenticated link requests are held in memory; this caps how many a stranger can make. */
 const MAX_PENDING = 50;
 const TOKEN_PREFIX = "ccd_";
 /** Don't write last_used_at more often than this per device (every reconnect and upload checks the token). */
 const TOUCH_EVERY_MS = 5 * 60_000;
+
+/** An IP we can compare: the in-process "unknown" (tests, no socket) never matches. */
+const usableIp = (ip: string | null | undefined) => (ip && ip !== "unknown" ? ip : null);
+const sameSecret = (a: string, b: string) => {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+};
 
 export const normalizeCode = (code: string) => code.toUpperCase().replace(/[^A-Z0-9]/g, "");
 const formatCode = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`;
@@ -92,16 +114,24 @@ export class DesktopService {
   // --- linking ---
 
   /** Starts a link for a computer. Unauthenticated: it only reserves a code. */
-  startLink(name: string): { code: string; pollToken: string; expiresAt: string } {
+  startLink(name: string, ip: string | null = null): { code: string; pollToken: string; autoKey: string; expiresAt: string } {
     this.sweep();
     if (this.links.size >= MAX_PENDING) throw new LinkError("Too many computers are waiting to be linked. Try again in a few minutes.", 429);
     let code: string;
     do code = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join("");
     while (this.links.has(code));
     const createdAt = this.now();
-    const link: LinkRequest = { code, pollToken: randomBytes(32).toString("base64url"), name: name.trim().slice(0, 100) || "Computer", createdAt, expiresAt: createdAt + LINK_TTL_MS };
+    const link: LinkRequest = {
+      code,
+      pollToken: randomBytes(32).toString("base64url"),
+      autoKey: randomBytes(24).toString("base64url"),
+      ip: usableIp(ip),
+      name: name.trim().slice(0, 100) || "Computer",
+      createdAt,
+      expiresAt: createdAt + LINK_TTL_MS,
+    };
     this.links.set(code, link);
-    return { code: formatCode(code), pollToken: link.pollToken, expiresAt: new Date(link.expiresAt).toISOString() };
+    return { code: formatCode(code), pollToken: link.pollToken, autoKey: link.autoKey, expiresAt: new Date(link.expiresAt).toISOString() };
   }
 
   /** What the approval screen shows. Null for an unknown or expired code. */
@@ -111,12 +141,21 @@ export class DesktopService {
     return link ? { code: formatCode(link.code), name: link.name, createdAt: new Date(link.createdAt).toISOString(), approved: !!link.token } : null;
   }
 
-  /** Dave approved the link while signed in: creates the device and its token. */
-  async approve(code: string, userId: string | null): Promise<DesktopDevice> {
+  /**
+   * Dave approved the link while signed in: creates the device and its token. With `auto`, the
+   * page the app opened approved by itself: allowed only for the app's own key from the app's IP.
+   */
+  async approve(code: string, userId: string | null, auto?: { key: string; ip: string | null }): Promise<DesktopDevice> {
     this.sweep();
     const link = this.links.get(normalizeCode(code));
     if (!link) throw new LinkError("This link code has expired. Start linking again from the desktop app.", 404);
     if (link.token) throw new LinkError("This computer is already linked.", 409);
+    if (auto) {
+      const sameIp = link.ip !== null && link.ip === usableIp(auto.ip);
+      if (!sameIp || !sameSecret(auto.key, link.autoKey)) {
+        throw new LinkError("This computer can't be linked automatically from here. Check the code and press Link this computer.", 403);
+      }
+    }
     const token = TOKEN_PREFIX + randomBytes(32).toString("base64url");
     const { rows } = await this.pool.query<Row>(
       `insert into desktop_devices (id, name, user_id, token_hash) values ($1, $2, $3, $4)
@@ -134,7 +173,11 @@ export class DesktopService {
     this.sweep();
     for (const link of this.links.values()) {
       if (link.pollToken !== pollToken) continue;
-      if (!link.token) return { status: "pending" };
+      if (!link.token) {
+        // The app is still waiting: keep its code alive (up to LINK_MAX_MS in all).
+        link.expiresAt = Math.min(this.now() + LINK_TTL_MS, link.createdAt + LINK_MAX_MS);
+        return { status: "pending" };
+      }
       this.links.delete(link.code);
       return { status: "approved", token: link.token, deviceId: link.deviceId! };
     }
@@ -239,7 +282,7 @@ export class DesktopService {
 export class LinkError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 404 | 409 | 413 | 429,
+    readonly status: 400 | 403 | 404 | 409 | 413 | 429,
   ) {
     super(message);
   }

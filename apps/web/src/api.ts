@@ -335,7 +335,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     desktopDevices: () => call<DesktopDevice[]>("/desktop/devices"),
     unlinkDesktop: (id: string) => call<{ revoked: true }>(`/desktop/devices/${id}`, { method: "DELETE" }),
     desktopLink: (code: string) => call<{ code: string; name: string; createdAt: string; approved: boolean }>(`/desktop/link/${encodeURIComponent(code)}`),
-    approveDesktopLink: (code: string) => post<DesktopDevice>(`/desktop/link/${encodeURIComponent(code)}/approve`),
+    /** `autoKey`: the key the desktop app put in the page it opened, to approve without the button. */
+    approveDesktopLink: (code: string, autoKey?: string) => post<DesktopDevice>(`/desktop/link/${encodeURIComponent(code)}/approve`, autoKey ? { autoKey } : undefined),
     desktopInstaller: () => call<{ installer: DesktopInstaller | null }>("/desktop/installer"),
     /** A plain link: the session cookie authenticates the GET, so the browser downloads it itself. */
     desktopDownloadUrl: `${base}/api/desktop/download`,

@@ -1,6 +1,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createGithubOidcVerifier, DESKTOP_UPLOAD_AUDIENCE, GITHUB_OIDC_ISSUER, OidcError } from "../src/github-oidc";
+import { DesktopService } from "../src/desktop";
 import { ADMIN, DB_URL, makeServer, resetDatabase, serveServer } from "./helpers";
 
 const FAST = { ln: 10, r: 8, p: 1 };
@@ -134,6 +135,55 @@ describe.skipIf(!DB_URL)("desktop app linking and installer", () => {
 
     const devices = (await req("/api/desktop/devices", { cookie })).body;
     expect(devices.map((d: any) => d.name)).toContain("DAVE-PC");
+  });
+
+  it("links automatically from the app's own window: right key, same network", async () => {
+    const from = (ip: string) => ({ "x-forwarded-for": ip });
+    const start = await req("/api/desktop/link", { json: { name: "AUTO-PC" }, headers: from("82.42.171.106") });
+    expect(start.body.autoKey).toMatch(/^[\w-]{20,}$/);
+    const approve = (autoKey: string, ip: string) =>
+      req(`/api/desktop/link/${start.body.code}/approve`, { method: "POST", cookie, json: { autoKey }, headers: from(ip) });
+
+    // A wrong key, or the right key from another network (a link someone sent Dave), needs the button.
+    expect((await approve("not-the-key", "82.42.171.106")).status).toBe(403);
+    expect((await approve(start.body.autoKey, "203.0.113.9")).status).toBe(403);
+    expect((await req(`/api/desktop/link/${start.body.code}`, { cookie })).body).toMatchObject({ approved: false });
+
+    const ok = await approve(start.body.autoKey, "82.42.171.106");
+    expect(ok.status).toBe(201);
+    expect((await req("/api/desktop/link/poll", { json: { pollToken: start.body.pollToken } })).body).toMatchObject({ status: "approved", deviceId: ok.body.id });
+  });
+
+  it("never links automatically when the server can't tell the network", async () => {
+    // In-process requests have no client IP: automatic approval is refused, the button still works.
+    const start = await req("/api/desktop/link", { json: { name: "NO-IP-PC" } });
+    const auto = await req(`/api/desktop/link/${start.body.code}/approve`, { method: "POST", cookie, json: { autoKey: start.body.autoKey } });
+    expect(auto.status).toBe(403);
+    expect((await req(`/api/desktop/link/${start.body.code}/approve`, { method: "POST", cookie })).status).toBe(201);
+  });
+
+  it("keeps a code alive while the app polls, up to a day", async () => {
+    let now = 1_000_000;
+    const desktop = new DesktopService(ctx.server.auth.store.pool, { dataDir: "/tmp/cc-desktop-test", now: () => now });
+    const start = desktop.startLink("SLOW-PC", "198.51.100.7");
+    const minutes = (m: number) => (now += m * 60_000);
+    // Polling every few minutes for an hour keeps it pending (the TTL alone is 10 minutes).
+    for (let i = 0; i < 12; i++) {
+      minutes(5);
+      expect(desktop.poll(start.pollToken)).toEqual({ status: "pending" });
+    }
+    expect(desktop.linkInfo(start.code)).toMatchObject({ name: "SLOW-PC" });
+    // Without polls it lapses after 10 minutes.
+    minutes(11);
+    expect(desktop.poll(start.pollToken)).toEqual({ status: "expired" });
+
+    // And never lasts beyond a day, however often the app polls.
+    const long = desktop.startLink("LONG-PC", "198.51.100.7");
+    for (let i = 0; i < 24 * 12 + 2; i++) {
+      minutes(5);
+      desktop.poll(long.pollToken);
+    }
+    expect(desktop.poll(long.pollToken)).toEqual({ status: "expired" });
   });
 
   it("lets a linked computer's worker connect and upload, until it is unlinked", async () => {
