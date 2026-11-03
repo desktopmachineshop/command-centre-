@@ -43,7 +43,8 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(request.prompt).toBe("dms: what sold yesterday?");
     expect(request.systemPrompt).toContain("Desktop Machine Shop");
     expect(Object.keys(request.mcpServers!)).toEqual(["actions", "brain", "pa"]);
-    expect(request.allowedTools).toEqual(["Skill", "mcp__actions", "mcp__brain", "mcp__pa"]);
+    expect(request.allowedTools).toEqual(["Skill", "mcp__actions", "mcp__brain", "mcp__pa", "WebSearch", "WebFetch"]);
+    expect(request.systemPrompt).toContain("You can search the web (WebSearch) and read pages (WebFetch)");
     expect(request.cwd).toMatch(/workspaces\/dms\/shop-lead$/);
   });
 
