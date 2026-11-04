@@ -196,7 +196,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
 
     const talk = page.locator("button.drive-ptt");
     await talk.waitFor({ timeout: 20_000 });
-    expect(await page.getByRole("status").textContent()).toContain("Tap to talk");
+    expect(await page.locator(".drive-state").textContent()).toContain("Tap to talk");
     const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
     const sayNext = (text: string) => page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
     /** Push to talk is latched: tap, speak, then tap Send. */
@@ -210,7 +210,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
       try {
         await expect.poll(async () => (await spoken()).some((s) => pattern.test(s)), { timeout: 15_000 }).toBe(true);
       } catch (err) {
-        throw new Error(`${pattern} not spoken; spoken: ${JSON.stringify(await spoken())}; status: ${await page.getByRole("status").textContent()}; calls: ${calls.map((c) => c.path).join(" ")}`);
+        throw new Error(`${pattern} not spoken; spoken: ${JSON.stringify(await spoken())}; status: ${await page.locator(".drive-state").textContent()}; calls: ${calls.map((c) => c.path).join(" ")}`);
       }
     };
 
@@ -223,12 +223,12 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     // Approvals: read, approve, confirm.
     await pushToTalk("read approvals");
     await waitSpoken(/^Approval 1 of 1/);
-    await page.getByRole("status").getByText("Tap to talk").waitFor();
+    await page.locator(".drive-state").getByText("Tap to talk").waitFor();
     await pushToTalk("approve");
     await waitSpoken(/^To approve: Reply to Jane about order 1042\. Say "yes, approve"/);
     expect(calls.some((c) => c.path.endsWith("/approve"))).toBe(false); // nothing without confirmation
     await page.getByRole("button", { name: "Yes, approve" }).waitFor();
-    await page.getByRole("status").getByText("Tap to talk").waitFor();
+    await page.locator(".drive-state").getByText("Tap to talk").waitFor();
     await pushToTalk("yes, approve");
     await waitSpoken(/^Approved\. Nothing is waiting for approval\./);
     expect(calls.filter((c) => c.path === "/proposals/p1/approve")).toHaveLength(1);
@@ -277,11 +277,11 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await pushToTalk("read approvals");
     // Every item is read out (speech may split it into chunks).
     await expect.poll(async () => (await spoken()).join(" "), { timeout: 15_000 }).toMatch(/a batch of 3.*1: Delivery update to Jane.*2: Delivery update to Bob.*3: Delivery update to Ann/);
-    await page.getByRole("status").getByText("Tap to talk").waitFor();
+    await page.locator(".drive-state").getByText("Tap to talk").waitFor();
     await pushToTalk("approve");
     await waitSpoken(/^To approve all 3: Delivery update to the 3 open delivery orders\. Say "yes, approve"/);
     expect(calls.some((c) => c.path.endsWith("/approve"))).toBe(false);
-    await page.getByRole("status").getByText("Tap to talk").waitFor();
+    await page.locator(".drive-state").getByText("Tap to talk").waitFor();
     await pushToTalk("yes, approve");
     await waitSpoken(/^Approved all 3\. Nothing is waiting for approval\./);
     // One call for the whole batch, none per item.
@@ -309,7 +309,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
       await talk.click();
     };
     const waitSpoken = (pattern: RegExp) => expect.poll(async () => (await spoken()).some((s) => pattern.test(s)), { timeout: 15_000 }).toBe(true);
-    const idle = () => page.getByRole("status").getByText("Tap to talk").waitFor();
+    const idle = () => page.locator(".drive-state").getByText("Tap to talk").waitFor();
     const chats = () => calls.filter((c) => c.path === "/chat").map((c) => c.body);
 
     await pushToTalk("talk to the shop lead");
@@ -380,7 +380,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await waitSpoken(/^Too many turns\.$/);
     await page.locator(".drive-caption", { hasText: "Too many turns." }).waitFor();
     expect(calls.some((c) => c.path === "/chat")).toBe(false);
-    await page.getByRole("status").getByText("Tap to talk").waitFor();
+    await page.locator(".drive-state").getByText("Tap to talk").waitFor();
 
     // Handed on: the front's own line instead of "On it.", then the agent's answer when it comes.
     await pushToTalk("where is order 1042?");

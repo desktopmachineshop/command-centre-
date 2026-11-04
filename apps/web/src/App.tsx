@@ -134,7 +134,7 @@ export const NAV: NavItem[] = [
 const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications" };
 
 /** Routes that render their own full-screen layout: no sidebar, top bar or tab bar. */
-const FULL_SCREEN = new Set(["drive"]);
+const FULL_SCREEN = new Set<string>();
 
 const PHONE = "(max-width: 759.98px)";
 
@@ -197,7 +197,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
     case "today":
       body = <Today api={api} feed={feed} />;
       break;
-    // Drive mode is full screen (FULL_SCREEN): no nav, nothing to read (see pages/Drive.tsx).
+    // Drive mode fills the space between the top bar and the tab bar (see pages/Drive.tsx).
     case "drive":
       body = <Drive api={api} feed={feed} />;
       break;
