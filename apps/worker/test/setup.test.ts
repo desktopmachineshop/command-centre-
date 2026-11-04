@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Job } from "@cc/core";
+import type { Job, SetupComponentId } from "@cc/core";
 import { describe, expect, it } from "vitest";
 import { detectSetup, findWinget, HandlerRegistry, type JobContext, type RunCommand, setupHandler, wingetArgs } from "../src";
 
@@ -22,7 +22,7 @@ const job = (payload: Record<string, unknown>): Job => ({
 function harness(
   exitCodes: Record<string, number> = {},
   platform: NodeJS.Platform = "win32",
-  opts: { hasBrowser?: boolean; captureAfter?: { ready: boolean; why?: string } } = {},
+  opts: { hasBrowser?: boolean; captureAfter?: { ready: boolean; why?: string }; installedAfter?: SetupComponentId[]; output?: string } = {},
 ) {
   const calls: string[][] = [];
   const progress: string[] = [];
@@ -31,7 +31,7 @@ function harness(
     calls.push([cmd, ...args]);
     const id = args[args.indexOf("--id") + 1]!;
     const code = exitCodes[id] ?? 0;
-    return { code, output: code ? `Downloading\n██████▒▒ 10 MB / 20 MB\nInstaller failed with exit code: ${code}\n` : "Successfully installed" };
+    return { code, output: opts.output ?? (code ? `Downloading\n██████▒▒ 10 MB / 20 MB\nInstaller failed with exit code: ${code}\n` : "Successfully installed") };
   };
   const registry = new HandlerRegistry().register(
     setupHandler({ platform, run, winget: () => "C:\\winget.exe", refreshPath: async () => {}, hasBrowser: () => opts.hasBrowser ?? false }),
@@ -44,7 +44,7 @@ function harness(
       progress: (_p, m) => m && progress.push(m),
       refresh: async () => {
         refreshed++;
-        return { capabilities: [], setup: { platform, installer: "winget" as const, installed: [], ...(opts.captureAfter ? { capture: opts.captureAfter } : {}) } };
+        return { capabilities: [], setup: { platform, installer: "winget" as const, installed: opts.installedAfter ?? [], ...(opts.captureAfter ? { capture: opts.captureAfter } : {}) } };
       },
     } satisfies JobContext);
   return { calls, progress, runJob, refreshed: () => refreshed };
@@ -88,6 +88,24 @@ describe("setup.install", () => {
     );
     expect(h.calls).toHaveLength(2);
     expect(h.refreshed()).toBe(1); // what did install still shows up
+  });
+
+  it("treats winget's already-installed codes as done however Node signs them, and its 'no newer version' words too", async () => {
+    for (const code of [0x8a15002b, 0x8a15002b - 0x1_0000_0000, 0x8a150061]) {
+      const h = harness({ "Gyan.FFmpeg": code });
+      expect(await h.runJob({ role: "media", components: ["ffmpeg"] })).toEqual({ role: "media", installed: ["ffmpeg"] });
+    }
+    const words = harness(
+      { "Gyan.FFmpeg": 0x8a150109 },
+      "win32",
+      { output: "Found an existing package already installed. Trying to upgrade the installed package...\nNo available upgrade found.\nNo newer package versions are available from the configured sources.\n" },
+    );
+    expect(await words.runJob({ role: "media", components: ["ffmpeg"] })).toEqual({ role: "media", installed: ["ffmpeg"] });
+  });
+
+  it("counts a component as installed when the computer finds it afterwards, whatever winget said", async () => {
+    const h = harness({ "Gyan.FFmpeg": 1 }, "win32", { installedAfter: ["ffmpeg"] });
+    expect(await h.runJob({ role: "media", components: ["ffmpeg"] })).toEqual({ role: "media", installed: ["ffmpeg"] });
   });
 
   it("only installs on Windows", async () => {
