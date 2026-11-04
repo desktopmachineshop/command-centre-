@@ -548,13 +548,16 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const voiceConversations = new VoiceConversations(store, hub, queue);
   // Self-hosted speech (open models on this server; no keys) and Drive mode's warm voice front.
   const localSpeech = overrides.localSpeech !== undefined ? overrides.localSpeech : config.voice.local ? new LocalSpeech(config.voice.local) : null;
+  /** The agent settings now in force (env, then the Accounts page's Claude connection), for the voice front. */
+  let agentConfig = config;
   const voiceFront =
     overrides.voiceFront !== undefined
       ? overrides.voiceFront
       : config.voice.front
         ? new VoiceFront({
             bin: config.agent.claudeBin,
-            env: agentEnv(config, "subscription"),
+            // The live agent settings: a Claude sign-in saved on the Accounts page applies here too.
+            env: () => agentEnv(agentConfig, "subscription"),
             model: config.voice.front.model,
             cwd: join(config.dataDir, "voice-front"),
             timeZone: config.timezone,
@@ -669,7 +672,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => voiceFront }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles, help: config.help }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles, help: config.help }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -703,7 +706,12 @@ export function createServer(config: Config, overrides: Overrides = {}) {
 
   // --- integrations: rebuild what a saved or removed account changed (see integrations/live.ts) ---
   const swaps: Record<Group, (c: Config) => Promise<string | undefined> | string | undefined> = {
-    runner: (c) => (overrides.runner ? undefined : runner.swap(() => createRunner(c))),
+    runner: (c) => {
+      // The voice front signs in like the agents: a new sign-in restarts its warm session.
+      agentConfig = c;
+      voiceFront?.stop();
+      return overrides.runner ? undefined : runner.swap(() => createRunner(c));
+    },
     triage: (c) => (overrides.triager ? undefined : triager.swap(() => createTriager(c))),
     voice: (c) => voice.swap(() => buildVoice(c)),
     odoo: (c) => odoo.swap(() => buildOdoo(c)),

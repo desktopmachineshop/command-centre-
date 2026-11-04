@@ -49,7 +49,8 @@ export interface FrontResult {
 
 export interface VoiceFrontOptions {
   bin?: string;
-  env: NodeJS.ProcessEnv;
+  /** The process environment (sign-in); a function is read at each (re)start. */
+  env: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv);
   model: string;
   /** Working folder (kept empty so no project settings or CLAUDE.md apply). */
   cwd: string;
@@ -196,7 +197,7 @@ export class VoiceFront {
     const started = Date.now();
     const child = (this.options.spawn ?? ((b, a, o) => spawn(b, a, { ...o, stdio: ["pipe", "pipe", "pipe"] })))(bin, args, {
       cwd: this.options.cwd,
-      env: this.options.env,
+      env: typeof this.options.env === "function" ? this.options.env() : this.options.env,
     });
     this.child = child;
     this.stderr = "";
