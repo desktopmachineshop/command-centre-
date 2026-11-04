@@ -392,11 +392,15 @@ export class Pipeline {
       try {
         const checkout = await prepareCheckout(this.deps.code ?? {}, cwd, role.repo, task.id);
         notes.push(
-          `## Your checkout\nThe repository ${role.repo} is checked out for this task at ./${checkout.path} (the default branch is ${checkout.base}; a new task starts there, detached). Work and commit only there, on a branch of your own, and raise the pull request with the github.pr.create action. You have no GitHub credentials: never try to push.`,
+          `## Your checkout\nThe repository ${role.repo} is checked out for this task at ./${checkout.path} (the default branch is ${checkout.base}; a new task starts there, detached). Work and commit only there, on a branch of your own, and raise the pull request with the github.pr.create action. git itself has no GitHub credentials (by design), so never try to push or fetch with it.`,
         );
       } catch (err) {
-        notes.push(`## Your checkout\nThe repository ${role.repo} couldn't be checked out: ${(err as Error).message}. Don't edit code this run; say what is blocked in your summary.`);
+        console.error(`[code] checkout of ${role.repo} for task ${task.id} failed: ${(err as Error).message}`);
+        notes.push(`## Your checkout\nThe repository ${role.repo} couldn't be checked out: ${(err as Error).message}. Don't edit code this run; tell Dave exactly this reason in your summary (it usually means GITHUB_TOKEN in Railway is missing, wrong, or not granted this repository).`);
       }
+      notes.push(
+        `## GitHub\nTo read GitHub (pull requests, their CI checks and reviews, why a check failed, issues) use the "github" tools, which use the server's access to ${role.repo}; "access" checks that access. If they aren't available or report an error, tell Dave that exact reason.`,
+      );
     }
     return { tools: [...new Set([...web, ...role.tools])], notes };
   }

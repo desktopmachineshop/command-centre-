@@ -53,6 +53,7 @@ import { tokenMatches } from "./auth";
 import { Hub } from "./hub";
 import { paVoiceCalendar, reminderPushActions } from "./http/pa";
 import { type Caller, mcpRoutes } from "./mcp/endpoints";
+import { createGithubMcpServer } from "./github-mcp";
 import { Pipeline } from "./pipeline";
 import { NotificationService, startNotificationJobs, teeNotifier } from "./notifications/service";
 import { NotificationStore } from "./notifications/store";
@@ -516,6 +517,16 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           }
         : {}),
       pa: paMcpServer,
+      // Read-only GitHub for coding roles (pull requests, CI, issues), with the server's token.
+      ...(code.token
+        ? {
+            github: (caller: Caller) => {
+              const vertical = caller.kind === "run" ? caller.scope.vertical : verticals.all().find((v) => verticals.roles(v.id).some((r) => r.repo))?.id;
+              const repo = vertical ? verticals.roles(vertical).find((r) => r.repo)?.repo : undefined;
+              return createGithubMcpServer({ token: code.token!, repo: repo ?? "unknown/unknown", fetch: code.fetch });
+            },
+          }
+        : {}),
     };
   };
   const runTokens = new RunTokens();
