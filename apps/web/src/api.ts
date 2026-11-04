@@ -362,6 +362,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     chainProposals: (taskId: string) => call<{ taskIds: string[]; proposals: Proposal[] }>(`/tasks/${encodeURIComponent(taskId)}/chain-proposals`),
     approve: (id: string) => post<Proposal>(`/proposals/${id}/approve`),
     reject: (id: string) => post<Proposal>(`/proposals/${id}/reject`),
+    /** Decide a whole batch; `ids` are the proposals shown (the server refuses if the batch has changed). */
+    approveBatch: (batchId: string, ids: string[]) => post<Proposal[]>(`/batches/${encodeURIComponent(batchId)}/approve`, { ids }),
+    rejectBatch: (batchId: string, ids: string[]) => post<Proposal[]>(`/batches/${encodeURIComponent(batchId)}/reject`, { ids }),
     /** Change what a pending proposal will do before approving it. */
     editProposal: (id: string, payload: Record<string, unknown>) =>
       call<Proposal>(`/proposals/${id}`, { method: "PATCH", body: JSON.stringify({ payload }) }),

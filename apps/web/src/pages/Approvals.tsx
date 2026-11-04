@@ -16,6 +16,10 @@ export function Approvals({ api, feed, id }: { api: Api; feed: LiveFeed; id?: st
   const focus = id ? data?.find((p) => p.id === id) : undefined;
   const action = routeQuery().get("action");
   const rest = data?.filter((p) => p !== focus);
+  // Proposals an agent grouped (one message per order, say) show as one batch card; the rest as before.
+  const batches = new Map<string, Proposal[]>();
+  for (const p of rest ?? []) if (p.batchId) batches.set(p.batchId, [...(batches.get(p.batchId) ?? []), p]);
+  const seen = new Set<string>();
   return (
     <section>
       <PageHead title="Approvals" sub={data?.length ? `${data.length} waiting for you` : undefined} />
@@ -25,10 +29,73 @@ export function Approvals({ api, feed, id }: { api: Api; feed: LiveFeed; id?: st
       {id && data && !focus && <Empty icon="check">That proposal is no longer waiting for approval.</Empty>}
       {focus && (action === "approve" || action === "reject") && <ConfirmAction api={api} proposal={focus} action={action} />}
       {focus && <ProposalCard api={api} proposal={focus} />}
-      {rest?.map((p) => (
-        <ProposalCard key={p.id} api={api} proposal={p} />
-      ))}
+      {rest?.map((p) => {
+        if (!p.batchId) return <ProposalCard key={p.id} api={api} proposal={p} />;
+        if (seen.has(p.batchId)) return null;
+        seen.add(p.batchId);
+        return <BatchCard key={p.batchId} api={api} batchId={p.batchId} proposals={[...batches.get(p.batchId)!].reverse()} />;
+      })}
     </section>
+  );
+}
+
+/**
+ * A batch of related proposals (a message to each open order): the whole list, recipient and text
+ * of each, then one Approve all / Reject all. Each item can still be opened and edited below.
+ * The ids shown go with the decision, so a batch that changed meanwhile is refused, not approved.
+ */
+function BatchCard({ api, batchId, proposals }: { api: Api; batchId: string; proposals: Proposal[] }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const decide = async (fn: (batchId: string, ids: string[]) => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn(batchId, proposals.map((p) => p.id));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const downgrade = proposals.find((p) => p.payload.policyDowngrade)?.payload.policyDowngrade as { reason?: string } | undefined;
+  return (
+    <div className="card proposal is-pending" data-help-pane="approvals.batch">
+      <div className="proposal-head small">
+        <span className="row">
+          <VTag id={proposals[0]!.vertical} /> <code className="action-type">{proposals.length} proposals in one batch</code>
+        </span>
+      </div>
+      {downgrade?.reason && <p className="muted small">Held for approval: {downgrade.reason}.</p>}
+      <p className="muted small">Check every one below. Approve all or Reject all applies to exactly this list.</p>
+      <ol className="batch-list">
+        {proposals.map((p) => (
+          <li key={p.id}>
+            <details>
+              <summary>
+                <code className="action-type">{p.actionType}</code> {p.summary}
+              </summary>
+              {/* Recipient and message are the point of the batch: shown in full, not behind a click. */}
+              <pre>{JSON.stringify(Object.fromEntries(Object.entries(p.payload).filter(([k]) => k !== "policyDowngrade")), null, 2)}</pre>
+            </details>
+          </li>
+        ))}
+      </ol>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <div className="proposal-foot">
+        <span className="muted small">{ago(proposals[proposals.length - 1]!.createdAt)}</span>
+        <span className="actions">
+          <button className="danger-text" disabled={busy} onClick={() => decide(api.rejectBatch)}>
+            <Icon name="x" size={16} />
+            Reject all {proposals.length}
+          </button>
+          <button className="primary" disabled={busy} onClick={() => decide(api.approveBatch)}>
+            <Icon name="check" size={16} />
+            Approve all {proposals.length}
+          </button>
+        </span>
+      </div>
+    </div>
   );
 }
 

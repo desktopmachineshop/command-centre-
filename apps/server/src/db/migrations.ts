@@ -461,4 +461,12 @@ export const migrations: { id: string; sql: string }[] = [
       alter table task_replies add column if not exists files jsonb;
     `,
   },
+  {
+    // Proposals an agent grouped into one batch: approved or rejected together from the Approvals page.
+    id: "0020_proposal_batch",
+    sql: `
+      alter table proposals add column if not exists batch_id text;
+      create index if not exists proposals_batch_idx on proposals (batch_id) where batch_id is not null;
+    `,
+  },
 ];

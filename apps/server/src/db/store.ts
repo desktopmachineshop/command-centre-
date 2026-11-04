@@ -67,6 +67,7 @@ const toRun = (r: Row): AgentRun => ({
 const toProposal = (r: Row): Proposal => ({
   id: r.id,
   taskId: r.task_id,
+  batchId: r.batch_id ?? null,
   vertical: r.vertical,
   actionType: r.action_type,
   summary: r.summary,
@@ -472,11 +473,12 @@ export class Store {
     summary: string;
     payload: Record<string, unknown>;
     policy: Policy;
+    batchId?: string | null;
   }): Promise<Proposal> {
     const { rows } = await this.pool.query(
-      `insert into proposals (id, task_id, vertical, action_type, summary, payload, policy, status)
-       values ($1, $2, $3, $4, $5, $6, $7, 'pending') returning *`,
-      [randomUUID(), p.taskId, p.vertical, p.actionType, p.summary, p.payload, p.policy],
+      `insert into proposals (id, task_id, vertical, action_type, summary, payload, policy, status, batch_id)
+       values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8) returning *`,
+      [randomUUID(), p.taskId, p.vertical, p.actionType, p.summary, p.payload, p.policy, p.batchId ?? null],
     );
     return toProposal(rows[0]!);
   }
@@ -512,6 +514,12 @@ export class Store {
   async updateProposalPayload(id: string, payload: Record<string, unknown>): Promise<Proposal | null> {
     const { rows } = await this.pool.query("update proposals set payload = $2 where id = $1 and status = 'pending' returning *", [id, JSON.stringify(payload)]);
     return rows[0] ? toProposal(rows[0]) : null;
+  }
+
+  /** The pending proposals of a batch, oldest first. */
+  async pendingBatch(batchId: string): Promise<Proposal[]> {
+    const { rows } = await this.pool.query("select * from proposals where batch_id = $1 and status = 'pending' order by created_at", [batchId]);
+    return rows.map(toProposal);
   }
 
   async listProposals(
