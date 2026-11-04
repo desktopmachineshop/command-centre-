@@ -968,10 +968,18 @@ export class ScreenWakeLock {
     if (this.wanted && document.visibilityState === "visible" && !this.sentinel) void this.request();
   };
 
+  private pending = false;
+
   private async request() {
-    if (!this.supported || document.visibilityState !== "visible") return;
+    if (!this.supported || document.visibilityState !== "visible" || this.pending || this.sentinel) return;
+    this.pending = true;
     try {
       const s = (await (navigator as Navigator & { wakeLock: { request(t: "screen"): Promise<Sentinel> } }).wakeLock.request("screen")) as Sentinel;
+      // Released (Drive closed) while the request was in flight: let it go straight away.
+      if (!this.wanted) {
+        await s.release().catch(() => {});
+        return;
+      }
       this.sentinel = s;
       this.onChange(true);
       s.addEventListener("release", () => {
@@ -980,6 +988,8 @@ export class ScreenWakeLock {
       });
     } catch {
       this.onChange(false);
+    } finally {
+      this.pending = false;
     }
   }
 

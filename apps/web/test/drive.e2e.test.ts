@@ -393,4 +393,67 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(errors).toEqual([]);
     await page.close();
   }, 90_000);
+
+  it("keeps the screen awake while open inside the app shell, and lets it sleep after leaving", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(MOCK_SPEECH);
+    // A recording Screen Wake Lock: counts requests, and how many are still held.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __wake: { requests: number; held: number; sentinels: { release(): Promise<void> }[] } };
+      w.__wake = { requests: 0, held: 0, sentinels: [] };
+      Object.defineProperty(navigator, "wakeLock", {
+        configurable: true,
+        value: {
+          request: async (type: string) => {
+            if (type !== "screen") throw new Error(type);
+            w.__wake.requests++;
+            w.__wake.held++;
+            const listeners: (() => void)[] = [];
+            let released = false;
+            const sentinel = {
+              release: async () => {
+                if (released) return;
+                released = true;
+                w.__wake.held--;
+                listeners.forEach((f) => f());
+              },
+              addEventListener: (_t: string, f: () => void) => listeners.push(f),
+            };
+            w.__wake.sentinels.push(sentinel);
+            return sentinel;
+          },
+        },
+      });
+    });
+    await mockApi(page, []);
+    const wake = () => page.evaluate(() => (window as unknown as { __wake: { requests: number; held: number } }).__wake);
+
+    // Opened from the chat composer: Drive sits inside the shell (top bar and tab bar still there).
+    await page.goto(`${base}/#/chat`);
+    await page.locator('a.tool[href="#/drive"]').click();
+    await page.locator("button.drive-ptt").waitFor({ timeout: 20_000 });
+    expect(await page.locator(".shell .topbar").count()).toBe(1);
+    await expect.poll(async () => (await wake()).held).toBe(1);
+    await page.locator("details.drive-more > summary").click();
+    await expect.poll(() => page.locator(".drive-more").textContent()).toContain("Screen: kept on");
+
+    // The system takes the lock back (e.g. the screen was switched off), then the page comes back: re-acquired.
+    const before = (await wake()).requests;
+    await page.evaluate(async () => {
+      const w = window as unknown as { __wake: { sentinels: { release(): Promise<void> }[] } };
+      await w.__wake.sentinels.at(-1)!.release();
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect.poll(async () => (await wake()).requests).toBe(before + 1);
+    expect((await wake()).held).toBe(1);
+
+    // Leaving Drive lets the screen sleep again.
+    await page.locator(".drive-exit").click();
+    await page.locator('a.tool[href="#/drive"]').waitFor();
+    await expect.poll(async () => (await wake()).held).toBe(0);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
 });
