@@ -10,13 +10,13 @@
     <fig id="fig-converse">
       <title>Converse</title>
       <image href="../../screenshots/converse-phone-light.png" placement="break" width="300">
-        <alt>Converse on a phone: the chat box grown to fill the screen, with the Push to talk switch, who you are talking to, and a large Talk orb in the middle.</alt>
+        <alt>Converse on a phone: the chat box grown to fill the screen, with Read aloud, Fold and the Push to talk switch along the top, a large Talk orb in the middle, and who you are talking to at the bottom.</alt>
       </image>
     </fig>
-    <p>Tap <uicontrol>Converse</uicontrol> in the <xref href="chat.dita">Chat</xref> box. The box grows to fill the screen and the talk orb fades in, in the middle of it. Its own controls stay where they were: <uicontrol>Read aloud</uicontrol> at the top, and the text box, <uicontrol>Send</uicontrol> and the rest at the bottom. <uicontrol>Fold</uicontrol>, in the place of <uicontrol>Converse</uicontrol>, folds it back to typing.</p>
+    <p>Tap <uicontrol>Converse</uicontrol> in the <xref href="chat.dita">Chat</xref> box. The box grows to fill the screen and the talk orb fades in, in the middle of it. Its own controls stay where they were: <uicontrol>Read aloud</uicontrol> at the top, beside <uicontrol>Push to talk</uicontrol>, and the text box, <uicontrol>Send</uicontrol> and the rest at the bottom. <uicontrol>Fold</uicontrol>, in the place of <uicontrol>Converse</uicontrol>, folds it back to typing.</p>
     <p>The screen stays awake while it's open, and after the first tap a headset or steering-wheel play/pause button works as the orb.</p>
     <p><uicontrol>Push to talk</uicontrol> is off to start with: tap <uicontrol>Talk</uicontrol> once, then speak and pause, and it listens again after each answer. Turn it on to tap <uicontrol>Talk</uicontrol>, speak, and tap <uicontrol>Send</uicontrol> each time. Each device remembers your choice.</p>
-    <p>While it speaks, the orb says <uicontrol>Interrupt</uicontrol>. <uicontrol>Talking to</uicontrol> chooses a role; the default, <uicontrol>Chief of Staff (hands it on)</uicontrol>, works out who should do it. You can also type a command in the text box and press <uicontrol>Send</uicontrol>.</p>
+    <p>While it speaks, the orb says <uicontrol>Interrupt</uicontrol>. The picker at the bottom, where Chat has <uicontrol>Send to</uicontrol>, chooses who you are talking to: a role, or the default, <uicontrol>Chief of Staff</uicontrol>, who works out who should do it. You can also type a command in the text box and press <uicontrol>Send</uicontrol>.</p>
     <p>In <xref href="../system/settings.dita">Settings</xref>, under <uicontrol>Converse</uicontrol>, you can turn on <uicontrol>Listen for a follow-up after each answer</uicontrol> and choose what the orb shows. The voice it speaks with is under <uicontrol>Voice</uicontrol>.</p>
     <note>Approvals by voice always ask you to confirm: say <q>approve</q>, hear what it is, then say <q>yes, approve</q>. A request such as <q>approve the quote for Jane</q> is sent to the agent as a request, never taken as an approval.</note>
   </body>

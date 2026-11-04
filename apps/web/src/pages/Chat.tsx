@@ -196,6 +196,9 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   const driving = driveStage !== "off";
   /** Drive's typed-command handler while it's open (Drive sets it). */
   const driveCommand = useRef<((text: string) => void) | null>(null);
+  /** Where Converse puts its Push to talk switch (the row of buttons) and its Talking to picker (in place of Send to). */
+  const [driveToolbar, setDriveToolbar] = useState<HTMLElement | null>(null);
+  const [drivePicker, setDrivePicker] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
@@ -381,25 +384,29 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
         label="Message"
         placeholder={driving ? "Or type it here" : "What needs doing?"}
         className={driving ? `is-driving is-${driveStage}` : ""}
-        panel={driving ? <Drive api={api} feed={feed} commandRef={driveCommand} /> : undefined}
+        panel={driving ? <Drive api={api} feed={feed} commandRef={driveCommand} toolbar={driveToolbar} pickerSlot={drivePicker} /> : undefined}
       >
-        <select
-          value={vertical}
-          onChange={(e) => {
-            setVertical(e.target.value);
-            setThreadId(null);
-            setQueue([]);
-          }}
-          aria-label="Send to"
-          data-help-key="chat.send-to"
-        >
-          <option value="">Chief of Staff</option>
-          {verticals.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-            </option>
-          ))}
-        </select>
+        {driving ? (
+          <span ref={setDrivePicker} className="composer-picker-slot" />
+        ) : (
+          <select
+            value={vertical}
+            onChange={(e) => {
+              setVertical(e.target.value);
+              setThreadId(null);
+              setQueue([]);
+            }}
+            aria-label="Send to"
+            data-help-key="chat.send-to"
+          >
+            <option value="">Chief of Staff</option>
+            {verticals.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="composer-tools" role="group" aria-label="Chat options">
           {threadId && (
             <button type="button" className="tool" onClick={newChat} title="Start a new chat">
@@ -417,6 +424,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
             <Icon name={drive ? "fold" : "drive"} size={16} />
             <span>{drive ? "Fold" : "Converse"}</span>
           </a>
+          {driving && <span ref={setDriveToolbar} className="composer-tools-slot" />}
         </div>
       </Composer>
     </section>

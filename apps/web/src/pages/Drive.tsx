@@ -1,4 +1,5 @@
 import { speakable } from "@cc/voice/speakable";
+import { createPortal } from "react-dom";
 import { type MutableRefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
 import { type LiveFeed, useLive } from "../live";
@@ -76,7 +77,21 @@ const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
  * Drive mode, called "Converse" in the app, shown inside the chat composer (pages/Chat.tsx),
  * which grows to hold it; the composer's Fold button leaves it. Unmounting stops any listening and speaking.
  */
-export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; commandRef?: MutableRefObject<((text: string) => void) | null> }) {
+export function Drive({
+  api,
+  feed,
+  commandRef,
+  toolbar,
+  pickerSlot,
+}: {
+  api: Api;
+  feed: LiveFeed;
+  commandRef?: MutableRefObject<((text: string) => void) | null>;
+  /** Where the Push to talk switch goes: the chat box's own row of buttons (Read aloud, Fold). */
+  toolbar?: HTMLElement | null;
+  /** Where the Talking to picker goes: the chat box's own picker, at the bottom. */
+  pickerSlot?: HTMLElement | null;
+}) {
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
     // Push to talk is off unless chosen: Converse listens again after each answer.
     initialDriveState(readPref(PREFS.mode) === "push" ? "push" : "conversational", readPref(PREFS.followUp) === "1"),
@@ -591,28 +606,34 @@ export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; com
 
   return (
     <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Converse">
-      <header className="drive-bar">
-        {/* Push to talk on: tap, speak, tap Send. Off (the default): it listens again after each answer. */}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={state.mode === "push"}
-          className={`drive-push ${state.mode === "push" ? "is-on" : ""}`}
-          onClick={() => setMode(state.mode === "push" ? "conversational" : "push")}
-        >
-          <span className="switch" aria-hidden="true" />
-          Push to talk
-        </button>
-      </header>
+      {/* Push to talk on: tap, speak, tap Send. Off (the default): it listens again after each answer.
+          It sits in the chat box's row of buttons, beside Read aloud and Fold. */}
+      {(() => {
+        const pushSwitch = (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={state.mode === "push"}
+            className={`tool drive-push ${state.mode === "push" ? "is-on" : ""}`}
+            onClick={() => setMode(state.mode === "push" ? "conversational" : "push")}
+          >
+            <span className="switch" aria-hidden="true" />
+            Push to talk
+          </button>
+        );
+        return toolbar ? createPortal(pushSwitch, toolbar) : <header className="drive-bar">{pushSwitch}</header>;
+      })()}
 
-      {roles.length > 0 && (
-        <label className="drive-talkto">
-          <span>Talking to</span>
+      {/* Who it's talking to: in the chat box's own picker at the bottom (in place of Send to). */}
+      {(() => {
+        const picker = (
           <select
+            aria-label="Talking to"
+            title="Talking to"
             value={talkingTo ? `${talkingTo.vertical}/${talkingTo.role}` : ""}
             onChange={(e) => chooseRole(roles.find((r) => `${r.choice.vertical}/${r.choice.role}` === e.target.value)?.choice ?? null)}
           >
-            <option value="">Chief of Staff (hands it on)</option>
+            <option value="">Chief of Staff</option>
             {groupRoles(roles).map(([business, choices]) =>
               business ? (
                 <optgroup key={business} label={business}>
@@ -631,8 +652,9 @@ export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; com
               ),
             )}
           </select>
-        </label>
-      )}
+        );
+        return pickerSlot ? createPortal(picker, pickerSlot) : <label className="drive-talkto">{picker}</label>;
+      })()}
 
       <p className="drive-state" role="status" aria-live="polite" data-phase={state.phase}>
         {state.phase === "listening" && state.mode === "push" ? "Listening: tap Send when you're done" : PHASE_LABEL[state.phase]}

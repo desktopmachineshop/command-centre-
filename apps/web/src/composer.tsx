@@ -1,12 +1,4 @@
-import {
-  type ClipboardEvent,
-  type DragEvent,
-  type FormEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type ClipboardEvent, type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { Api, ChatFile } from "./api";
 import { formatBytes } from "./format";
 import { Icon } from "./icons";
@@ -31,15 +23,7 @@ import { Waveform } from "./voice/Waveform";
 /** Most files on one message (the server's limit). */
 export const MAX_FILES = 10;
 
-type Attachment = {
-  key: number;
-  name: string;
-  size: number;
-  state: "uploading" | "ready" | "failed";
-  file?: ChatFile;
-  error?: string;
-  abort: AbortController;
-};
+type Attachment = { key: number; name: string; size: number; state: "uploading" | "ready" | "failed"; file?: ChatFile; error?: string; abort: AbortController };
 
 /** Files a paste or drop carries; a paste of plain text has none. */
 export function filesOf(data: DataTransfer | null): File[] {
@@ -47,17 +31,13 @@ export function filesOf(data: DataTransfer | null): File[] {
   const files = [...(data.files ?? [])];
   if (files.length) return files;
   // Some browsers only list a pasted image under items.
-  return [...(data.items ?? [])]
-    .filter((i) => i.kind === "file")
-    .map((i) => i.getAsFile())
-    .filter((f): f is File => !!f);
+  return [...(data.items ?? [])].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter((f): f is File => !!f);
 }
 
 /** A name for a pasted image, which arrives as "image.png" (or with no name at all). */
 function named(file: File): File {
   if (file.name && file.name !== "image.png") return file;
-  const ext =
-    /^image\/(\w+)/.exec(file.type)?.[1]?.replace("jpeg", "jpg") ?? "bin";
+  const ext = /^image\/(\w+)/.exec(file.type)?.[1]?.replace("jpeg", "jpg") ?? "bin";
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   return new File([file], `pasted-${stamp}.${ext}`, { type: file.type });
 }
@@ -73,18 +53,14 @@ export function Composer({
   children,
   panel,
 }: {
-  api: Pick<Api, "voiceConfig" | "transcribe" | "voiceListenUrl" | "token"> &
-    Partial<Pick<Api, "uploadChatFile">>;
+  api: Pick<Api, "voiceConfig" | "transcribe" | "voiceListenUrl" | "token"> & Partial<Pick<Api, "uploadChatFile">>;
   value: string;
   onChange: (text: string) => void;
   /**
    * Called with the trimmed text and the uploaded files; the caller clears the box (or keeps it
    * on failure). Resolving to false (failed) keeps the attachments too.
    */
-  onSend: (
-    text: string,
-    files: ChatFile[],
-  ) => void | boolean | Promise<void | boolean>;
+  onSend: (text: string, files: ChatFile[]) => void | boolean | Promise<void | boolean>;
   /** The text box's accessible name. */
   label: string;
   placeholder: string;
@@ -93,8 +69,8 @@ export function Composer({
   /** Controls before the mic, e.g. the chat's "Send to" picker. */
   children?: ReactNode;
   /**
-   * Shown above the text box, growing into the space (Drive mode in the chat). While it's there
-   * the mic and the paperclip are off; everything else stays where it is.
+   * Shown above the text box, growing into the space (Converse in the chat). While it's there the
+   * mic and the paperclip are off; everything else stays where it is.
    */
   panel?: ReactNode;
 }) {
@@ -112,37 +88,21 @@ export function Composer({
   const live = useRef(attachments);
   live.current = attachments;
   // Uploads still running when the box goes away are abandoned.
-  useEffect(
-    () => () =>
-      live.current.forEach((a) => a.state === "uploading" && a.abort.abort()),
-    [],
-  );
+  useEffect(() => () => live.current.forEach((a) => a.state === "uploading" && a.abort.abort()), []);
 
-  const update = (key: number, patch: Partial<Attachment>) =>
-    setAttachments((as) =>
-      as.map((a) => (a.key === key ? { ...a, ...patch } : a)),
-    );
+  const update = (key: number, patch: Partial<Attachment>) => setAttachments((as) => as.map((a) => (a.key === key ? { ...a, ...patch } : a)));
   const attach = (files: File[]) => {
     if (!upload || !files.length) return;
     setFileError(null);
     const room = MAX_FILES - live.current.length;
-    if (files.length > room)
-      setFileError(`Up to ${MAX_FILES} files per message.`);
+    if (files.length > room) setFileError(`Up to ${MAX_FILES} files per message.`);
     for (const raw of files.slice(0, Math.max(0, room))) {
       const file = named(raw);
-      const a: Attachment = {
-        key: nextKey.current++,
-        name: file.name,
-        size: file.size,
-        state: "uploading",
-        abort: new AbortController(),
-      };
+      const a: Attachment = { key: nextKey.current++, name: file.name, size: file.size, state: "uploading", abort: new AbortController() };
       setAttachments((as) => [...as, a]);
       upload(file, a.abort.signal).then(
         (uploaded) => update(a.key, { state: "ready", file: uploaded }),
-        (err: Error) =>
-          !a.abort.signal.aborted &&
-          update(a.key, { state: "failed", error: err.message }),
+        (err: Error) => !a.abort.signal.aborted && update(a.key, { state: "failed", error: err.message }),
       );
     }
   };
@@ -167,8 +127,7 @@ export function Composer({
           setDragging(true);
         },
         onDragLeave: (e: DragEvent) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null))
-            setDragging(false);
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
         },
         onDrop: (e: DragEvent) => {
           setDragging(false);
@@ -203,36 +162,17 @@ export function Composer({
       return;
     }
     if (busy) return;
-    if (uploading)
-      return setFileError("Wait for the files to finish uploading, then send.");
-    if (attachments.some((a) => a.state === "failed"))
-      return setFileError(
-        "Remove the files that didn't upload (or attach them again), then send.",
-      );
+    if (uploading) return setFileError("Wait for the files to finish uploading, then send.");
+    if (attachments.some((a) => a.state === "failed")) return setFileError("Remove the files that didn't upload (or attach them again), then send.");
     const files = ready.map((a) => a.file!);
-    const text =
-      value.trim() ||
-      (files.length
-        ? `Have a look at the attached file${files.length === 1 ? "" : "s"}.`
-        : "");
+    const text = value.trim() || (files.length ? `Have a look at the attached file${files.length === 1 ? "" : "s"}.` : "");
     if (!text) return;
     setFileError(null);
     void Promise.resolve(onSend(text, files)).then((ok) => {
-      if (ok !== false && files.length)
-        setAttachments((as) =>
-          as.filter((a) => !a.file || !files.includes(a.file)),
-        );
+      if (ok !== false && files.length) setAttachments((as) => as.filter((a) => !a.file || !files.includes(a.file)));
     });
   };
-  const classes = [
-    "composer",
-    dictation.available ? "has-mic" : "",
-    dictation.listening ? "is-recording" : "",
-    upload ? "has-attach" : "",
-    attachments.length ? "has-files" : "",
-    dragging ? "is-dragging" : "",
-    className,
-  ];
+  const classes = ["composer", dictation.available ? "has-mic" : "", dictation.listening ? "is-recording" : "", upload ? "has-attach" : "", attachments.length ? "has-files" : "", dragging ? "is-dragging" : "", className];
 
   const textBox = (
     <textarea
@@ -255,38 +195,17 @@ export function Composer({
     <>
       {dictation.error && <ErrorBanner>{dictation.error}</ErrorBanner>}
       {fileError && <ErrorBanner>{fileError}</ErrorBanner>}
-      <form
-        ref={formRef}
-        className={classes.filter(Boolean).join(" ")}
-        onSubmit={submit}
-        {...dropProps}
-      >
+      <form ref={formRef} className={classes.filter(Boolean).join(" ")} onSubmit={submit} {...dropProps}>
         {attachments.length > 0 && (
           <ul className="composer-files" aria-label="Attached files">
             {attachments.map((a) => (
-              <li
-                key={a.key}
-                className={`file-chip is-${a.state}`}
-                title={a.error ?? a.name}
-              >
-                <Icon
-                  name={a.state === "failed" ? "alert" : "file"}
-                  size={14}
-                />
+              <li key={a.key} className={`file-chip is-${a.state}`} title={a.error ?? a.name}>
+                <Icon name={a.state === "failed" ? "alert" : "file"} size={14} />
                 <span className="file-name">{a.name}</span>
                 <span className="file-size small muted">
-                  {a.state === "uploading"
-                    ? "uploading…"
-                    : a.state === "failed"
-                      ? "didn't upload"
-                      : formatBytes(a.size)}
+                  {a.state === "uploading" ? "uploading…" : a.state === "failed" ? "didn't upload" : formatBytes(a.size)}
                 </span>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => remove(a)}
-                  aria-label={`Remove ${a.name}`}
-                >
+                <button type="button" className="ghost" onClick={() => remove(a)} aria-label={`Remove ${a.name}`}>
                   <Icon name="x" size={14} />
                 </button>
               </li>
@@ -295,7 +214,7 @@ export function Composer({
         )}
         {children}
         {panel ? (
-          // Drive mode: the panel grows above the text box, which stays on the bottom rows.
+          // Converse: the panel grows above the text box, which stays on the bottom rows.
           <div className="composer-main">
             <div className="composer-panel">{panel}</div>
             {textBox}
@@ -329,13 +248,7 @@ export function Composer({
         )}
         {dictation.listening && (
           <div className="dictation-bar" role="group" aria-label="Dictating">
-            <button
-              type="button"
-              className="dictation-cancel"
-              onClick={dictation.cancel}
-              aria-label="Cancel dictation"
-              title="Cancel: discard what was said"
-            >
+            <button type="button" className="dictation-cancel" onClick={dictation.cancel} aria-label="Cancel dictation" title="Cancel: discard what was said">
               <Icon name="x" size={16} />
             </button>
             <Waveform source={dictation.level} className="dictation-wave" />
@@ -353,11 +266,7 @@ export function Composer({
             aria-pressed={dictation.listening}
             data-help-key="chat.dictate"
             aria-label={dictation.listening ? "Done dictating" : "Dictate"}
-            title={
-              dictation.listening
-                ? "Done: keep what was said"
-                : "Dictate: talk instead of typing"
-            }
+            title={dictation.listening ? "Done: keep what was said" : "Dictate: talk instead of typing"}
           >
             <Icon name={dictation.listening ? "check" : "mic"} size={16} />
           </button>
@@ -372,26 +281,13 @@ export function Composer({
 }
 
 /** The files attached to a chat message (the event's `files`, see the server's chat-files.ts). */
-export function chatFilesOf(
-  payload: Record<string, unknown> | null | undefined,
-): ChatFile[] {
+export function chatFilesOf(payload: Record<string, unknown> | null | undefined): ChatFile[] {
   const files = payload?.files;
-  return Array.isArray(files)
-    ? files.filter(
-        (f): f is ChatFile =>
-          !!f &&
-          typeof f === "object" &&
-          typeof (f as ChatFile).name === "string",
-      )
-    : [];
+  return Array.isArray(files) ? files.filter((f): f is ChatFile => !!f && typeof f === "object" && typeof (f as ChatFile).name === "string") : [];
 }
 
 /** Names and sizes of attached files, as chips. */
-export function AttachedFiles({
-  files,
-}: {
-  files: Pick<ChatFile, "name" | "size">[];
-}) {
+export function AttachedFiles({ files }: { files: Pick<ChatFile, "name" | "size">[] }) {
   if (!files.length) return null;
   return (
     <ul className="attached-files" aria-label="Attached files">
@@ -413,10 +309,7 @@ function useElapsed(running: boolean): string {
     if (!running) return;
     const started = Date.now();
     setSeconds(0);
-    const t = setInterval(
-      () => setSeconds(Math.floor((Date.now() - started) / 1000)),
-      250,
-    );
+    const t = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 250);
     return () => clearInterval(t);
   }, [running]);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;

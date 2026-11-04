@@ -2708,21 +2708,29 @@ a.stat:hover {
   align-items: center;
   gap: 8px;
 }
-/* Push to talk: one on/off switch (off by default, when Converse keeps listening). */
-.drive .drive-push {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 14px 6px 8px;
-  background: var(--surface-2);
-  color: var(--text);
+/*
+ * Push to talk: one on/off switch (off by default, when Converse keeps listening), in the chat
+ * box's row of buttons beside Read aloud and Fold (a tool button with a small switch in it).
+ */
+.composer-tools-slot {
+  display: contents;
+}
+/* Converse's Talking to picker takes the place of the chat box's Send to. */
+.composer-picker-slot {
+  grid-area: select;
+  display: flex;
+  min-width: 0;
+}
+.composer .composer-tools .drive-push {
+  gap: 7px;
+  padding-left: 6px;
 }
 .drive-push .switch {
   position: relative;
-  width: 34px;
-  height: 20px;
+  width: 28px;
+  height: 16px;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--border-strong);
   transition: background 150ms ease;
 }
@@ -2731,8 +2739,8 @@ a.stat:hover {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #fff;
   box-shadow: var(--shadow-1);
@@ -2742,7 +2750,7 @@ a.stat:hover {
   background: var(--accent-solid);
 }
 .drive-push.is-on .switch::after {
-  transform: translateX(14px);
+  transform: translateX(12px);
 }
 @media (prefers-reduced-motion: reduce) {
   .drive-push .switch,
