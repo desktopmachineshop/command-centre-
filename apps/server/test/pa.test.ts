@@ -18,6 +18,10 @@ function fakeGoogle() {
         items: [{ id: "ev1", summary: "School run", start: { dateTime: `${url.searchParams.get("timeMin")!.slice(0, 10)}T08:15:00Z` }, end: { dateTime: `${url.searchParams.get("timeMin")!.slice(0, 10)}T08:45:00Z` } }],
       });
     }
+    if (url.hostname === "people.googleapis.com" && url.pathname === "/v1/people:searchContacts") {
+      const q = url.searchParams.get("query");
+      return json(200, q ? { results: [{ person: { resourceName: "people/c1", names: [{ displayName: "Steve Smith" }], phoneNumbers: [{ value: "07700 900123", type: "mobile" }] } }] } : {});
+    }
     return json(404, { error: { code: 404, message: "Not Found" } });
   };
   return { fetch, calls };
@@ -176,6 +180,33 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     expect((await patch({ recurrence: "fortnightly" })).status).toBe(400);
     await ctx.api(`/api/pa/reminders/${id}`, { method: "DELETE" });
     expect((await patch({ text: "too late" })).status).toBe(409);
+  });
+
+  it("keeps a number to call on a reminder and links its push to the Call prompt", async () => {
+    const created = (await ctx.api("/api/pa/reminders", { method: "POST", json: { text: "Call Steve", due: "2026-01-01T08:00", phone: "07700 900123" } })).body;
+    expect(created).toMatchObject({ phone: "07700 900123" });
+    expect((await ctx.api(`/api/pa/reminders/${created.id}`)).body).toMatchObject({ id: created.id, phone: "07700 900123" });
+    expect((await ctx.api("/api/pa/reminders", { method: "POST", json: { text: "x", due: "2030-01-01T08:00", phone: "Steve" } })).status).toBe(400);
+
+    await ctx.server.deliverReminders();
+    const push = ctx.notifier.sent.find((n) => n.body.startsWith("Call Steve")) as any;
+    expect(push).toMatchObject({ url: `/today?call=${created.id}` });
+    expect(push.body).toContain("Tap to call 07700 900123");
+
+    const patch = (json: unknown) => ctx.api(`/api/pa/reminders/${created.id}`, { method: "PATCH", json });
+    expect((await patch({ phone: "+44 161 496 0000" })).body).toMatchObject({ phone: "+44 161 496 0000", text: "Call Steve" });
+    expect((await patch({ phone: "nope" })).status).toBe(400);
+    expect((await patch({ phone: null })).body).toMatchObject({ phone: null });
+    expect((await ctx.api("/api/pa/reminders/00000000-0000-0000-0000-000000000000")).status).toBe(404);
+  });
+
+  it("looks numbers up in Google Contacts for the reminder editor", async () => {
+    const r = (await ctx.api("/api/pa/contacts?q=steve")).body;
+    expect(r).toMatchObject({ configured: true, errors: [], contacts: [{ id: "people/c1", name: "Steve Smith", phones: [{ value: "07700 900123", type: "mobile" }] }] });
+    expect((await ctx.api("/api/pa/contacts")).status).toBe(400);
+    // The one Google sign-in asks for contacts too.
+    const { GOOGLE_SIGNIN_SCOPES } = await import("../src/integrations/oauth/google");
+    expect(GOOGLE_SIGNIN_SCOPES).toContain("https://www.googleapis.com/auth/contacts");
   });
 
   it("Done on a recurring reminder's push acknowledges this occurrence, not the series", async () => {

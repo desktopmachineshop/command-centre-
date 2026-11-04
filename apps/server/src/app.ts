@@ -8,7 +8,7 @@ import { ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
 import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
-import { CalendarService, createCalendarExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
+import { CalendarService, ContactsService, createCalendarExecutors, createContactsExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
 import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
@@ -395,7 +395,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           },
         })
       : null;
-    return { service, executors: service ? createCalendarExecutors(service) : {} };
+    // Contacts use the same Google sign-ins (People API); writes are direct for trusted tasks, contacts.* proposals otherwise.
+    const contacts = c.pa.calendarAccounts.length ? new ContactsService(c.pa.calendarAccounts, { fetch: overrides.calendarFetch }) : null;
+    return { service, contacts, executors: { ...(service ? createCalendarExecutors(service) : {}), ...(contacts ? createContactsExecutors(contacts) : {}) } };
   };
   const calendar = new Live(buildCalendar(config));
   const paSigningSecret = createHash("sha256").update(`pa-push:${config.adminToken}`).digest("hex");
@@ -404,7 +406,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       notifier.notify({
         title,
         body,
-        url: "/today",
+        // With a number to call, tapping the notification opens the Call prompt on the Today page.
+        url: reminder.phone ? `/today?call=${reminder.id}` : "/today",
         category: "reminder",
         priority: "high",
         vertical: reminder.vertical,
@@ -480,6 +483,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     createPaMcpServer({
       store: paStore,
       calendar: calendar.current.service,
+      contacts: calendar.current.contacts,
       timeZone: config.timezone,
       caller:
         caller.kind === "admin"
@@ -665,6 +669,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     store: paStore,
     get calendar() {
       return calendar.current.service;
+    },
+    get contacts() {
+      return calendar.current.contacts;
     },
     timeZone: config.timezone,
     signingSecret: paSigningSecret,

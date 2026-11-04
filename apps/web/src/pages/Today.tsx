@@ -1,7 +1,7 @@
-import { type FormEvent, useState } from "react";
-import type { Api, CalendarEvent, Reminder, TodayView, TodoItem, TodoList } from "../api";
+import { type FormEvent, useEffect, useState } from "react";
+import type { Api, CalendarEvent, Contact, Reminder, TodayView, TodoItem, TodoList } from "../api";
 import { type LiveFeed, useLoad } from "../live";
-import { go } from "../router";
+import { go, useRouteQuery } from "../router";
 import { Dialog } from "../ui";
 
 const TZ = "Europe/London";
@@ -10,6 +10,11 @@ const when = (iso: string) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
 const dayTitle = (day: string) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" }).format(new Date(`${day}T12:00:00Z`));
 const shiftDay = (day: string, n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+/** A `tel:` link for a number as typed: digits, a leading + kept, a "+44 (0)…" zero dropped (as @cc/pa telHref). */
+export const telHref = (phone: string) => {
+  const intl = phone.trim().startsWith("+");
+  return `tel:${intl ? "+" : ""}${(intl ? phone.replace(/\(0\)/g, "") : phone).replace(/\D/g, "")}`;
+};
 
 /** Today: the agenda, reminders due and to-do lists, with a quick-add box that asks the assistant. */
 export function Today({ api, feed }: { api: Api; feed: LiveFeed }) {
@@ -47,6 +52,7 @@ export function Today({ api, feed }: { api: Api; feed: LiveFeed }) {
         <>
           <Agenda view={data} />
           <Reminders reminders={data.reminders} upcoming={data.upcoming} run={run} api={api} />
+          <CallPrompt run={run} api={api} />
           <Lists lists={data.lists} run={run} api={api} />
         </>
       )}
@@ -149,7 +155,7 @@ function Reminders({ reminders, upcoming, run, api }: { reminders: Reminder[]; u
       {reminders.length === 0 && <p className="muted">None due.</p>}
       <ul className="list">
         {reminders.map((r) => (
-          <li key={r.id} className="item row wrap">
+          <li key={r.id} className="item row wrap reminder-row">
             <span className="grow">
               {r.text}
               <span className="muted small">
@@ -157,9 +163,15 @@ function Reminders({ reminders, upcoming, run, api }: { reminders: Reminder[]; u
                 · {when(r.snoozedUntil ?? r.dueAt)}
                 {r.recurrence ? ` · ${repeatLabel(r.recurrence)}` : ""}
                 {r.status === "sent" ? " · sent" : ""}
+                {r.phone ? ` · ${r.phone}` : ""}
               </span>
             </span>
             <span className="row">
+              {r.phone && (
+                <a className="button-link" href={telHref(r.phone)} aria-label={`Call ${r.phone}`}>
+                  Call
+                </a>
+              )}
               <button className="ghost" onClick={() => setEditing(r)}>
                 Edit
               </button>
@@ -250,6 +262,7 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
   const [text, setText] = useState(reminder?.text ?? "");
   const [due, setDue] = useState(() => localInput(reminder?.dueAt ?? new Date(Date.now() + 3_600_000).toISOString()));
   const [repeat, setRepeat] = useState<Repeat>(() => repeatOf(reminder?.recurrence ?? null));
+  const [phone, setPhone] = useState(reminder?.phone ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -284,10 +297,11 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
     e.preventDefault();
     if (repeat.kind === "weekly" && !repeat.days.length) return setError("Pick at least one day.");
     const rec = recurrence();
-    if (!reminder) return void act(() => api.addReminder({ text: text.trim(), due, recurrence: rec === "none" ? null : rec }));
+    if (!reminder) return void act(() => api.addReminder({ text: text.trim(), due, recurrence: rec === "none" ? null : rec, phone: phone.trim() || null }));
     // Send only what changed: a text-only edit keeps the schedule (and any snooze) as it is.
-    const change: { text?: string; due?: string; recurrence?: string } = {};
+    const change: { text?: string; due?: string; recurrence?: string; phone?: string | null } = {};
     if (text.trim() !== reminder.text) change.text = text.trim();
+    if (phone.trim() !== (reminder.phone ?? "")) change.phone = phone.trim() || null;
     if (due !== initial.due) change.due = due;
     if (rec !== initial.recurrence) change.recurrence = rec;
     if (!Object.keys(change).length) return close();
@@ -351,8 +365,128 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
             ))}
           </div>
         )}
+        <label className="field">
+          <span>Number to call (optional)</span>
+          <input type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} placeholder="07700 900123" />
+          <span className="muted small">The notification and this page then offer a Call button.</span>
+        </label>
+        <ContactPicker api={api} pick={(number, name) => {
+          setPhone(number);
+          if (!text.trim()) setText(`Call ${name}`);
+        }} />
         {error && <p className="error">{error}</p>}
       </form>
+    </Dialog>
+  );
+}
+
+/** Finds a number in Google Contacts for the reminder. Adding or changing contacts goes through the assistant. */
+function ContactPicker({ api, pick }: { api: Api; pick: (phone: string, name: string) => void }) {
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState<Contact[] | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const search = async () => {
+    if (!q.trim()) return;
+    setNote(null);
+    try {
+      const r = await api.searchContacts(q.trim());
+      if (!r.configured) setNote("No Google account is connected. Connect one in Accounts to look up numbers.");
+      else if (r.errors.length && !r.contacts.length) setNote(r.errors.join(" "));
+      setFound(r.contacts.filter((c) => c.phones.length));
+    } catch (err) {
+      setNote((err as Error).message);
+    }
+  };
+  return (
+    <div className="field">
+      <span>Find a number in Google Contacts</span>
+      <span className="row">
+        <input
+          className="grow"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void search();
+            }
+          }}
+          placeholder="Name, company or number"
+          aria-label="Search contacts"
+        />
+        <button type="button" onClick={() => void search()} disabled={!q.trim()}>
+          Search
+        </button>
+      </span>
+      {note && <p className="muted small">{note}</p>}
+      {found && !found.length && !note && <p className="muted small">No contact with a phone number matches.</p>}
+      {found && found.length > 0 && (
+        <ul className="list small">
+          {found.flatMap((c) =>
+            c.phones.map((p) => (
+              <li key={`${c.id}/${p.value}`} className="row between">
+                <span>
+                  {c.name}
+                  {c.company && <span className="muted"> · {c.company}</span>}
+                  <span className="muted">
+                    {" "}
+                    · {p.type ? `${p.type} ` : ""}
+                    {p.value}
+                  </span>
+                </span>
+                <button type="button" className="link" onClick={() => pick(p.value, c.name)}>
+                  Use
+                </button>
+              </li>
+            )),
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Opened from a reminder notification with a number (`#/today?call=<id>`): one tap
+ * opens the phone's dialler. Browsers only open the dialler from a tap, so the
+ * notification can't dial by itself.
+ */
+function CallPrompt({ run, api }: { run: (fn: () => Promise<unknown>) => void; api: Api }) {
+  const id = useRouteQuery().get("call");
+  const [r, setR] = useState<Reminder | null>(null);
+  useEffect(() => {
+    setR(null);
+    if (id) api.getReminder(id).then(setR, () => setR(null));
+  }, [id]);
+  if (!id || r?.id !== id || !r.phone) return null;
+  const close = () => go("today");
+  // Done ends a one-off; a repeating reminder's next occurrence is already scheduled, so it only closes.
+  const open = r.status === "pending" || r.status === "sent";
+  return (
+    <Dialog
+      title={r.text}
+      onClose={close}
+      footer={
+        <div className="row between">
+          <button type="button" className="ghost" onClick={close}>
+            Not now
+          </button>
+          {open && !r.recurrence && (
+            <button type="button" onClick={() => run(async () => {
+              await api.completeReminder(r.id);
+              close();
+            })}>
+              Mark done
+            </button>
+          )}
+        </div>
+      }
+    >
+      <p>
+        <a className="button-link primary call-button" href={telHref(r.phone)}>
+          Call {r.phone}
+        </a>
+      </p>
     </Dialog>
   );
 }

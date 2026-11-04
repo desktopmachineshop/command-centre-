@@ -3,8 +3,8 @@
  *
  *   GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... pnpm --filter @cc/pa google:auth [--scopes calendar.events,drive.file]
  *
- * By default it asks for the calendar scopes plus drive.file, so the one
- * refresh token (GOOGLE_REFRESH_TOKEN) serves Calendar and Drive storage.
+ * By default it asks for the calendar scopes, contacts and drive.file, so the one
+ * refresh token (GOOGLE_REFRESH_TOKEN) serves Calendar, Contacts and Drive storage.
  * It listens on a random 127.0.0.1 port, opens Google's consent page, takes the
  * code Google redirects back with, exchanges it (with PKCE), and prints the
  * refresh token, the calendars the account can see, and a ready CALENDAR_ACCOUNTS entry.

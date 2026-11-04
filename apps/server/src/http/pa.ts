@@ -4,6 +4,7 @@ import {
   buildToday,
   changeReminder,
   type CalendarService,
+  type ContactsService,
   isDate,
   type PgPaStore,
   RecurrenceError,
@@ -16,6 +17,8 @@ export interface PaApiDeps {
   store: PgPaStore;
   /** Read per request (a getter in app.ts): the Accounts page can connect or swap the calendar live. */
   calendar: CalendarService | null;
+  /** Google Contacts (same Google sign-ins as the calendar), or null. Read per request too. */
+  contacts?: ContactsService | null;
   timeZone: string;
   /** Signs reminder notification buttons; derived from the admin token. */
   signingSecret: string;
@@ -98,6 +101,8 @@ export function paPushRoutes(deps: PaApiDeps) {
 }
 
 const Vertical = z.string().min(1).default("personal");
+/** Input errors from @cc/pa that are the caller's to fix (a 400, not a 500). */
+const BAD_INPUT = /date-time|empty|not a phone number/;
 const ItemInput = z.object({ text: z.string().trim().min(1).max(500), due: z.string().refine(isDate, "YYYY-MM-DD").nullable().optional() });
 
 /** Admin API for the Today page (mounted under /api after the admin check). */
@@ -120,26 +125,37 @@ export function paApiRoutes(deps: PaApiDeps) {
     const statuses = status === "open" ? (["pending", "sent"] as const) : status === "done" ? (["done"] as const) : (["pending", "sent", "done", "cancelled"] as const);
     return c.json(await store.listReminders({ statuses: [...statuses], vertical: c.req.query("vertical") || undefined }));
   });
+  app.get("/pa/reminders/:id", async (c) => {
+    const r = await store.getReminder(c.req.param("id"));
+    return r ? c.json(r) : c.json(notFound, 404);
+  });
   app.post("/pa/reminders", async (c) => {
-    const body = z.object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().nullable().optional(), vertical: Vertical }).parse(await c.req.json());
+    const body = z
+      .object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().nullable().optional(), phone: z.string().max(40).nullable().optional(), vertical: Vertical })
+      .parse(await c.req.json());
     try {
       return c.json(await addReminder(store, body, { vertical: body.vertical, createdBy: "dave", timeZone, now: now() }), 201);
     } catch (err) {
-      if (err instanceof RecurrenceError || /date-time|empty/.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
+      if (err instanceof RecurrenceError || BAD_INPUT.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
       throw err;
     }
   });
-  /** Edit an open reminder: any of text, due (local YYYY-MM-DDTHH:MM) and recurrence ("none" makes it a one-off). */
+  /** Edit an open reminder: any of text, due (local YYYY-MM-DDTHH:MM), recurrence ("none" makes it a one-off) and phone (null removes it). */
   app.patch("/pa/reminders/:id", async (c) => {
     const body = z
-      .object({ text: z.string().trim().min(1).max(500).optional(), due: z.string().min(1).optional(), recurrence: z.string().nullable().optional() })
-      .refine((b) => b.text !== undefined || b.due !== undefined || b.recurrence !== undefined, "give text, due or recurrence")
+      .object({
+        text: z.string().trim().min(1).max(500).optional(),
+        due: z.string().min(1).optional(),
+        recurrence: z.string().nullable().optional(),
+        phone: z.string().max(40).nullable().optional(),
+      })
+      .refine((b) => b.text !== undefined || b.due !== undefined || b.recurrence !== undefined || b.phone !== undefined, "give text, due, recurrence or phone")
       .parse(await c.req.json());
     try {
       const r = await changeReminder(store, c.req.param("id"), body, { now: now() });
       return r ? c.json(r) : c.json({ error: "reminder is not open" }, 409);
     } catch (err) {
-      if (err instanceof RecurrenceError || /date-time|empty/.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
+      if (err instanceof RecurrenceError || BAD_INPUT.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
       throw err;
     }
   });
@@ -157,6 +173,16 @@ export function paApiRoutes(deps: PaApiDeps) {
   app.delete("/pa/reminders/:id", async (c) => {
     const r = await store.cancelReminder(c.req.param("id"));
     return r ? c.json(r) : c.json({ error: "reminder is not open" }, 409);
+  });
+
+  // --- Contacts: the reminder editor's "find a number" (writes go through the assistant) ---
+  app.get("/pa/contacts", async (c) => {
+    const q = (c.req.query("q") ?? "").trim();
+    if (!q) return c.json({ error: "q is required" }, 400);
+    const contacts = deps.contacts;
+    if (!contacts?.configured) return c.json({ configured: false, contacts: [], errors: [] });
+    const { contacts: found, errors } = await contacts.search(q, { limit: 10 });
+    return c.json({ configured: true, contacts: found, errors });
   });
 
   // --- Lists ---

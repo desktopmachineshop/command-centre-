@@ -217,7 +217,7 @@ export const CATALOG: readonly KindDef[] = [
     kind: "google",
     label: "Google account",
     section: "google",
-    description: "Calendar for the personal assistant, and Drive for large files (only files the app creates).",
+    description: "Calendar and contacts for the personal assistant, and Drive for large files (only files the app creates).",
     multi: true,
     oauth: "google",
     needsApp: "google-app",

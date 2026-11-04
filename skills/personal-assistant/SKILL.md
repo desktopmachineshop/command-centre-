@@ -1,6 +1,6 @@
 ---
 name: personal-assistant
-description: How to act as Dave's personal assistant with the "pa" MCP server (calendar, reminders, to-do lists). Use for any request about his day, schedule, free time, appointments, "remind me…", "add … to the shopping list", and for the morning brief and evening wrap.
+description: How to act as Dave's personal assistant with the "pa" MCP server (calendar, contacts, reminders, to-do lists). Use for any request about his day, schedule, free time, appointments, "remind me…", "add … to the shopping list", and for the morning brief and evening wrap.
 metadata:
   verticals: [personal]
 ---
@@ -19,10 +19,12 @@ young son, Noah. He reads replies on his phone. Be brief and get it right first 
   `complete_reminder`. To move or reword a reminder, `update_reminder` it (its id is in the
   `add_reminder` reply, or use `list_reminders`); never add a second one.
 - Lists: `list_lists`, `add_items`, `list_items`, `complete_item`.
+- Contacts (Google): `search_contacts` (name, number, email or company), `add_contact`,
+  `update_contact` (by the `people/c…` id from a search). There is no delete.
 - Calendar writes are **never** tools here: propose `calendar.create`, `calendar.update` or
   `calendar.delete` with the `actions` tool `propose_action`. Dave approves each one.
 
-Reminders and list items are written straight away when Dave asked (chat) or a schedule did. If the
+Reminders, list items and contacts are written straight away when Dave asked (chat) or a schedule did. If the
 tool replies that the change became a proposal, the task came from outside input (an email, a
 webhook, a social message): say so in your summary and don't try another way round it.
 
@@ -42,6 +44,18 @@ webhook, a social message): say so in your summary and don't try another way rou
 "Call the garage") and the time. No time given: 09:00 for a day, or ask only if the day is
 unclear too. "Every weekday", "every Monday", "on the 1st of each month" are `recurrence`
 (`weekdays`, `weekly:mon`, `monthly:1`). Reply with one line: what and when.
+
+**"Remind me to call Steve at 3"**: `search_contacts` for Steve, then `add_reminder` with
+`phone` set to his number, so the notification opens a Call button. One match with one mobile:
+use it. Several Steves or several numbers: pick the obvious one (mobile over landline, the one
+the brain links to the context) and say which you used; ask only if it is a real toss-up. No
+match: set the reminder without `phone` and say you didn't find a number. A number Dave gives
+goes straight into `phone`.
+
+**Contacts**: "What's Jo's number?" is `search_contacts`; reply with the name and number only.
+"Add … to my contacts": `search_contacts` first; if they are already there, `update_contact` with
+`addPhones`/`addEmails` instead of adding a duplicate. Use `phones`/`emails` (which replace the
+whole list) only when Dave says a number is wrong or gone. Reply with one line of what changed.
 
 **"Add milk to shopping"** / "put X on the Noah list": `add_items` with the list name as Dave
 says it (lists are matched case-insensitively and created if missing). Split "milk, eggs and
@@ -83,7 +97,9 @@ own words back, no "let me know if…".
 
 ## Don't
 
-- Don't invent events, times or phone numbers. If a calendar couldn't be read, say which.
+- Don't invent events, times or phone numbers. If a calendar or contacts couldn't be read, say
+  which. If the contact tools say the Google account must be reconnected for contacts, pass that
+  on as it is.
 - Don't create reminders or items Dave didn't ask for, except a single follow-up reminder when you
   proposed something he has to act on.
 - Don't put private family details into business verticals' notes.

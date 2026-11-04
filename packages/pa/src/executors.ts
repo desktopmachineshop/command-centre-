@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { CalendarService } from "./calendar/service";
 import type { EventInput, EventPatch, EventReminder } from "./calendar/types";
-import { addReminder, changeReminder, describeReminder } from "./reminders";
+import type { ContactChange, ContactInput } from "./contacts/google";
+import { type ContactsService, describeContact } from "./contacts/service";
+import { addReminder, changeReminder, describeReminder, normalisePhone } from "./reminders";
 import type { PgPaStore } from "./store";
 import { addDays, formatUk, isDate, parseInstant } from "./time";
 
@@ -159,8 +161,107 @@ export function createCalendarExecutors(calendar: CalendarService): Record<strin
   };
 }
 
-const ReminderAdd = z.object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().optional().nullable() });
-const ReminderUpdate = z.object({ id: z.string().min(1), text: z.string().optional(), due: z.string().optional(), recurrence: z.string().optional().nullable() });
+// --- Contacts ---
+
+const ContactValue = z.union([z.string().min(1), z.object({ value: z.string().min(1), type: z.string().optional().describe("mobile, home, work, other…") })]);
+const ContactValues = z.array(ContactValue).max(10);
+const Account = z.string().optional().describe("Google account id; default: this vertical's (Dave's) own");
+
+/** add_contact's arguments, and the contacts.create payload. */
+export const ContactCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  phones: ContactValues.optional(),
+  emails: ContactValues.optional(),
+  company: z.string().max(200).optional(),
+  notes: z.string().max(2000).optional(),
+  account: Account,
+});
+
+/** update_contact's arguments, and the contacts.update payload. */
+export const ContactChangeSchema = z.object({
+  id: z.string().min(1).describe("people/c… from search_contacts"),
+  account: Account,
+  name: z.string().min(1).max(200).optional(),
+  phones: ContactValues.optional().describe("Replaces every number"),
+  addPhones: ContactValues.optional().describe("Added to the numbers already there"),
+  emails: ContactValues.optional().describe("Replaces every address"),
+  addEmails: ContactValues.optional().describe("Added to the addresses already there"),
+  company: z.string().max(200).optional(),
+  notes: z.string().max(2000).optional(),
+});
+
+type Values = z.infer<typeof ContactValues>;
+const phonesOf = (list: Values | undefined) =>
+  list?.map((v) => {
+    const { value, type } = typeof v === "string" ? { value: v, type: undefined } : v;
+    return { value: normalisePhone(value) ?? value, type: type ?? null };
+  });
+const emailsOf = (list: Values | undefined) =>
+  list?.map((v) => {
+    const { value, type } = typeof v === "string" ? { value: v, type: undefined } : v;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) throw new Error(`"${value}" is not an email address`);
+    return { value: value.trim(), type: type ?? null };
+  });
+const defined = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+
+/** Checked contact fields from add_contact's arguments; throws a readable error for a bad number or address. */
+export function contactInputOf(p: z.infer<typeof ContactCreateSchema>): ContactInput {
+  return defined({ name: p.name.trim(), phones: phonesOf(p.phones), emails: emailsOf(p.emails), company: p.company, notes: p.notes });
+}
+
+/** The change in update_contact's arguments (only what was given). */
+export function contactChangeOf(p: z.infer<typeof ContactChangeSchema>): ContactChange {
+  return defined({
+    name: p.name?.trim(),
+    phones: phonesOf(p.phones),
+    addPhones: phonesOf(p.addPhones),
+    emails: emailsOf(p.emails),
+    addEmails: emailsOf(p.addEmails),
+    company: p.company,
+    notes: p.notes,
+  });
+}
+
+/**
+ * contacts.create / contacts.update: proposed when a task started by outside
+ * input asks to change Dave's contacts (trusted tasks use the pa tools directly).
+ */
+export function createContactsExecutors(contacts: ContactsService): Record<string, PaActionExecutor> {
+  return {
+    "contacts.create": {
+      description:
+        "Add a Google contact (only needed when the pa tools say a proposal is required). payload: { name, phones?: [string | {value, type}], emails?, company?, notes?, account? }",
+      validate(payload) {
+        contactInputOf(parse(ContactCreateSchema, payload));
+      },
+      async execute(payload, { vertical }) {
+        const p = parse(ContactCreateSchema, payload);
+        return describeContact(await contacts.create(contactInputOf(p), { vertical, accountId: p.account }));
+      },
+    },
+    "contacts.update": {
+      description:
+        "Change a Google contact. payload: { id (people/c…), account?, and any of: name, phones, addPhones, emails, addEmails, company, notes }",
+      validate(payload) {
+        const change = contactChangeOf(parse(ContactChangeSchema, payload));
+        if (!Object.keys(change).length) throw new Error("nothing to change");
+      },
+      async execute(payload, { vertical }) {
+        const p = parse(ContactChangeSchema, payload);
+        return describeContact(await contacts.update(p.id, contactChangeOf(p), { vertical, accountId: p.account }));
+      },
+    },
+  };
+}
+
+const ReminderAdd = z.object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().optional().nullable(), phone: z.string().optional().nullable() });
+const ReminderUpdate = z.object({
+  id: z.string().min(1),
+  text: z.string().optional(),
+  due: z.string().optional(),
+  recurrence: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+});
 const ById = z.object({ id: z.string().min(1) });
 const ItemsAdd = z.object({
   list: z.string().min(1),
@@ -176,7 +277,7 @@ export function createPaExecutors(store: PgPaStore, options: { timeZone: string;
   const vertical = (ctx: { vertical?: string }) => ctx.vertical ?? "personal";
   return {
     "pa.reminder.add": {
-      description: "Add a reminder (only needed when the pa tools say a proposal is required). payload: { text, due, recurrence? }",
+      description: "Add a reminder (only needed when the pa tools say a proposal is required). payload: { text, due, recurrence?, phone? (a number to call) }",
       validate(payload) {
         parse(ReminderAdd, payload);
       },
@@ -198,7 +299,7 @@ export function createPaExecutors(store: PgPaStore, options: { timeZone: string;
       },
     },
     "pa.reminder.update": {
-      description: "Change a reminder's text, time or recurrence. payload: { id, text?, due?, recurrence? (\"none\" for a one-off) }",
+      description: "Change a reminder's text, time, recurrence or number to call. payload: { id, text?, due?, recurrence? (\"none\" for a one-off), phone? (\"\" removes it) }",
       validate(payload) {
         parse(ReminderUpdate, payload);
       },

@@ -2,7 +2,21 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type pg from "pg";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { CalendarService, createPaExecutors, createPaMcpServer, deliverDueReminders, type PaCaller, parseCalendarAccounts, type PgPaStore, resolveDay } from "../src";
+import {
+  CalendarService,
+  type Contact,
+  type ContactChange,
+  type ContactInput,
+  ContactsService,
+  createContactsExecutors,
+  createPaExecutors,
+  createPaMcpServer,
+  deliverDueReminders,
+  type PaCaller,
+  parseCalendarAccounts,
+  type PgPaStore,
+  resolveDay,
+} from "../src";
 import { DB_URL, freshStore } from "./db";
 import { FakeGoogle } from "./fake-google";
 
@@ -42,10 +56,43 @@ describe("resolveDay", () => {
   });
 });
 
+/** An in-memory address book behind the ContactsService, recording writes. */
+function addressBook() {
+  const book = new Map<string, Contact>([
+    ["people/c1", { accountId: "google", id: "people/c1", name: "Steve Smith", phones: [{ value: "07700 900123", type: "mobile" }], emails: [], company: "Smith Motors", notes: null }],
+  ]);
+  const writes: string[] = [];
+  const provider = {
+    accountId: "google",
+    search: async (q: string) => [...book.values()].filter((c) => `${c.name} ${c.company} ${c.phones.map((p) => p.value).join(" ")}`.toLowerCase().includes(q.toLowerCase())),
+    get: async (id: string) => {
+      const c = book.get(id);
+      if (!c) throw new Error(`No contact with that id`);
+      return c;
+    },
+    create: async (input: ContactInput) => {
+      const c: Contact = { accountId: "google", id: `people/c${book.size + 1}`, name: input.name!, phones: (input.phones ?? []).map((p) => ({ value: p.value, type: p.type ?? null })), emails: [], company: input.company ?? null, notes: null };
+      book.set(c.id, c);
+      writes.push(`create ${c.name}`);
+      return c;
+    },
+    update: async (id: string, change: ContactChange) => {
+      const c = book.get(id)!;
+      const next = { ...c, phones: [...c.phones, ...(change.addPhones ?? []).map((p) => ({ value: p.value, type: p.type ?? null }))] };
+      book.set(id, next);
+      writes.push(`update ${id}`);
+      return next;
+    },
+  };
+  const accounts = parseCalendarAccounts(JSON.stringify([{ id: "google", provider: "google", vertical: "personal", credentials: { clientId: "c", clientSecret: "s", refreshToken: "r" } }]));
+  return { service: new ContactsService(accounts, { providers: [provider] }), writes };
+}
+
 describe.skipIf(!DB_URL)("pa MCP server", () => {
   let pool: pg.Pool;
   let store: PgPaStore;
   let proposals: { vertical: string; taskId: string | null; actionType: string; summary: string; payload: Record<string, unknown> }[];
+  let contacts: ReturnType<typeof addressBook>;
 
   const calendar = () =>
     new CalendarService(
@@ -67,6 +114,7 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     const server = createPaMcpServer({
       store,
       calendar: calendar(),
+      contacts: contacts.service,
       timeZone: TZ,
       caller: { vertical: "personal", taskId: "11111111-1111-1111-1111-111111111111", createdBy: "agent", untrustedSource: async () => null, ...caller },
       propose: async (p) => {
@@ -89,6 +137,7 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     await pool?.end();
     ({ pool, store } = await freshStore());
     proposals = [];
+    contacts = addressBook();
   });
   afterAll(() => pool?.end());
 
@@ -99,8 +148,8 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     const mcp = new Client({ name: "t", version: "0" });
     await mcp.connect(c);
     expect((await mcp.listTools()).tools.map((t) => t.name).sort()).toEqual([
-      "add_items", "add_reminder", "cancel_reminder", "complete_item", "complete_reminder", "find_free_time", "list_calendars",
-      "list_events", "list_items", "list_lists", "list_reminders", "update_reminder",
+      "add_contact", "add_items", "add_reminder", "cancel_reminder", "complete_item", "complete_reminder", "find_free_time", "list_calendars",
+      "list_events", "list_items", "list_lists", "list_reminders", "search_contacts", "update_contact", "update_reminder",
     ]);
   });
 
@@ -221,6 +270,57 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     expect(await executors["pa.reminder.update"]!.execute(proposals[0]!.payload, { vertical: "personal" })).toContain("Fri 23 Oct, 18:00 · Pay supplier");
     await executors["pa.reminder.cancel"]!.execute(proposals[1]!.payload, { vertical: "personal" });
     expect((await store.getReminder(id))!.status).toBe("cancelled");
+  });
+
+  it("keeps a number to call on a reminder, and offers it in the push", async () => {
+    const call = await connect();
+    const added = await call("add_reminder", { text: "Call Steve", due: "2026-10-22T08:55", phone: "07700  900123" });
+    expect(added.text).toMatch(/^Reminder set: Thu 22 Oct, 08:55 · Call Steve · call 07700 900123 \(id /);
+    const id = /id ([0-9a-f-]{36})/.exec(added.text)![1]!;
+    expect((await call("add_reminder", { text: "Call Jo", due: "2026-10-22T10:00", phone: "Jo's mobile" })).isError).toBe(true);
+
+    const pushes: { body: string; phone: string | null }[] = [];
+    await deliverDueReminders(store, async (p) => void pushes.push({ body: p.body, phone: p.reminder.phone }), NOW);
+    expect(pushes).toEqual([{ body: "Call Steve\nTap to call 07700 900123", phone: "07700 900123" }]);
+
+    // A text-only change keeps the number; phone "" removes it.
+    await call("update_reminder", { id, text: "Call Steve about the MOT" });
+    expect((await store.getReminder(id))!.phone).toBe("07700 900123");
+    expect((await call("update_reminder", { id, phone: "" })).text).toBe(`Reminder changed: Thu 22 Oct, 08:55 · Call Steve about the MOT [sent, not done] (id ${id})`);
+    expect((await call("update_reminder", { id, phone: "nope" })).isError).toBe(true);
+    expect((await call("update_reminder", { id, phone: "+44 161 496 0000", due: "2026-10-22T12:00" })).text).toContain("· call +44 161 496 0000");
+  });
+
+  it("searches, adds and changes contacts directly for a trusted task", async () => {
+    const call = await connect();
+    expect((await call("search_contacts", { query: "garage" })).text).toBe('No contact matches "garage".');
+    expect((await call("search_contacts", { query: "steve" })).text).toBe("- Steve Smith (Smith Motors) · mobile 07700 900123 {contact: people/c1, account: google}");
+    expect((await call("add_contact", { name: "Jo Bloggs", phones: [{ value: "07700 900456", type: "mobile" }] })).text).toBe(
+      "Contact added: Jo Bloggs · mobile 07700 900456 {contact: people/c2, account: google}",
+    );
+    expect((await call("update_contact", { id: "people/c1", addPhones: ["0161 496 0000"] })).text).toContain("mobile 07700 900123 · 0161 496 0000");
+    expect((await call("update_contact", { id: "people/c1" })).isError).toBe(true);
+    expect((await call("add_contact", { name: "X", emails: ["nope"] })).isError).toBe(true);
+    expect(contacts.writes).toEqual(["create Jo Bloggs", "update people/c1"]);
+    expect(proposals).toEqual([]);
+  });
+
+  it("files contact changes from an untrusted task as proposals, applied on approval", async () => {
+    const call = await connect({ untrustedSource: async () => "email" });
+    expect((await call("add_contact", { name: "New Bank", phones: ["0800 000 000"] })).text).toMatch(/proposal prop-1/);
+    expect((await call("update_contact", { id: "people/c1", addPhones: ["07000 000000"] })).text).toMatch(/proposal prop-2/);
+    expect(contacts.writes).toEqual([]);
+    expect(proposals.map((p) => [p.actionType, p.vertical, p.summary, p.payload])).toEqual([
+      ["contacts.create", "personal", "Add contact: New Bank, 0800 000 000", { name: "New Bank", phones: ["0800 000 000"] }],
+      ["contacts.update", "personal", "Change contact Steve Smith: addPhones", { id: "people/c1", addPhones: ["07000 000000"], account: "google" }],
+    ]);
+    const executors = createContactsExecutors(contacts.service);
+    for (const p of proposals) {
+      await executors[p.actionType]!.validate!(p.payload, { vertical: "personal" });
+      await executors[p.actionType]!.execute(p.payload, { vertical: "personal" });
+    }
+    expect(contacts.writes).toEqual(["create New Bank", "update people/c1"]);
+    expect(() => executors["contacts.update"]!.validate!({ id: "people/c1" }, { vertical: "personal" })).toThrow(/nothing to change/);
   });
 
   it("only shows a run its own vertical's reminders and lists", async () => {

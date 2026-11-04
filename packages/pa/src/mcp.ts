@@ -2,7 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { CalendarService } from "./calendar/service";
 import type { CalendarEvent } from "./calendar/types";
-import { addReminder, changeReminder, describeReminder, resolveReminder } from "./reminders";
+import { type ContactsService, describeContact } from "./contacts/service";
+import { ContactChangeSchema, ContactCreateSchema, contactChangeOf, contactInputOf } from "./executors";
+import { addReminder, changeReminder, describeReminder, normalisePhone, resolveReminder } from "./reminders";
 import type { CreatedBy, PgPaStore, ReminderStatus, TodoItem } from "./store";
 import { addDays, dayBounds, formatUk, formatUkDate, isDate, isTime, localDate, localTime, weekdayOf } from "./time";
 
@@ -23,6 +25,8 @@ export interface PaCaller {
 export interface PaMcpDeps {
   store: PgPaStore;
   calendar: CalendarService | null;
+  /** Google Contacts on the calendar's Google accounts; null when none is connected. */
+  contacts?: ContactsService | null;
   timeZone: string;
   caller: PaCaller;
   /** Files a proposal (the server's ActionService). Returns its id and status. */
@@ -91,14 +95,16 @@ function itemLine(i: TodoItem, showList: boolean): string {
 }
 
 /**
- * The `pa` MCP server: calendar reads, reminders and to-do lists.
- * Reads are open to every caller. Reminders and items are internal, so Dave
- * and trusted tasks write them directly; a task started by outside input gets
- * a proposal instead, which waits for Dave. Calendar writes are always
- * proposals (`calendar.create` etc. through the actions server), never tools here.
+ * The `pa` MCP server: calendar reads, contacts, reminders and to-do lists.
+ * Reads are open to every caller. Reminders, items and contacts are Dave's own
+ * (nobody else is told of a change), so Dave and trusted tasks write them
+ * directly; a task started by outside input gets a proposal instead, which
+ * waits for Dave. Calendar writes are always proposals (`calendar.create` etc.
+ * through the actions server), never tools here.
  */
 export function createPaMcpServer(deps: PaMcpDeps): McpServer {
   const { store, calendar, timeZone, caller } = deps;
+  const contacts = deps.contacts ?? null;
   const now = () => deps.now?.() ?? new Date();
   const server = new McpServer({ name: "pa", version: "0.1.0" });
   /** Writes land in the run's vertical; Dave's admin calls may name one (default personal). */
@@ -207,21 +213,86 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
     },
   );
 
+  // --- Contacts (Google, on the calendar's Google accounts) ---
+
+  const noContacts = () => text("No Google account is connected for contacts (Accounts page → Google account).");
+
+  server.registerTool(
+    "search_contacts",
+    {
+      description:
+        "Search Dave's Google contacts by name, phone number, email or company (e.g. \"Steve\", \"garage\", \"07700\"). Gives each contact's numbers, emails and its id for update_contact.",
+      inputSchema: { query: z.string().min(1), limit: z.number().int().min(1).max(30).default(10) },
+    },
+    async ({ query, limit }) => {
+      if (!contacts?.configured) return noContacts();
+      const { contacts: found, errors } = await contacts.search(query, { vertical: caller.vertical, limit });
+      const body = found.length ? found.map((c) => `- ${describeContact(c)}`).join("\n") : `No contact matches "${query}".`;
+      return errors.length && !found.length ? fail(`${body}\n${errors.join("; ")}`) : text(errors.length ? `${body}\n\nCould not search: ${errors.join("; ")}` : body);
+    },
+  );
+
+  server.registerTool(
+    "add_contact",
+    {
+      description:
+        "Add a contact to Dave's Google contacts. Search first so you don't add a duplicate; to give an existing contact a new number use update_contact with addPhones. phones and emails: strings or {value, type} (type: mobile, home, work, other).",
+      inputSchema: { ...ContactCreateSchema.shape, vertical },
+    },
+    async (a) => {
+      if (!contacts?.configured) return noContacts();
+      try {
+        const input = contactInputOf(a);
+        const { vertical: requested, ...payload } = a;
+        return await write(
+          { actionType: "contacts.create", vertical: writeVertical(requested), summary: `Add contact: ${[input.name, ...(input.phones ?? []).map((p) => p.value)].join(", ")}`.slice(0, 200), payload },
+          async () => `Contact added: ${describeContact(await contacts.create(input, { vertical: caller.vertical, accountId: a.account }))}`,
+        );
+      } catch (err) {
+        return fail((err as Error).message);
+      }
+    },
+  );
+
+  server.registerTool(
+    "update_contact",
+    {
+      description:
+        "Change a Google contact by id (people/c… from search_contacts). Give only what changes: name, company, notes (\"\" clears company or notes); phones or emails replace the whole list, addPhones or addEmails add to it (prefer these, so no number is lost).",
+      inputSchema: ContactChangeSchema.shape,
+    },
+    async (a) => {
+      if (!contacts?.configured) return noContacts();
+      try {
+        const change = contactChangeOf(a);
+        if (!Object.keys(change).length) return fail("Give something to change: name, phones, addPhones, emails, addEmails, company or notes.");
+        const current = await contacts.get(a.id, { vertical: caller.vertical, accountId: a.account });
+        const what = Object.keys(change).join(", ");
+        return await write(
+          { actionType: "contacts.update", vertical: writeVertical(), summary: `Change contact ${current.name}: ${what}`.slice(0, 200), payload: { ...a, account: current.accountId } },
+          async () => `Contact changed: ${describeContact(await contacts.update(a.id, change, { vertical: caller.vertical, accountId: current.accountId }))}`,
+        );
+      } catch (err) {
+        return fail((err as Error).message);
+      }
+    },
+  );
+
   // --- Reminders ---
 
   server.registerTool(
     "add_reminder",
     {
       description:
-        "Remind Dave at a time (a push to his devices). due is UK local time YYYY-MM-DDTHH:MM. recurrence (optional): daily, weekdays, weekly:mon,thu, monthly:15 (or FREQ=... RRULE); due then sets the first occurrence and the time of day.",
-      inputSchema: { text: z.string().min(1), due: z.string().min(1), recurrence: z.string().optional(), vertical },
+        "Remind Dave at a time (a push to his devices). due is UK local time YYYY-MM-DDTHH:MM. recurrence (optional): daily, weekdays, weekly:mon,thu, monthly:15 (or FREQ=... RRULE); due then sets the first occurrence and the time of day. phone (optional): for a reminder to call someone, the number to call (look it up with search_contacts); the notification then opens the phone's dialler with it.",
+      inputSchema: { text: z.string().min(1), due: z.string().min(1), recurrence: z.string().optional(), phone: z.string().optional().describe("Number to call, e.g. 07700 900123"), vertical },
     },
     async (a) => {
       try {
         const v = writeVertical(a.vertical);
         const resolved = resolveReminder(a, timeZone, now());
         return await write(
-          { actionType: "pa.reminder.add", vertical: v, summary: `Reminder ${formatUk(resolved.dueAt, timeZone)}: ${resolved.text}`, payload: { text: a.text, due: a.due, ...(a.recurrence ? { recurrence: a.recurrence } : {}) } },
+          { actionType: "pa.reminder.add", vertical: v, summary: `Reminder ${formatUk(resolved.dueAt, timeZone)}: ${resolved.text}`, payload: { text: a.text, due: a.due, ...(a.recurrence ? { recurrence: a.recurrence } : {}), ...(a.phone ? { phone: a.phone } : {}) } },
           async () => {
             const r = await addReminder(store, a, { vertical: v, createdBy: caller.createdBy, taskId: caller.taskId, timeZone, now: now() });
             return `Reminder set: ${describeReminder(r)}`;
@@ -255,16 +326,17 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
     "update_reminder",
     {
       description:
-        "Change an open reminder by id (from add_reminder or list_reminders): its text, its time (due, UK local YYYY-MM-DDTHH:MM) and/or its recurrence (\"none\" makes it a one-off). Give only what changes. Use this rather than adding a second reminder.",
-      inputSchema: { id: z.string().min(1), text: z.string().optional(), due: z.string().optional(), recurrence: z.string().optional() },
+        "Change an open reminder by id (from add_reminder or list_reminders): its text, its time (due, UK local YYYY-MM-DDTHH:MM), its recurrence (\"none\" makes it a one-off) and/or the number to call (phone; \"\" removes it). Give only what changes. Use this rather than adding a second reminder.",
+      inputSchema: { id: z.string().min(1), text: z.string().optional(), due: z.string().optional(), recurrence: z.string().optional(), phone: z.string().optional() },
     },
     async ({ id, ...change }) => {
-      if (change.text === undefined && change.due === undefined && change.recurrence === undefined) return fail("Give text, due or recurrence to change.");
+      if (change.text === undefined && change.due === undefined && change.recurrence === undefined && change.phone === undefined) return fail("Give text, due, recurrence or phone to change.");
       const existing = await store.getReminder(id, caller.vertical);
       if (!existing || !["pending", "sent"].includes(existing.status)) return fail(`No open reminder ${id}. Use list_reminders for ids.`);
       try {
         // Validate before proposing, so a bad time fails now rather than on approval.
         if (change.due) resolveReminder({ text: existing.text, due: change.due }, timeZone, now());
+        normalisePhone(change.phone);
         const summary = `Change reminder "${existing.text}": ${Object.entries(change).map(([k, v]) => `${k} ${v}`).join(", ")}`.slice(0, 200);
         return await write({ actionType: "pa.reminder.update", vertical: existing.vertical, summary, payload: { id, ...change } }, async () => {
           const r = await changeReminder(store, id, change, { vertical: caller.vertical, now: now() });
