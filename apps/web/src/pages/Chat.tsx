@@ -214,10 +214,6 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             New chat
           </button>
         )}
-        <a className="drive-link" href="#/drive" aria-label="Drive mode: talk hands-free">
-          <Icon name="drive" size={20} />
-          <span>Drive mode</span>
-        </a>
       </PageHead>
       <div className="turns">
         {turns.length === 0 && (
@@ -285,6 +281,10 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             </option>
           ))}
         </select>
+        <a className="composer-drive" href="#/drive" aria-label="Drive mode: talk hands-free" title="Drive mode: talk hands-free">
+          <Icon name="drive" size={18} />
+          <span>Drive</span>
+        </a>
       </Composer>
     </section>
   );

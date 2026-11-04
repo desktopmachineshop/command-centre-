@@ -253,7 +253,8 @@ export function Composer({
         )}
         <button className="primary send" aria-label="Send" disabled={busy}>
           <Icon name="send" size={16} />
-          {busy ? "Sending…" : uploading ? "Uploading…" : "Send"}
+          {/* On a phone the idle "Send" collapses to the icon (styles.css); "Sending…"/"Uploading…" stay. */}
+          {busy ? "Sending…" : uploading ? "Uploading…" : <span className="send-label">Send</span>}
         </button>
       </form>
     </>
