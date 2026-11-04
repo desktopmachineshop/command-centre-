@@ -15,9 +15,10 @@ export function rms(samples: Float32Array): number {
 
 /**
  * RMS → 0..1 on a decibel scale: room noise (below about -55 dB) reads as 0, normal speech
- * near the microphone (about -20 dB) reads close to 1. Pure.
+ * near the microphone (about -20 dB) reads about 0.8, and only loud speech (-10 dB and up) fills
+ * the bar, so the waveform keeps some headroom instead of sitting at the top. Pure.
  */
-export function rmsToLevel(value: number, floorDb = -55, ceilDb = -18): number {
+export function rmsToLevel(value: number, floorDb = -55, ceilDb = -10): number {
   if (value <= 0) return 0;
   const db = 20 * Math.log10(value);
   return Math.min(1, Math.max(0, (db - floorDb) / (ceilDb - floorDb)));
