@@ -75,7 +75,7 @@ const MOCK_SPEECH = () => {
 
 type Calls = { method: string; path: string; body: unknown }[];
 
-async function mockApi(page: Page, calls: Calls, options: { front?: boolean } = {}) {
+async function mockApi(page: Page, calls: Calls, options: { front?: boolean; batch?: boolean } = {}) {
   let approved = false;
   let taskReads = 0;
   let replied = false;
@@ -115,6 +115,20 @@ async function mockApi(page: Page, calls: Calls, options: { front?: boolean } = 
       });
     }
     if (path === "/voice/briefing") return json({ text: "You have 1 approval waiting. Today's spend is 42 cents.", approvals: { count: 1 }, cost: { todayUsd: 0.42 } });
+    if (path === "/voice/approvals/next" && options.batch) {
+      return approved
+        ? json({ proposal: null, position: 0, remaining: 0, text: "Nothing is waiting for approval." })
+        : json({
+            proposal: { id: "p1", vertical: "dms", actionType: "odoo.message.post", summary: "Delivery update to the 3 open delivery orders", createdAt: now, batchId: "b1", batchSize: 3 },
+            position: 1,
+            remaining: 0,
+            text: "Approval 1 of 1, for Desktop Machine Shop: a batch of 3, odoo message post. Delivery update to the 3 open delivery orders. 1: Delivery update to Jane (S00041). 2: Delivery update to Bob (S00042). 3: Delivery update to Ann (S00043). Say approve to approve all 3, reject to reject all 3, or next.",
+          });
+    }
+    if (path === "/batches/b1/approve") {
+      approved = true;
+      return json(["p1", "p2", "p3"].map((id) => ({ id, status: "executed" })));
+    }
     if (path === "/voice/approvals/next") {
       return approved
         ? json({ proposal: null, position: 0, remaining: 0, text: "Nothing is waiting for approval." })
@@ -236,6 +250,44 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(errors).toEqual([]);
     await page.close();
   }, 90_000);
+
+  it("reads a batch out in full and approves all of it with one 'yes, approve'", async () => {
+    const page = await browser.newPage();
+    await page.addInitScript(MOCK_SPEECH);
+    const calls: Calls = [];
+    await mockApi(page, calls, { batch: true });
+    await page.goto(`${base}/#/drive`);
+    const talk = page.locator("button.drive-ptt");
+    await talk.waitFor({ timeout: 20_000 });
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
+    const pushToTalk = async (text: string) => {
+      await page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
+      await talk.click();
+      await page.locator(".drive-caption", { hasText: text }).waitFor({ timeout: 15_000 });
+      await talk.click();
+    };
+    const waitSpoken = async (pattern: RegExp) => {
+      try {
+        await expect.poll(async () => (await spoken()).some((s) => pattern.test(s)), { timeout: 15_000 }).toBe(true);
+      } catch {
+        throw new Error(`${pattern} not spoken; spoken: ${JSON.stringify(await spoken())}; calls: ${calls.map((c) => c.path).join(" ")}`);
+      }
+    };
+
+    await pushToTalk("read approvals");
+    // Every item is read out (speech may split it into chunks).
+    await expect.poll(async () => (await spoken()).join(" "), { timeout: 15_000 }).toMatch(/a batch of 3.*1: Delivery update to Jane.*2: Delivery update to Bob.*3: Delivery update to Ann/);
+    await page.getByRole("status").getByText("Tap to talk").waitFor();
+    await pushToTalk("approve");
+    await waitSpoken(/^To approve all 3: Delivery update to the 3 open delivery orders\. Say "yes, approve"/);
+    expect(calls.some((c) => c.path.endsWith("/approve"))).toBe(false);
+    await page.getByRole("status").getByText("Tap to talk").waitFor();
+    await pushToTalk("yes, approve");
+    await waitSpoken(/^Approved all 3\. Nothing is waiting for approval\./);
+    // One call for the whole batch, none per item.
+    expect(calls.filter((c) => c.path.endsWith("/approve")).map((c) => c.path)).toEqual(["/batches/b1/approve"]);
+    await page.close();
+   }, 90_000);
 
   it("talks to a chosen role: by voice or the picker, remembered, and once with 'ask'", async () => {
     const page = await browser.newPage();

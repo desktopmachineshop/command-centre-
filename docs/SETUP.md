@@ -1002,8 +1002,25 @@ There is also a Sunday-to-Thursday 21:00 `evening-wrap` on the personal vertical
 Reminders role (`packages/verticals/src/personal.ts`): tomorrow's calendar, open reminders and
 to-dos, and what's waiting for approval, in one push.
 
-`notify` is `auto-with-digest` for the personal vertical, so the brief arrives without an approval
-step and is listed in that evening's digest.
+`notify` is `auto-with-digest` (in every vertical, see "Internal actions" below), so the brief
+arrives without an approval step and is listed in that evening's digest. It fires at 07:00, as the
+default quiet hours (22:00 to 07:00) end, so its push isn't held. The brief doesn't read mail: a run
+that reads outside mail makes its proposals drafts, which would hold the brief for approval.
+
+**Internal actions run without approval** in every vertical (`INTERNAL_AUTO_POLICIES` in
+`packages/verticals/src/policies.ts`): reminders and to-dos (`pa.reminder.add`, `.update`,
+`.complete`, `.cancel`, `pa.items.add`, `pa.item.complete`) are `auto`; `notify` and an internal
+Odoo note (`odoo.message.post` with `internal: true`, policy key `odoo.message.post.internal`) are
+`auto-with-digest`. These are what a "chaser" is: there is no `chaser` action. Anything that
+reaches someone else (`email.*`, an `odoo.message.post` to the record's followers, `social.*`) or
+changes prices or publishes still waits for approval.
+
+**Batches.** Several related actions (a message to each open delivery order) go through the
+`propose_batch` tool as one batch: Approvals shows one card with every item (recipient and text),
+with **Approve all** and **Reject all** (and **Leave out** for one item first), there is one approval
+push, and Drive mode reads the batch out item by item and decides it with one "yes, approve". If
+any item needs approval, the whole batch waits. `GET /api/batches/:id`,
+`POST /api/batches/:id/approve`, `POST /api/batches/:id/reject` (migration `0020`).
 
 **Outside input always needs approval.** A task started by an untrusted event (`source` `email`
 or `webhook`, or anything other than `chat`, `cron` and `system`) can't auto-execute actions,
@@ -1016,9 +1033,10 @@ only touches your own mailbox. Labelling any other message from such a task wait
 Proposals made with the admin token (no task) keep their policy too. (`ActionService.propose` in
 `apps/server/src/actions.ts`.)
 
-The brief is **off by default**. To turn it on, set `enabled: true` on the `morning-brief` line in
-`packages/verticals/src/org.ts` and redeploy; the same goes for the `evening-wrap` line in
-`packages/verticals/src/personal.ts`. Each is an agent run, so it counts towards the budgets.
+The brief is **on by default**; to turn it off, set `enabled: false` on the `morning-brief` line in
+`packages/verticals/src/org.ts` and redeploy. The `evening-wrap` (`packages/verticals/src/personal.ts`)
+is off by default; set `enabled: true` there to turn it on. Each is an agent run, so it counts
+towards the budgets. A Chief of Staff edit saved on the Org page overrides the code's schedules.
 
 ## Personal assistant
 
@@ -1123,8 +1141,8 @@ saying so. Run step 5 again and update `GOOGLE_REFRESH_TOKEN`.
 
 ### Enabling the morning brief and evening wrap
 
-Set `enabled: true` on `morning-brief` (`packages/verticals/src/org.ts`) and/or `evening-wrap`
-(`packages/verticals/src/personal.ts`) and redeploy (see "Morning brief" above). They use the
+`morning-brief` (`packages/verticals/src/org.ts`) is on; set `enabled: true` on `evening-wrap`
+(`packages/verticals/src/personal.ts`) and redeploy to add the wrap (see "Morning brief" above). They use the
 `personal-assistant` skill (`skills/personal-assistant/SKILL.md`), which also covers how the agent
 handles "remind me…", "add … to shopping", "when am I free Thursday?" and "book the dentist next
 week" (it finds a slot, then proposes the event), and UK date and time conventions.

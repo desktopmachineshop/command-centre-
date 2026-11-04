@@ -270,7 +270,8 @@ export type VoiceTurnRequest = { text: string; vertical?: string; role?: string;
 export type VoiceBriefing = { text: string; approvals: { count: number }; cost: { todayUsd: number } };
 
 export type NextApproval = {
-  proposal: Pick<Proposal, "id" | "vertical" | "actionType" | "summary" | "createdAt"> | null;
+  /** A batch is one approval: its first item, with `batchId` and `batchSize`. */
+  proposal: (Pick<Proposal, "id" | "vertical" | "actionType" | "summary" | "createdAt"> & { batchId?: string; batchSize?: number }) | null;
   position: number;
   remaining: number;
   text: string;
@@ -362,6 +363,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     chainProposals: (taskId: string) => call<{ taskIds: string[]; proposals: Proposal[] }>(`/tasks/${encodeURIComponent(taskId)}/chain-proposals`),
     approve: (id: string) => post<Proposal>(`/proposals/${id}/approve`),
     reject: (id: string) => post<Proposal>(`/proposals/${id}/reject`),
+    /** Every item of a batch still pending, approved (or rejected) in one go. */
+    approveBatch: (batchId: string) => post<Proposal[]>(`/batches/${encodeURIComponent(batchId)}/approve`),
+    rejectBatch: (batchId: string) => post<Proposal[]>(`/batches/${encodeURIComponent(batchId)}/reject`),
     /** Change what a pending proposal will do before approving it. */
     editProposal: (id: string, payload: Record<string, unknown>) =>
       call<Proposal>(`/proposals/${id}`, { method: "PATCH", body: JSON.stringify({ payload }) }),

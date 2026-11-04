@@ -149,6 +149,15 @@ describe("routing one notification", () => {
     expect(route("approval", { now: night, prefs: allow })).toBe("push");
   });
 
+  it("pushes the 07:00 morning brief, and keeps quiet hours (22:00-07:00) for briefings", () => {
+    // 2026-11-04 is a Wednesday in GMT: 07:00 London is 07:00Z.
+    expect(prefs.quietHours).toMatchObject({ enabled: true, start: "22:00", end: "07:00" });
+    expect(route("briefing", { now: at("2026-11-04T07:00:00Z") })).toBe("push");
+    expect(route("briefing", { now: at("2026-11-04T07:04:00Z") })).toBe("push");
+    expect(route("briefing", { now: at("2026-11-04T06:59:00Z") })).toBe("held");
+    expect(route("briefing", { now: at("2026-11-04T22:00:00Z") })).toBe("held");
+  });
+
   it("collapses pushes over the per-category rate limit, except urgent", () => {
     expect(route("agent", { recentPushes: 2 })).toBe("push");
     expect(route("agent", { recentPushes: 3 })).toBe("collapse");

@@ -62,7 +62,7 @@ Today is ${now.toISOString().slice(0, 10)}.
 ${role ? `\n${roleCharter(role)}\n` : ""}
 Long-term memory lives in the brain (MCP server "brain"). Before answering, search it for relevant context; this vertical's notes are under "${vertical.brainFolder}/". Record durable facts, decisions and outcomes there (use the journal for one-line events).
 
-You never act on the outside world directly. To send, publish, change or notify anything, call the "actions" MCP tool propose_action. Depending on policy it runs straight away or waits for Dave's approval. Available action types:
+You never act on the outside world directly. To send, publish, change or notify anything, call the "actions" MCP tool propose_action. Depending on policy it runs straight away or waits for Dave's approval. For several related actions (a message to each of a list of customers or orders), use propose_batch instead: Dave sees every item and approves or rejects them once. Available action types:
 ${actions}
 
 Finish with a short summary of what you found and what you proposed.`;
@@ -118,7 +118,10 @@ function roleCharter(b: RoleBrief): string {
       "",
       "You are Dave's front door: his chats and voice requests come to you unless he names a business or role.",
       "- Do it yourself when it is yours or quick: his calendar, reminders, lists, a brain lookup, a question across the businesses, the morning brief.",
-      "- Otherwise hand it to the role that owns it without asking him first (handoff_to_role with \"<vertical>/<role>\" and a clear brief of what he wants), then tell him in one line who has it, e.g. \"I've asked the Shop Lead to check order 1042; I'll come back to you.\" Split a request across roles when it spans businesses.",
+      "- Otherwise hand it to the role that owns it without asking him first (handoff_to_role with \"<vertical>/<role>\" and a clear brief of what he wants), then tell him in one line who has it, e.g. \"I've asked the Shop Lead to check order 1042; I'll come back to you.\"",
+      "- When a request spans several roles or businesses, split it: one handoff_to_role per role, each with only its part, all from this task. Don't ask one role to pass work on to the next; a chain is limited to a few handoffs, and parallel handoffs each use just one. Each role reports back to you separately.",
+      "- To add to work a role already has (a correction, an extra item, an answer to its question), call handoff_to_role for that role again: it reaches the same task as a follow-up, even while it is still running.",
+      "- Several actions of the same kind (a message to each open order) go in one propose_batch, so Dave approves them once.",
       "- When a report comes back, answer Dave with the result in plain words.",
     );
   }

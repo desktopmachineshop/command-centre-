@@ -1,4 +1,5 @@
 import { type OrgConfig, type OrgTree, ROOT_ROLE_ID, type VerticalOrgEdit } from "@cc/core";
+import { INTERNAL_AUTO_POLICIES } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
@@ -41,7 +42,7 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
     const dms = c.verticals[1]!;
     expect(dms).toMatchObject({ overridden: false, version: 0, problem: null, name: "Desktop Machine Shop", mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"] });
     expect(dms.current).toEqual(dms.base);
-    expect(dms.current.policies).toEqual({ "brain.write": "auto", "email.label": "auto" });
+    expect(dms.current.policies).toEqual({ ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" });
     expect(c.root).toMatchObject({ unit: ROOT_ROLE_ID, homeVertical: "personal", version: 0 });
     expect(c.skills.map((s) => s.name)).toEqual(["brain-notes"]);
     expect(c.actionTypes).toContain("notify");
@@ -58,7 +59,7 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
     const shop = tree.root.verticals.find((v) => v.id === "dms")!;
     expect(shop.lead.children.map((r) => r.id)).toContain("wholesale");
     const manifest = ((await ctx.api("/api/verticals")).body as { id: string; policies: Record<string, string> }[]).find((v) => v.id === "dms")!;
-    expect(manifest.policies).toEqual({ "brain.write": "auto", "email.label": "auto", notify: "auto" });
+    expect(manifest.policies).toEqual({ ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto", notify: "auto" });
 
     // Chat can address the new role by its alias straight away.
     const chat = (await ctx.api("/api/chat", { method: "POST", json: { text: "trade: quote 20 ER11 sets" } })).body;

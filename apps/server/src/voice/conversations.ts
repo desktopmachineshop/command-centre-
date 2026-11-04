@@ -55,7 +55,11 @@ export class VoiceConversations {
    * While the task is still queued or running, the report waits and `takePending` re-queues the
    * task once its run is over. Voice tasks get a spoken answer.
    */
-  async report(taskId: string, author: string, text: string): Promise<Task | null> {
+  /**
+   * A role's note on a task: its report on work this task handed off, or (`followup`) a later
+   * note from the role that handed this task off. It waits while the task runs, and queues it otherwise.
+   */
+  async report(taskId: string, author: string, text: string, kind: "report" | "followup" = "report"): Promise<Task | null> {
     const queued = await this.store.transaction(async (tx) => {
       const { rows } = await tx.pool.query("select status from tasks where id = $1 for update", [taskId]);
       if (!rows[0]) return null;
@@ -66,8 +70,8 @@ export class VoiceConversations {
       const task = await tx.getTask(taskId);
       const voice = task ? await this.isVoiceTask(task) : false;
       await tx.pool.query(
-        "insert into task_replies (id, task_id, text, voice, resume_session_id, author) values ($1, $2, $3, $4, $5, $6)",
-        [randomUUID(), taskId, text, voice, session.rows[0]?.session_id ?? null, author],
+        "insert into task_replies (id, task_id, text, voice, resume_session_id, author, kind) values ($1, $2, $3, $4, $5, $6, $7)",
+        [randomUUID(), taskId, text, voice, session.rows[0]?.session_id ?? null, author, kind === "followup" ? "followup" : null],
       );
       return REPLYABLE.includes(rows[0].status) ? tx.setTaskStatus(taskId, "queued") : null;
     });
@@ -75,6 +79,12 @@ export class VoiceConversations {
     this.hub.broadcast({ type: "task.updated", task: queued });
     await this.queue.enqueue(queued.id);
     return queued;
+  }
+
+  /** The follow-up notes sent to a task by the role that handed it off, oldest first. */
+  async followUps(taskId: string): Promise<string[]> {
+    const { rows } = await this.store.pool.query("select text from task_replies where task_id = $1 and kind = 'followup' order by created_at", [taskId]);
+    return rows.map((r) => r.text as string);
   }
 
   /** True when the task has replies or reports no run has taken yet. */
@@ -123,8 +133,17 @@ export class VoiceConversations {
     // Dave's own reply, or a report from a role this task handed work to.
     const fromDave = !reply.author || reply.author === "dave";
     const attached = reply.files as ChatFilesContext | null;
-    const said = fromDave ? `Dave replies: ${reply.text}${attached?.prompt ? `\n\n${attached.prompt}` : ""}` : `Report back from ${reply.author}, who took the work you handed off:\n\n${reply.text}\n\nUse it to finish your task: give the outcome in a sentence or two (what was done, and anything waiting for Dave's approval or decision). Don't redo their work.`;
-    const marker = fromDave ? `Dave replied: ${reply.text}${attached?.files.length ? ` [attached: ${attached.files.map((f) => f.name).join(", ")}]` : ""}` : `${reply.author} reported back: ${reply.text}`;
+    const followUp = !fromDave && reply.kind === "followup";
+    const said = fromDave
+      ? `Dave replies: ${reply.text}${attached?.prompt ? `\n\n${attached.prompt}` : ""}`
+      : followUp
+        ? `Follow-up from ${reply.author}, who handed you this task:\n\n${reply.text}\n\nTake it into account and carry on with the task; your final summary goes back to them as before.`
+        : `Report back from ${reply.author}, who took the work you handed off:\n\n${reply.text}\n\nUse it to finish your task: give the outcome in a sentence or two (what was done, and anything waiting for Dave's approval or decision). Don't redo their work.`;
+    const marker = fromDave
+      ? `Dave replied: ${reply.text}${attached?.files.length ? ` [attached: ${attached.files.map((f) => f.name).join(", ")}]` : ""}`
+      : followUp
+        ? `${reply.author} sent a follow-up: ${reply.text}`
+        : `${reply.author} reported back: ${reply.text}`;
     this.store.appendRunMessage(runId, { type: "system", text: marker }).catch(() => {});
     this.hub.broadcast({ type: "run.message", runId, taskId: task.id, message: { type: "system", text: marker } });
 

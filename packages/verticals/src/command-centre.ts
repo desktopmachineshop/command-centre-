@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 /**
  * The command centre itself: the app, server, agents and skills in
@@ -16,7 +17,7 @@ export default defineVertical({
   // github: read-only pull requests, CI and issues (mounted while GITHUB_TOKEN is set).
   mcpServers: ["brain", "github"],
   // Raising or updating a PR changes nothing until it is merged, so only merging waits for Dave.
-  policies: { "brain.write": "auto", "github.pr.create": "auto" },
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "github.pr.create": "auto" },
   roles: [
     {
       id: "software-lead",

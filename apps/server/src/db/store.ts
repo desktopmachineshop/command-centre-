@@ -67,6 +67,8 @@ const toRun = (r: Row): AgentRun => ({
 const toProposal = (r: Row): Proposal => ({
   id: r.id,
   taskId: r.task_id,
+  batchId: r.batch_id ?? null,
+  batchSummary: r.batch_summary ?? null,
   vertical: r.vertical,
   actionType: r.action_type,
   summary: r.summary,
@@ -433,6 +435,29 @@ export class Store {
     return rows.map((r) => r.message);
   }
 
+  /**
+   * Agent run messages (the transcripts) whose JSON contains `query`, case-insensitive, newest
+   * first, from the last `days` days; one vertical's, or every vertical's when it is null.
+   */
+  async searchRunMessages(options: { query: string; vertical: string | null; days: number; limit: number }): Promise<
+    { taskId: string; vertical: string; role: string | null; runId: string; at: string; message: AgentMessage }[]
+  > {
+    const like = `%${options.query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const { rows } = await this.pool.query(
+      `select t.id as task_id, t.vertical, t.role, r.id as run_id, m.created_at, m.message
+       from run_messages m
+       join agent_runs r on r.id = m.run_id
+       join tasks t on t.id = r.task_id
+       where m.message::text ilike $1
+         and m.created_at > now() - make_interval(days => $2)
+         and ($3::text is null or t.vertical = $3)
+       order by m.id desc
+       limit $4`,
+      [like, options.days, options.vertical, options.limit],
+    );
+    return rows.map((r) => ({ taskId: r.task_id, vertical: r.vertical, role: r.role ?? null, runId: r.run_id, at: iso(r.created_at)!, message: r.message }));
+  }
+
   /** Total agent cost since a point in time, for budget caps and the dashboard. */
   async costSince(since: Date): Promise<number> {
     const { rows } = await this.pool.query(
@@ -472,11 +497,14 @@ export class Store {
     summary: string;
     payload: Record<string, unknown>;
     policy: Policy;
+    batchId?: string | null;
+    batchSummary?: string | null;
   }): Promise<Proposal> {
     const { rows } = await this.pool.query(
-      `insert into proposals (id, task_id, vertical, action_type, summary, payload, policy, status)
-       values ($1, $2, $3, $4, $5, $6, $7, 'pending') returning *`,
-      [randomUUID(), p.taskId, p.vertical, p.actionType, p.summary, p.payload, p.policy],
+      // clock_timestamp, not now(): a batch's items, inserted in one transaction, keep their order.
+      `insert into proposals (id, task_id, vertical, action_type, summary, payload, policy, status, batch_id, batch_summary, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, clock_timestamp()) returning *`,
+      [randomUUID(), p.taskId, p.vertical, p.actionType, p.summary, p.payload, p.policy, p.batchId ?? null, p.batchSummary ?? null],
     );
     return toProposal(rows[0]!);
   }
@@ -515,13 +543,14 @@ export class Store {
   }
 
   async listProposals(
-    options: { status?: ProposalStatus; taskId?: string; vertical?: string; limit?: number } = {},
+    options: { status?: ProposalStatus; taskId?: string; vertical?: string; batchId?: string; limit?: number } = {},
   ): Promise<Proposal[]> {
     const { rows } = await this.pool.query(
       `select * from proposals
        where ($1::text is null or status = $1) and ($2::uuid is null or task_id = $2) and ($3::text is null or vertical = $3)
+         and ($5::uuid is null or batch_id = $5)
        order by created_at desc limit $4`,
-      [options.status ?? null, options.taskId ?? null, options.vertical ?? null, options.limit ?? 50],
+      [options.status ?? null, options.taskId ?? null, options.vertical ?? null, options.limit ?? 50, options.batchId ?? null],
     );
     return rows.map(toProposal);
   }

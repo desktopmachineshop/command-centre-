@@ -18,6 +18,7 @@ import { chiefOfStaff } from "./org";
 import personal from "./personal";
 
 export { chiefOfStaff } from "./org";
+export { INTERNAL_AUTO_POLICIES } from "./policies";
 export { parseRolePrefix, routeRole, type RoleRoute } from "./routing";
 
 /** All verticals. To add one, create a manifest file and list it here. */

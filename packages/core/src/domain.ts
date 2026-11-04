@@ -130,6 +130,10 @@ export type NewProposal = z.input<typeof NewProposal>;
 export const Proposal = NewProposal.extend({
   id: z.string(),
   taskId: z.string().nullable(),
+  /** Set when the proposal is one of a batch (propose_batch): the batch is approved or rejected as one. */
+  batchId: z.string().nullable().default(null),
+  /** The batch's one-line summary ("Delivery update to the 7 customers with open delivery orders"). */
+  batchSummary: z.string().nullable().default(null),
   policy: Policy,
   status: ProposalStatus,
   createdAt: z.string(),

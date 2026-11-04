@@ -349,10 +349,10 @@ describe.skipIf(!DB_URL)("daily digest", () => {
     );
   });
 
-  it("offers a morning brief, owned by the Chief of Staff and off by default", () => {
+  it("offers a morning brief, owned by the Chief of Staff and on by default", () => {
     expect(chiefOfStaff.homeVertical).toBe("personal");
     const brief = chiefOfStaff.schedules.find((s) => s.id === "morning-brief");
-    expect(brief).toMatchObject({ cron: "0 7 * * 1-5", timezone: "Europe/London", enabled: false });
+    expect(brief).toMatchObject({ cron: "0 7 * * 1-5", timezone: "Europe/London", enabled: true });
     expect(brief!.prompt).toMatch(/digests/);
     expect(brief!.prompt).toMatch(/list_pending/);
     expect(brief!.prompt).toMatch(/"notify"/);

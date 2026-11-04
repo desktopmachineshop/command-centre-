@@ -234,6 +234,22 @@ export function apiRoutes(deps: ApiDeps) {
   });
   app.post("/proposals/:id/approve", async (c) => c.json(await actions.approve(c.req.param("id"))));
   app.post("/proposals/:id/reject", async (c) => c.json(await actions.reject(c.req.param("id"))));
+  /** A batch (propose_batch): every item, oldest first, so Dave sees each recipient and message before deciding. */
+  app.get("/batches/:id", async (c) => {
+    const id = z.string().uuid().safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "not found" }, 404);
+    const items = await store.listProposals({ batchId: id.data, limit: 200 });
+    if (!items.length) return c.json({ error: "not found" }, 404);
+    return c.json({ id: id.data, proposals: items.reverse() });
+  });
+  /** Approves (or rejects) every item of a batch still pending, in one go. */
+  for (const decision of ["approve", "reject"] as const) {
+    app.post(`/batches/:id/${decision}`, async (c) => {
+      const id = z.string().uuid().safeParse(c.req.param("id"));
+      if (!id.success) return c.json({ error: "not found" }, 404);
+      return c.json(await (decision === "approve" ? actions.approveBatch(id.data) : actions.rejectBatch(id.data)));
+    });
+  }
   /** Dave edits what a pending proposal will do (e.g. the email text) before approving it. */
   app.patch("/proposals/:id", async (c) => {
     const body = z.object({ payload: z.record(z.string(), z.unknown()) }).parse(await c.req.json());

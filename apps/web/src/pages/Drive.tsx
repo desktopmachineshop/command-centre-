@@ -73,7 +73,14 @@ const PHASE_LABEL: Record<DriveState["phase"], string> = {
 };
 
 const readback = (action: "approve" | "reject", a: Approval) =>
-  `To ${action}: ${a.summary.replace(/[.!?]+$/, "")}. Say "yes, ${action}" to confirm, or "no".`;
+  `To ${action}${a.batchId ? ` all ${a.batchSize ?? ""}`.trimEnd() : ""}: ${a.summary.replace(/[.!?]+$/, "")}. Say "yes, ${action}" to confirm, or "no".`;
+
+/** The approval Drive mode holds for what `nextApproval` read out (a batch is one). */
+const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
+  proposalId: p.id,
+  summary: speakable(p.summary, { maxChars: 220, more: "" }),
+  ...(p.batchId ? { batchId: p.batchId, batchSize: p.batchSize } : {}),
+});
 
 /**
  * Drive mode: hands-free Command Centre. One huge push-to-talk button (also
@@ -259,16 +266,25 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         say(`${prefix}${next.text}`.trim());
         return;
       }
-      say(`${prefix}${next.text}`.trim(), "approval", { approval: { proposalId: next.proposal.id, summary: speakable(next.proposal.summary, { maxChars: 220, more: "" }) } });
+      say(`${prefix}${next.text}`.trim(), "approval", { approval: approvalOf(next.proposal) });
     },
     [api, say],
   );
 
   const decide = useCallback(
-    async (action: "approve" | "reject", proposalId: string) => {
+    async (action: "approve" | "reject", approval: Approval) => {
       try {
-        const result = await (action === "approve" ? api.approve(proposalId) : api.reject(proposalId));
-        const done = action === "reject" ? "Rejected." : result.status === "failed" ? "Approved, but it failed to run. Check it when you're parked." : "Approved.";
+        const results = approval.batchId
+          ? await (action === "approve" ? api.approveBatch(approval.batchId) : api.rejectBatch(approval.batchId))
+          : [await (action === "approve" ? api.approve(approval.proposalId) : api.reject(approval.proposalId))];
+        const failed = results.filter((r) => r.status === "failed").length;
+        const all = approval.batchId ? ` all ${results.length}` : "";
+        const done =
+          action === "reject"
+            ? `Rejected${all}.`
+            : failed
+              ? `Approved${all}, but ${approval.batchId ? `${failed} failed` : "it failed"} to run. Check ${failed === 1 ? "it" : "them"} when you're parked.`
+              : `Approved${all}.`;
         void earcon("done");
         await readNext(stateRef.current.skipped, `${done} `);
       } catch (err) {
@@ -360,14 +376,14 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
               say("Nothing is waiting for approval.");
               return;
             }
-            approval = { proposalId: next.proposal.id, summary: speakable(next.proposal.summary, { maxChars: 220, more: "" }) };
+            approval = approvalOf(next.proposal);
           }
           say(readback(cmd.kind, approval), "confirm", { approval, confirm: { ...approval, action: cmd.kind } });
           return;
         }
         case "confirm":
           if (s.expect === "confirm" && s.confirm?.action === cmd.action) {
-            await decide(cmd.action, s.confirm.proposalId);
+            await decide(cmd.action, s.confirm);
           } else if (s.expect === "confirm" && s.confirm) {
             say(`You asked to ${s.confirm.action}. Say "yes, ${s.confirm.action}", or "no".`, "confirm");
           } else say("There's nothing to confirm.");
@@ -562,7 +578,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     const s = stateRef.current;
     if (s.expect === "confirm" && s.confirm?.action === action) {
       speakerRef.current?.cancel();
-      void decide(action, s.confirm.proposalId);
+      void decide(action, s.confirm);
       return;
     }
     if (s.approval) say(readback(action, s.approval), "confirm", { approval: s.approval, confirm: { ...s.approval, action } });

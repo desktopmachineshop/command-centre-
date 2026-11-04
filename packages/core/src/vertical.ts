@@ -119,6 +119,22 @@ export function policyFor(vertical: VerticalManifest, actionType: string): Polic
   return vertical.policies[actionType] ?? vertical.defaultPolicy;
 }
 
+/** Policy key of an internal Odoo note: `odoo.message.post` with `internal: true`, which only staff see. */
+export const INTERNAL_ODOO_NOTE = "odoo.message.post.internal";
+
+/**
+ * The policy for one proposal. Like `policyFor`, except that an internal Odoo note
+ * (`odoo.message.post` with `internal: true`, exactly) uses the `odoo.message.post.internal`
+ * policy when the vertical sets one. A message to the record's followers (the customer) keeps
+ * `odoo.message.post`'s policy.
+ */
+export function proposalPolicy(vertical: VerticalManifest, actionType: string, payload: Record<string, unknown>): Policy {
+  if (actionType === "odoo.message.post" && payload.internal === true && vertical.policies[INTERNAL_ODOO_NOTE]) {
+    return vertical.policies[INTERNAL_ODOO_NOTE];
+  }
+  return policyFor(vertical, actionType);
+}
+
 /**
  * Problems with a vertical's org chart, as messages (empty when valid): unique
  * ids and aliases, exactly one lead, `reportsTo` naming a role of the vertical
