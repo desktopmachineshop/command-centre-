@@ -29,7 +29,7 @@
     <title>Filter the list</title>
     <prolog><resourceid appname="command-centre" appid="inbox.filter"/></prolog>
     <body>
-      <p><uicontrol>Filter by status</uicontrol> shows only tasks with one status. Choosing a role on the <xref href="../business/org.dita">Org</xref> page opens the Inbox on that role's tasks; the subtitle says <systemoutput>Showing …</systemoutput>, and <uicontrol>show all</uicontrol> clears it.</p>
+      <p><uicontrol>Filter by vertical</uicontrol> shows only one vertical's tasks (the link keeps the choice, so you can bookmark it), and <uicontrol>Filter by status</uicontrol> only tasks with one status; the two combine. Choosing a role on the <xref href="../business/org.dita">Org</xref> page opens the Inbox on that role's tasks; the subtitle says <systemoutput>Showing …</systemoutput>, and <uicontrol>show all</uicontrol> clears it.</p>
     </body>
   </topic>
 </topic>
