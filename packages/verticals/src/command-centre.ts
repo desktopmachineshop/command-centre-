@@ -30,6 +30,8 @@ export default defineVertical({
       skills: ["brain-notes", "software-lead"],
       mcpServers: ["brain", "github"],
       tools: ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch"],
+      // Reading code, editing several files and running the checks takes far more than the default 30 turns.
+      maxTurns: 200,
       repo: "desktopmachineshop/command-centre-",
       actions: ["github.pr.create", "github.pr.merge", "brain.write", "notify"],
       kpis: ["Each PR is green in CI when raised", "Changes are small, with tests", "Dave can merge without rework"],

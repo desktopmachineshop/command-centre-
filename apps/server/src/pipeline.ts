@@ -372,7 +372,7 @@ export class Pipeline {
           cwd,
           mcpServers,
           allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...skillReadRules(this.deps.skillsDir, vertical, role)],
-          maxTurns: this.deps.maxTurns,
+          maxTurns: role.maxTurns ?? this.deps.maxTurns,
         },
         (message) => {
           hub.broadcast({ type: "run.message", runId: run.id, taskId, message });
@@ -518,7 +518,12 @@ export class Pipeline {
 /** What a finished handoff tells the task that handed it off: the result, what waits for Dave, or why it failed. */
 function reportText(task: Task, outcome: { status: TaskStatus; result: string | null; error: string | null; pending: { actionType: string; summary: string }[] }): string {
   const lines: string[] = [];
-  if (outcome.status === "failed") lines.push(`They couldn't finish it: ${(outcome.error ?? "the run failed").slice(0, 500)}`);
+  if (outcome.status === "failed" && outcome.error === "error_max_turns") {
+    lines.push(
+      "They ran out of turns (error_max_turns) before finishing. Their last summary, if any, is below; anything they had already proposed is listed. Don't guess what is done: say it stopped part-way, and offer to retry it (Retry on the task) or to split it into smaller handoffs.",
+    );
+    if (outcome.result) lines.push("", outcome.result.trim().slice(0, 3000));
+  } else if (outcome.status === "failed") lines.push(`They couldn't finish it: ${(outcome.error ?? "the run failed").slice(0, 500)}`);
   else if (outcome.result) lines.push(outcome.result.trim().slice(0, 3000));
   else lines.push("They finished, with no summary.");
   if (outcome.pending.length) {

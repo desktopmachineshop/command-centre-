@@ -88,7 +88,7 @@ manifests and on the Org page. The morning brief ships turned on; every other sc
 | opend | **Docs Writer** (`docs-writer`) | product-lead | Keeps the OpenD documentation clear and current. | – | brain-notes | brain; brain.write | – |
 | openv, opend | **DevRel & Content** (`devrel-content`) | product-lead | Tells people what the product does and why it matters. | – | brain-notes, social-platform-guide, video-reel | brain; social.post, social.campaign, video.produce, brain.write | – |
 | openv, opend | **Billing & Admin** (`billing-admin`) | product-lead | Handles subscriptions, invoices and payment questions. | billing | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
-| command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. | software | brain-notes, software-lead | brain; github.pr.create (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre- | – |
+| command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. | software | brain-notes, software-lead | brain; github.pr.create (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre-; 200 turns per run | – |
 
 `dms-catalogue-pricing` and `dms-supplier-pricelists` are the skills added for the org. The other roles reuse the existing
 skills bank; their charter travels in the system prompt.
@@ -142,6 +142,10 @@ Tasks from before roles have no role and count as the vertical lead's.
   transcript of a task from outside input counts as reading that input: later proposals are drafts.
   There is no shell for the Chief of Staff on purpose: it reads outside mail and the web, and a shell on
   the server can read the process environment, which holds every secret.
+- **Turns:** each run stops after `AGENT_MAX_TURNS` agent turns (default 30), or the role's own
+  `maxTurns` (the Software Lead has 200, since a code change takes many reads, edits and checks). A
+  run that hits the limit fails with `error_max_turns`; its report back says it stopped part-way,
+  with its last summary, so the Chief of Staff offers a retry or a split instead of guessing.
 - **Mail:** a role with the `mail` server can search its business's mailboxes and read attachments
   itself, so work that didn't start from an email (a chat, a handoff) doesn't have to be passed
   on to find the mail. Mail it reads is outside input: its later proposals are drafts and its

@@ -13,10 +13,13 @@ class RoleRunner implements AgentRunner {
   plan: Record<string, Call[]> = {};
   readonly requests: AgentRunRequest[] = [];
   readonly results: Record<string, (string | null)[]> = {};
+  /** Roles whose runs end like a run that hit Claude Code's turn limit. */
+  outOfTurns = new Set<string>();
 
   async run(request: AgentRunRequest) {
     this.requests.push(request);
     const key = request.cwd!.split("/").slice(-2).join("/");
+    if (this.outOfTurns.has(key)) return { status: "failed" as const, result: "Edited 3 of 5 files", error: "error_max_turns", costUsd: 0.7, sessionId: "s" };
     const inner = new McpCallingRunner(this.plan[key] ?? []);
     inner.app = this.app;
     const result = await inner.run(request);
@@ -42,6 +45,7 @@ describe.skipIf(!DB_URL)("handoffs: parallel splits and follow-ups", () => {
   afterAll(async () => ctx?.server.stop());
   beforeEach(() => {
     runner.plan = {};
+    runner.outOfTurns.clear();
     runner.requests.length = 0;
     for (const k of Object.keys(runner.results)) delete runner.results[k];
   });
@@ -162,6 +166,25 @@ describe.skipIf(!DB_URL)("handoffs: parallel splits and follow-ups", () => {
     await ctx.api("/api/chat", { method: "POST", json: { text: "openv: anything about ZX-ORDER-77?" } });
     await ctx.queue.drain();
     expect(runner.results["openv/product-lead"]![0]).toContain('Nothing in the last 7 days matches \\"ZX-ORDER-77\\"');
+  });
+
+  it("gives the Software Lead a higher turn limit than chat roles", async () => {
+    await ctx.api("/api/chat", { method: "POST", json: { text: "software: rename a button" } });
+    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: anything new?" } });
+    await ctx.queue.drain();
+    expect(runsOf("command-centre/software-lead")[0]!.maxTurns).toBe(200);
+    expect(runsOf("dms/shop-lead")[0]!.maxTurns).toBe(ctx.config.agent.maxTurns);
+  });
+
+  it("reports a run that ran out of turns as stopped part-way, with what it had done", async () => {
+    runner.plan = { [COS]: [handoff("dms/shop-lead", "Big job")] };
+    runner.outOfTurns.add("dms/shop-lead");
+    await ctx.api("/api/chat", { method: "POST", json: { text: "do the big job" } });
+    await ctx.queue.drain();
+    const report = runsOf(COS).find((r) => r.prompt.includes("Report back from the Shop Lead"))!.prompt;
+    expect(report).toContain("They ran out of turns (error_max_turns) before finishing");
+    expect(report).toContain("Edited 3 of 5 files");
+    expect(report).toContain("offer to retry it");
   });
 
   it("gives no scratch folder to work from outside input", async () => {
