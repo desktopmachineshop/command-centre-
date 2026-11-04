@@ -16,9 +16,15 @@ The server fetched it fresh from GitHub and checked out the default branch befor
 (detached). It is yours alone for this task; a reply or report on the same task finds it as you
 left it.
 
-- You can't push or reach GitHub with git yourself: there are no credentials in your
-  environment, by design. Pushing and opening the PR is the `github.pr.create` action, which runs
-  straight away; merging is `github.pr.merge`, which Dave approves.
+- git itself has no GitHub credentials in your environment, by design: don't push or fetch with
+  it. Pushing and opening the PR is the `github.pr.create` action, which runs straight away;
+  merging is `github.pr.merge`, which Dave approves.
+- You **can read GitHub** through the `github` tools (the server's access): `list_pull_requests`,
+  `pull_request` (state, mergeability, CI checks on the head, reviews and comments), `check_run`
+  (why a check failed), `list_issues`, `issue`, and `access` (whether the server's token works,
+  and what it may do). Use them to check CI after raising a PR and to read review comments. If a
+  tool says the token is wrong or lacks access, tell Dave that exact reason; don't say you "have
+  no GitHub access".
 - Never touch secrets, `.env` files with real values, Railway settings or production data.
 
 ## How to make a change

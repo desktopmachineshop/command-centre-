@@ -2071,8 +2071,13 @@ The **Command Centre** business has one role, the **Software Lead**, which works
 own code (`desktopmachineshop/command-centre-`). Ask it in Chat or Drive mode ("software: make the
 digest arrive at 8am", "talk to the software lead"), or let the Chief of Staff hand it the work.
 
-**Set up:** create a fine-grained GitHub token with **Contents** and **Pull requests** (read and
-write) on that repository only, and set it as `GITHUB_TOKEN` in Railway.
+**Set up:** create a fine-grained GitHub token on that repository only, with **Contents** and
+**Pull requests** (read and write), plus **Issues**, **Commit statuses** and **Actions** (read) so it
+can see issues and CI, and set it as `GITHUB_TOKEN` in Railway. A fine-grained token sees only the
+repositories listed under its *Repository access*; for a repository owned by an organisation, the
+organisation may also have to approve the token. To check it, ask the Software Lead "check your
+GitHub access": its `access` tool reports whether the token works and what it may do, and a failed
+checkout is logged as `[code] checkout of … failed: …`.
 
 **How it works:**
 - Each task gets its own checkout, `workspaces/command-centre/software-lead/work/<task id>` on
@@ -2086,6 +2091,9 @@ write) on that repository only, and set it as `GITHUB_TOKEN` in Railway.
   **straight away** (`auto`): the server pushes the branch and opens the pull request (or, if one
   is open for that branch, pushes the new commits to it), and you get its link in the report. A PR
   changes nothing until it is merged.
+- It **reads GitHub** through the read-only `github` tools (served at `/mcp/github` with the
+  server's token, scoped to its repository): pull requests with their CI checks, reviews and
+  comments, why a check failed, and issues. So it can follow up on CI and review comments itself.
 - **Merging needs your approval:** ask it to merge ("merge PR 11") and it proposes
   **`github.pr.merge`**, which waits under Approvals; approve and the server merges it on GitHub
   (branch protection and required checks still apply). Or merge on GitHub yourself. It never
