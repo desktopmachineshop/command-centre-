@@ -1456,7 +1456,7 @@ a.status:hover {
   bottom: var(--sp-4);
   z-index: 5;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, auto) 1fr auto;
   grid-template-areas:
     "text text text"
     "select hint send";
@@ -1489,6 +1489,8 @@ a.status:hover {
 }
 .composer select {
   grid-area: select;
+  min-width: 0;
+  width: 100%;
   max-width: 11rem;
   min-height: 36px;
   border-radius: var(--r-full);
@@ -2551,21 +2553,68 @@ a.stat:hover {
 
 /* --- Drive mode (pages/Drive.tsx): full screen, high contrast, huge targets --- */
 /* Fills use the *-solid tokens so white text stays ≥4.5:1 in both themes. */
-.drive-link {
+/*
+ * The chat's own options (pages/Chat.tsx): New chat, Read aloud and Drive, as small pills in the
+ * composer's empty "hint" cell. On a phone that row is full, so they get a slim row of their own
+ * at the top of the box: `span 1 / 1` adds an implicit row before the template's first one, so this
+ * works whatever rows (files, text) the composer has.
+ */
+.composer .composer-tools {
+  grid-area: hint;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.composer .composer-tools .tool {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 16px;
-  min-height: 48px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
   border-radius: var(--r-full);
-  background: var(--accent-solid);
-  color: var(--on-accent);
-  font-weight: 650;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
 }
-.drive-link:hover {
+.composer .composer-tools .tool:hover {
   text-decoration: none;
-  background: var(--accent-solid-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
 }
+.composer .composer-tools .tool.is-on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.composer .composer-tools a.tool {
+  color: var(--accent);
+}
+.composer .composer-tools a.tool:hover {
+  border-color: var(--accent);
+}
+.composer.is-recording > .composer-tools {
+  display: none;
+}
+.shell.is-phone .composer .composer-tools {
+  grid-area: auto;
+  grid-column: 1 / -1;
+  grid-row: span 1 / 1;
+  justify-self: start;
+}
+.shell.is-phone .composer.is-recording > .composer-tools {
+  display: flex;
+}
+.shell.is-phone .composer .composer-tools .tool {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
 .drive {
   min-height: 100vh;
   min-height: 100dvh;
@@ -3702,7 +3751,7 @@ details[open] > summary .brain-tree-chevron {
 
 /* Dictation mic in the composer (composer.tsx, voice/dictation.ts): left of Send. */
 .composer.has-mic {
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: minmax(0, auto) 1fr auto auto;
   grid-template-areas:
     "text text text text"
     "select hint mic send";
@@ -3768,13 +3817,13 @@ details[open] > summary .brain-tree-chevron {
  * "attach" column and, with files, a "files" row.
  */
 .composer.has-attach {
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: minmax(0, auto) 1fr auto auto;
   grid-template-areas:
     "text text text text"
     "select hint attach send";
 }
 .composer.has-attach.has-mic {
-  grid-template-columns: auto 1fr auto auto auto;
+  grid-template-columns: minmax(0, auto) 1fr auto auto auto;
   grid-template-areas:
     "text text text text text"
     "select hint attach mic send";
