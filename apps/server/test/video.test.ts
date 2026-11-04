@@ -22,7 +22,26 @@ const spec: VideoSpecInput = {
 };
 const targets = [{ accountId: "openv-x", text: "Trace any requirement in two clicks." }];
 
-function fakes(options: { media?: boolean; campaign?: boolean } = {}) {
+/** A stand-in for the server's own voices: 16 kHz samples, one second per call, with a download step. */
+function fakeLocal() {
+  const calls: { text: string; voice?: string; fallback?: boolean }[] = [];
+  const installs: string[] = [];
+  return {
+    calls,
+    installs,
+    voice: "piper:cori",
+    ttsModel: { dir: "piper" } as never,
+    async installVoice(id: string) {
+      installs.push(id);
+    },
+    async synthesize(text: string, opts: { voice?: string; speed?: number; fallback?: boolean } = {}) {
+      calls.push({ text, voice: opts.voice, fallback: opts.fallback });
+      return { samples: new Float32Array(16000), sampleRate: 16000, voice: opts.voice ?? "piper:cori" };
+    },
+  };
+}
+
+function fakes(options: { media?: boolean; campaign?: boolean; local?: ReturnType<typeof fakeLocal> | null } = {}) {
   const jobs: { kind: string; requires: Capability[]; payload: Record<string, any> }[] = [];
   const proposals: { proposal: NewProposal; options: { forceDraft: string } }[] = [];
   const notes: { title: string; body: string }[] = [];
@@ -47,6 +66,7 @@ function fakes(options: { media?: boolean; campaign?: boolean } = {}) {
     hasAction: (t) => t === "social.campaign" && options.campaign !== false,
     media: options.media === false ? undefined : media,
     tts: { elevenlabs: { apiKey: "k", voiceId: "v" } },
+    local: options.local ?? null,
     fetch: async () =>
       Response.json({
         audio_base64: Buffer.from(silentWav(1)).toString("base64"),
@@ -121,6 +141,30 @@ describe("video.produce chain", () => {
     await expect(f.productions.start({ spec: { ...spec, scenes: [] } })).rejects.toThrow();
     // Jobs that aren't part of a production are ignored.
     await f.productions.onJobSettled({ id: "x", kind: "video.render", requires: [], payload: {}, status: "succeeded", nodeId: null, progress: 1, result: null, createdAt: "", updatedAt: "" });
+  });
+
+  it("voices with the server's own voices (the ones chat uses), in exactly the voice asked for", async () => {
+    const local = fakeLocal();
+    const f = fakes({ local });
+    const narrated = { ...spec, voice: { provider: "local", voiceId: "kokoro:bm_george" } };
+    expect(() => f.productions.executors()["video.produce"]!.validate!({ spec: narrated }, { vertical: "openv" })).not.toThrow();
+    await f.productions.start({ spec: narrated, targets });
+    expect(local.installs).toEqual(["kokoro:bm_george"]);
+    expect(local.calls.length).toBeGreaterThan(0);
+    expect(local.calls.every((c) => c.voice === "kokoro:bm_george" && c.fallback === false)).toBe(true);
+    const voice = f.jobs[0]!.payload.meta.production.voice;
+    expect(Object.values(voice)[0]).toMatchObject({ format: "wav", durationSec: 1 });
+    expect(f.uploads.some((u) => /voice-.*\.wav$/.test(u))).toBe(true);
+  });
+
+  it("refuses a voice it can't use when proposed, listing the ones it can", () => {
+    const f = fakes({ local: fakeLocal() });
+    const validate = (voice: Record<string, unknown>) => () => f.productions.executors()["video.produce"]!.validate!({ spec: { ...spec, voice } }, { vertical: "dms" });
+    expect(validate({ provider: "openai" })).toThrow(/"openai" is not configured.*"local" with voiceId one of piper:cori \(Cori, British female\)/);
+    expect(validate({ provider: "local", voiceId: "nobody" })).toThrow(/no server voice "nobody"/);
+    expect(validate({ provider: "silent" })).not.toThrow();
+    const off = fakes({ local: null });
+    expect(() => off.productions.executors()["video.produce"]!.validate!({ spec: { ...spec, voice: { provider: "local" } } }, { vertical: "dms" })).toThrow(/turned off/);
   });
 
   it("refuses a malformed spec when proposed, with a readable error", async () => {

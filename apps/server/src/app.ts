@@ -451,6 +451,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     get tts() {
       return voice.current.videoTts; // read per job: VideoProductions keeps this object
     },
+    get local() {
+      return localSpeech; // the voices chat speaks with; created further down, read per job
+    },
   });
   workers.onJobSettled((job) => video.onJobSettled(job));
   // --- end video ---

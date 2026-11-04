@@ -144,7 +144,7 @@ export type SceneInput = z.input<typeof Scene>;
 export type CaptureScene = z.infer<typeof CaptureScene>;
 
 export const VoiceConfig = z.object({
-  /** TTS provider id: "silent" and "flite" run locally; "elevenlabs" and "openai" need keys on the server. */
+  /** TTS provider id: "silent" and "flite" run on the worker; "local" is the server's own voices (the ones chat speaks with, voiceId e.g. "piper:cori"); "elevenlabs" and "openai" need keys on the server. */
   provider: z.string().regex(/^[a-z0-9-]{1,32}$/).default("silent"),
   voiceId: z.string().max(100).optional(),
   /** 0.7–1.3; providers that support it apply it. */

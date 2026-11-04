@@ -192,6 +192,19 @@ export function stepText(step: Obj): string {
   }
 }
 
+/** "kokoro:bm_george" → "George (server voice, most natural)". */
+export function voiceText(provider: string, voiceId?: string): string {
+  if (provider === "silent") return "None (captions only)";
+  if (provider === "local") {
+    if (!voiceId) return "Server default voice";
+    const [family, name = family] = voiceId.split(":");
+    const first = name!.replace(/^b[fm]_/, "").split("_")[0]!;
+    const label = first.charAt(0).toUpperCase() + first.slice(1);
+    return `${label} (server voice${family === "kokoro" ? ", most natural" : family === "piper" ? ", fast" : ""})`;
+  }
+  return voiceId ? `${provider}: ${voiceId}` : provider;
+}
+
 /** The headline facts of a spec: title, shape, length type, voice. */
 export function specFacts(spec: Obj): [string, string][] {
   const voice = isObj(spec.voice) ? str(spec.voice.provider) : undefined;
@@ -199,7 +212,7 @@ export function specFacts(spec: Obj): [string, string][] {
     ["Title", str(spec.title)],
     ["Kind", str(spec.type) ? (TYPES[spec.type as string] ?? (spec.type as string)) : undefined],
     ["Format", str(spec.format) ? `${spec.format}${spec.format === "9:16" ? " (portrait)" : spec.format === "16:9" ? " (landscape)" : spec.format === "1:1" ? " (square)" : ""}` : undefined],
-    ["Voiceover", voice ? (voice === "silent" ? "None (captions only)" : voice) : undefined],
+    ["Voiceover", voice ? voiceText(voice, isObj(spec.voice) ? str(spec.voice.voiceId) : undefined) : undefined],
     ["Captions", isObj(spec.captions) && spec.captions.enabled === false ? "Off" : undefined],
     ["Music", isObj(spec.music) ? (str(spec.music.credit) ?? "Yes") : undefined],
   ];

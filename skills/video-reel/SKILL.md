@@ -116,8 +116,22 @@ Capture steps (Playwright, run on Dave's PC): `goto` (http/https only, must be f
 - 9:16 records a phone-width viewport (540×960), so pick pages that work narrow, or set
   `fit: "cover"` and a `viewport`.
 
-`voice.provider`: leave `silent` for drafts (captions still work). Use `elevenlabs` or
-`openai` only when Dave has set the key and asked for a finished voice-over.
+`voice` picks the voice-over. Leave `{ "provider": "silent" }` for drafts (captions still work).
+For a spoken voice-over, use the same voices chat reads replies aloud with: `"provider": "local"`
+plus a `voiceId`:
+
+| voiceId | Voice |
+| --- | --- |
+| `piper:cori`, `piper:jenny_dioco`, `piper:southern_english_female` | British female (fast) |
+| `piper:alba` | Scottish female (fast) |
+| `piper:alan`, `piper:northern_english_male` | British male (fast) |
+| `kokoro:bf_emma`, `kokoro:bf_isabella` | British female (most natural) |
+| `kokoro:bm_george`, `kokoro:bm_lewis` | British male (most natural) |
+
+Prefer a `kokoro:` voice for a finished video. Use the voice Dave names, if he names one. Without
+a `voiceId`, the server's default voice speaks. `elevenlabs` and `openai` work only once their API
+key is set on the server. If the voice you pick isn't available, `propose_action` refuses it and
+lists the voices that are, so pick one of those and propose again.
 
 ## Proposing
 
