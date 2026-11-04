@@ -85,7 +85,7 @@ type DriveStage = "off" | "opening" | "open" | "closing";
 /**
  * Drive mode in the chat composer: while `want` is set, the composer comes out of the page flow
  * (a spacer keeps its place) and grows upwards, its bottom edge where it was, until its top edge
- * reaches just under the top bar; a panel under the text box (.composer-panel) takes the extra
+ * reaches just under the top bar; a panel above the text box (.composer-panel) takes the extra
  * height and holds Drive. Clearing `want` shrinks it back first. The sizes go to CSS as variables on
  * the chat section: --drive-left/-width/-bottom (where the box sits), --drive-h (the panel's
  * height, animated by a transition) and --drive-spacer (the box's height in the page).

@@ -2633,7 +2633,7 @@ a.stat:hover {
   margin: 0;
   z-index: 20;
 }
-/* In Drive mode the text box keeps its place, with the panel under it in the same grid cell. */
+/* In Drive mode the panel sits above the text box in the same grid cell, the text box staying at the bottom. */
 .composer-main {
   grid-area: text;
   display: flex;

@@ -93,7 +93,7 @@ export function Composer({
   /** Controls before the mic, e.g. the chat's "Send to" picker. */
   children?: ReactNode;
   /**
-   * Shown under the text box, growing into the space (Drive mode in the chat). While it's there
+   * Shown above the text box, growing into the space (Drive mode in the chat). While it's there
    * the mic and the paperclip are off; everything else stays where it is.
    */
   panel?: ReactNode;
@@ -295,10 +295,10 @@ export function Composer({
         )}
         {children}
         {panel ? (
-          // Drive mode: the text box stays where it is, and the panel grows beneath it.
+          // Drive mode: the panel grows above the text box, which stays on the bottom rows.
           <div className="composer-main">
-            {textBox}
             <div className="composer-panel">{panel}</div>
+            {textBox}
           </div>
         ) : (
           textBox
