@@ -71,6 +71,8 @@ const MOCK_SPEECH = () => {
     close() {}
   };
   localStorage.setItem("cc.connection", JSON.stringify({ baseUrl: "", token: "test-token" }));
+  // These tests start in push to talk (Converse's default is off; the wake-lock test checks that).
+  if (!sessionStorage.getItem("cc.test.freshMode")) localStorage.setItem("cc.drive.mode", "push");
 };
 
 type Calls = { method: string; path: string; body: unknown }[];
@@ -234,7 +236,8 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(calls.filter((c) => c.path === "/proposals/p1/approve")).toHaveLength(1);
 
     // Conversational chat: the question is answered without a button press, into the same task.
-    await page.getByRole("button", { name: "Conversation" }).click();
+    await page.getByRole("switch", { name: "Push to talk" }).click();
+    expect(await page.getByRole("switch", { name: "Push to talk" }).getAttribute("aria-checked")).toBe("false");
     expect(await page.evaluate(() => localStorage.getItem("cc.drive.mode"))).toBe("conversational");
     await sayNext("shop: has order 1042 shipped?");
     await sayNext("the one for Jane");
@@ -398,6 +401,8 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     const page = await browser.newPage();
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    // A device that never chose: Converse starts with push to talk off.
+    await page.addInitScript(() => sessionStorage.setItem("cc.test.freshMode", "1"));
     await page.addInitScript(MOCK_SPEECH);
     // A recording Screen Wake Lock: counts requests, and how many are still held.
     await page.addInitScript(() => {
@@ -439,6 +444,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     // The text box stays, as another way to give Drive a command; Drive's options are in Settings now.
     expect(await page.locator(".composer textarea").count()).toBe(1);
     expect(await page.locator(".drive details").count()).toBe(0);
+    expect(await page.getByRole("switch", { name: "Push to talk" }).getAttribute("aria-checked")).toBe("false");
     await expect.poll(async () => (await wake()).held).toBe(1);
     // Typed in the chat box while driving: Drive handles it (here, the briefing) instead of the chat.
     await page.locator(".composer textarea").fill("what's new");

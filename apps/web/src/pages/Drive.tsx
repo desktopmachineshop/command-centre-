@@ -78,7 +78,8 @@ const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
  */
 export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; commandRef?: MutableRefObject<((text: string) => void) | null> }) {
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
-    initialDriveState(readPref(PREFS.mode) === "conversational" ? "conversational" : "push", readPref(PREFS.followUp) === "1"),
+    // Push to talk is off unless chosen: Converse listens again after each answer.
+    initialDriveState(readPref(PREFS.mode) === "push" ? "push" : "conversational", readPref(PREFS.followUp) === "1"),
   );
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -591,19 +592,17 @@ export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; com
   return (
     <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Converse">
       <header className="drive-bar">
-        <div className="drive-modes" role="group" aria-label="Voice mode">
-          <button type="button" aria-pressed={state.mode === "push"} className={state.mode === "push" ? "primary" : ""} onClick={() => setMode("push")}>
-            Push to talk
-          </button>
-          <button
-            type="button"
-            aria-pressed={state.mode === "conversational"}
-            className={state.mode === "conversational" ? "primary" : ""}
-            onClick={() => setMode("conversational")}
-          >
-            Conversation
-          </button>
-        </div>
+        {/* Push to talk on: tap, speak, tap Send. Off (the default): it listens again after each answer. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={state.mode === "push"}
+          className={`drive-push ${state.mode === "push" ? "is-on" : ""}`}
+          onClick={() => setMode(state.mode === "push" ? "conversational" : "push")}
+        >
+          <span className="switch" aria-hidden="true" />
+          Push to talk
+        </button>
       </header>
 
       {roles.length > 0 && (
