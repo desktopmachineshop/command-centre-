@@ -2,6 +2,7 @@ import { speakable } from "@cc/voice/speakable";
 import { type FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
 import { type LiveFeed, useLive } from "../live";
+import { ProgressNarrator } from "../progress";
 import { go } from "../router";
 import { type Aliases, buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole, type RoleBook, type RoleChoice, type VoiceMode } from "../voice/commands";
 import { type Approval, type DriveState, driveReducer, type Expect, initialDriveState, LATCHED_TURN_MS, listenTimeoutMs, type Say } from "../voice/machine";
@@ -172,6 +173,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   // ----- following agent answers -----
   const watched = useRef(new Set<string>());
   const seenRuns = useRef(new Set<string>());
+  const narrator = useRef(new ProgressNarrator());
   /** Requests made in this session: when one runs again (a role reported back on work handed on), its new answer is spoken too. */
   const followed = useRef(new Set<string>());
 
@@ -210,6 +212,11 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     }
     if (m.type === "task.updated" && watched.current.has(m.task.id)) void check(m.task.id);
     if (m.type === "run.response" && watched.current.has(m.taskId)) void check(m.taskId);
+    // Ongoing updates on a long run: say what the agent is doing now and then.
+    if (m.type === "run.message" && watched.current.has(m.taskId) && stateRef.current.phase === "waiting") {
+      const line = narrator.current.next(m.message, Date.now());
+      if (line) void speakerRef.current?.speak(line);
+    }
   });
 
   // Polling backs up the live feed, which drops when the phone changes cell or tunnel.
@@ -225,7 +232,13 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     if (state.phase !== "waiting") return;
     if (!ackedRef.current) void speakerRef.current?.speak(WORKING);
     ackedRef.current = false;
-    const timers = PROGRESS.map((p) => setTimeout(() => void speakerRef.current?.speak(p.text), p.atMs));
+    narrator.current.start(Date.now());
+    const timers = PROGRESS.map((p) =>
+      setTimeout(() => {
+        narrator.current.spoke(Date.now());
+        void speakerRef.current?.speak(p.text);
+      }, p.atMs),
+    );
     return () => {
       timers.forEach(clearTimeout);
       speakerRef.current?.cancel();

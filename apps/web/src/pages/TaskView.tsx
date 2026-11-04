@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@cc/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { latestCommand } from "../progress";
 import type { Api, ChatFile } from "../api";
 import { ago, askText, emailAsk, readableEmailBody, usd } from "../format";
 import { Icon } from "../icons";
@@ -157,6 +158,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           </div>
         </div>
       ))}
+      {(task.status === "running" || task.status === "queued") && <LiveActivity status={task.status} command={latestCommand(Object.values(live).at(-1) ?? [])} />}
       {(task.status === "done" || task.status === "awaiting_approval" || task.status === "failed") && <ReplyBox api={api} taskId={task.id} />}
       </div>
       {proposals.length > 0 && (
@@ -175,6 +177,22 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
       )}
       </div>
     </section>
+  );
+}
+
+/** A command-line style status line while the agent works: what it is running now, and for how long. */
+function LiveActivity({ status, command }: { status: string; command: string | null }) {
+  const [started] = useState(() => Date.now());
+  const [now, setNow] = useState(started);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secs = Math.floor((now - started) / 1000);
+  return (
+    <p className="live-activity small" role="status" aria-live="polite">
+      <span aria-hidden="true">⠶</span> {command ?? (status === "queued" ? "Waiting to start" : "Working")} · {secs}s
+    </p>
   );
 }
 

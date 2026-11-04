@@ -4039,3 +4039,9 @@ details[open] > summary .brain-tree-chevron {
 .turn.queued .bubble.me {
   opacity: 0.7;
 }
+
+.live-activity {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted, #888);
+  margin: 8px 0;
+}
