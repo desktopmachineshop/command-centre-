@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="settings">
+  <title>Settings and your account</title>
+  <shortdesc>Install and update the app, change your password, turn on two-factor sign-in, and see and sign out the devices you are signed in on.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="settings"/>
+  </prolog>
+  <body>
+    <p><wintitle>App</wintitle> shows whether the app is installed, how to install it on this device, and the version with <uicontrol>Check for updates</uicontrol>. See <xref href="../start/install.dita">Install the app</xref>. <uicontrol>Manage accounts</uicontrol> goes to <xref href="accounts.dita">Accounts</xref>; <uicontrol>Sign out</uicontrol> signs out this device only.</p>
+    <p>For push notifications, use <xref href="notification-settings.dita#devices">Notification settings</xref>, which also names the device and sets what it gets.</p>
+  </body>
+  <topic id="password">
+    <title>Change your password</title>
+    <prolog><resourceid appname="command-centre" appid="settings.password"/></prolog>
+    <body>
+      <p>Enter the <uicontrol>Current password</uicontrol> and the new one twice (at least 10 characters), and choose <uicontrol>Change password</uicontrol>. Every other device is signed out.</p>
+    </body>
+  </topic>
+  <topic id="two-factor">
+    <title>Two-factor authentication</title>
+    <prolog><resourceid appname="command-centre" appid="settings.two-factor"/></prolog>
+    <body>
+      <ol>
+        <li>Choose <uicontrol>Set up two-factor</uicontrol>.</li>
+        <li>Scan the QR code with an authenticator app (1Password, Google Authenticator, Authy…). On the phone itself, choose <uicontrol>Open in your authenticator app</uicontrol> or type in the key.</li>
+        <li>Enter the <uicontrol>Code</uicontrol> it shows and choose <uicontrol>Turn on</uicontrol>.</li>
+        <li>Save the recovery codes somewhere safe. Each signs you in once if you lose your phone, and they are not shown again.</li>
+      </ol>
+      <p>To turn it off, enter your <uicontrol>Password</uicontrol> and choose <uicontrol>Turn off two-factor</uicontrol>.</p>
+    </body>
+  </topic>
+  <topic id="sessions">
+    <title>Signed-in devices</title>
+    <prolog><resourceid appname="command-centre" appid="settings.sessions"/></prolog>
+    <body>
+      <p>Every browser and app signed in to your account, with its IP address and when it was last active. <uicontrol>Sign out</uicontrol> on any other device ends its session; <uicontrol>Sign out all other devices</uicontrol> ends them all.</p>
+    </body>
+  </topic>
+</topic>

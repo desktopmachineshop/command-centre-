@@ -87,7 +87,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
       </div>
       {jobs.error && <ErrorBanner>{jobs.error}</ErrorBanner>}
       {jobs.data?.length === 0 && <Empty icon="clock">No jobs.</Empty>}
-      <ul className="list">
+      <ul className="list" data-help-pane="devices.jobs">
         {jobs.data?.map((j) => (
           <li key={j.id} className="item static">
             <div className="row between">
@@ -195,7 +195,7 @@ function LinkApproval({ api, code, autoKey, onLinked }: { api: Api; code: string
   };
 
   return (
-    <div className="card">
+    <div className="card" data-help-pane="devices.link">
       <div className="card-head">
         <Icon name="link" />
         <h3>Link a computer</h3>
@@ -264,7 +264,7 @@ function DesktopDownload({ api }: { api: Api }) {
   };
 
   return (
-    <div className="card">
+    <div className="card" data-help-pane="devices.download">
       <div className="card-head">
         <Icon name="install" />
         <h3>Desktop app for Windows</h3>

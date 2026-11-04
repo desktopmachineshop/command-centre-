@@ -25,6 +25,13 @@ on:
       - apps/worker/**
       - packages/core/**
       - .github/workflows/desktop.yml
+  # Pull requests build the app too (so a Rust or bundling mistake shows before merge), but never publish.
+  pull_request:
+    paths:
+      - apps/desktop/**
+      - apps/worker/**
+      - packages/core/**
+      - .github/workflows/desktop.yml
 
 permissions:
   contents: read
@@ -80,6 +87,7 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
       - name: Publish to the Devices page
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"

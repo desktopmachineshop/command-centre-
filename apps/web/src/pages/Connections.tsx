@@ -242,7 +242,7 @@ function Sections({ ctx, highlight, appsOpen, setAppsOpen }: { ctx: Ctx; highlig
         ))}
       </div>
 
-      <details className="acc-apps" id="acc-apps" open={appsOpen} onToggle={(e) => setAppsOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <details className="acc-apps" data-help-pane="accounts.developer-apps" id="acc-apps" open={appsOpen} onToggle={(e) => setAppsOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary>
           <span className="acc-section-icon" aria-hidden="true">
             <Icon name="code" />
@@ -932,7 +932,7 @@ function EditDialog({ ctx, def, entry, id: newId, vertical, close }: { ctx: Ctx;
         </>
       }
     >
-      <form id="acc-edit" className="acc-form" onSubmit={submit} noValidate>
+      <form id="acc-edit" data-help-pane="accounts.connect" className="acc-form" onSubmit={submit} noValidate>
         <p className="muted small">
           <Rich text={def.description} /> <HelpLink def={def} />
         </p>

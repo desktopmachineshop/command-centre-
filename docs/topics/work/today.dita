@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="today">
+  <title>Today: your calendar, reminders and lists</title>
+  <shortdesc>The personal assistant's page: the day's calendar, reminders that push to your phone, and to-do lists. Times are UK time.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="today"/>
+  </prolog>
+  <body>
+    <fig id="fig-today">
+      <title>Today on a phone</title>
+      <image href="../../screenshots/today-phone-light.png" placement="break" width="300">
+        <alt>The Today page: a quick-add box, the agenda, reminders and lists.</alt>
+      </image>
+    </fig>
+    <p>Use <uicontrol>‹</uicontrol> and <uicontrol>›</uicontrol> to look at other days, and <uicontrol>Today</uicontrol> to come back.</p>
+  </body>
+  <topic id="quick-add">
+    <title>Ask the assistant</title>
+    <prolog><resourceid appname="command-centre" appid="today.quick-add"/></prolog>
+    <body>
+      <p>Type what you want in plain words and choose <uicontrol>Send</uicontrol>, for example <userinput>Remind me to call the garage at 4pm</userinput> or <userinput>add milk to shopping</userinput>. It goes to the personal assistant as a chat; <uicontrol>Follow it</uicontrol> opens the task.</p>
+    </body>
+  </topic>
+  <topic id="agenda">
+    <title>Agenda</title>
+    <prolog><resourceid appname="command-centre" appid="today.agenda"/></prolog>
+    <body>
+      <p>The day's events from your Google calendars, with times, locations and which calendar they are in. Declined events are marked. No calendar yet? Connect a Google account in <xref href="../system/accounts.dita">Accounts</xref>, then choose its <uicontrol>Calendars</uicontrol>.</p>
+    </body>
+  </topic>
+  <topic id="reminders">
+    <title>Reminders</title>
+    <prolog><resourceid appname="command-centre" appid="today.reminders"/></prolog>
+    <body>
+      <p>A reminder sends a push notification when it is due. The notification has <uicontrol>Done</uicontrol> and <uicontrol>Snooze 1h</uicontrol> buttons, and so does its row here; <uicontrol>Coming up</uicontrol> lists later ones.</p>
+      <ol>
+        <li>Choose <uicontrol>Add</uicontrol> (or <uicontrol>Edit</uicontrol> on a reminder).</li>
+        <li>Write the <uicontrol>Reminder</uicontrol>, and set <uicontrol>When</uicontrol>.</li>
+        <li>Optionally set <uicontrol>Repeats</uicontrol>: <uicontrol>Every day</uicontrol>, <uicontrol>Weekdays (Mon–Fri)</uicontrol>, <uicontrol>Weekly on…</uicontrol> (pick the days) or <uicontrol>Monthly on day N</uicontrol>. For a repeat, the date is when it starts and the time is the time of day.</li>
+        <li>Choose <uicontrol>Save</uicontrol>. <uicontrol>Delete</uicontrol> removes the reminder and all its repeats.</li>
+      </ol>
+    </body>
+  </topic>
+  <topic id="lists">
+    <title>Lists</title>
+    <prolog><resourceid appname="command-centre" appid="today.lists"/></prolog>
+    <body>
+      <p>To-do lists you and the agents share, such as shopping. Tick an item to mark it done, <uicontrol>×</uicontrol> to remove it, and type in <uicontrol>Add to …</uicontrol> to add one. <uicontrol>Show done</uicontrol> brings back ticked items. Make a list with <uicontrol>New list</uicontrol> and <uicontrol>Add list</uicontrol>; <uicontrol>Rename</uicontrol> and <uicontrol>Delete</uicontrol> are on each list.</p>
+    </body>
+  </topic>
+</topic>

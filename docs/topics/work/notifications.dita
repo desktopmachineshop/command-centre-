@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="notifications">
+  <title>Notifications</title>
+  <shortdesc>Everything Command Centre has told you, pushed or not: approvals, briefings, reminders, alerts, digests, orders and agent messages.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="notifications"/>
+  </prolog>
+  <body>
+    <p>Filter by <uicontrol>Category</uicontrol> (the number in brackets is unread), tick <uicontrol>Unread only</uicontrol>, and choose <uicontrol>Mark all read</uicontrol> to clear the current category. Choosing a notification marks it read and opens what it is about.</p>
+    <p>A line under each says what happened to it: <systemoutput>held for quiet hours</systemoutput>, <systemoutput>sent after quiet hours</systemoutput>, <systemoutput>collapsed</systemoutput> (one of many pushed as <q>and N more</q>), <systemoutput>waiting for the digest</systemoutput>, <systemoutput>in the digest</systemoutput>, <systemoutput>in app only</systemoutput> or <systemoutput>muted</systemoutput>. What gets pushed is set in <xref href="../system/notification-settings.dita">Notification settings</xref>.</p>
+  </body>
+  <topic id="briefing">
+    <title>Briefings</title>
+    <prolog><resourceid appname="command-centre" appid="notifications.briefing"/></prolog>
+    <body>
+      <p>The morning brief from the Chief of Staff and other summaries open as a briefing: one point per line, with the last ten under <uicontrol>Recent briefings</uicontrol>. In Drive mode, say <q>what's new</q> to hear it.</p>
+    </body>
+  </topic>
+</topic>

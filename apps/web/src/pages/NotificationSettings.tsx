@@ -118,7 +118,7 @@ export function NotificationSettings({ api }: { api: Api }) {
       {status && <p className="small">{status}</p>}
       {error && <p className="error">{error}</p>}
 
-      <div className="card">
+      <div className="card" data-help-pane="notification-settings.categories">
         <h3>Categories</h3>
         <div className="table-wrap">
           <table className="matrix">
@@ -189,7 +189,7 @@ export function NotificationSettings({ api }: { api: Api }) {
 
       <VerticalOverrides verticals={verticals} prefs={prefs} overrides={overrides} save={save} />
 
-      <div className="card">
+      <div className="card" data-help-pane="notification-settings.quiet-hours">
         <h3>Quiet hours</h3>
         <div className="row wrap">
           <label className="small">
@@ -211,7 +211,7 @@ export function NotificationSettings({ api }: { api: Api }) {
         <p className="muted small">Everything else is held and arrives as one summary when quiet hours end.</p>
       </div>
 
-      <div className="card">
+      <div className="card" data-help-pane="notification-settings.quiet-hours">
         <h3>Quick briefing</h3>
         <p className="muted small">A push with today's counts (approvals waiting, tasks, spend). No agent run.</p>
         <div className="row wrap">
@@ -234,7 +234,7 @@ export function NotificationSettings({ api }: { api: Api }) {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card" data-help-pane="notification-settings.devices">
         <h3>Devices</h3>
         {!publicKey && <p className="muted small">Push is not configured on the server (set VAPID keys). Notifications still appear in the app.</p>}
         {devices.length === 0 && <p className="muted small">No devices yet.</p>}
@@ -308,7 +308,7 @@ function VerticalOverrides({
     save({ verticals: next });
   };
   return (
-    <div className="card">
+    <div className="card" data-help-pane="notification-settings.verticals">
       <h3>Per vertical</h3>
       <p className="muted small">Override a category for one business, e.g. turn off 3dpandme social.</p>
       <ul className="list">

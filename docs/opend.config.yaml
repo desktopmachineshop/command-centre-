@@ -1,0 +1,12 @@
+# OpenD docs project for Command Centre: the user guide, published at
+# https://command-centre.opend.app and shown in the app's help panel ("?" or F1).
+# The Markdown files next to this one (ARCHITECTURE.md, SETUP.md, ...) are developer
+# notes; OpenD ignores them. See topics/admin/in-app-help.dita for how help is wired.
+title: Command Centre Help
+release: '0.1'
+map: maps/command-centre.ditamap
+theme: theme/site.css
+logo: theme/logo.svg
+site:
+  # Publish from the repository's default branch (it has no "main").
+  releaseRefs: [ccr-fa6f7f74-51z3o9]

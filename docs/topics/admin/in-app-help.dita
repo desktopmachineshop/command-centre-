@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "concept.dtd">
+<concept id="in-app-help">
+  <title>Set up and maintain the in-app help</title>
+  <shortdesc>These docs live in the docs folder of the command-centre repository and publish to the OpenD site on every push. The app's help panel shows them for the page in use.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="admin.help"/>
+  </prolog>
+  <conbody>
+    <section id="server">
+      <title>Server settings</title>
+      <properties>
+        <prophead><proptypehd>Variable</proptypehd><propvaluehd>Default</propvaluehd><propdeschd>Meaning</propdeschd></prophead>
+        <property><proptype><codeph>OPEND_DOCS_URL</codeph></proptype><propvalue><codeph>https://command-centre.opend.app</codeph></propvalue><propdesc>The docs site. Also the audience of embed tokens, so it must match the site's public URL exactly.</propdesc></property>
+        <property><proptype><codeph>OPEND_HELP_APP</codeph></proptype><propvalue><codeph>command-centre</codeph></propvalue><propdesc>The app name in <filepath>help-contexts.yaml</filepath> and in each topic's <codeph>resourceid appname</codeph>.</propdesc></property>
+        <property><proptype><codeph>OPEND_EMBED_SECRET</codeph></proptype><propvalue>unset</propvalue><propdesc>The docs site's embed secret, at least 32 characters. With it, <uicontrol>?</uicontrol> opens the side panel signed in as the current user. Without it, <uicontrol>?</uicontrol> opens the help page in a new tab, where the docs site signs the reader in if it is private.</propdesc></property>
+        <property><proptype><codeph>OPEND_ORG</codeph></proptype><propvalue>unset</propvalue><propdesc>The OpenD organization slug the app's users are readers in, if they are registered in one.</propdesc></property>
+      </properties>
+      <p>On the docs site, add the app's origin (such as <codeph>https://command.desktopmachineshop.com</codeph>) to the embed origins, set the same embed secret, and register each user's email as a reader. A user the docs site doesn't know sees <systemoutput>sign-in failed</systemoutput> in the panel.</p>
+    </section>
+    <section id="authoring">
+      <title>Adding help for a screen</title>
+      <ol>
+        <li>Pick a key: the page's route (<codeph>approvals</codeph>), then dots for parts of it (<codeph>approvals.revise</codeph>). A key falls back to its parent until it has its own topic.</li>
+        <li>In the app, put <codeph>data-help-key="approvals.revise"</codeph> on the field, button or form, or <codeph>data-help-pane</codeph> on a tab, pane or dialog. New pages need a route in <filepath>docs/help-contexts.yaml</filepath>.</li>
+        <li>In the docs, tag the topic or a nested section with <codeph>&lt;resourceid appname="command-centre" appid="approvals.revise"/&gt;</codeph>.</li>
+        <li>Run <cmdname>pnpm --filter @cc/web help-topics</cmdname> to update <filepath>apps/web/src/help-topics.json</filepath>, the page each key opens in a new tab. A test fails while it is out of date.</li>
+        <li>Push. A build that fails validation never goes live, and the commit's <codeph>opend/build</codeph> status names the errors.</li>
+      </ol>
+    </section>
+  </conbody>
+</concept>

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="devices">
+  <title>Devices: worker PCs</title>
+  <shortdesc>Windows PCs running the desktop app take the heavy jobs: ffmpeg video, GPU work and local Claude Code. Link them, give them what their role needs, and watch their jobs.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="devices"/>
+  </prolog>
+  <body>
+    <p>Each computer shows whether it is <systemoutput>Online</systemoutput>, what it can do, when it was last seen and its desktop app version. <uicontrol>Unlink</uicontrol> stops it taking jobs until you link it again.</p>
+  </body>
+  <topic id="download">
+    <title>Get the desktop app</title>
+    <prolog><resourceid appname="command-centre" appid="devices.download"/></prolog>
+    <body>
+      <ol>
+        <li>Choose <uicontrol>Download for Windows</uicontrol> and run the installer. If Windows warns that it isn't signed, choose <menucascade><uicontrol>More info</uicontrol><uicontrol>Run anyway</uicontrol></menucascade>.</li>
+        <li>Open the app and sign in with your email and password.</li>
+        <li>Approve the computer, as below. There is nothing to set up in Railway.</li>
+      </ol>
+      <p>The app updates itself: choose <uicontrol>Check for updates</uicontrol> in its tray menu when this page says a new version is available.</p>
+    </body>
+  </topic>
+  <topic id="link">
+    <title>Link a computer</title>
+    <prolog><resourceid appname="command-centre" appid="devices.link"/></prolog>
+    <body>
+      <p>The desktop app opens this page with a link code. Check the app shows the same code, then choose <uicontrol>Link this computer</uicontrol>. It connects within seconds. An expired code: choose <uicontrol>Link this computer</uicontrol> in the app's tray menu to start again.</p>
+    </body>
+  </topic>
+  <topic id="roles">
+    <title>Install what a computer needs</title>
+    <prolog><resourceid appname="command-centre" appid="devices.roles"/></prolog>
+    <body>
+      <p>Each computer lists the roles it can play, such as video rendering, with <systemoutput>Ready</systemoutput> or how many components are missing. <uicontrol>Install …</uicontrol> installs them on that computer through winget; Windows may ask there for permission. It waits until the computer is online, and needs App Installer from the Microsoft Store. Some components say <systemoutput>Install yourself</systemoutput>, with a link.</p>
+    </body>
+  </topic>
+  <topic id="jobs">
+    <title>Jobs</title>
+    <prolog><resourceid appname="command-centre" appid="devices.jobs"/></prolog>
+    <body>
+      <p>Each job shows what it needs, which computer has it, and its progress. A queued job says why it is waiting (usually no online computer with that capability) and can be cancelled. A finished video shows a preview; a failed job shows its error with <uicontrol>Copy error</uicontrol>.</p>
+    </body>
+  </topic>
+</topic>

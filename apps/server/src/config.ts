@@ -195,6 +195,16 @@ const Env = z.object({
   CALENDAR_ACCOUNTS: z.string().optional(),
   // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN are read by parseCalendarAccounts (shared with Drive).
   // --- end pa ---
+  // --- help (see docs/SETUP.md, "In-app help") ---
+  /** The OpenD docs site the help panel and "?" button open. */
+  OPEND_DOCS_URL: z.url({ protocol: /^https?$/ }).default("https://command-centre.opend.app"),
+  /** App name in the docs' help-contexts.yaml and resourceid appname. */
+  OPEND_HELP_APP: z.string().regex(/^[\w-]+$/).default("command-centre"),
+  /** OpenD embed secret (the docs site's OPEND_EMBED_SECRET). Unset = help opens the docs site in a new tab. */
+  OPEND_EMBED_SECRET: z.string().min(32, "OPEND_EMBED_SECRET must be at least 32 characters").optional(),
+  /** Slug of the OpenD organization the signed-in users are readers in, if any. */
+  OPEND_ORG: z.string().optional(),
+  // --- end help ---
 });
 
 function odooConfig(e: z.infer<typeof Env>) {
@@ -324,6 +334,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     // --- end voice ---
     pa: { calendarAccounts },
+    help: {
+      docsUrl: e.OPEND_DOCS_URL.replace(/\/+$/, ""),
+      app: e.OPEND_HELP_APP,
+      embedSecret: e.OPEND_EMBED_SECRET,
+      org: e.OPEND_ORG || undefined,
+    },
     storage: storageConfig(e), // storage
   };
 }

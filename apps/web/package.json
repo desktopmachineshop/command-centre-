@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "help-topics": "tsx scripts/help-topics.ts"
   },
   "dependencies": {
     "@cc/core": "workspace:*",

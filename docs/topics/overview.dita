@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "concept.dtd">
+<concept id="overview">
+  <title><keyword keyref="app-name">Command Centre</keyword> overview</title>
+  <shortdesc>Command Centre is one place to run Desktop Machine Shop, 3dpandme, OpenV, OpenD and personal life admin. Agents do the work; you decide what goes out.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="overview"/>
+  </prolog>
+  <conbody>
+    <p>An always-on server takes in email, Odoo events, social comments, schedules and your own requests. Each one is sorted cheaply, given to the right <term>role</term> in the org chart (Customer Support, Catalogue &amp; Pricing, the Personal Assistant and so on), and worked on by an agent. Anything that would leave the building, such as an email reply, a social post or a price change, comes back to you as a <term>proposal</term> to approve, unless you have told that business to let it run.</p>
+    <fig id="fig-inbox">
+      <title>The Inbox on a PC</title>
+      <image href="../screenshots/inbox-desktop-light.png" placement="break" width="900">
+        <alt>The Command Centre Inbox on a PC: a sidebar of pages on the left, today's spend and counts at the top, and a list of tasks with their business, status and role.</alt>
+      </image>
+    </fig>
+    <section id="what-you-do">
+      <title>What you do day to day</title>
+      <ul>
+        <li><b>Approve or adjust</b> what the agents propose, in <xref href="work/approvals.dita">Approvals</xref>, or straight from a push notification.</li>
+        <li><b>Ask for things</b> in <xref href="work/chat.dita">Chat</xref>, or hands-free in <xref href="work/drive.dita">Drive mode</xref>.</li>
+        <li><b>Keep an eye on work</b> in the <xref href="work/inbox.dita">Inbox</xref>, and on your own day in <xref href="work/today.dita">Today</xref>.</li>
+        <li><b>Teach the agents</b> by editing notes in the <xref href="knowledge/brain.dita">Brain</xref> and roles in the <xref href="business/org.dita">Org</xref> chart.</li>
+      </ul>
+    </section>
+    <section id="getting-help">
+      <title>Getting help in the app</title>
+      <p>Press the <uicontrol>?</uicontrol> button in the top bar, or <userinput>F1</userinput>, on any page. Help opens on the page you are on, and on the field, button or dialog you are using when it has its own help.</p>
+    </section>
+    <section id="new-here">
+      <title>New here?</title>
+      <ol>
+        <li><xref href="start/sign-in.dita">Sign in, or set up the server</xref>.</li>
+        <li><xref href="start/install.dita">Install the app</xref> on your phone and PC.</li>
+        <li><xref href="system/accounts.dita">Connect your accounts</xref>: Claude first, then email, Odoo, Google and social.</li>
+        <li>Read <xref href="concepts/how-it-works.dita">How work flows through Command Centre</xref>.</li>
+      </ol>
+    </section>
+  </conbody>
+</concept>

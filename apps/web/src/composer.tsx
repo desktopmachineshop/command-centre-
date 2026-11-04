@@ -244,6 +244,7 @@ export function Composer({
             className={`mic ${dictation.listening ? "is-listening" : ""}`}
             onClick={toggleMic}
             aria-pressed={dictation.listening}
+            data-help-key="chat.dictate"
             aria-label={dictation.listening ? "Done dictating" : "Dictate"}
             title={dictation.listening ? "Done: keep what was said" : "Dictate: talk instead of typing"}
           >

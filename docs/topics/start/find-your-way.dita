@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "concept.dtd">
+<concept id="find-your-way">
+  <title>Find your way around</title>
+  <shortdesc>The same pages on a phone and on a PC: a bottom tab bar on the phone, a grouped sidebar on the PC.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="navigation"/>
+  </prolog>
+  <conbody>
+    <section id="pages">
+      <title>The pages</title>
+      <simpletable>
+        <sthead><stentry>Group</stentry><stentry>Pages</stentry></sthead>
+        <strow><stentry>Work</stentry><stentry><xref href="../work/inbox.dita">Inbox</xref>, <xref href="../work/today.dita">Today</xref>, <xref href="../work/approvals.dita">Approvals</xref>, <xref href="../work/chat.dita">Chat</xref>, <xref href="../work/notifications.dita">Notifications</xref>, <xref href="../work/drive.dita">Drive</xref></stentry></strow>
+        <strow><stentry>Business</stentry><stentry><xref href="../business/social.dita">Social</xref>, <xref href="../business/org.dita">Org</xref></stentry></strow>
+        <strow><stentry>Knowledge</stentry><stentry><xref href="../knowledge/brain.dita">Brain</xref></stentry></strow>
+        <strow><stentry>System</stentry><stentry><xref href="../system/accounts.dita">Accounts</xref>, <xref href="../system/devices.dita">Devices</xref>, <xref href="../system/storage.dita">Storage</xref>, <xref href="../system/settings.dita">Settings</xref>, <xref href="../system/notification-settings.dita">Notification settings</xref></stentry></strow>
+      </simpletable>
+      <p>On a phone, Inbox, Today, Approvals and Chat are in the tab bar; everything else is under <uicontrol>More</uicontrol>, which also has the theme switch and <uicontrol>Install app</uicontrol>. A dot on <uicontrol>More</uicontrol> means a page inside it has something new.</p>
+    </section>
+    <section id="top-bar">
+      <title>The top bar</title>
+      <dl>
+        <dlentry><dt>Bell</dt><dd>Opens <wintitle>Notifications</wintitle>; the badge is the unread count.</dd></dlentry>
+        <dlentry><dt><uicontrol>?</uicontrol></dt><dd>Help for the page you are on. See <xref href="#help">Help in the app</xref>.</dd></dlentry>
+        <dlentry><dt>Live dot</dt><dd>Green while the app has a live connection to the server; pages update by themselves. <systemoutput>Reconnecting…</systemoutput> means it lost the connection and is getting it back, for example during a deploy.</dd></dlentry>
+        <dlentry><dt>Theme</dt><dd><uicontrol>System</uicontrol>, <uicontrol>Light</uicontrol> or <uicontrol>Dark</uicontrol>. On a phone the button cycles through them.</dd></dlentry>
+      </dl>
+      <p>Badges on <wintitle>Approvals</wintitle> and <wintitle>Notifications</wintitle> show what is waiting, and the installed app's icon shows the unread count where the phone supports it. The sidebar's foot shows what the agents have spent today.</p>
+    </section>
+  </conbody>
+  <concept id="help">
+    <title>Help in the app</title>
+    <prolog>
+      <resourceid appname="command-centre" appid="help"/>
+    </prolog>
+    <conbody>
+      <p>Choose <uicontrol>?</uicontrol> in the top bar, or press <userinput>F1</userinput>, to open the help for what you are doing.</p>
+      <ul>
+        <li>It opens on the help for the page, or more precisely for the field that has focus, the button you last pressed, or the dialog or pane you are in, when those have their own help.</li>
+        <li>The panel slides in beside the page and doesn't block it. While it is open it follows you: move to another page or field and it moves to that help, until you follow a link or search inside the panel.</li>
+        <li><userinput>Escape</userinput> or the panel's close button closes it and puts you back where you were.</li>
+      </ul>
+      <p>When the server isn't set up to sign you in to the help panel, or you signed in with the admin token, <uicontrol>?</uicontrol> opens the same help in a new tab instead.</p>
+    </conbody>
+  </concept>
+</concept>

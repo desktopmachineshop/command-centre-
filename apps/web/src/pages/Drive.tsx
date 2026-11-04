@@ -679,7 +679,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         </p>
       )}
 
-      <details className="drive-more">
+      <details className="drive-more" data-help-pane="drive.commands">
         <summary>Options</summary>
         <form className="row" onSubmit={submitTyped}>
           <input

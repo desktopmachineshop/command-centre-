@@ -1,0 +1,26 @@
+# Context-sensitive help for the Command Centre PWA (apps/web/src/help.ts).
+# The app sends its hash route as a path (#/task/123 -> /task/123); the routes below map
+# it to a key, and topics declare keys with <resourceid appname="command-centre" appid="..."/>.
+# Fields and panes in the app add more specific keys (data-help-key / data-help-pane),
+# which fall back to their parents (approvals.revise -> approvals), then to the default.
+apps:
+  command-centre:
+    default: overview
+    routes:
+      /: inbox
+      /inbox: inbox
+      /task/:id: inbox.task
+      /today: today
+      /approvals/**: approvals
+      /chat: chat
+      /drive: drive
+      /notifications: notifications
+      /briefing/**: notifications.briefing
+      /notification-settings: notification-settings
+      /social: social
+      /org: org
+      /brain/**: brain
+      /accounts: accounts
+      /devices: devices
+      /storage: storage
+      /settings: settings

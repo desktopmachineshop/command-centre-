@@ -34,7 +34,7 @@ export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
           ) : undefined
         }
       >
-        <select className="inbox-filter" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
+        <select className="inbox-filter" data-help-key="inbox.filter" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
           {FILTERS.map((f) => (
             <option key={f} value={f}>
               {f ? f.replace("_", " ") : "all"}
@@ -69,7 +69,7 @@ function Today({ api, feed, onDeferred }: { api: Api; feed: LiveFeed; onDeferred
   const share = budget ? Math.min(1, totals.costUsd / budget) : 0;
 
   return (
-    <div className="card today">
+    <div className="card today" data-help-pane="inbox.digest">
       <div className="today-head">
         <strong>Today</strong>
         <span className="muted small">

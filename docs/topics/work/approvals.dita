@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="approvals">
+  <title>Approvals</title>
+  <shortdesc>Everything the agents want to send, post or change that needs a yes from you. Approve it, reject it, edit it, or send it back with a note.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="approvals"/>
+  </prolog>
+  <body>
+    <fig id="fig-approvals">
+      <title>Approvals on a phone</title>
+      <image href="../../screenshots/approvals-phone-light.png" placement="break" width="300">
+        <alt>Approvals on a phone: a proposal card with its business, action type, summary, and Reject and Approve buttons.</alt>
+      </image>
+    </fig>
+    <p>Each card is one proposal: the business, the action type (such as <codeph>email.reply</codeph> or <codeph>social.post</codeph>), a summary, and a preview. A social post shows how it will look on each account, with its character count; a video shows the render. <uicontrol>Details</uicontrol> shows exactly what will be sent. The <uicontrol>task</uicontrol> link opens the task that proposed it.</p>
+    <p>Which actions come here is set per business in the Org page's <xref href="../business/org.dita#policies">policies</xref>.</p>
+  </body>
+  <topic id="decide">
+    <title>Approve or reject</title>
+    <prolog><resourceid appname="command-centre" appid="approvals.decide"/></prolog>
+    <body>
+      <p><uicontrol>Approve</uicontrol> runs the action straight away (a scheduled social campaign is queued for its time). <uicontrol>Reject</uicontrol> drops it. If an approved action fails, its card shows the error, with <uicontrol>Copy error</uicontrol> and the <uicontrol>Full error</uicontrol>.</p>
+    </body>
+  </topic>
+  <topic id="confirm">
+    <title>Approving from a notification</title>
+    <prolog><resourceid appname="command-centre" appid="approvals.confirm"/></prolog>
+    <body>
+      <p>The <uicontrol>Approve</uicontrol> and <uicontrol>Reject</uicontrol> buttons on a push notification never act from the lock screen. They open the app on that proposal and ask you to confirm with <uicontrol>Yes, approve</uicontrol> or <uicontrol>Yes, reject</uicontrol>. If someone (or another device) already decided it, the page says it is no longer waiting.</p>
+    </body>
+  </topic>
+  <topic id="edit">
+    <title>Edit before approving</title>
+    <prolog><resourceid appname="command-centre" appid="approvals.edit"/></prolog>
+    <body>
+      <p><uicontrol>Edit</uicontrol> shows one field per part of the action: recipients, subject, title and body first. Change what you need and choose <uicontrol>Save changes</uicontrol>, then <uicontrol>Approve</uicontrol>. Yes/no settings are checkboxes; structured values are JSON and must stay valid.</p>
+    </body>
+  </topic>
+  <topic id="revise">
+    <title>Ask for changes</title>
+    <prolog><resourceid appname="command-centre" appid="approvals.revise"/></prolog>
+    <body>
+      <p>When it is easier to say what is wrong than to fix it yourself, choose <uicontrol>Ask for changes</uicontrol>, write what the agent should change (for example <userinput>Mention the restock date, and keep it shorter</userinput>) and choose <uicontrol>Send to agent</uicontrol>. This proposal is rejected and the agent proposes a new version, which comes back here.</p>
+    </body>
+  </topic>
+</topic>

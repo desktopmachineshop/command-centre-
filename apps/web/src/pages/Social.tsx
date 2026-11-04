@@ -164,7 +164,7 @@ function Composer({ api, accounts }: { api: Api; accounts: SocialAccount[] }) {
   };
 
   return (
-    <form className="card composer-card" onSubmit={submit}>
+    <form className="card composer-card" data-help-pane="social.composer" onSubmit={submit}>
       <div className="card-head">
         <Icon name="plus" />
         <h3>New post</h3>

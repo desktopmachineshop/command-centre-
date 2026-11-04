@@ -82,7 +82,7 @@ function UnitTools({ unit }: { unit: string }) {
   const info = unit === ROOT ? edit.config.root : edit.config.verticals.find((v) => v.unit === unit);
   if (!info) return null;
   return (
-    <div className="org-tools">
+    <div className="org-tools" data-help-pane="org.edit">
       {info.problem && (
         <ErrorBanner>
           The change saved for this part of the org no longer fits the code, so the code's version runs: {info.problem}. Fix it by saving again, or reset it from History.

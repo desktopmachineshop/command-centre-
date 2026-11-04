@@ -658,7 +658,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => voiceFront }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => voiceFront }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles, help: config.help }));
   app.route(
     "/mcp",
     mcpRoutes({

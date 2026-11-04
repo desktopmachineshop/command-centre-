@@ -228,6 +228,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             setThreadId(null);
           }}
           aria-label="Send to"
+          data-help-key="chat.send-to"
         >
           <option value="">Chief of Staff</option>
           {verticals.map((v) => (

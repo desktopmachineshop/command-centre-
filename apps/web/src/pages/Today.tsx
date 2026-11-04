@@ -73,7 +73,7 @@ function QuickAdd({ api }: { api: Api }) {
     }
   };
   return (
-    <form className="card quick-add" onSubmit={submit}>
+    <form className="card quick-add" data-help-pane="today.quick-add" onSubmit={submit}>
       <label className="grow">
         <span className="muted small">Ask the assistant</span>
         <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Remind me to call the garage at 4pm · add milk to shopping" enterKeyHint="send" />
@@ -93,7 +93,7 @@ function QuickAdd({ api }: { api: Api }) {
 
 function Agenda({ view }: { view: TodayView }) {
   return (
-    <section className="card" aria-labelledby="agenda-h">
+    <section className="card" data-help-pane="today.agenda" aria-labelledby="agenda-h">
       <h3 id="agenda-h">Agenda</h3>
       {!view.calendarConfigured && <p className="muted small">
           No calendar connected. <a href="#/accounts">Connect a Google account</a> in Accounts.
@@ -139,7 +139,7 @@ function Reminders({ reminders, upcoming, run, api }: { reminders: Reminder[]; u
   /** The reminder being edited, or "new". */
   const [editing, setEditing] = useState<Reminder | "new" | null>(null);
   return (
-    <section className="card" aria-labelledby="reminders-h">
+    <section className="card" data-help-pane="today.reminders" aria-labelledby="reminders-h">
       <div className="row between">
         <h3 id="reminders-h">Reminders</h3>
         <button className="ghost" onClick={() => setEditing("new")}>
@@ -321,7 +321,7 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
         </div>
       }
     >
-      <form id="reminder-form" onSubmit={save}>
+      <form id="reminder-form" data-help-pane="today.reminders" onSubmit={save}>
         <label className="field">
           <span>Reminder</span>
           <input value={text} onChange={(e) => setText(e.target.value)} maxLength={500} required placeholder="Put the bins out" />
@@ -360,7 +360,7 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
 function Lists({ lists, run, api }: { lists: (TodoList & { items: TodoItem[] })[]; run: (fn: () => Promise<unknown>) => void; api: Api }) {
   const [name, setName] = useState("");
   return (
-    <section aria-labelledby="lists-h">
+    <section aria-labelledby="lists-h" data-help-pane="today.lists">
       <h3 id="lists-h">Lists</h3>
       {lists.map((l) => (
         <ListCard key={l.id} list={l} run={run} api={api} />

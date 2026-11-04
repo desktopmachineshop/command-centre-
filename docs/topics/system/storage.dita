@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="storage">
+  <title>Storage</title>
+  <shortdesc>Where uploads, post media, video renders, footage and attachments are kept: on the server's disk, or in Google Drive once it is connected.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="storage"/>
+  </prolog>
+  <body>
+    <p>To store new files in Google Drive, connect a Google account and choose Drive under <wintitle>File storage</wintitle> in <xref href="accounts.dita">Accounts</xref>.</p>
+  </body>
+  <topic id="space">
+    <title>Space</title>
+    <prolog><resourceid appname="command-centre" appid="storage.space"/></prolog>
+    <body>
+      <p>The meter shows how full the server's disk is; uploads stop with <systemoutput>Storage is full</systemoutput> before the last few hundred MB. Video renders older than the retention period are deleted each night unless an approval still needs them. With Drive, its usage and <uicontrol>Open the folder</uicontrol> are shown too. <uicontrol>By folder</uicontrol> breaks it down.</p>
+    </body>
+  </topic>
+  <topic id="files">
+    <title>Files</title>
+    <prolog><resourceid appname="command-centre" appid="storage.files"/></prolog>
+    <body>
+      <p>The newest 500 files, filterable by folder. <uicontrol>Preview</uicontrol>, <uicontrol>Open</uicontrol> or <uicontrol>Delete</uicontrol> each one.</p>
+      <note type="caution">Deleting can't be undone, and anything that links to the file, such as a post or an approval, loses it.</note>
+    </body>
+  </topic>
+</topic>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE task PUBLIC "-//OASIS//DTD DITA Task//EN" "task.dtd">
+<task id="sign-in">
+  <title>Sign in, or set up the server</title>
+  <shortdesc>You sign in with your email and password, and optionally a code from your phone. The very first time, you create that account with the server's admin token.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="sign-in"/>
+  </prolog>
+  <taskbody>
+    <context>
+      <p>Open your Command Centre address, for example <filepath>https://command.desktopmachineshop.com</filepath>. What you see depends on the server:</p>
+      <ul>
+        <li><wintitle>Set up Command Centre</wintitle> appears only while the server has no account yet.</li>
+        <li>Otherwise you see the <wintitle>Command Centre</wintitle> sign-in form.</li>
+      </ul>
+    </context>
+    <steps>
+      <step>
+        <cmd>First time only: create your account.</cmd>
+        <substeps>
+          <substep><cmd>In <uicontrol>Admin token</uicontrol>, paste the <codeph>ADMIN_TOKEN</codeph> from the server's Railway variables.</cmd><info><p>This proves the server is yours. You need it only this once.</p></info></substep>
+          <substep><cmd>Fill in <uicontrol>Name</uicontrol>, <uicontrol>Email</uicontrol>, <uicontrol>Password (at least 10 characters)</uicontrol> and <uicontrol>Repeat password</uicontrol>, then choose <uicontrol>Create account</uicontrol>.</cmd></substep>
+        </substeps>
+        <stepresult><p>You are signed in. Next time, sign in with your email and password.</p></stepresult>
+      </step>
+      <step>
+        <cmd>Enter your <uicontrol>Email</uicontrol> and <uicontrol>Password</uicontrol> and choose <uicontrol>Sign in</uicontrol>.</cmd>
+      </step>
+      <step>
+        <cmd>If two-factor authentication is on, enter the 6-digit <uicontrol>Code</uicontrol> from your authenticator app and choose <uicontrol>Verify</uicontrol>.</cmd>
+        <info><p>Lost your phone? Enter one of your recovery codes instead. Each one works once.</p></info>
+      </step>
+    </steps>
+    <result>
+      <p>The app opens on the <xref href="../work/inbox.dita">Inbox</xref>. The session lives in a secure cookie: nothing secret is stored in the browser. You stay signed in on this device until you sign out in <xref href="../system/settings.dita">Settings</xref>, or sign it out from another device.</p>
+    </result>
+  </taskbody>
+  <concept id="admin-token">
+    <title>Signing in with the admin token</title>
+    <conbody>
+      <p><uicontrol>Use an admin token instead</uicontrol> connects with the server's admin token and, optionally, another server's URL. It is meant for automation and recovery: the token is saved in this browser until you sign out, it has no account (so <wintitle>Settings</wintitle> can't change a password or two-factor), and the in-app help opens in a new tab rather than a side panel.</p>
+    </conbody>
+  </concept>
+  <concept id="trouble">
+    <title>If it doesn't work</title>
+    <conbody>
+      <ul>
+        <li><systemoutput>Can't reach the server. Check your connection.</systemoutput> The server is down or redeploying: wait a minute and reload.</li>
+        <li>Too many wrong attempts lock sign-in for a short while. The form says how long.</li>
+      </ul>
+    </conbody>
+  </concept>
+</task>
