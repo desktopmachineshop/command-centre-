@@ -2680,24 +2680,28 @@ a.stat:hover {
 /*
  * The talk button is a disc with a feathered edge: solid in the middle, fading out over its outer
  * part rather than ending at a hard rim. Each phase sets the disc's colour as --disc.
+ * --ring-space is a band round the disc, inside the button, that the live trace draws in: the
+ * whole of it, trace included, is the touch zone.
  */
 .drive .drive-ptt {
   --disc: var(--accent-solid);
+  --ring-space: 0px;
   width: min(72vw, 52vh, 360px);
   aspect-ratio: 1;
+  padding: 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: radial-gradient(
-    closest-side,
-    var(--disc) 0%,
-    var(--disc) 72%,
-    color-mix(in srgb, var(--disc) 55%, transparent) 86%,
-    color-mix(in srgb, var(--disc) 0%, transparent) 100%
-  );
-  background-origin: border-box;
+      closest-side,
+      var(--disc) 0%,
+      var(--disc) 72%,
+      color-mix(in srgb, var(--disc) 55%, transparent) 86%,
+      color-mix(in srgb, var(--disc) 0%, transparent) 100%
+    )
+    center / calc(100% - 2 * var(--ring-space)) calc(100% - 2 * var(--ring-space)) no-repeat;
   color: var(--on-accent);
-  border: 6px solid transparent;
+  border: 0;
   box-shadow: none;
   font-size: clamp(1.3rem, 5vw, 1.8rem);
 }
@@ -2741,7 +2745,7 @@ a.stat:hover {
   --level: 0;
   --orb: var(--danger-solid);
   position: absolute;
-  inset: -6px;
+  inset: var(--ring-space);
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -4098,20 +4102,21 @@ details[open] > summary .brain-tree-chevron {
  * microphone while listening and the voice while speaking.
  */
 .drive-trace {
+  --trace-band: var(--ring-space);
   position: absolute;
-  inset: -66px;
-  width: calc(100% + 132px);
-  height: calc(100% + 132px);
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
   color: var(--danger-solid);
 }
 /*
- * With the trace on, the button is a little smaller so the trace's tallest bars fit on a phone,
- * with room above and below so they don't run into the status or caption.
+ * With the trace on, the button grows to take in the trace's full reach (so a tap anywhere on the
+ * trace counts), and the orb inside it is drawn smaller to leave the trace its band.
  */
 .drive:not(.viz-orb) .drive-ptt {
-  width: min(62vw, 46vh, 330px);
-  margin-block: 60px;
+  --ring-space: 60px;
+  width: min(92vw, 64vh, 460px);
 }
 .drive.phase-speaking .drive-trace {
   color: var(--success-solid);
