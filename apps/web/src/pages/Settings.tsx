@@ -3,6 +3,7 @@ import { useInstall } from "../install";
 import { useUpdate } from "../update";
 import type { Api, VoiceConfig } from "../api";
 import { VoicePicker } from "../voice/VoicePicker";
+import { DriveSettings } from "../voice/drivePrefs";
 import { Icon } from "../icons";
 import { PageHead } from "../ui";
 import { Account } from "./Account";
@@ -98,6 +99,13 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
         </div>
         <p className="muted small">The voice this device speaks with, in Drive mode and when reading replies aloud. Fast voices start at once; the most natural ones pause a little before each sentence.</p>
         <VoicePicker api={api} config={voiceConfig} />
+      </div>
+      <div className="card">
+        <div className="card-head">
+          <Icon name="drive" />
+          <h3>Drive mode</h3>
+        </div>
+        <DriveSettings />
       </div>
       <div className="card">
         <div className="card-head">

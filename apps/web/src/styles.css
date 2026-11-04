@@ -2633,8 +2633,17 @@ a.stat:hover {
   margin: 0;
   z-index: 20;
 }
-.composer-panel {
+/* In Drive mode the text box keeps its place, with the panel under it in the same grid cell. */
+.composer-main {
   grid-area: text;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.composer-main textarea {
+  min-height: 40px;
+}
+.composer-panel {
   height: var(--drive-h);
   min-height: 0;
   overflow: hidden;
@@ -2925,23 +2934,13 @@ a.stat:hover {
   font-weight: 650;
   max-width: 640px;
 }
-.drive-more {
-  width: 100%;
-  max-width: 640px;
-  text-align: left;
+/* Settings → Drive mode (voice/drivePrefs.tsx): what used to be Drive's Options. */
+.drive-settings {
+  display: grid;
+  gap: var(--sp-3);
 }
-.drive-more summary {
-  cursor: pointer;
-  padding: 12px 0;
-  min-height: 44px;
-  color: var(--text-2);
-}
-.drive-more label {
-  margin: 10px 0;
-}
-.drive-more input[type="checkbox"] {
-  width: 22px;
-  height: 22px;
+.drive-settings select {
+  width: auto;
 }
 /* --- end Drive mode --- */
 
@@ -4234,7 +4233,7 @@ details[open] > summary .brain-tree-chevron {
   overflow: auto;
 }
 
-/* Voice picker (voice/VoicePicker.tsx): in Settings → Voice and Drive mode's Options. */
+/* Voice picker (voice/VoicePicker.tsx): in Settings → Voice. */
 .voice-picker label {
   flex-wrap: wrap;
   gap: var(--sp-2);

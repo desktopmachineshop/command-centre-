@@ -85,8 +85,8 @@ type DriveStage = "off" | "opening" | "open" | "closing";
 /**
  * Drive mode in the chat composer: while `want` is set, the composer comes out of the page flow
  * (a spacer keeps its place) and grows upwards, its bottom edge where it was, until its top edge
- * reaches just under the top bar; the text box's place (.composer-panel) takes the extra height
- * and holds Drive. Clearing `want` shrinks it back first. The sizes go to CSS as variables on
+ * reaches just under the top bar; a panel under the text box (.composer-panel) takes the extra
+ * height and holds Drive. Clearing `want` shrinks it back first. The sizes go to CSS as variables on
  * the chat section: --drive-left/-width/-bottom (where the box sits), --drive-h (the panel's
  * height, animated by a transition) and --drive-spacer (the box's height in the page).
  */
@@ -94,11 +94,20 @@ function useDriveExpand(sectionRef: RefObject<HTMLElement | null>, want: boolean
   const [stage, setStage] = useState<DriveStage>("off");
   const geom = useRef({ startH: 0, restH: 0, bottom: 0, openH: 0 });
 
+  /** The panel's open height: what's left between the top bar and the box's bottom edge. */
+  const fit = (el: HTMLElement) => {
+    const g = geom.current;
+    const box = el.querySelector<HTMLElement>(".composer");
+    const panel = el.querySelector<HTMLElement>(".composer-panel");
+    // The rest of the box (rows, padding) as laid out in Drive mode, without the panel.
+    if (box && panel) g.restH = box.getBoundingClientRect().height - panel.getBoundingClientRect().height;
+    const top = (document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0) + 8;
+    g.openH = Math.max(g.startH, window.innerHeight - g.bottom - top - g.restH);
+  };
+
   /** Where the box goes for a given horizontal extent: up to just under the top bar. */
   const place = (el: HTMLElement, left: number, width: number) => {
     const g = geom.current;
-    const top = (document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0) + 8;
-    g.openH = Math.max(g.startH, window.innerHeight - g.bottom - top - g.restH);
     el.style.setProperty("--drive-left", `${left}px`);
     el.style.setProperty("--drive-width", `${width}px`);
     el.style.setProperty("--drive-bottom", `${g.bottom}px`);
@@ -109,12 +118,11 @@ function useDriveExpand(sectionRef: RefObject<HTMLElement | null>, want: boolean
     const box = el?.querySelector<HTMLElement>(".composer");
     if (!el || !box) return;
     if (want && stage === "off") {
-      // Measured in place, before it moves: the box, and the text box whose place the panel takes.
+      // Measured in place, before it moves; the panel starts empty and takes all the extra height.
       const r = box.getBoundingClientRect();
-      const text = box.querySelector("textarea")?.offsetHeight ?? 48;
-      geom.current = { startH: text, restH: r.height - text, bottom: window.innerHeight - r.bottom, openH: 0 };
+      geom.current = { startH: 0, restH: r.height, bottom: window.innerHeight - r.bottom, openH: 0 };
       el.style.setProperty("--drive-spacer", `${r.height}px`);
-      el.style.setProperty("--drive-h", `${text}px`);
+      el.style.setProperty("--drive-h", "0px");
       place(el, r.left, r.width);
       setStage("opening");
     } else if (want && stage === "closing") {
@@ -130,7 +138,8 @@ function useDriveExpand(sectionRef: RefObject<HTMLElement | null>, want: boolean
     const el = sectionRef.current;
     if (!el) return;
     if (stage === "opening") {
-      // Grow on the next frame, once the panel is in at the text box's height.
+      // Grow on the next frame, from the box as Drive mode lays it out (the panel still empty).
+      fit(el);
       const frame = requestAnimationFrame(() => el.style.setProperty("--drive-h", `${geom.current.openH}px`));
       const timer = setTimeout(() => setStage("open"), DRIVE_MS);
       return () => {
@@ -162,6 +171,7 @@ function useDriveExpand(sectionRef: RefObject<HTMLElement | null>, want: boolean
         const spacer = el.querySelector<HTMLElement>(".composer-spacer")?.getBoundingClientRect();
         if (!spacer) return;
         place(el, spacer.left, spacer.width);
+        fit(el);
         el.style.setProperty("--drive-h", `${geom.current.openH}px`);
       };
       window.addEventListener("resize", refit);
@@ -184,6 +194,8 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   const sectionRef = useRef<HTMLElement>(null);
   const driveStage = useDriveExpand(sectionRef, drive);
   const driving = driveStage !== "off";
+  /** Drive's typed-command handler while it's open (Drive sets it). */
+  const driveCommand = useRef<((text: string) => void) | null>(null);
 
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
@@ -272,6 +284,12 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   });
 
   const send = async (message: string, files: ChatFile[]) => {
+    // In Drive mode, typing is another way to give Drive a command.
+    if (driving && driveCommand.current) {
+      driveCommand.current(message);
+      setText("");
+      return true;
+    }
     if (!ready || queue.length) {
       setQueue((q) => [...q, { id: ++queueId, text: message, files }]);
       setText("");
@@ -361,9 +379,9 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
         onChange={setText}
         onSend={send}
         label="Message"
-        placeholder="What needs doing?"
+        placeholder={driving ? "Or type to Drive" : "What needs doing?"}
         className={driving ? `is-driving is-${driveStage}` : ""}
-        panel={driving ? <Drive api={api} feed={feed} /> : undefined}
+        panel={driving ? <Drive api={api} feed={feed} commandRef={driveCommand} /> : undefined}
       >
         <select
           value={vertical}
@@ -393,11 +411,11 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
           <a
             className={`tool ${drive ? "is-on" : ""}`}
             href={drive ? "#/chat" : "#/drive"}
-            aria-label={drive ? "Leave Drive mode" : "Drive mode: talk hands-free"}
-            title={drive ? "Leave Drive mode" : "Drive mode: talk hands-free"}
+            aria-label={drive ? "Fold Drive mode away, back to typing" : "Drive mode: talk hands-free"}
+            title={drive ? "Fold Drive mode away, back to typing" : "Drive mode: talk hands-free"}
           >
-            <Icon name="drive" size={16} />
-            <span>Drive</span>
+            <Icon name={drive ? "fold" : "drive"} size={16} />
+            <span>{drive ? "Fold" : "Drive"}</span>
           </a>
         </div>
       </Composer>

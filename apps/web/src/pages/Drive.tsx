@@ -1,5 +1,5 @@
 import { speakable } from "@cc/voice/speakable";
-import { type FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { type MutableRefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { ProgressNarrator } from "../progress";
@@ -20,29 +20,13 @@ import {
 } from "../voice/speech";
 import { speakerFor, useVoiceChoice } from "../voice/choice";
 import { pickListener } from "../voice/dictation";
-import { VoicePicker } from "../voice/VoicePicker";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
 import { OrbTrace, VoiceOrb } from "../voice/Waveform";
+import { DRIVE_PREFS, readPref, readViz, writePref } from "../voice/drivePrefs";
 
-// Per-device preferences. Storage can be missing (private mode), so every access is guarded.
-const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
-/** What the talk button shows: the orb, the live trace, or both (the default). */
-type Viz = "both" | "orb" | "trace";
-function readPref(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function writePref(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // not persisted; still applies for this session
-  }
-}
+// Per-device preferences, set in Settings → Drive mode (voice/drivePrefs.tsx).
+const PREFS = DRIVE_PREFS;
 
 /** The org root's role id (ROOT_ROLE_ID on the server): Dave's front door, and the default here. */
 const CHIEF = "chief-of-staff";
@@ -92,7 +76,7 @@ const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
  * Drive mode, shown inside the chat composer (pages/Chat.tsx), which grows to hold it; the
  * composer's Drive button leaves it. Unmounting stops any listening and speaking.
  */
-export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
+export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; commandRef?: MutableRefObject<((text: string) => void) | null> }) {
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
     initialDriveState(readPref(PREFS.mode) === "conversational" ? "conversational" : "push", readPref(PREFS.followUp) === "1"),
   );
@@ -108,10 +92,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   talkingToRef.current = talkingTo;
   // The voice this device speaks with (voice/choice.ts): the server's default, a chosen server voice, or the device's own.
   const [voiceChoice] = useVoiceChoice();
-  const [viz, setViz] = useState<Viz>(() => {
-    const v = readPref(PREFS.viz);
-    return v === "orb" || v === "trace" ? v : "both";
-  });
+  const [viz] = useState(readViz);
   /** A reply from the voice front being spoken as it streams, and its words so far. */
   const replyRef = useRef<ReplyStream | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -121,10 +102,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const ackedRef = useRef(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [interim, setInterim] = useState("");
-  const [wakeHeld, setWakeHeld] = useState(false);
-  const [headset, setHeadset] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [typed, setTyped] = useState("");
 
   const lang = config?.language ?? "en-GB";
 
@@ -158,7 +136,6 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   useEffect(() => {
     const lock = new ScreenWakeLock();
-    lock.onChange = setWakeHeld;
     void lock.acquire();
     return () => void lock.release();
   }, []);
@@ -472,7 +449,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     if (state.phase !== "listening") return;
     const l = listenerRef.current;
     if (!l) {
-      dispatch({ type: "error", message: "No speech recognition here. Type a command below." });
+      dispatch({ type: "error", message: "No speech recognition here. Type a command in the chat box." });
       return;
     }
     let live = true;
@@ -550,7 +527,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     // Unlock Web Audio playback from this tap (iOS requires a gesture).
     if (speakerRef.current instanceof ServerSpeaker) speakerRef.current.unlock();
     // Started from a tap, as autoplay rules require; then the headset button works too.
-    if (!headsetRef.current.active) void headsetRef.current.start().then(() => setHeadset(headsetRef.current?.active ?? false));
+    if (!headsetRef.current.active) void headsetRef.current.start();
     const s = stateRef.current;
     if (s.phase === "listening") {
       listenerRef.current?.stop(); // Send: finish now; what was heard is still used
@@ -565,11 +542,10 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const pressRef = useRef(press);
   pressRef.current = press;
 
-  const submitTyped = async (e: FormEvent) => {
-    e.preventDefault();
-    const text = typed.trim();
-    if (!text || state.phase === "sending") return;
-    setTyped("");
+  /** A command typed in the chat box (Chat passes it here while Drive is open). */
+  const typeCommand = async (raw: string) => {
+    const text = raw.trim();
+    if (!text || stateRef.current.phase === "sending") return;
     speakerRef.current?.cancel();
     dispatch({ type: "press" });
     dispatch({ type: "heard", text });
@@ -587,10 +563,15 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     if (s.approval) say(readback(action, s.approval), "confirm", { approval: s.approval, confirm: { ...s.approval, action } });
   };
 
-  const toggleFollowUp = (on: boolean) => {
-    writePref(PREFS.followUp, on ? "1" : "0");
-    dispatch({ type: "followUp", on });
-  };
+  const typeRef = useRef(typeCommand);
+  typeRef.current = typeCommand;
+  useEffect(() => {
+    if (!commandRef) return;
+    commandRef.current = (text) => void typeRef.current(text);
+    return () => {
+      commandRef.current = null;
+    };
+  }, [commandRef]);
 
   const caption =
     state.phase === "listening" || state.phase === "sending"
@@ -709,49 +690,6 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         </p>
       )}
 
-      <details className="drive-more" data-help-pane="drive.commands">
-        <summary>Options</summary>
-        <form className="row" onSubmit={submitTyped}>
-          <input
-            className="grow"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder="Type a command"
-            aria-label="Type a command"
-          />
-          <button type="submit">Send</button>
-        </form>
-        <label className="row small">
-          <input type="checkbox" checked={state.followUp} onChange={(e) => toggleFollowUp(e.target.checked)} />
-          Listen for a follow-up after each answer (conversation mode)
-        </label>
-        <label className="row small">
-          Show
-          <select
-            value={viz}
-            onChange={(e) => {
-              const v = e.target.value as Viz;
-              writePref(PREFS.viz, v);
-              setViz(v);
-            }}
-          >
-            <option value="both">Orb and live trace</option>
-            <option value="orb">Orb only</option>
-            <option value="trace">Live trace only</option>
-          </select>
-        </label>
-        <VoicePicker api={api} config={config} />
-        <p className="muted small">
-          Listening: {listener ? (listener.kind === "browser" ? "browser" : listener.kind === "live" ? "live, on the server" : `server (${config?.stt?.provider})`) : "unavailable"} · Voice:{" "}
-          {speaker ? (speaker.kind === "browser" ? (browserVoice?.name ?? "browser default") : config?.tts?.provider) : "unavailable"} · Screen:{" "}
-          {wakeHeld ? "kept on" : "may sleep"} · Headset button: {headset ? "on" : "tap once to enable"}
-        </p>
-        <p className="muted small">
-          Say "what's new", "read approvals", "approve", "next", "repeat", "stop", or a request like "shop: has order 1042 shipped?". Say
-          "talk to the shop lead" to talk to one role ("back to chief of staff" for the default, who hands things on and reports back),
-          "who am I talking to?", or ask one role once: "ask customer support whether order 1042 shipped".
-        </p>
-      </details>
     </section>
   );
 }

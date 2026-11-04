@@ -436,10 +436,14 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.locator("button.drive-ptt").waitFor({ timeout: 20_000 });
     expect(await page.locator(".shell .topbar").count()).toBe(1);
     expect(await page.locator(".composer .composer-panel .drive").count()).toBe(1);
-    expect(await page.locator(".composer textarea").count()).toBe(0);
+    // The text box stays, as another way to give Drive a command; Drive's options are in Settings now.
+    expect(await page.locator(".composer textarea").count()).toBe(1);
+    expect(await page.locator(".drive details").count()).toBe(0);
     await expect.poll(async () => (await wake()).held).toBe(1);
-    await page.locator("details.drive-more > summary").click();
-    await expect.poll(() => page.locator(".drive-more").textContent()).toContain("Screen: kept on");
+    // Typed in the chat box while driving: Drive handles it (here, the briefing) instead of the chat.
+    await page.locator(".composer textarea").fill("what's new");
+    await page.locator(".composer button.send").click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.join(" "))).toContain("1 approval waiting");
 
     // The system takes the lock back (e.g. the screen was switched off), then the page comes back: re-acquired.
     const before = (await wake()).requests;
@@ -453,8 +457,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
 
     // Leaving Drive (the composer's Drive button again) shrinks it back to the text box and lets the screen sleep.
     await page.locator('a.tool[href="#/chat"]').click();
-    await page.locator(".composer textarea").waitFor();
-    expect(await page.locator(".drive").count()).toBe(0);
+    await expect.poll(() => page.locator(".drive").count()).toBe(0);
     await expect.poll(async () => (await wake()).held).toBe(0);
     expect(errors).toEqual([]);
     await page.close();

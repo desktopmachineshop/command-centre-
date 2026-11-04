@@ -93,8 +93,8 @@ export function Composer({
   /** Controls before the mic, e.g. the chat's "Send to" picker. */
   children?: ReactNode;
   /**
-   * Shown in place of the text box (Drive mode in the chat). While it's there the mic and the
-   * paperclip are off; everything else stays where it is.
+   * Shown under the text box, growing into the space (Drive mode in the chat). While it's there
+   * the mic and the paperclip are off; everything else stays where it is.
    */
   panel?: ReactNode;
 }) {
@@ -234,6 +234,23 @@ export function Composer({
     className,
   ];
 
+  const textBox = (
+    <textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={dictation.listening ? "Listening…" : placeholder}
+      aria-label={label}
+      rows={panel ? 1 : 2}
+      onPaste={onPaste}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.form?.requestSubmit();
+        }
+      }}
+    />
+  );
+
   return (
     <>
       {dictation.error && <ErrorBanner>{dictation.error}</ErrorBanner>}
@@ -278,22 +295,13 @@ export function Composer({
         )}
         {children}
         {panel ? (
-          <div className="composer-panel">{panel}</div>
+          // Drive mode: the text box stays where it is, and the panel grows beneath it.
+          <div className="composer-main">
+            {textBox}
+            <div className="composer-panel">{panel}</div>
+          </div>
         ) : (
-          <textarea
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={dictation.listening ? "Listening…" : placeholder}
-            aria-label={label}
-            rows={2}
-            onPaste={onPaste}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
+          textBox
         )}
         {upload && (
           <>
