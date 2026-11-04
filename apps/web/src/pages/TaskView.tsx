@@ -10,6 +10,7 @@ import { Transcript } from "./Transcript";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport, type ReportFacts } from "../copy";
 import { AttachedFiles, chatFilesOf, Composer } from "../composer";
+import { ReadAloudControl, useReadAloud } from "../voice/readAloud";
 
 export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: string }) {
   const { data, error } = useLoad(
@@ -24,8 +25,12 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   /** Narrow screens: Conversation or Actions. Wide screens show both side by side. */
   const [tab, setTab] = useState<"conversation" | "actions">("conversation");
   const [retryError, setRetryError] = useState<string | null>(null);
+  const readAloud = useReadAloud();
   useLive(feed, (m) => {
-    if (m.type === "run.message" && m.taskId === id) setLive((s) => ({ ...s, [m.runId]: [...(s[m.runId] ?? []), m.message] }));
+    if (m.type === "run.message" && m.taskId === id) {
+      if (m.message.type === "text") readAloud.offer(m.message.text);
+      setLive((s) => ({ ...s, [m.runId]: [...(s[m.runId] ?? []), m.message] }));
+    }
   });
 
   // The latest answer is at the bottom, above the reply box: open there and follow it as it streams.
@@ -55,6 +60,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
       <a className="back-link" href="#/inbox">
         <Icon name="back" size={16} /> Inbox
       </a>
+      <ReadAloudControl readAloud={readAloud} />
       {proposals.length > 0 && (
         <div className="task-tabs" role="tablist" aria-label="Task view">
           <button type="button" role="tab" aria-selected={tab === "conversation"} className={tab === "conversation" ? "on" : ""} onClick={() => setTab("conversation")}>

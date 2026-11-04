@@ -21,10 +21,12 @@ import {
 import { pickListener } from "../voice/dictation";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
-import { VoiceOrb } from "../voice/Waveform";
+import { VoiceOrb, Waveform } from "../voice/Waveform";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
-const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", serverVoice: "cc.drive.serverVoice", talkTo: "cc.drive.talkTo" };
+const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", serverVoice: "cc.drive.serverVoice", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
+/** What the talk button shows: the orb, the live trace, or both (the default). */
+type Viz = "both" | "orb" | "trace";
 function readPref(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -93,6 +95,10 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   talkingToRef.current = talkingTo;
   // The server's voice (self-hosted or keyed) is the natural one, so it's the default when there is one.
   const [preferServerVoice, setPreferServerVoice] = useState(readPref(PREFS.serverVoice) !== "0");
+  const [viz, setViz] = useState<Viz>(() => {
+    const v = readPref(PREFS.viz);
+    return v === "orb" || v === "trace" ? v : "both";
+  });
   /** A reply from the voice front being spoken as it streams, and its words so far. */
   const replyRef = useRef<ReplyStream | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -576,7 +582,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const busy = state.phase === "sending";
 
   return (
-    <section className={`drive phase-${state.phase}`} aria-label="Drive mode">
+    <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Drive mode">
       <header className="drive-bar">
         <button type="button" className="drive-exit" onClick={exit}>
           Exit
@@ -645,6 +651,8 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         </VoiceOrb>
       </button>
 
+      {viz !== "orb" && <Waveform className="drive-trace" source={orbLevel} />}
+
       <p className="drive-caption" aria-live="polite">
         {caption}
       </p>
@@ -694,6 +702,21 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         <label className="row small">
           <input type="checkbox" checked={state.followUp} onChange={(e) => toggleFollowUp(e.target.checked)} />
           Listen for a follow-up after each answer (conversation mode)
+        </label>
+        <label className="row small">
+          Show
+          <select
+            value={viz}
+            onChange={(e) => {
+              const v = e.target.value as Viz;
+              writePref(PREFS.viz, v);
+              setViz(v);
+            }}
+          >
+            <option value="both">Orb and live trace</option>
+            <option value="orb">Orb only</option>
+            <option value="trace">Live trace only</option>
+          </select>
         </label>
         {config?.tts && (
           <label className="row small">
