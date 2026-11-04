@@ -10,6 +10,7 @@ import { AttachedFiles, Composer } from "../composer";
 import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
+import { ReadAloudControl, useReadAloud } from "../voice/readAloud";
 
 type Turn = { key: number; text: string; files?: { name: string; size: number }[]; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
 
@@ -81,6 +82,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [error, setError] = useState<string | null>(null);
   /** The task follow-ups continue; null starts a new one. */
   const [threadId, setThreadId] = useState<string | null>(null);
+  const readAloud = useReadAloud();
 
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
@@ -124,6 +126,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   /** "New chat": a clean screen and a new thread. */
   const newChat = () => {
+    readAloud.stop();
     clearChat();
     setTurns([]);
     setThreadId(null);
@@ -140,6 +143,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   useLive(feed, (m) => {
     if (m.type === "run.message") {
+      if (m.message.type === "text") readAloud.offer(m.message.text);
       setTurns((ts) => onLatest(ts, m.taskId, (t) => ({ ...t, messages: [...t.messages, m.message] })));
     }
     if (m.type === "task.updated") {
@@ -176,6 +180,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         title="Chat"
         sub="You're talking to the Chief of Staff, who hands work to the right role and tells you the outcome here. Follow-ups continue the chat until you start a new one."
       >
+        <ReadAloudControl readAloud={readAloud} />
         {threadId && (
           <button type="button" onClick={newChat}>
             New chat

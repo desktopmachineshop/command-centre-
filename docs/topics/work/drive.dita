@@ -45,6 +45,7 @@
       </simpletable>
       <p>To send one request to a business or role, start with its name: <q>shop: has order 1042 shipped?</q> or <q>ask customer support whether order 1042 shipped</q>. Spoken names work: <q>d m s</q> or <q>machine shop</q>, <q>three d p and me</q>, <q>open v</q>, <q>open d</q>, <q>personal</q>.</p>
       <p>When the agent asks you a question, whatever you say next is your answer; only stop, cancel, end, repeat and the mode switches still work as commands.</p>
+      <p>The talk button shows a live trace of your voice while you speak and of the reply while it is spoken, beside the orb. Under <uicontrol>Show</uicontrol> in the settings you can keep both, or choose the orb only or the trace only.</p>
     </body>
   </topic>
 </topic>

@@ -4013,3 +4013,26 @@ details[open] > summary .brain-tree-chevron {
   margin: 0;
   color: var(--text-2);
 }
+
+/* Drive mode's live trace: follows the microphone while listening, the voice while speaking. */
+.drive-trace {
+  width: 100%;
+  max-width: 420px;
+  height: 56px;
+  color: var(--danger-solid);
+}
+.drive.phase-speaking .drive-trace {
+  color: var(--success-solid);
+}
+.drive.phase-waiting .drive-trace,
+.drive.phase-sending .drive-trace {
+  color: var(--accent);
+}
+/* "Live trace only": the button keeps its icon and label but loses the glow rings. */
+.drive.viz-trace .voice-orb-ring {
+  display: none;
+}
+.read-aloud {
+  gap: var(--sp-2);
+  align-items: center;
+}
