@@ -430,11 +430,13 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await mockApi(page, []);
     const wake = () => page.evaluate(() => (window as unknown as { __wake: { requests: number; held: number } }).__wake);
 
-    // Opened from the chat composer: Drive sits inside the shell (top bar and tab bar still there).
+    // Opened from the chat composer: Drive grows inside the composer, in the shell (top bar and tab bar still there).
     await page.goto(`${base}/#/chat`);
     await page.locator('a.tool[href="#/drive"]').click();
     await page.locator("button.drive-ptt").waitFor({ timeout: 20_000 });
     expect(await page.locator(".shell .topbar").count()).toBe(1);
+    expect(await page.locator(".composer .composer-panel .drive").count()).toBe(1);
+    expect(await page.locator(".composer textarea").count()).toBe(0);
     await expect.poll(async () => (await wake()).held).toBe(1);
     await page.locator("details.drive-more > summary").click();
     await expect.poll(() => page.locator(".drive-more").textContent()).toContain("Screen: kept on");
@@ -449,9 +451,10 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await expect.poll(async () => (await wake()).requests).toBe(before + 1);
     expect((await wake()).held).toBe(1);
 
-    // Leaving Drive lets the screen sleep again.
-    await page.locator(".drive-exit").click();
-    await page.locator('a.tool[href="#/drive"]').waitFor();
+    // Leaving Drive (the composer's Drive button again) shrinks it back to the text box and lets the screen sleep.
+    await page.locator('a.tool[href="#/chat"]').click();
+    await page.locator(".composer textarea").waitFor();
+    expect(await page.locator(".drive").count()).toBe(0);
     await expect.poll(async () => (await wake()).held).toBe(0);
     expect(errors).toEqual([]);
     await page.close();

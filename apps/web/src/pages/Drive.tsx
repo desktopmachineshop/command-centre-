@@ -1,9 +1,8 @@
 import { speakable } from "@cc/voice/speakable";
-import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { ProgressNarrator } from "../progress";
-import { go } from "../router";
 import { type Aliases, buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole, type RoleBook, type RoleChoice, type VoiceMode } from "../voice/commands";
 import { type Approval, type DriveState, driveReducer, type Expect, initialDriveState, LATCHED_TURN_MS, listenTimeoutMs, type Say } from "../voice/machine";
 import {
@@ -25,7 +24,6 @@ import { VoicePicker } from "../voice/VoicePicker";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
 import { OrbTrace, VoiceOrb } from "../voice/Waveform";
-import { takeDriveOrigin } from "../voice/driveOrigin";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
 const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
@@ -89,6 +87,10 @@ const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
  * Drive mode: hands-free Command Centre. One huge push-to-talk button (also
  * the headset / steering-wheel play-pause button), local voice commands, and
  * everything else sent to the agent in voice mode with its answer read aloud.
+ */
+/**
+ * Drive mode, shown inside the chat composer (pages/Chat.tsx), which grows to hold it; the
+ * composer's Drive button leaves it. Unmounting stops any listening and speaking.
  */
 export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
@@ -590,32 +592,6 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     dispatch({ type: "followUp", on });
   };
 
-  // Opening: grow out of the chat composer Drive was opened from (if any), then fade the orb in.
-  const sectionRef = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    const from = takeDriveOrigin();
-    const box = el.getBoundingClientRect();
-    if (from && from.bottom > box.top && from.top < box.bottom) {
-      el.style.setProperty("--from-top", `${Math.max(0, from.top - box.top)}px`);
-      el.style.setProperty("--from-bottom", `${Math.max(0, box.bottom - from.bottom)}px`);
-      el.style.setProperty("--from-left", `${Math.max(0, from.left - box.left)}px`);
-      el.style.setProperty("--from-right", `${Math.max(0, box.right - from.right)}px`);
-      el.classList.add("drive-grow");
-    }
-    el.classList.add("drive-enter");
-    const done = () => el.classList.remove("drive-grow", "drive-enter");
-    const timer = setTimeout(done, 1400);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const exit = () => {
-    speakerRef.current?.cancel();
-    listenerRef.current?.stop();
-    go("chat");
-  };
-
   const caption =
     state.phase === "listening" || state.phase === "sending"
       ? interim
@@ -632,11 +608,8 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const busy = state.phase === "sending";
 
   return (
-    <section ref={sectionRef} className={`drive phase-${state.phase} viz-${viz}`} aria-label="Drive mode">
+    <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Drive mode">
       <header className="drive-bar">
-        <button type="button" className="drive-exit" onClick={exit}>
-          Exit
-        </button>
         <div className="drive-modes" role="group" aria-label="Voice mode">
           <button type="button" aria-pressed={state.mode === "push"} className={state.mode === "push" ? "primary" : ""} onClick={() => setMode("push")}>
             Push to talk

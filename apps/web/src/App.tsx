@@ -12,7 +12,6 @@ import { Brain } from "./pages/Brain";
 import { Chat } from "./pages/Chat";
 import { Connections } from "./pages/Connections";
 import { Devices } from "./pages/Devices";
-import { Drive } from "./pages/Drive";
 import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { Org } from "./pages/Org";
@@ -133,8 +132,6 @@ export const NAV: NavItem[] = [
 /** Routes without their own nav entry, and the entry they highlight. */
 const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications" };
 
-/** Routes that render their own full-screen layout: no sidebar, top bar or tab bar. */
-const FULL_SCREEN = new Set<string>();
 
 const PHONE = "(max-width: 759.98px)";
 
@@ -197,9 +194,10 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
     case "today":
       body = <Today api={api} feed={feed} />;
       break;
-    // Drive mode fills the space between the top bar and the tab bar (see pages/Drive.tsx).
+    // Drive mode is the chat with its composer grown to hold it (pages/Chat.tsx). The same
+    // element as "chat" below, so going between them keeps the chat and animates the composer.
     case "drive":
-      body = <Drive api={api} feed={feed} />;
+      body = <Chat api={api} feed={feed} drive />;
       break;
     // --- notifications ---
     case "notifications":
@@ -252,8 +250,6 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   const rest = NAV.filter((n) => !primary.includes(n));
   const groups = [...new Set(NAV.map((n) => n.group))];
   const spend = stats.data ? usd(stats.data.costTodayUsd) : null;
-
-  if (FULL_SCREEN.has(page ?? "")) return <VerticalsContext.Provider value={verticals}>{body}</VerticalsContext.Provider>;
 
   return (
     <VerticalsContext.Provider value={verticals}>
