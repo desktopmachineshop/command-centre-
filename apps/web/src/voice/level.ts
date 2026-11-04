@@ -71,3 +71,13 @@ export class PulseLevel implements LevelSource {
 
 /** Always silent. */
 export const SILENT: LevelSource = { read: () => 0 };
+
+/** Level a frame must beat to count as speech: well above the room's own noise, never below 0.02. Pure. */
+export function speechThreshold(noiseFloor: number, minimum = 0.02, factor = 3): number {
+  return Math.max(minimum, noiseFloor * factor);
+}
+
+/** Slow-moving estimate of steady background noise from frames that were not speech. Pure. */
+export function updateNoiseFloor(floor: number, quietRms: number, rate = 0.05): number {
+  return floor + (quietRms - floor) * rate;
+}
