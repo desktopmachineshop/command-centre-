@@ -2692,18 +2692,34 @@ a.stat:hover {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: radial-gradient(
-      closest-side,
-      var(--disc) 0%,
-      var(--disc) 72%,
-      color-mix(in srgb, var(--disc) 55%, transparent) 86%,
-      color-mix(in srgb, var(--disc) 0%, transparent) 100%
-    )
-    center / calc(100% - 2 * var(--ring-space)) calc(100% - 2 * var(--ring-space)) no-repeat;
   color: var(--on-accent);
   border: 0;
   box-shadow: none;
   font-size: clamp(1.3rem, 5vw, 1.8rem);
+}
+/*
+ * The button itself has no background in any state (the generic button:hover fill would
+ * otherwise paint the whole touch zone, and on a phone hover sticks after a tap); the orb is
+ * drawn on ::before, inside the trace's band.
+ */
+.drive .drive-ptt,
+.drive .drive-ptt:hover:not(:disabled),
+.drive .drive-ptt:active:not(:disabled) {
+  background: transparent;
+}
+.drive .drive-ptt::before {
+  content: "";
+  position: absolute;
+  inset: var(--ring-space);
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    var(--disc) 0%,
+    var(--disc) 72%,
+    color-mix(in srgb, var(--disc) 55%, transparent) 86%,
+    color-mix(in srgb, var(--disc) 0%, transparent) 100%
+  );
+  pointer-events: none;
 }
 .drive .drive-ptt-inner {
   display: grid;
