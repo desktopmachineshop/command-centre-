@@ -2553,49 +2553,68 @@ a.stat:hover {
 
 /* --- Drive mode (pages/Drive.tsx): full screen, high contrast, huge targets --- */
 /* Fills use the *-solid tokens so white text stays ≥4.5:1 in both themes. */
-/* The way in, from the chat (pages/Chat.tsx): a pill in the composer's empty "hint" cell, beside the paperclip. */
-.composer .composer-drive {
+/*
+ * The chat's own options (pages/Chat.tsx): New chat, Read aloud and Drive, as small pills in the
+ * composer's empty "hint" cell. On a phone that row is full, so they get a slim row of their own
+ * at the top of the box: `span 1 / 1` adds an implicit row before the template's first one, so this
+ * works whatever rows (files, text) the composer has.
+ */
+.composer .composer-tools {
   grid-area: hint;
   justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.composer .composer-tools .tool {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 40px;
-  padding: 0 14px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
   border-radius: var(--r-full);
   border: 1px solid var(--border);
   background: var(--surface-2);
-  color: var(--accent);
+  color: var(--text-2);
   font-size: var(--fs-sm);
-  font-weight: 650;
+  font-weight: 600;
   white-space: nowrap;
 }
-.composer .composer-drive:hover {
+.composer .composer-tools .tool:hover {
   text-decoration: none;
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.composer .composer-tools .tool.is-on {
+  color: var(--accent);
   border-color: var(--accent);
 }
-.composer.is-recording > .composer-drive {
+.composer .composer-tools a.tool {
+  color: var(--accent);
+}
+.composer .composer-tools a.tool:hover {
+  border-color: var(--accent);
+}
+.composer.is-recording > .composer-tools {
   display: none;
 }
-/* Narrow screens: just the icon, the same size as the paperclip and mic. */
-.shell.is-phone .composer .composer-drive {
-  width: 40px;
-  padding: 0;
-  justify-content: center;
+.shell.is-phone .composer .composer-tools {
+  grid-area: auto;
+  grid-column: 1 / -1;
+  grid-row: span 1 / 1;
+  justify-self: start;
 }
-.shell.is-phone .composer .composer-drive span {
-  display: none;
+.shell.is-phone .composer.is-recording > .composer-tools {
+  display: flex;
 }
-/* …and so does Send, so the business picker keeps its full name. */
-.shell.is-phone .composer button.send:has(.send-label) {
-  width: 44px;
-  min-width: 44px;
-  padding: 0;
-  justify-content: center;
+.shell.is-phone .composer .composer-tools .tool {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
 }
-.shell.is-phone .composer .send-label {
-  display: none;
-}
+
 .drive {
   min-height: 100vh;
   min-height: 100dvh;
