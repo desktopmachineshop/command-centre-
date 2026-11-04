@@ -1,5 +1,5 @@
 import { speakable } from "@cc/voice/speakable";
-import { type FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { ProgressNarrator } from "../progress";
@@ -25,6 +25,7 @@ import { VoicePicker } from "../voice/VoicePicker";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
 import { OrbTrace, VoiceOrb } from "../voice/Waveform";
+import { takeDriveOrigin } from "../voice/driveOrigin";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
 const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
@@ -589,6 +590,26 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     dispatch({ type: "followUp", on });
   };
 
+  // Opening: grow out of the chat composer Drive was opened from (if any), then fade the orb in.
+  const sectionRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const from = takeDriveOrigin();
+    const box = el.getBoundingClientRect();
+    if (from && from.bottom > box.top && from.top < box.bottom) {
+      el.style.setProperty("--from-top", `${Math.max(0, from.top - box.top)}px`);
+      el.style.setProperty("--from-bottom", `${Math.max(0, box.bottom - from.bottom)}px`);
+      el.style.setProperty("--from-left", `${Math.max(0, from.left - box.left)}px`);
+      el.style.setProperty("--from-right", `${Math.max(0, box.right - from.right)}px`);
+      el.classList.add("drive-grow");
+    }
+    el.classList.add("drive-enter");
+    const done = () => el.classList.remove("drive-grow", "drive-enter");
+    const timer = setTimeout(done, 1400);
+    return () => clearTimeout(timer);
+  }, []);
+
   const exit = () => {
     speakerRef.current?.cancel();
     listenerRef.current?.stop();
@@ -611,7 +632,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const busy = state.phase === "sending";
 
   return (
-    <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Drive mode">
+    <section ref={sectionRef} className={`drive phase-${state.phase} viz-${viz}`} aria-label="Drive mode">
       <header className="drive-bar">
         <button type="button" className="drive-exit" onClick={exit}>
           Exit

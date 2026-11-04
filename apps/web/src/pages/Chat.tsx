@@ -11,6 +11,7 @@ import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
 import { ReadAloudToggle, useReadAloud } from "../voice/readAloud";
+import { setDriveOrigin } from "../voice/driveOrigin";
 
 type Turn = { key: number; text: string; files?: { name: string; size: number }[]; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
 
@@ -282,7 +283,13 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             </button>
           )}
           <ReadAloudToggle readAloud={readAloud} />
-          <a className="tool" href="#/drive" aria-label="Drive mode: talk hands-free" title="Drive mode: talk hands-free">
+          <a
+            className="tool"
+            href="#/drive"
+            aria-label="Drive mode: talk hands-free"
+            title="Drive mode: talk hands-free"
+            onClick={(e) => setDriveOrigin(e.currentTarget.closest(".composer"))}
+          >
             <Icon name="drive" size={16} />
             <span>Drive</span>
           </a>
