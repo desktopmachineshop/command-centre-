@@ -5,7 +5,7 @@ import { ago, askText, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
 import { go, useRouteQuery } from "../router";
-import { Empty, ErrorBanner, PageHead, Skeleton, Status, VerticalsContext, VTag } from "../ui";
+import { Empty, ErrorBanner, PageHead, Skeleton, Status, TaskTag, VerticalsContext, VTag } from "../ui";
 
 const FILTERS = ["", "queued", "running", "awaiting_approval", "deferred", "done", "failed"] as const;
 
@@ -147,7 +147,7 @@ export function TaskRow({ task }: { task: Task }) {
     <li className="item">
       <a className="item-link" href={`#/task/${task.id}`}>
         <div className="item-top">
-          <VTag id={task.vertical} />
+          <TaskTag task={task} />
           <Status value={task.status} />
         </div>
         <div className="title">{askText(task.prompt).split("\n")[0]}</div>

@@ -8,6 +8,7 @@
  *   <ErrorBanner>{error}</ErrorBanner>                 error banner (a p.error)
  *   <Dialog title="…" onClose={…}>body</Dialog>        modal: bottom sheet on phones, centred on desktop
  */
+import { ROOT_ROLE_ID } from "@cc/core";
 import { createContext, type CSSProperties, type ReactNode, useContext, useEffect, useId, useRef } from "react";
 import { Icon, type IconName } from "./icons";
 import type { ThemePref } from "./theme";
@@ -27,6 +28,21 @@ export function VTag({ id, children }: { id: string; children?: ReactNode }) {
       {children ?? id}
     </span>
   );
+}
+
+/**
+ * The chip for a task: the business it belongs to, or "Chief of Staff" for the Chief of Staff's own
+ * tasks (which run in its home vertical, personal, for budget and access, but aren't personal work).
+ */
+export function TaskTag({ task }: { task: { vertical: string; role?: string | null } }) {
+  if (task.role === ROOT_ROLE_ID) {
+    return (
+      <span className="tag vtag" data-v={ROOT_ROLE_ID} title="Chief of Staff">
+        Chief of Staff
+      </span>
+    );
+  }
+  return <VTag id={task.vertical} />;
 }
 
 /** A status pill. The class is `status <value>`, so CSS colours it by status. */
