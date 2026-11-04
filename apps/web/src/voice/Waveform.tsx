@@ -102,7 +102,7 @@ export function ringFade(age: number, slots: number): number {
  * The old lap fades out just ahead of the head. Drawn on a canvas in the element's text colour;
  * the canvas sits over the button, and the bars start `gap` px outside its edge.
  */
-export function OrbTrace({ source, className = "", gap = 6 }: { source: () => LevelSource | null; className?: string; gap?: number }) {
+export function OrbTrace({ source, className = "", gap = 4 }: { source: () => LevelSource | null; className?: string; gap?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const slots = useRef<number[]>(new Array<number>(RING_SLOTS).fill(-1));
   const head = useRef(0);

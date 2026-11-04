@@ -2677,16 +2677,28 @@ a.stat:hover {
   letter-spacing: -0.02em;
   margin: 8px 0 0;
 }
+/*
+ * The talk button is a disc with a feathered edge: solid in the middle, fading out over its outer
+ * part rather than ending at a hard rim. Each phase sets the disc's colour as --disc.
+ */
 .drive .drive-ptt {
+  --disc: var(--accent-solid);
   width: min(72vw, 52vh, 360px);
   aspect-ratio: 1;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--accent-solid);
+  background: radial-gradient(
+    closest-side,
+    var(--disc) 0%,
+    var(--disc) 72%,
+    color-mix(in srgb, var(--disc) 55%, transparent) 86%,
+    color-mix(in srgb, var(--disc) 0%, transparent) 100%
+  );
+  background-origin: border-box;
   color: var(--on-accent);
-  border: 6px solid color-mix(in srgb, var(--accent-solid) 70%, var(--text));
-  box-shadow: 0 0 0 0 var(--accent-solid), var(--shadow-3);
+  border: 6px solid transparent;
+  box-shadow: none;
   font-size: clamp(1.3rem, 5vw, 1.8rem);
 }
 .drive .drive-ptt-inner {
@@ -2704,21 +2716,18 @@ a.stat:hover {
   letter-spacing: 0.01em;
 }
 .drive .drive-ptt.idle:hover:not(:disabled) {
-  background: var(--accent-solid-hover);
+  --disc: var(--accent-solid-hover);
 }
 .drive .drive-ptt.listening {
-  background: var(--danger-solid);
-  border-color: var(--danger-solid);
+  --disc: var(--danger-solid);
 }
 .drive .drive-ptt.speaking {
-  background: var(--success-solid);
-  border-color: var(--success-solid);
+  --disc: var(--success-solid);
 }
 .drive .drive-ptt.waiting,
 .drive .drive-ptt.sending {
-  background: var(--surface);
+  --disc: color-mix(in srgb, var(--accent) 16%, var(--surface));
   color: var(--accent);
-  border-color: var(--accent);
 }
 /*
  * The orb inside the talk button (voice/Waveform.tsx VoiceOrb): rings that swell with the live
@@ -2745,16 +2754,34 @@ a.stat:hover {
   transform: scale(calc(1 + var(--level) * 0.05));
   transition: transform 60ms linear;
 }
-/* Glow rings: an outer shadow only, so they never tint the button itself. */
+/*
+ * Glow rings: soft halos (a radial gradient, clear in the middle so they never tint the button)
+ * that grow out past the disc's feathered edge with the level.
+ */
 .voice-orb-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  box-shadow: 0 0 0 calc(var(--level) * 16px) color-mix(in srgb, var(--orb) 30%, transparent);
-  transition: box-shadow 70ms linear;
+  background: radial-gradient(
+    closest-side,
+    transparent 55%,
+    color-mix(in srgb, var(--orb) 32%, transparent) 80%,
+    transparent 100%
+  );
+  opacity: min(1, calc(var(--level) * 1.4));
+  transform: scale(calc(1 + var(--level) * 0.16));
+  transition:
+    transform 70ms linear,
+    opacity 70ms linear;
 }
 .voice-orb-ring.two {
-  box-shadow: 0 0 0 calc(var(--level) * 30px) color-mix(in srgb, var(--orb) 14%, transparent);
+  background: radial-gradient(
+    closest-side,
+    transparent 50%,
+    color-mix(in srgb, var(--orb) 16%, transparent) 78%,
+    transparent 100%
+  );
+  transform: scale(calc(1 + var(--level) * 0.3));
 }
 .drive .drive-ptt.speaking .voice-orb {
   --orb: var(--success-solid);
@@ -2774,10 +2801,12 @@ a.stat:hover {
 @keyframes orb-breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--orb) 20%, transparent);
+    opacity: 0.4;
+    transform: scale(1);
   }
   50% {
-    box-shadow: 0 0 0 18px color-mix(in srgb, var(--orb) 12%, transparent);
+    opacity: 1;
+    transform: scale(1.12);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4070,15 +4099,19 @@ details[open] > summary .brain-tree-chevron {
  */
 .drive-trace {
   position: absolute;
-  inset: -46px;
-  width: calc(100% + 92px);
-  height: calc(100% + 92px);
+  inset: -66px;
+  width: calc(100% + 132px);
+  height: calc(100% + 132px);
   pointer-events: none;
   color: var(--danger-solid);
 }
-/* Room above and below the button for the trace, so it doesn't run into the status or caption. */
+/*
+ * With the trace on, the button is a little smaller so the trace's tallest bars fit on a phone,
+ * with room above and below so they don't run into the status or caption.
+ */
 .drive:not(.viz-orb) .drive-ptt {
-  margin-block: 40px;
+  width: min(62vw, 46vh, 330px);
+  margin-block: 60px;
 }
 .drive.phase-speaking .drive-trace {
   color: var(--success-solid);
