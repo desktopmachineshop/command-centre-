@@ -1991,6 +1991,15 @@ CPU (sherpa-onnx), so nothing needs an API key:
   It's the default voice when ready; **Options → Use the natural voice** switches back to the
   device's own voice.
 
+**Choosing a voice.** Settings → Voice (and Drive mode's Options) lists every self-hosted voice:
+fast Piper voices and the more natural Kokoro ones, or the device's own voice. The choice is kept
+per device and used everywhere the app speaks (Drive mode, reading replies aloud). A voice that
+isn't downloaded yet downloads when chosen (about 64 MB for a Piper voice, 320 MB for Kokoro's,
+which share one model); the default speaks until it's ready. **Preview** plays a sample. The
+server keeps at most two voice models loaded and drops idle ones after 10 minutes. The list is
+`VOICES` in `packages/voice/src/local/voices.ts`: a voice is a model to download plus a speaker in
+it, so adding one (or another kind of model sherpa-onnx supports) is an entry there.
+
 The models (about 130 MB with Piper, 380 MB with Kokoro) download once into `DATA_DIR/models/voice` on first start (the logs say
 when each is ready); until then voice uses the browser's speech. The engines load on first use
 and unload after 10 minutes unused, so they only use memory (about 0.5 GB) while you talk.
@@ -2069,7 +2078,10 @@ Endpoints, all behind the dashboard auth:
 
 - `POST /api/voice/transcribe` (raw audio body or multipart `file`; `?seconds=`, `?language=`)
   returns `{text}`;
-- `POST /api/voice/speak {text, voice?}` returns audio;
+- `POST /api/voice/speak {text, voice?, fallback?}` returns audio (`voice`: a voice id such as
+  `piper:alba`; one still downloading speaks the default, or answers 409 with `fallback: false`);
+- `GET /api/voice/voices` lists the self-hosted voices and their download state;
+  `POST /api/voice/voices/:id/install` downloads one;
 - `GET /api/voice/config`;
 - `GET /api/voice/briefing` returns `{text, approvals, attention, cost, calendar}`. It is
   deterministic, with no LLM;

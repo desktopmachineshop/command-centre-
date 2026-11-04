@@ -5,19 +5,15 @@ import { MIME } from "../mime";
 import type { Fetch, SynthesisResult, SynthesizeOptions, TextToSpeech } from "../types";
 import { encodeWav } from "../wav";
 import { SPEECH_GATE_SOURCE } from "./gate";
-import {
-  CLEANUP_MODELS,
-  installModel,
-  isInstalled,
-  KOKORO_VOICES,
-  LOCAL_MODELS,
-  type LocalModel,
-  type LocalModelName,
-  modelPath,
-  PIPER_VOICES,
-  type PiperVoice,
-  piperModel,
-} from "./models";
+import { CLEANUP_MODELS, installModel, isInstalled, LOCAL_MODELS, type LocalModel, type LocalModelName, modelPath } from "./models";
+import { DEFAULT_VOICE_ID, findVoice, ttsModelConfig, type VoiceSpec, VOICES } from "./voices";
+
+/** The chosen voice isn't downloaded yet (its download has been started). */
+export class VoiceNotInstalledError extends Error {
+  constructor(readonly voice: VoiceSpec) {
+    super(`The ${voice.label} voice is still downloading (about ${voice.model.mb} MB)`);
+  }
+}
 
 /** The parts of sherpa-onnx-node used here (it ships no types). */
 export interface SherpaTts {
@@ -52,12 +48,14 @@ export interface LocalSpeechOptions {
   /** Where models are kept, e.g. $DATA_DIR/models/voice. */
   root: string;
   /**
-   * The voice engine: "piper" (default: fast, British medium-quality voices) or "kokoro" (more
-   * natural, about five times slower on CPU).
+   * The default voice: an id from VOICES ("piper:cori"), or a bare Piper or Kokoro voice name
+   * read in the family `engine` names. Others can be chosen per request (and download then).
    */
-  engine?: "piper" | "kokoro";
-  /** Piper: a PIPER_VOICES name, default cori. Kokoro: a KOKORO_VOICES name, default bf_emma. */
   voice?: string;
+  /** "piper" (default: fast) or "kokoro" (more natural, slower): the family of a bare `voice` name and of the default. */
+  engine?: "piper" | "kokoro";
+  /** Voice models kept loaded at once (default 2); the least recently used one is dropped. */
+  maxLoadedVoices?: number;
   /** 0.7–1.3, default 1. */
   speed?: number;
   /** Engines unload after this long unused (default 10 minutes), so idle RAM costs nothing. */
@@ -187,29 +185,76 @@ export class LocalSpeech {
   private worker: { w: WorkerLike; loaded: Promise<void> } | null = null;
   private readonly streams = new Map<number, { onText: (u: AsrUpdate) => void; final?: (text: string) => void }>();
   private nextId = 1;
-  private tts: Promise<SherpaTts> | null = null;
+  /** Loaded voice models by model folder, least recently used first. */
+  private readonly loaded = new Map<string, Promise<SherpaTts>>();
+  private readonly voiceInstalls = new Map<string, Promise<void>>();
+  private readonly voiceFailures = new Map<string, string>();
   private ttsChain: Promise<unknown> = Promise.resolve();
   private readonly idle: Partial<Record<LocalModelName, ReturnType<typeof setTimeout>>> = {};
   private sherpaModule: Sherpa | null = null;
   private installing: Promise<void> | null = null;
-  readonly voice: string;
-  readonly engine: "piper" | "kokoro";
-  /** The voice model in use (depends on engine and voice). */
-  readonly ttsModel: LocalModel;
+  /** The default voice (used when a request names none, or one that isn't downloaded yet). */
+  readonly defaultVoice: VoiceSpec;
 
   constructor(private readonly options: LocalSpeechOptions) {
-    this.engine = options.engine ?? "piper";
-    if (this.engine === "kokoro") {
-      this.voice = options.voice && options.voice in KOKORO_VOICES ? options.voice : "bf_emma";
-      this.ttsModel = LOCAL_MODELS.tts;
-    } else {
-      this.voice = PIPER_VOICES.includes(options.voice as PiperVoice) ? options.voice! : "cori";
-      this.ttsModel = piperModel(this.voice as PiperVoice);
-    }
+    const family = options.engine ?? "piper";
+    this.defaultVoice = findVoice(options.voice, family) ?? findVoice(family === "kokoro" ? "kokoro:bf_emma" : DEFAULT_VOICE_ID)!;
     this.status = {
       asr: isInstalled(options.root, LOCAL_MODELS.asr) ? "ready" : "missing",
-      tts: isInstalled(options.root, this.ttsModel) ? "ready" : "missing",
+      tts: isInstalled(options.root, this.defaultVoice.model) ? "ready" : "missing",
     };
+  }
+
+  /** The default voice's id, e.g. "piper:cori". */
+  get voice(): string {
+    return this.defaultVoice.id;
+  }
+
+  /** The default voice's model. */
+  get ttsModel(): LocalModel {
+    return this.defaultVoice.model;
+  }
+
+  /** Every voice that can be chosen, with whether it's downloaded. */
+  voices(): (VoiceSpec & { status: LocalStatus; error?: string; isDefault: boolean })[] {
+    return VOICES.map((v) => ({
+      ...v,
+      status: this.voiceStatus(v),
+      error: this.voiceFailures.get(v.model.dir),
+      isDefault: v.id === this.defaultVoice.id,
+    }));
+  }
+
+  private voiceStatus(v: VoiceSpec): LocalStatus {
+    if (isInstalled(this.options.root, v.model)) return "ready";
+    if (this.voiceInstalls.has(v.model.dir)) return "installing";
+    return this.voiceFailures.has(v.model.dir) ? "failed" : "missing";
+  }
+
+  /** Downloads a voice's model (once; voices sharing a model share the download). */
+  installVoice(id: string): Promise<void> {
+    const v = findVoice(id);
+    if (!v) return Promise.reject(new Error(`There is no voice "${id}"`));
+    if (isInstalled(this.options.root, v.model)) return Promise.resolve();
+    const dir = v.model.dir;
+    const running = this.voiceInstalls.get(dir);
+    if (running) return running;
+    const started = Date.now();
+    this.log(`downloading ${dir} (about ${v.model.mb} MB) for the ${v.label} voice`);
+    this.voiceFailures.delete(dir);
+    const job = installModel(this.options.root, v.model, this.options.fetch)
+      .then(() => {
+        this.log(`${dir} ready in ${Math.round((Date.now() - started) / 1000)} s`);
+        if (v.model.dir === this.defaultVoice.model.dir) this.status.tts = "ready";
+      })
+      .catch((err) => {
+        this.voiceFailures.set(dir, (err as Error).message);
+        this.log(`${dir} failed: ${(err as Error).message}`);
+        throw err;
+      })
+      .finally(() => this.voiceInstalls.delete(dir));
+    this.voiceInstalls.set(dir, job);
+    return job;
   }
 
   get asrReady() {
@@ -234,7 +279,15 @@ export class LocalSpeech {
           continue;
         }
         if (this.status[name] === "ready") continue;
-        const model = name === "tts" ? this.ttsModel : LOCAL_MODELS[name];
+        if (name === "tts") {
+          this.status.tts = "installing";
+          await this.installVoice(this.defaultVoice.id).then(
+            () => (this.status.tts = "ready"),
+            () => (this.status.tts = "failed"),
+          );
+          continue;
+        }
+        const model = LOCAL_MODELS[name];
         this.status[name] = "installing";
         const started = Date.now();
         this.log(`downloading ${model.dir} (about ${model.mb} MB)`);
@@ -256,7 +309,7 @@ export class LocalSpeech {
   /** Loads the engines ahead of use (e.g. when Drive mode opens), so the first word isn't delayed. */
   async warm(which: LocalModelName[] = ["asr", "tts"]): Promise<void> {
     if (which.includes("asr") && this.asrReady) await this.asr().loaded.catch(() => {});
-    if (which.includes("tts") && this.ttsReady) await this.loadVoice().catch(() => {});
+    if (which.includes("tts") && this.ttsReady) await this.loadVoice(this.defaultVoice).catch(() => {});
   }
 
   /**
@@ -298,17 +351,27 @@ export class LocalSpeech {
     };
   }
 
-  /** Synthesizes one piece of speech (calls are queued: one engine, one at a time). */
-  synthesize(text: string, opts: { voice?: string; speed?: number } = {}): Promise<{ samples: Float32Array; sampleRate: number }> {
-    // Piper voices have one speaker each; a Kokoro voice is a speaker id in its one model.
-    const sid = this.engine === "kokoro" ? (KOKORO_VOICES[opts.voice ?? this.voice] ?? KOKORO_VOICES[this.voice]!) : 0;
+  /**
+   * Synthesizes one piece of speech in `voice` (an id from VOICES; default: the default voice).
+   * A voice that isn't downloaded yet starts downloading; meanwhile the default voice speaks,
+   * unless `fallback` is false, when VoiceNotInstalledError is thrown (a preview). Calls are
+   * queued: one at a time.
+   */
+  synthesize(text: string, opts: { voice?: string; speed?: number; fallback?: boolean } = {}): Promise<{ samples: Float32Array; sampleRate: number; voice: string }> {
+    let spec = findVoice(opts.voice) ?? this.defaultVoice;
+    if (!isInstalled(this.options.root, spec.model)) {
+      void this.installVoice(spec.id).catch(() => {});
+      if (opts.fallback === false) return Promise.reject(new VoiceNotInstalledError(spec));
+      spec = this.defaultVoice;
+    }
+    const voice = spec;
     const speed = Math.min(1.3, Math.max(0.7, opts.speed ?? this.options.speed ?? 1));
     const run = this.ttsChain.then(async () => {
-      const tts = await this.loadVoice();
+      const tts = await this.loadVoice(voice);
       this.touch("tts");
-      const audio = await tts.generateAsync({ text, sid, speed });
+      const audio = await tts.generateAsync({ text, sid: voice.speaker ?? 0, speed });
       this.touch("tts");
-      return audio;
+      return { ...audio, voice: voice.id };
     });
     this.ttsChain = run.catch(() => {});
     return run;
@@ -381,40 +444,32 @@ export class LocalSpeech {
     this.streams.clear();
   }
 
-  private loadVoice(): Promise<SherpaTts> {
-    if (!this.ttsReady) return Promise.reject(new Error("voice model isn't installed yet"));
+  private loadVoice(voice: VoiceSpec): Promise<SherpaTts> {
+    if (!isInstalled(this.options.root, voice.model)) return Promise.reject(new VoiceNotInstalledError(voice));
     this.touch("tts");
-    if (this.tts) return this.tts;
-    const m = this.ttsModel;
-    const root = this.options.root;
+    const key = voice.model.dir;
+    const hit = this.loaded.get(key);
+    if (hit) {
+      // Most recently used goes last.
+      this.loaded.delete(key);
+      this.loaded.set(key, hit);
+      return hit;
+    }
     const started = Date.now();
-    const voice =
-      this.engine === "kokoro"
-        ? {
-            kokoro: {
-              model: modelPath(root, m, "model.onnx"),
-              voices: modelPath(root, m, "voices.bin"),
-              tokens: modelPath(root, m, "tokens.txt"),
-              dataDir: modelPath(root, m, "espeak-ng-data"),
-            },
-          }
-        : { vits: { model: modelPath(root, m, m.files[0]), tokens: modelPath(root, m, "tokens.txt"), dataDir: modelPath(root, m, "espeak-ng-data") } };
-    this.tts = this.sherpa()
+    const tts = this.sherpa()
       .OfflineTts.createAsync({
-        model: {
-          ...voice,
-          numThreads: Math.min(4, this.threads()),
-        },
+        model: { ...ttsModelConfig(voice, this.options.root), numThreads: Math.min(4, this.threads()) },
         maxNumSentences: 1,
       })
-      .then((tts) => {
-        this.log(`voice loaded in ${Date.now() - started} ms (${rssMb()} MB resident)`);
-        return tts;
+      .then((t) => {
+        this.log(`voice ${key} loaded in ${Date.now() - started} ms (${rssMb()} MB resident)`);
+        return t;
       });
-    this.tts.catch(() => {
-      this.tts = null;
-    });
-    return this.tts;
+    tts.catch(() => this.loaded.delete(key));
+    this.loaded.set(key, tts);
+    // Keep memory bounded: drop the least recently used voice beyond the limit.
+    while (this.loaded.size > (this.options.maxLoadedVoices ?? 2)) this.loaded.delete(this.loaded.keys().next().value!);
+    return tts;
   }
 
   private sherpa(): Sherpa {
@@ -433,7 +488,7 @@ export class LocalSpeech {
       if (name === "asr") {
         if (this.streams.size) return this.touch("asr");
         if (this.worker) this.dropWorker(this.worker);
-      } else this.tts = null;
+      } else this.loaded.clear();
       this.log(`${name === "asr" ? "recognizer" : "voice"} unloaded after idling`);
     }, this.options.idleMs ?? 10 * 60_000);
     t.unref?.();
@@ -449,22 +504,23 @@ function rssMb() {
   return Math.round(process.memoryUsage().rss / 1e6);
 }
 
-/** The Kokoro voice behind the provider-neutral TextToSpeech contract (WAV out). */
+/** The self-hosted voices behind the provider-neutral TextToSpeech contract (WAV out). */
 export class LocalTextToSpeech implements TextToSpeech {
   readonly provider = "local";
+  constructor(private readonly speech: LocalSpeech) {}
+
   get model() {
     return this.speech.ttsModel.dir;
   }
-  constructor(private readonly speech: LocalSpeech) {}
 
+  /** The default voice's id, e.g. "piper:cori". */
   get defaultVoice() {
     return this.speech.voice;
   }
 
-  async synthesize(text: string, opts: SynthesizeOptions = {}): Promise<SynthesisResult> {
-    // Only a Kokoro voice can be switched per request (Piper is one model per voice).
-    const voice = this.speech.engine === "kokoro" && opts.voice && opts.voice in KOKORO_VOICES ? opts.voice : undefined;
-    const { samples, sampleRate } = await this.speech.synthesize(text, { voice, speed: opts.speed });
-    return { audio: encodeWav(samples, sampleRate), mime: MIME.wav };
+  /** `opts.voice`: a voice id; one not downloaded yet falls back to the default (and starts downloading). */
+  async synthesize(text: string, opts: SynthesizeOptions & { fallback?: boolean } = {}): Promise<SynthesisResult> {
+    const { samples, sampleRate, voice } = await this.speech.synthesize(text, { voice: opts.voice, speed: opts.speed, fallback: opts.fallback });
+    return { audio: encodeWav(samples, sampleRate), mime: MIME.wav, voice };
   }
 }

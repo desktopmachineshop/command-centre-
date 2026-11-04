@@ -4094,3 +4094,13 @@ details[open] > summary .brain-tree-chevron {
   color: var(--muted, #888);
   margin: 8px 0;
 }
+
+/* Voice picker (voice/VoicePicker.tsx): in Settings → Voice and Drive mode's Options. */
+.voice-picker label {
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.voice-picker select {
+  flex: 1 1 14rem;
+  min-width: 0;
+}

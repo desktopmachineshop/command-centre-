@@ -85,7 +85,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [error, setError] = useState<string | null>(null);
   /** The task follow-ups continue; null starts a new one. */
   const [threadId, setThreadId] = useState<string | null>(null);
-  const readAloud = useReadAloud();
+  const readAloud = useReadAloud(api);
 
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
