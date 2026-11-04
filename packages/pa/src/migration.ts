@@ -59,3 +59,9 @@ export const PA_MIGRATION_SQL = `
   );
   create index todo_items_list_idx on todo_items (list_id, done, position);
 `;
+
+/** Reminders with a number to call (the Call button). The server applies it after its 0020 migration. */
+export const PA_PHONE_MIGRATION_ID = "0021_reminder_phone";
+export const PA_PHONE_MIGRATION_SQL = `
+  alter table reminders add column if not exists phone text;
+`;

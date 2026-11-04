@@ -6,9 +6,9 @@ import { codeOf, jsonOf, OAuthFlowError, oauth2Callback, type ProviderDef } from
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 /**
- * Google account (Calendar + Drive): the web-redirect version of `pnpm --filter @cc/pa google:auth`.
+ * Google account (Calendar + Contacts + Drive): the web-redirect version of `pnpm --filter @cc/pa google:auth`.
  * PKCE, access_type=offline and prompt=consent (so a refresh token comes back every time),
- * scopes: openid email + the calendar scopes + drive.file. The email comes from the userinfo endpoint.
+ * scopes: openid email + the calendar scopes + contacts + drive.file. The email comes from the userinfo endpoint.
  */
 export const GOOGLE_SIGNIN_SCOPES = ["openid", "email", ...DEFAULT_AUTH_SCOPES, GMAIL_SEND_SCOPE];
 

@@ -172,7 +172,7 @@ straight away; only the changed integration restarts, and nothing redeploys.
 
   | Platform | Developer app | Redirect address |
   |---|---|---|
-  | Google (Calendar + Drive) | Google Cloud Console → Credentials → OAuth client, type **Web application** | `/oauth/google/callback` |
+  | Google (Calendar + Contacts + Drive) | Google Cloud Console → Credentials → OAuth client, type **Web application** | `/oauth/google/callback` |
   | Gmail inbox | the same Google client (enable the **Gmail API**) | `/oauth/gmail/callback` |
   | YouTube | the same Google client (enable YouTube Data API v3) | `/oauth/youtube/callback` |
   | Instagram | Meta app → Instagram → API setup with Instagram login → Business login settings | `/oauth/instagram/callback` |
@@ -1041,8 +1041,8 @@ towards the budgets. A Chief of Staff edit saved on the Org page overrides the c
 ## Personal assistant
 
 `packages/pa` gives every vertical's agents a `pa` MCP server (`/mcp/pa`) for reminders and to-do
-lists, and the personal vertical a Google Calendar. The app's **Today** tab shows the day's agenda,
-the reminders due and your lists.
+lists, and the personal vertical a Google Calendar and Google Contacts. The app's **Today** tab shows
+the day's agenda, the reminders due and your lists.
 
 ### What it can do
 
@@ -1056,6 +1056,11 @@ the reminders due and your lists.
   lock screen without signing in); the Today page has the same. Reminders go through the
   notification system as category `reminder` at `high` priority (see "Notifications" for quiet
   hours and per-category settings); a revoked calendar token is an `alert`.
+- **Calls.** A reminder can carry a number to call ("remind me to call Steve at 3": the assistant
+  looks Steve up in your contacts). The Today page then shows a **Call** button, and tapping the
+  notification opens the app at a **Call** prompt: one more tap opens the phone's dialler with the
+  number filled in. (Browsers only open the dialler from a tap, so the notification can't dial by
+  itself.) In the reminder editor you can type a number or find one in Google Contacts.
 - **Lists.** "Add milk and eggs to shopping", "put swimming bag on the Noah list". Lists (today,
   shopping, home, Noah…) are created as they are used, and are per vertical. On the Today page you
   tick items off, add, remove and rename.
@@ -1065,6 +1070,13 @@ the reminders due and your lists.
   `calendar.delete`, which wait under Approvals (`draft` policy), whatever else is going on. Event
   reminders can be set per event (`reminders: [{method: "popup", minutes: 60}]`, `"default"` or
   `"none"`).
+- **Contacts.** "What's Steve's number?", "add Jo Bloggs, 07700 900123, to my contacts", "add
+  Steve's work number 0161 496 0000", "change the garage's email". Agents search, add and change
+  Google contacts with the `pa` tools `search_contacts`, `add_contact` and `update_contact` (search
+  matches names, numbers, emails and companies). Adding a number keeps the existing ones. Contacts
+  use the same Google sign-in as the calendar; nothing is ever deleted. They are your own data, so,
+  as with reminders, a task you started changes them straight away and a task started by outside
+  input files a `contacts.create` or `contacts.update` proposal for you to approve.
 - **Who may write.** Reminders and list items are internal, so a task you started (Chat) or a
   schedule writes them straight away. A task started by outside input (email, webhook, social)
   can't: its reminders and list changes become `pa.*` proposals that wait for your approval.
@@ -1083,8 +1095,8 @@ Do this once, on your PC. The same OAuth client and refresh token are shared wit
 storage, so one run of `google:auth` covers both.
 
 1. **Cloud project.** At <https://console.cloud.google.com/> create a project (e.g. "Command
-   Centre"). Under **APIs & Services → Library**, enable the **Google Calendar API** (and the
-   **Google Drive API**, for Drive storage).
+   Centre"). Under **APIs & Services → Library**, enable the **Google Calendar API**, the
+   **People API** (for contacts) and the **Google Drive API** (for Drive storage).
 2. **Consent screen** (**Google Auth Platform → Branding / Audience**, called "OAuth consent
    screen" in older consoles). App name "Command Centre", your email as support and developer
    contact.
@@ -1101,20 +1113,24 @@ storage, so one run of `google:auth` covers both.
      ([Google: unverified apps](https://support.google.com/cloud/answer/7454865)).
 3. **Scopes** (Data access): `…/auth/calendar.events` (read and write events),
    `…/auth/calendar.events.freebusy` (free/busy), `…/auth/calendar.calendarlist.readonly` (only so
-   `google:auth` can print your calendar ids), and `…/auth/drive.file` for Drive storage (only
-   files the app creates). See [Calendar API scopes](https://developers.google.com/workspace/calendar/api/auth).
+   `google:auth` can print your calendar ids), `…/auth/contacts` (read and change your contacts), and
+   `…/auth/drive.file` for Drive storage (only files the app creates). See
+   [Calendar API scopes](https://developers.google.com/workspace/calendar/api/auth) and
+   [People API scopes](https://developers.google.com/people/api/rest/v1/people/createContact#authorization-scopes).
+   **Connected before contacts were added?** Enable the People API, then Accounts page → your
+   Google account → **Connect** again and allow contacts; until then the contact tools say so.
 4. **OAuth client.** **Clients → Create client → Desktop app**. Copy the client id and secret.
 5. **Get the refresh token** with the loopback flow (PKCE, a random `127.0.0.1` port; see
    [OAuth for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app)):
 
    ```bash
    GOOGLE_CLIENT_ID=<id> GOOGLE_CLIENT_SECRET=<secret> pnpm --filter @cc/pa google:auth
-   # optional: --scopes calendar.events,calendar.events.freebusy,drive.file
+   # optional: --scopes calendar.events,calendar.events.freebusy,contacts,drive.file
    ```
 
    It opens Google's consent page (or prints the URL), and when you allow it, prints
    `GOOGLE_REFRESH_TOKEN=…`, the calendars the account can see with their ids, and a ready
-   `CALENDAR_ACCOUNTS` line. By default it asks for the calendar scopes plus `drive.file`.
+   `CALENDAR_ACCOUNTS` line. By default it asks for the calendar scopes, `contacts` and `drive.file`.
 6. **Set on Railway:** `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, and
    `CALENDAR_ACCOUNTS`, e.g.
 

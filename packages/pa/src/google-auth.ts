@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import { GOOGLE_SCOPES } from "./calendar/google";
+import { CONTACTS_SCOPE } from "./contacts/google";
 import { GOOGLE_TOKEN_URL } from "./google/oauth";
 
 /** Drive storage (another integration) shares the token: only files the app creates or is given. */
 export const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-/** What google:auth asks for by default: the calendar scopes plus drive.file, so one token serves both. */
-export const DEFAULT_AUTH_SCOPES = [...GOOGLE_SCOPES, DRIVE_FILE_SCOPE];
+/** What google:auth asks for by default: the calendar scopes, contacts and drive.file, so one token serves them all. */
+export const DEFAULT_AUTH_SCOPES = [...GOOGLE_SCOPES, CONTACTS_SCOPE, DRIVE_FILE_SCOPE];
 
 /** Parses `--scopes a,b` (full URLs, or short names like calendar.events, drive.file). */
 export function parseScopes(value: string | undefined): string[] {

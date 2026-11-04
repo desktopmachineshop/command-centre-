@@ -8,6 +8,26 @@ export interface NewReminderInput {
   due: string;
   /** Optional: daily, weekdays, weekly:mon,thu, monthly:15, or the RRULE forms. */
   recurrence?: string | null;
+  /** Optional number to call: the notification and the Today page then offer a Call button. */
+  phone?: string | null;
+}
+
+/**
+ * A phone number as typed ("07700 900123", "+44 20 7946 0000"), tidied, or null for none.
+ * Throws for something that isn't a number, so a bad one fails when the reminder is set.
+ */
+export function normalisePhone(input: string | null | undefined): string | null {
+  const v = (input ?? "").trim().replace(/\s+/g, " ");
+  if (!v) return null;
+  const digits = v.replace(/\D/g, "").length;
+  if (!/^\+?[\d\s().-]+$/.test(v) || digits < 3 || digits > 15) throw new Error(`"${input}" is not a phone number`);
+  return v;
+}
+
+/** The phone number for a `tel:` link: digits, with a leading + kept (and a "+44 (0)…" trunk zero dropped). */
+export function telHref(phone: string): string {
+  const intl = phone.trim().startsWith("+");
+  return `tel:${intl ? "+" : ""}${(intl ? phone.replace(/\(0\)/g, "") : phone).replace(/\D/g, "")}`;
 }
 
 /** Resolves a reminder request into what the store keeps. Throws a readable error for bad input. */
@@ -19,7 +39,7 @@ export function resolveReminder(input: NewReminderInput, timeZone: string, now: 
   const time = localTime(at, timeZone);
   // A recurring reminder starts at its first matching day on or after the given date (and not in the past).
   const dueAt = recurrence ? firstOccurrence(recurrence, new Date(Math.max(at.getTime(), now.getTime())), time, timeZone) : at;
-  return { text, dueAt, recurrence, localTime: time, timeZone };
+  return { text, dueAt, recurrence, localTime: time, timeZone, phone: normalisePhone(input.phone) };
 }
 
 export async function addReminder(
@@ -37,6 +57,8 @@ export interface ReminderChange {
   due?: string;
   /** New recurrence; "none" (or empty) makes it a one-off. Omit to keep it. */
   recurrence?: string | null;
+  /** New number to call; null or "" removes it. Omit to keep it. */
+  phone?: string | null;
 }
 
 /**
@@ -52,20 +74,22 @@ export async function changeReminder(
   const existing = await store.getReminder(id, ctx.vertical);
   if (!existing || !["pending", "sent"].includes(existing.status)) return null;
   const text = change.text?.trim() || existing.text;
-  if (change.due === undefined && change.recurrence === undefined) return store.updateReminder(id, { text }, ctx.vertical);
+  const phone = change.phone === undefined ? undefined : normalisePhone(change.phone);
+  if (change.due === undefined && change.recurrence === undefined) return store.updateReminder(id, { text, phone }, ctx.vertical);
   const r = change.recurrence;
   const recurrence = r === undefined ? existing.recurrence : !r?.trim() || /^none$/i.test(r.trim()) ? null : r;
   const due = change.due ?? `${localDate(new Date(existing.dueAt), existing.timeZone)}T${existing.localTime}`;
   const resolved = resolveReminder({ text, due, recurrence }, existing.timeZone, ctx.now ?? new Date());
-  return store.updateReminder(id, { text, schedule: resolved }, ctx.vertical);
+  return store.updateReminder(id, { text, phone, schedule: resolved }, ctx.vertical);
 }
 
-/** One line for agents and notifications: "Thu 23 Oct, 09:00 · Call the garage (weekdays) [id]". */
+/** One line for agents and notifications: "Thu 23 Oct, 09:00 · Call the garage · call 01632 960123 (weekdays) [id]". */
 export function describeReminder(r: Reminder, options: { id?: boolean } = {}): string {
   const when = r.snoozedUntil ? `${formatUk(new Date(r.snoozedUntil), r.timeZone)} (snoozed)` : formatUk(new Date(r.dueAt), r.timeZone);
   const repeat = r.recurrence ? ` (${describeRecurrence(parseRecurrence(r.recurrence))})` : "";
   const state = r.status === "sent" ? " [sent, not done]" : r.status === "pending" ? "" : ` [${r.status}]`;
-  return `${when} · ${r.text}${repeat}${state}${options.id !== false ? ` (id ${r.id})` : ""}`;
+  const call = r.phone ? ` · call ${r.phone}` : "";
+  return `${when} · ${r.text}${call}${repeat}${state}${options.id !== false ? ` (id ${r.id})` : ""}`;
 }
 
 export interface ReminderPush {
@@ -104,7 +128,8 @@ export async function deliverDueReminders(
     }
     if (!(await store.markReminderSent(r, next, now))) continue;
     const late = now.getTime() - new Date(snoozeDue && !occurrenceDue ? r.snoozedUntil! : r.dueAt).getTime() > 15 * 60_000;
-    const body = late ? `${r.text} (was due ${formatUk(new Date(occurrenceDue ? r.dueAt : r.snoozedUntil!), r.timeZone)})` : r.text;
+    const text = late ? `${r.text} (was due ${formatUk(new Date(occurrenceDue ? r.dueAt : r.snoozedUntil!), r.timeZone)})` : r.text;
+    const body = r.phone ? `${text}\nTap to call ${r.phone}` : text;
     try {
       await push({ reminder: r, dueAt: next.dueAt, title: "Reminder", body });
     } catch (err) {

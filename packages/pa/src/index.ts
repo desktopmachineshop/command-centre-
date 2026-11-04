@@ -3,6 +3,8 @@ export * from "./calendar/freetime";
 export * from "./calendar/google";
 export * from "./calendar/service";
 export * from "./calendar/types";
+export * from "./contacts/google";
+export * from "./contacts/service";
 export * from "./executors";
 export * from "./google-auth";
 export * from "./google/oauth";

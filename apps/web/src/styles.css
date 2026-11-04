@@ -4122,3 +4122,16 @@ details[open] > summary .brain-tree-chevron {
   flex: 1 1 14rem;
   min-width: 0;
 }
+
+/* Today: the Call prompt a reminder notification opens (one tap to the phone's dialler). */
+a.button-link.call-button {
+  display: flex;
+  justify-content: center;
+  min-height: 52px;
+  font-size: var(--fs-md);
+}
+/* A reminder's text keeps a readable width; its buttons wrap underneath on a phone. */
+.reminder-row > .grow {
+  flex: 1 1 14rem;
+  min-width: 0;
+}

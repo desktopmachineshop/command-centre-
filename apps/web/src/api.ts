@@ -229,6 +229,19 @@ export type Reminder = {
   createdBy: "dave" | "agent";
   status: "pending" | "sent" | "done" | "cancelled";
   snoozedUntil: string | null;
+  /** A number to call when it fires (the Call button), or null. */
+  phone: string | null;
+};
+
+/** A Google contact (GET /api/pa/contacts?q=). */
+export type Contact = {
+  accountId: string;
+  id: string;
+  name: string;
+  phones: { value: string; type: string | null }[];
+  emails: { value: string; type: string | null }[];
+  company: string | null;
+  notes: string | null;
 };
 
 export type TodoItem = { id: string; listId: string; text: string; done: boolean; dueDate: string | null; position: number };
@@ -430,12 +443,14 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     // --- pa ---
     today: (day?: string) => call<TodayView>(`/pa/today${day ? `?day=${day}` : ""}`),
     /** `due` is local Europe/London `YYYY-MM-DDTHH:MM`; `recurrence` is e.g. "weekdays", "weekly:mon,thu", "monthly:15" or "none". */
-    addReminder: (r: { text: string; due: string; recurrence?: string | null }) => post<Reminder>("/pa/reminders", r),
-    updateReminder: (id: string, change: { text?: string; due?: string; recurrence?: string | null }) =>
+    getReminder: (id: string) => call<Reminder>(`/pa/reminders/${id}`),
+    addReminder: (r: { text: string; due: string; recurrence?: string | null; phone?: string | null }) => post<Reminder>("/pa/reminders", r),
+    updateReminder: (id: string, change: { text?: string; due?: string; recurrence?: string | null; phone?: string | null }) =>
       call<Reminder>(`/pa/reminders/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
     cancelReminder: (id: string) => call<Reminder>(`/pa/reminders/${id}`, { method: "DELETE" }),
     completeReminder: (id: string) => post<Reminder>(`/pa/reminders/${id}/complete`),
     snoozeReminder: (id: string, minutes: number) => post<Reminder>(`/pa/reminders/${id}/snooze`, { minutes }),
+    searchContacts: (q: string) => call<{ configured: boolean; contacts: Contact[]; errors: string[] }>(`/pa/contacts?q=${encodeURIComponent(q)}`),
     createList: (name: string) => post<TodoList>("/pa/lists", { name }),
     renameList: (id: string, name: string) => call<TodoList>(`/pa/lists/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
     deleteList: (id: string) => call(`/pa/lists/${id}`, { method: "DELETE" }),

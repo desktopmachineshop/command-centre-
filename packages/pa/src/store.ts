@@ -28,6 +28,8 @@ export interface Reminder {
   updatedAt: string;
   /** Bumped on every change; deliveries compare it so only one replica sends. */
   version: number;
+  /** A number to call when it fires (the Call button), or null. */
+  phone: string | null;
 }
 
 export interface TodoList {
@@ -82,6 +84,7 @@ const toReminder = (r: Row): Reminder => ({
   createdAt: iso(r.created_at)!,
   updatedAt: iso(r.updated_at)!,
   version: r.version,
+  phone: r.phone ?? null,
 });
 
 const toList = (r: Row): TodoList => ({
@@ -139,11 +142,12 @@ export class PgPaStore {
     vertical: string;
     createdBy: CreatedBy;
     taskId?: string | null;
+    phone?: string | null;
   }): Promise<Reminder> {
     const { rows } = await this.db.query(
-      `insert into reminders (id, text, due_at, recurrence, local_time, timezone, vertical, created_by, task_id, status)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') returning *`,
-      [randomUUID(), r.text, r.dueAt, r.recurrence ? formatRecurrence(r.recurrence) : null, r.localTime, r.timeZone, r.vertical, r.createdBy, r.taskId ?? null],
+      `insert into reminders (id, text, due_at, recurrence, local_time, timezone, vertical, created_by, task_id, status, phone)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10) returning *`,
+      [randomUUID(), r.text, r.dueAt, r.recurrence ? formatRecurrence(r.recurrence) : null, r.localTime, r.timeZone, r.vertical, r.createdBy, r.taskId ?? null, r.phone ?? null],
     );
     return toReminder(rows[0]);
   }
@@ -194,10 +198,11 @@ export class PgPaStore {
   /**
    * Changes an open reminder's text and/or timing. With `schedule` the reminder
    * moves there and is pending again (any snooze cleared); without it only the text changes.
+   * `phone`: undefined keeps the number, null removes it.
    */
   async updateReminder(
     id: string,
-    patch: { text: string; schedule?: { dueAt: Date; recurrence: Recurrence | null; localTime: string } },
+    patch: { text: string; phone?: string | null; schedule?: { dueAt: Date; recurrence: Recurrence | null; localTime: string } },
     vertical?: string,
   ): Promise<Reminder | null> {
     const s = patch.schedule;
@@ -209,9 +214,21 @@ export class PgPaStore {
          local_time = coalesce($5, local_time),
          status = case when $6 then 'pending' else status end,
          snoozed_until = case when $6 then null else snoozed_until end,
+         phone = case when $9 then $10 else phone end,
          updated_at = now(), version = version + 1
        where id = $1 and status = any($7) and ($8::text is null or vertical = $8) returning *`,
-      [uuidOrNil(id), patch.text, s?.dueAt ?? null, s?.recurrence ? formatRecurrence(s.recurrence) : null, s?.localTime ?? null, !!s, OPEN_REMINDER, vertical ?? null],
+      [
+        uuidOrNil(id),
+        patch.text,
+        s?.dueAt ?? null,
+        s?.recurrence ? formatRecurrence(s.recurrence) : null,
+        s?.localTime ?? null,
+        !!s,
+        OPEN_REMINDER,
+        vertical ?? null,
+        patch.phone !== undefined,
+        patch.phone ?? null,
+      ],
     );
     return rows[0] ? toReminder(rows[0]) : null;
   }
