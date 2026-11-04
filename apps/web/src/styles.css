@@ -4063,12 +4063,22 @@ details[open] > summary .brain-tree-chevron {
   color: var(--text-2);
 }
 
-/* Drive mode's live trace: follows the microphone while listening, the voice while speaking. */
+/*
+ * Drive mode's live trace (voice/Waveform.tsx OrbTrace): wrapped round the talk button, sweeping
+ * clockwise and overwriting the previous lap, which fades out ahead of the head. It follows the
+ * microphone while listening and the voice while speaking.
+ */
 .drive-trace {
-  width: 100%;
-  max-width: 420px;
-  height: 56px;
+  position: absolute;
+  inset: -46px;
+  width: calc(100% + 92px);
+  height: calc(100% + 92px);
+  pointer-events: none;
   color: var(--danger-solid);
+}
+/* Room above and below the button for the trace, so it doesn't run into the status or caption. */
+.drive:not(.viz-orb) .drive-ptt {
+  margin-block: 40px;
 }
 .drive.phase-speaking .drive-trace {
   color: var(--success-solid);

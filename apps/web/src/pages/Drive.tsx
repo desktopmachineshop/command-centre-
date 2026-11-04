@@ -24,7 +24,7 @@ import { pickListener } from "../voice/dictation";
 import { VoicePicker } from "../voice/VoicePicker";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
-import { VoiceOrb, Waveform } from "../voice/Waveform";
+import { OrbTrace, VoiceOrb } from "../voice/Waveform";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
 const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
@@ -678,9 +678,8 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
             <span className="drive-ptt-label">{PTT_LABEL[state.phase]}</span>
           </span>
         </VoiceOrb>
+        {viz !== "orb" && <OrbTrace className="drive-trace" source={orbLevel} />}
       </button>
-
-      {viz !== "orb" && <Waveform className="drive-trace" source={orbLevel} />}
 
       <p className="drive-caption" aria-live="polite">
         {caption}
