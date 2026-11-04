@@ -330,7 +330,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       maxSeconds: e.VOICE_MAX_SECONDS,
       language: e.VOICE_LANGUAGE,
       local: e.VOICE_LOCAL === "off" ? null : { voice: e.VOICE_LOCAL_VOICE, speed: e.VOICE_LOCAL_SPEED, root: join(dataDir, "models", "voice") },
-      front: e.VOICE_FRONT === "off" || e.AGENT_RUNNER !== "claude-code" ? null : { model: e.VOICE_FRONT_MODEL },
+      // On whenever the agents run on Claude Code (env or the Accounts page; checked per turn in app.ts).
+      front: e.VOICE_FRONT === "off" ? null : { model: e.VOICE_FRONT_MODEL },
     },
     // --- end voice ---
     pa: { calendarAccounts },
