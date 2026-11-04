@@ -383,6 +383,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     nodes: () => call<WorkerNode[]>("/nodes"),
     /** One click on the Devices page: install what a role is missing on that computer (a setup.install job). */
     installRole: (nodeId: string, role: SetupRoleId) => post<Job>(`/nodes/${encodeURIComponent(nodeId)}/setup`, { role }),
+    /** Update now: that computer's desktop app installs its newest build (after any running job). */
+    updateApp: (nodeId: string) => post<{ requested: true }>(`/nodes/${encodeURIComponent(nodeId)}/update`),
     // --- desktop app: linking computers by signing in, and the installer download ---
     desktopDevices: () => call<DesktopDevice[]>("/desktop/devices"),
     unlinkDesktop: (id: string) => call<{ revoked: true }>(`/desktop/devices/${id}`, { method: "DELETE" }),

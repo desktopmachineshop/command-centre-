@@ -4,12 +4,14 @@ import { createWorker, loadConfig } from "./index";
 /**
  * `cc-worker [--config path] [--server url] [--token t] [--name n] [--work-dir d]
  *  [--capabilities ffmpeg,gpu] [--status-json]`
- * With --status-json, status changes are printed as `CC_STATUS {...}` lines for the desktop app.
+ * With --status-json, status changes are printed as `CC_STATUS {...}` lines for the desktop app,
+ * and an update pushed from the Devices page as a `CC_UPDATE` line (the app then installs it).
  */
 async function main() {
   const config = loadConfig();
   const client = await createWorker(config, {
     onStatus: config.statusJson ? (s) => process.stdout.write(`CC_STATUS ${JSON.stringify(s)}\n`) : undefined,
+    onUpdate: config.statusJson ? () => process.stdout.write("CC_UPDATE\n") : undefined,
   });
   console.log(`[worker] config ${config.configPath}, node ${config.nodeId}, server ${config.wsUrl}`);
   client.start();

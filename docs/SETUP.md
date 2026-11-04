@@ -378,6 +378,10 @@ A linked app updates itself (Tauri's updater, `apps/desktop/src-tauri/src/lib.rs
   stops the worker, installs it quietly and starts again on the new version.
 - **Every 6 hours** while it runs, it checks again. A newer build shows as **Install update
   0.1.N** in the tray menu. **Check for updates** in the same menu checks on demand.
+- **Update now** on the Devices page pushes it from anywhere: the server sends `app.update` to
+  that computer's worker, which waits for any job it's running, then prints `CC_UPDATE`; the
+  app installs the newest build as the tray item would. It needs the computer online and an app
+  that reports `remoteUpdate` (this build or later: update an older one from its tray once).
 - **Versions:** each build is `0.1.<run number>` (major and minor from `tauri.conf.json`), so a
   later build is always newer.
 - **Signatures:** the Desktop workflow signs each installer with the key in the

@@ -265,6 +265,26 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     for (const [id, peer] of Object.entries(peers)) await ctx.server.workers.disconnect(id, peer);
   });
 
+  it("pushes an update to a computer's desktop app, only when it's online and can take it", async () => {
+    const frames: string[] = [];
+    const peer: Peer = { send: (d) => frames.push(d) };
+    const setup = { platform: "win32", installer: null, installed: [], appVersion: "0.1.40", remoteUpdate: true };
+    await ctx.server.workers.connect({ id: "update-pc", name: "Update PC", capabilities: [], setup }, peer);
+    expect((await ctx.api("/api/nodes/update-pc/update", { method: "POST" })).status).toBe(202);
+    expect(frames.filter((f) => JSON.parse(f).type === "app.update")).toHaveLength(1);
+
+    await ctx.server.workers.disconnect("update-pc", peer);
+    const offline = await ctx.api("/api/nodes/update-pc/update", { method: "POST" });
+    expect(offline.status).toBe(409);
+    expect(offline.body.error).toMatch(/offline/);
+
+    // An older app doesn't say it can take one: update it from its tray once.
+    await ctx.server.workers.connect({ id: "update-pc", name: "Update PC", capabilities: [], setup: { ...setup, remoteUpdate: undefined } }, peer);
+    expect((await ctx.api("/api/nodes/update-pc/update", { method: "POST" })).body.error).toMatch(/tray menu/);
+    expect(frames.filter((f) => JSON.parse(f).type === "app.update")).toHaveLength(1);
+    await ctx.server.workers.disconnect("update-pc", peer);
+  });
+
   it("cancels a job still waiting for a computer, and only then", async () => {
     // No connected computer has a browser, so it stays queued.
     const job = (await ctx.api("/api/jobs", { method: "POST", json: { kind: "video.capture", requires: ["browser"] } })).body;

@@ -18,7 +18,7 @@
         <li>Open the app and sign in with your email and password.</li>
         <li>Approve the computer, as below. There is nothing to set up in Railway.</li>
       </ol>
-      <p>The app updates itself: choose <uicontrol>Check for updates</uicontrol> in its tray menu when this page says a new version is available.</p>
+      <p>The app updates itself when it starts. When this page says a new version is available, choose <uicontrol>Update now</uicontrol> beside it: the computer finishes the job it is running, installs the update and restarts. Older apps don't show <uicontrol>Update now</uicontrol>; choose <uicontrol>Check for updates</uicontrol> in their tray menu once.</p>
     </body>
   </topic>
   <topic id="link">

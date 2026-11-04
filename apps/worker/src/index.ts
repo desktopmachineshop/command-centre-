@@ -41,7 +41,10 @@ export function defaultRegistry(
 }
 
 /** Detects capabilities and builds a ready-to-start client from resolved config. */
-export async function createWorker(config: WorkerConfig, options: { onStatus?: (s: WorkerStatus) => void; log?: (line: string) => void } = {}) {
+export async function createWorker(
+  config: WorkerConfig,
+  options: { onStatus?: (s: WorkerStatus) => void; log?: (line: string) => void; onUpdate?: () => void } = {},
+) {
   const log = options.log ?? ((line: string) => console.log(line));
   /** What this computer can do now; run again after a setup.install job installed something. */
   const probe = async () => {
@@ -58,7 +61,7 @@ export async function createWorker(config: WorkerConfig, options: { onStatus?: (
         chromiumBin: capture.ready ? capture.chromiumBin : null,
         overrides: config.capabilityOverrides,
       }));
-    const setup = await detectSetup({ capture: { ready: capture.ready, why: capture.why }, appVersion: config.appVersion, ffmpegBin: config.ffmpegBin, claudeBin: config.claudeBin, chromiumBin: config.chromiumBin, capabilities });
+    const setup = await detectSetup({ capture: { ready: capture.ready, why: capture.why }, appVersion: config.appVersion, remoteUpdate: !!options.onUpdate && !!config.appVersion, ffmpegBin: config.ffmpegBin, claudeBin: config.claudeBin, chromiumBin: config.chromiumBin, capabilities });
     const registry = defaultRegistry({ ...config, chromiumBin: capture.chromiumBin ?? config.chromiumBin }, capabilities);
     return { capabilities, setup, registry };
   };
