@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, rename, rm } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import type { Fetch } from "../types";
@@ -16,6 +16,8 @@ export interface LocalModel {
   files: string[];
   /** Approximate download size, for the logs. */
   mb: number;
+  /** The URL is the model file itself (saved as `files[0]`), not a .tar.bz2 archive. */
+  single?: boolean;
 }
 
 /**
@@ -38,6 +40,15 @@ export const LOCAL_MODELS = {
 } satisfies Record<string, LocalModel>;
 
 export type LocalModelName = keyof typeof LOCAL_MODELS;
+
+/**
+ * Clean-up before recognition (optional: recognition works without them): GTCRN, a small
+ * streaming speech denoiser, and Silero VAD, which tells speech from other sounds.
+ */
+export const CLEANUP_MODELS = {
+  denoise: { dir: "gtcrn", url: `${RELEASES}/speech-enhancement-models/gtcrn_simple.onnx`, files: ["gtcrn_simple.onnx"], mb: 1, single: true },
+  vad: { dir: "silero-vad", url: `${RELEASES}/asr-models/silero_vad.onnx`, files: ["silero_vad.onnx"], mb: 1, single: true },
+} satisfies Record<string, LocalModel>;
 
 /** Kokoro v0.19 speaker ids by voice name. */
 export const KOKORO_VOICES: Record<string, number> = {
@@ -75,7 +86,10 @@ export async function installModel(root: string, model: LocalModel, fetch: Fetch
   try {
     const res = await fetch(model.url);
     if (!res.ok || !res.body) throw new Error(`download failed (${res.status})`);
-    await new Promise<void>((resolve, reject) => {
+    if (model.single) {
+      await mkdir(join(tmp, model.dir), { recursive: true });
+      await writeFile(join(tmp, model.dir, model.files[0]!), new Uint8Array(await res.arrayBuffer()));
+    } else await new Promise<void>((resolve, reject) => {
       const tar = spawn("tar", ["-xjf", "-", "-C", tmp], { stdio: ["pipe", "ignore", "pipe"] });
       let stderr = "";
       tar.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-2000)));

@@ -77,7 +77,11 @@ export function speechThreshold(noiseFloor: number, minimum = 0.02, factor = 3):
   return Math.max(minimum, noiseFloor * factor);
 }
 
-/** Slow-moving estimate of steady background noise from frames that were not speech. Pure. */
-export function updateNoiseFloor(floor: number, quietRms: number, rate = 0.05): number {
-  return floor + (quietRms - floor) * rate;
+/**
+ * Slow-moving estimate of steady background noise. Frames judged quiet move it quickly; frames
+ * judged speech move it slowly, so noise that starts out louder than the threshold (an engine) is
+ * still learnt within a few seconds, while speech itself barely lifts it. Pure.
+ */
+export function updateNoiseFloor(floor: number, rms: number, speech = false, rate = 0.05, speechRate = 0.01): number {
+  return floor + (rms - floor) * (speech ? speechRate : rate);
 }
