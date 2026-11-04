@@ -86,11 +86,20 @@ export const runCommand: RunCommand = (cmd, args, signal) =>
     });
   });
 
-/** winget exit codes that mean "it's already there": treated as success. */
+/**
+ * winget exit codes that mean "it's already there": treated as success. Compared unsigned:
+ * depending on the Node version, a Windows exit code like 0x8A15002B arrives as a negative or a
+ * positive number.
+ */
 const ALREADY_INSTALLED = new Set([
-  0x8a15002b - 0x1_0000_0000, // APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE
-  0x8a150061 - 0x1_0000_0000, // APPINSTALLER_CLI_ERROR_PACKAGE_ALREADY_INSTALLED
+  0x8a15002b, // APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE
+  0x8a150061, // APPINSTALLER_CLI_ERROR_PACKAGE_ALREADY_INSTALLED
 ]);
+
+/** True when winget says the package is already there, by exit code or by its words ("No newer package versions are available"). */
+export function alreadyInstalled(code: number, output: string): boolean {
+  return ALREADY_INSTALLED.has(code >>> 0) || /No available upgrade found|No newer package versions are available/i.test(output);
+}
 
 export function wingetArgs(packageId: string): string[] {
   return [
@@ -175,7 +184,7 @@ export function setupHandler(options: SetupHandlerOptions = {}) {
         ctx.progress(i / packages.length, `Installing ${label}`);
         try {
           const { code, output } = await run(winget, wingetArgs(pkg.id), ctx.signal);
-          const ok = code === 0 || ALREADY_INSTALLED.has(code);
+          const ok = code === 0 || alreadyInstalled(code, output);
           results.push(ok ? { component: pkg.component, label, ok } : { component: pkg.component, label, ok, error: tail(output) || `winget exited with ${code}` });
         } catch (err) {
           results.push({ component: pkg.component, label, ok: false, error: (err as Error).message });
@@ -184,6 +193,14 @@ export function setupHandler(options: SetupHandlerOptions = {}) {
       ctx.progress(1, "Checking what's installed");
       await refreshPath().catch(() => {});
       const now = await ctx.refresh?.().catch(() => undefined);
+      // Whatever the computer now finds counts as installed, even if winget complained (it was
+      // there already, just not on this process's PATH until refreshPath).
+      for (const r of results) {
+        if (!r.ok && r.component !== "browser" && now?.setup?.installed.includes(r.component)) {
+          r.ok = true;
+          delete r.error;
+        }
+      }
       // Chrome or Edge is there but capture still isn't: say why (usually the recorder download).
       const capture = results.find((r) => r.component === "browser" && r.ok);
       if (capture && now?.setup?.capture && !now.setup.capture.ready) {

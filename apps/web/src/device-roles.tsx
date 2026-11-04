@@ -1,4 +1,4 @@
-import { type ComponentState, type Job, roleStatus, SETUP_COMPONENTS, SETUP_ROLES, type SetupRoleId, type WorkerNode } from "@cc/core";
+import { type ComponentState, type Job, roleStatus, SETUP_COMPONENTS, SETUP_ROLES, type SetupComponentId, type SetupRoleId, type WorkerNode } from "@cc/core";
 import { type ReactNode, useState } from "react";
 import type { Api } from "./api";
 import { Icon } from "./icons";
@@ -34,6 +34,10 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
   const active = setupJobs.find(isActive);
   // The newest finished install, to show its error until the next one.
   const last = setupJobs.filter((j) => !isActive(j)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  // Hide that error once the computer reports everything that job tried as installed (a retry,
+  // or a fix by hand, worked): otherwise "Ready" sits next to a stale failure.
+  const lastTried = (last?.payload as { components?: SetupComponentId[] } | undefined)?.components ?? [];
+  const lastStale = lastTried.length > 0 && lastTried.every((id) => node.setup?.installed.includes(id));
   const activeRole = active ? ((active.payload as { role?: string }).role ?? null) : null;
 
   const install = async (role: SetupRoleId) => {
@@ -132,7 +136,7 @@ export function DeviceRoles({ api, node, jobs }: { api: Api; node: WorkerNode; j
       {active && <p className="small muted">{node.online ? "Installing on the computer. Windows may ask there for permission to install." : "Waits until the computer is online."}</p>}
       {note && !active && <p className="small muted">{note}</p>}
       {error && <p className="error small">{error}</p>}
-      {!active && last?.status === "failed" && <p className="error small device-role-error">{jobError(last)}</p>}
+      {!active && last?.status === "failed" && !lastStale && <p className="error small device-role-error">{jobError(last)}</p>}
     </div>
   );
 }
