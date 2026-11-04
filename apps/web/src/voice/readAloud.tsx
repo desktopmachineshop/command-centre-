@@ -1,6 +1,7 @@
 import { speakable } from "@cc/voice/speakable";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { withoutVoiceLine } from "../format";
+import { Icon } from "../icons";
 import { BrowserSpeaker, hasSynthesis, loadVoices, pickVoice } from "./speech";
 
 const KEY = "cc.readAloud";
@@ -117,5 +118,30 @@ export function ReadAloudControl({ readAloud }: { readAloud: ReturnType<typeof u
         </button>
       )}
     </span>
+  );
+}
+
+/** The same switch as a toggle button, for the chat composer's toolbar: Stop takes its place while speaking. */
+export function ReadAloudToggle({ readAloud }: { readAloud: ReturnType<typeof useReadAloud> }) {
+  if (!readAloud.available) return null;
+  if (readAloud.speaking) {
+    return (
+      <button type="button" className="tool is-on" onClick={readAloud.stop} aria-label="Stop reading aloud" title="Stop reading aloud">
+        <Icon name="stop" size={16} />
+        <span>Stop</span>
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`tool ${readAloud.enabled ? "is-on" : ""}`}
+      aria-pressed={readAloud.enabled}
+      onClick={() => readAloud.set(!readAloud.enabled)}
+      title="Speak each reply as it arrives"
+    >
+      <Icon name="speaker" size={16} />
+      <span>Read aloud</span>
+    </button>
   );
 }

@@ -10,7 +10,7 @@ import { AttachedFiles, Composer } from "../composer";
 import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
-import { ReadAloudControl, useReadAloud } from "../voice/readAloud";
+import { ReadAloudToggle, useReadAloud } from "../voice/readAloud";
 
 type Turn = { key: number; text: string; files?: { name: string; size: number }[]; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
 
@@ -207,18 +207,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
       <PageHead
         title="Chat"
         sub="You're talking to the Chief of Staff, who hands work to the right role and tells you the outcome here. Follow-ups continue the chat until you start a new one."
-      >
-        <ReadAloudControl readAloud={readAloud} />
-        {threadId && (
-          <button type="button" onClick={newChat}>
-            New chat
-          </button>
-        )}
-        <a className="drive-link" href="#/drive" aria-label="Drive mode: talk hands-free">
-          <Icon name="drive" size={20} />
-          <span>Drive mode</span>
-        </a>
-      </PageHead>
+      />
       <div className="turns">
         {turns.length === 0 && (
           <Empty icon="chat">
@@ -285,6 +274,19 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             </option>
           ))}
         </select>
+        <div className="composer-tools" role="group" aria-label="Chat options">
+          {threadId && (
+            <button type="button" className="tool" onClick={newChat} title="Start a new chat">
+              <Icon name="plus" size={16} />
+              <span>New chat</span>
+            </button>
+          )}
+          <ReadAloudToggle readAloud={readAloud} />
+          <a className="tool" href="#/drive" aria-label="Drive mode: talk hands-free" title="Drive mode: talk hands-free">
+            <Icon name="drive" size={16} />
+            <span>Drive</span>
+          </a>
+        </div>
       </Composer>
     </section>
   );
