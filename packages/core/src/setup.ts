@@ -102,6 +102,8 @@ export const NodeSetup = z.object({
   capture: z.object({ ready: z.boolean(), why: z.string().max(300).optional() }).optional(),
   /** The desktop app version on this computer (absent for a worker run by hand). */
   appVersion: z.string().max(32).optional(),
+  /** The desktop app can be told to update itself from the Devices page (app.update). */
+  remoteUpdate: z.boolean().optional(),
 });
 export type NodeSetup = z.infer<typeof NodeSetup>;
 

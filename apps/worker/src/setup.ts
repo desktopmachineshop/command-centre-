@@ -24,6 +24,8 @@ export interface SetupProbe {
   capture?: { ready: boolean; why?: string };
   /** The desktop app's version, reported with the setup. */
   appVersion?: string | null;
+  /** The desktop app runs this worker and installs updates when it asks (see WorkerClient onUpdate). */
+  remoteUpdate?: boolean;
   /** Runs `winget --version` to see that it works; see findWinget. */
   run?: RunCommand;
 }
@@ -66,6 +68,7 @@ export async function detectSetup(options: SetupProbe): Promise<NodeSetup> {
     installed: (Object.keys(has) as SetupComponentId[]).filter((id) => has[id]),
     ...(options.capture ? { capture: { ready: options.capture.ready, ...(options.capture.why ? { why: options.capture.why.slice(0, 300) } : {}) } } : {}),
     ...(options.appVersion ? { appVersion: options.appVersion } : {}),
+    ...(options.remoteUpdate ? { remoteUpdate: true } : {}),
   };
 }
 

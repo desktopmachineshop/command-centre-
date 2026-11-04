@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { WorkerNode } from "@cc/core";
 import { type Api, ApiError, type DesktopDevice } from "../api";
 import { ago } from "../format";
 import { Icon } from "../icons";
@@ -59,7 +60,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
                 <div className="muted small">
                   {n.capabilities.join(", ") || "no capabilities"} · seen {ago(n.lastSeen)}
                 </div>
-                <AppVersion version={n.setup?.appVersion ?? null} latest={latest} />
+                <AppVersion api={api} node={n} latest={latest} />
                 <DeviceRoles api={api} node={n} jobs={jobs.data ?? []} />
                 {device && <Unlink api={api} device={device} onDone={devices.reload} />}
               </div>
@@ -320,14 +321,60 @@ export function newer(a: string, b: string): boolean {
   return false;
 }
 
-/** Which desktop app version the computer runs, and whether a newer build is waiting for it. */
-function AppVersion({ version, latest }: { version: string | null; latest: string | null }) {
+/**
+ * Which desktop app version the computer runs, and whether a newer build is waiting for it.
+ * When it is, Update now pushes it: the app installs it (after any running job) and restarts,
+ * and the version here changes when it reconnects.
+ */
+function AppVersion({ api, node, latest }: { api: Api; node: WorkerNode; latest: string | null }) {
+  const version = node.setup?.appVersion ?? null;
+  const [state, setState] = useState<{ busy?: boolean; sent?: string; error?: string }>({});
+  // A new version reported back: the update is done.
+  useEffect(() => setState({}), [version]);
   if (!version) return <div className="muted small">Desktop app version unknown (older apps don't report it: install the latest download once)</div>;
   const behind = latest && newer(latest, version);
+  const canPush = node.online && node.setup?.remoteUpdate;
   return (
     <div className="muted small device-version">
       Desktop app {version}
-      {behind ? <span className="device-version-behind"> · {latest} available: choose Check for updates in its tray menu</span> : latest ? " · up to date" : null}
+      {behind ? (
+        <span className="device-version-behind">
+          {" "}
+          · {latest} available
+          {canPush ? (
+            state.sent === latest ? (
+              ": updating (it restarts when its current job is done)"
+            ) : (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="link small"
+                  disabled={state.busy}
+                  onClick={async () => {
+                    setState({ busy: true });
+                    try {
+                      await api.updateApp(node.id);
+                      setState({ sent: latest });
+                    } catch (e) {
+                      setState({ error: (e as Error).message });
+                    }
+                  }}
+                >
+                  {state.busy ? "Sending…" : "Update now"}
+                </button>
+              </>
+            )
+          ) : node.online ? (
+            ": choose Check for updates in its tray menu"
+          ) : (
+            ": it installs it itself the next time the app starts"
+          )}
+        </span>
+      ) : latest ? (
+        " · up to date"
+      ) : null}
+      {state.error && <p className="error small">{state.error}</p>}
     </div>
   );
 }

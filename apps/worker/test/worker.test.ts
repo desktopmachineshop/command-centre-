@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Capability, Job } from "@cc/core";
+import type { Capability, Job, NodeSetup } from "@cc/core";
 import { ADMIN, DB_URL, makeServer, resetDatabase, serveServer } from "@cc/server/test/helpers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { defaultRegistry, toWsUrl, WorkerClient, type WorkerState } from "../src";
@@ -26,13 +26,14 @@ describe.skipIf(!DB_URL)("worker against a real server", () => {
   const updates: Job[] = [];
   const workers: { id: string; client: WorkerClient; states: WorkerState[] }[] = [];
 
-  function startWorker(id: string, capabilities: Capability[]) {
+  function startWorker(id: string, capabilities: Capability[], extra: { setup?: NodeSetup; onUpdate?: () => void } = {}) {
     const workDir = mkdtempSync(join(tmpdir(), "cc-worker-"));
     const states: WorkerState[] = [];
     const client = new WorkerClient({
       wsUrl: toWsUrl(http.url),
       token: ADMIN,
-      node: { id, name: id, capabilities },
+      node: { id, name: id, capabilities, ...(extra.setup ? { setup: extra.setup } : {}) },
+      onUpdate: extra.onUpdate,
       registry: defaultRegistry({ ffmpegBin: fakeFfmpeg, claudeBin: "claude-not-installed", claudeDirs: [], workDir }),
       workDir,
       backoff: { minMs: 20, maxMs: 200 },
@@ -131,5 +132,31 @@ describe.skipIf(!DB_URL)("worker against a real server", () => {
     expect(await finished(job.id)).toMatchObject({ status: "succeeded", nodeId: "editor" });
     const nodes = (await ctx.api("/api/nodes")).body as { id: string; online: boolean }[];
     expect(nodes.filter((n) => n.online).map((n) => n.id).sort()).toEqual(["editor", "plain"]);
+  });
+
+  it("asks its desktop app to update when Dave presses Update now, after the job it's running", async () => {
+    const asked: true[] = [];
+    const setup: NodeSetup = { platform: "win32", installer: null, installed: [], appVersion: "0.1.40", remoteUpdate: true };
+    const studio = startWorker("studio", ["davinci"], { setup, onUpdate: () => asked.push(true) });
+    await until(() => studio.client.state.state === "connected", "studio to connect");
+
+    const job = await submit("echo", ["davinci"], { steps: 3, delayMs: 100 });
+    await until(() => studio.client.state.job?.id === job.id, "the job to start");
+    const res = await ctx.api("/api/nodes/studio/update", { method: "POST" });
+    expect(res.status).toBe(202);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(asked).toEqual([]); // still busy: the update would stop the job
+    expect(await finished(job.id)).toMatchObject({ status: "succeeded", nodeId: "studio" });
+    await until(() => asked.length === 1, "the update request");
+
+    // Idle: straight away.
+    expect((await ctx.api("/api/nodes/studio/update", { method: "POST" })).status).toBe(202);
+    await until(() => asked.length === 2, "the second update request");
+
+    // A computer whose app can't take it (an older app, or a worker run by hand) is refused.
+    const res2 = await ctx.api("/api/nodes/editor/update", { method: "POST" });
+    expect(res2.status).toBe(409);
+    expect(res2.body.error).toMatch(/tray menu/);
+    expect((await ctx.api("/api/nodes/nope/update", { method: "POST" })).status).toBe(404);
   });
 });

@@ -12,7 +12,9 @@
 //!
 //! Updates: a linked app asks the server for a newer build (`/api/desktop/update`,
 //! with its device token) when it starts, installing it straight away, and every
-//! few hours after, offering it in the tray. Installers are signed in the Desktop
+//! few hours after, offering it in the tray. Update now on the Devices page reaches the app
+//! through its worker (a `CC_UPDATE` line on the worker's stdout) and installs straight away.
+//! Installers are signed in the Desktop
 //! workflow and the updater checks that signature against the public key in
 //! tauri.conf.json before running anything.
 
@@ -253,6 +255,13 @@ fn start_worker(app: &AppHandle) {
             match event {
                 CommandEvent::Stdout(line) => {
                     let line = String::from_utf8_lossy(&line);
+                    if line.trim() == "CC_UPDATE" {
+                        // Update now on the Devices page: install the newest signed build, as
+                        // the tray's Install update does (it stops the worker and restarts the app).
+                        set_update_item(&app, "Checking for updates (asked from the Devices page)...");
+                        check_for_update(&app, true);
+                        continue;
+                    }
                     match line.trim().strip_prefix("CC_STATUS ") {
                         Some(json) if is_unlinked(json) => {
                             // The server no longer knows this token (unlinked on the Devices page).

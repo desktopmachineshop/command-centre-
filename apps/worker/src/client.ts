@@ -30,6 +30,11 @@ export interface WorkerClientOptions {
   /** Minimum gap between progress frames for one job. */
   progressIntervalMs?: number;
   onStatus?: (status: WorkerStatus) => void;
+  /**
+   * Asks the desktop app to install its newest build (an `app.update` from the server). Called
+   * once the current job is done, since the update stops this worker. Absent: updates are ignored.
+   */
+  onUpdate?: () => void;
   log?: (line: string) => void;
   /** Upload helper handed to jobs as ctx.storage; defaults to one for this server and token. */
   storage?: StorageUploader;
@@ -54,6 +59,8 @@ export class WorkerClient {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private current: { job: Job; abort: AbortController; progress: number } | null = null;
   private status: WorkerStatus = { state: "disconnected", job: null };
+  /** An update arrived during a job: ask for it when the job is done. */
+  private updateWaiting = false;
 
   private readonly storage: StorageUploader;
   private node: WorkerClientOptions["node"];
@@ -177,7 +184,25 @@ export class WorkerClient {
       case "job.assign":
         void this.runJob(msg.job);
         return;
+      case "app.update":
+        this.requestUpdate();
+        return;
     }
+  }
+
+  private requestUpdate() {
+    if (!this.options.onUpdate) {
+      this.log("update requested, but this worker isn't run by the desktop app: update it by hand");
+      return;
+    }
+    if (this.current) {
+      this.updateWaiting = true;
+      this.log(`update requested: installing it after job ${this.current.job.id}`);
+      return;
+    }
+    this.updateWaiting = false;
+    this.log("update requested: asking the desktop app to install it");
+    this.options.onUpdate();
   }
 
   private async runJob(job: Job) {
@@ -231,5 +256,6 @@ export class WorkerClient {
     this.current = null;
     this.send(outcome);
     this.setStatus({});
+    if (this.updateWaiting) this.requestUpdate();
   }
 }

@@ -291,6 +291,16 @@ export function apiRoutes(deps: ApiDeps) {
       throw err;
     }
   });
+  /** Update now: that computer's desktop app installs its newest build (after any running job). */
+  app.post("/nodes/:id/update", async (c) => {
+    try {
+      await workers.requestUpdate(c.req.param("id"));
+      return c.json({ requested: true }, 202);
+    } catch (err) {
+      if (err instanceof SetupError) return c.json({ error: err.message }, err.status);
+      throw err;
+    }
+  });
   app.get("/jobs", async (c) => c.json(await store.listJobs({ limit: limit.parse(c.req.query("limit")) })));
   app.post("/jobs", async (c) => {
     const body = z

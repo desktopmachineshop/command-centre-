@@ -96,6 +96,22 @@ export class WorkerService {
   }
 
   /**
+   * Update now, from the Devices page: tells that computer's worker to have its desktop app
+   * install the newest signed build (the same check as the tray menu's Check for updates).
+   * The worker waits for a running job to finish first, since updating restarts it.
+   */
+  async requestUpdate(nodeId: string): Promise<void> {
+    const node = await this.store.getNode(nodeId);
+    if (!node) throw new SetupError("No such computer.", 404);
+    if (!node.setup?.remoteUpdate) {
+      throw new SetupError(`${node.name}'s desktop app can't be updated from here yet. Choose Check for updates in its tray menu once; after that, Update works from this page.`, 409);
+    }
+    if (!this.online.has(nodeId) || !this.hub.sendToWorker(nodeId, { type: "app.update" })) {
+      throw new SetupError(`${node.name} is offline. Open the desktop app on it, then try again.`, 409);
+    }
+  }
+
+  /**
    * Cancels a job still waiting for a computer. Running jobs can't be cancelled
    * (the worker would need to stop it). The video chain simply ends: no next
    * stage, no notification.

@@ -52,6 +52,9 @@ export const OutboundMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("proposal.updated"), proposal: Proposal }),
   z.object({ type: z.literal("job.updated"), job: Job }),
   z.object({ type: z.literal("job.assign"), job: Job }),
+  // Workers only: Dave pressed Update on the Devices page. The worker asks its desktop app to
+  // install the newest signed build once its current job is done (WorkerService.requestUpdate).
+  z.object({ type: z.literal("app.update") }),
   z.object({ type: z.literal("node.updated"), node: WorkerNode }),
   // Voice mode: a finished run's structured spoken answer (see @cc/voice parseVoiceResponse).
   z.object({ type: z.literal("run.response"), runId: z.string(), taskId: z.string(), response: VoiceResponse }),
