@@ -7,6 +7,7 @@
   "accounts.social": "topics/system/accounts.html#social",
   "admin.help": "topics/admin/in-app-help.html",
   "approvals": "topics/work/approvals.html",
+  "approvals.batch": "topics/work/approvals.html#batch",
   "approvals.confirm": "topics/work/approvals.html#confirm",
   "approvals.decide": "topics/work/approvals.html#decide",
   "approvals.edit": "topics/work/approvals.html#edit",
