@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 const LOW_STOCK_CHECK = `Check Desktop Machine Shop stock.
 
@@ -21,7 +22,7 @@ export default defineVertical({
   skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide", "video-reel"],
   // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
   mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
-  policies: { "brain.write": "auto", "email.label": "auto" },
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   roles: [
     {
       id: "shop-lead",

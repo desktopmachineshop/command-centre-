@@ -683,6 +683,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       adminToken: config.adminToken,
       servers: extraMcpServers,
       handoff: (taskId, target, note) => pipeline.handoff(taskId, target, note), // org roles
+      searchTranscripts: (o) => store.searchRunMessages(o),
     }),
   );
   // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.

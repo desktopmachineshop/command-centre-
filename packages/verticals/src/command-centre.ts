@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 /**
  * The command centre itself: the app, server, agents and skills in
@@ -16,7 +17,7 @@ export default defineVertical({
   // github: read-only pull requests, CI and issues (mounted while GITHUB_TOKEN is set).
   mcpServers: ["brain", "github"],
   // Raising or updating a PR changes nothing until it is merged, so only merging waits for Dave.
-  policies: { "brain.write": "auto", "github.pr.create": "auto" },
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "github.pr.create": "auto" },
   roles: [
     {
       id: "software-lead",
@@ -29,6 +30,8 @@ export default defineVertical({
       skills: ["brain-notes", "software-lead"],
       mcpServers: ["brain", "github"],
       tools: ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch"],
+      // Reading code, editing several files and running the checks takes far more than the default 30 turns.
+      maxTurns: 200,
       repo: "desktopmachineshop/command-centre-",
       actions: ["github.pr.create", "github.pr.merge", "brain.write", "notify"],
       kpis: ["Each PR is green in CI when raised", "Changes are small, with tests", "Dave can merge without rework"],

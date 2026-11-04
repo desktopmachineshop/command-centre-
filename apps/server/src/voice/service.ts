@@ -49,7 +49,8 @@ export interface Briefing {
 }
 
 export interface NextApproval {
-  proposal: Pick<Proposal, "id" | "vertical" | "actionType" | "summary" | "createdAt"> | null;
+  /** For a batch: its first item, with `batchId` and `batchSize`; deciding it decides the whole batch. */
+  proposal: (Pick<Proposal, "id" | "vertical" | "actionType" | "summary" | "createdAt"> & { batchId?: string; batchSize?: number }) | null;
   position: number;
   remaining: number;
   text: string;
@@ -232,27 +233,44 @@ export class VoiceService {
     };
   }
 
-  /** The next pending proposal (oldest first), skipping `skip`, described for reading aloud. */
+  /**
+   * The next pending proposal (oldest first), skipping `skip`, described for reading aloud. A
+   * batch counts as one approval, read out with every item (up to BATCH_READ_ITEMS), and is
+   * skipped by its first item's id.
+   */
   async nextApproval(skip: string[] = []): Promise<NextApproval> {
-    const pending = oldestFirst(await this.store.listProposals({ status: "pending", limit: 200 }));
-    const left = pending.filter((p) => !skip.includes(p.id));
-    const next = left[0];
-    if (!next) {
+    const units = approvalUnits(oldestFirst(await this.store.listProposals({ status: "pending", limit: 200 })));
+    const left = units.filter((u) => !skip.includes(u[0]!.id));
+    const unit = left[0];
+    if (!unit) {
       return {
         proposal: null,
         position: 0,
         remaining: 0,
-        text: pending.length ? "That's all the approvals. Say read approvals to start again." : "Nothing is waiting for approval.",
+        text: units.length ? "That's all the approvals. Say read approvals to start again." : "Nothing is waiting for approval.",
       };
     }
-    const position = pending.indexOf(next) + 1;
+    const next = unit[0]!;
+    const position = units.indexOf(unit) + 1;
+    const { id, vertical, actionType, summary, createdAt } = next;
+    if (next.batchId) {
+      const read = unit.slice(0, BATCH_READ_ITEMS).map((p, i) => `${i + 1}: ${short(p.summary, 120)}${typeof p.payload.to === "string" ? `, to ${short(p.payload.to, 60)}` : ""}.`);
+      const more = unit.length > BATCH_READ_ITEMS ? ` And ${unit.length - BATCH_READ_ITEMS} more, listed in the app.` : "";
+      const kinds = [...new Set(unit.map((p) => spokenAction(p.actionType)))].join(" and ");
+      const text = [
+        `Approval ${position} of ${units.length}, for ${this.verticalName(vertical)}: a batch of ${unit.length}, ${kinds}.`,
+        `${short(next.batchSummary ?? summary, 220)}.`,
+        ...read,
+        `${more.trim()} Say approve to approve all ${unit.length}, reject to reject all ${unit.length}, or next.`.trim(),
+      ].join(" ");
+      return { proposal: { id, vertical, actionType, summary: next.batchSummary ?? summary, createdAt, batchId: next.batchId, batchSize: unit.length }, position, remaining: left.length - 1, text };
+    }
     const to = typeof next.payload.to === "string" ? ` To ${short(next.payload.to, 60)}.` : "";
     const text = [
-      `Approval ${position} of ${pending.length}, for ${this.verticalName(next.vertical)}: ${spokenAction(next.actionType)}.`,
-      `${short(next.summary, 220)}.${to}`,
+      `Approval ${position} of ${units.length}, for ${this.verticalName(vertical)}: ${spokenAction(actionType)}.`,
+      `${short(summary, 220)}.${to}`,
       "Say approve, reject, or next.",
     ].join(" ");
-    const { id, vertical, actionType, summary, createdAt } = next;
     return { proposal: { id, vertical, actionType, summary, createdAt }, position, remaining: left.length - 1, text };
   }
 
@@ -280,6 +298,29 @@ export class VoiceService {
 /** `proposals` come newest first from the database (microsecond order); reversing first keeps that order for same-millisecond ties. */
 function oldestFirst(proposals: Proposal[]): Proposal[] {
   return [...proposals].reverse().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** Batch items read aloud; the rest are counted. */
+const BATCH_READ_ITEMS = 20;
+
+/** Pending proposals as approval units, in order: each batch's items together (at its first item's place), others alone. */
+export function approvalUnits(proposals: Proposal[]): Proposal[][] {
+  const units: Proposal[][] = [];
+  const batches = new Map<string, Proposal[]>();
+  for (const p of proposals) {
+    if (!p.batchId) {
+      units.push([p]);
+      continue;
+    }
+    const unit = batches.get(p.batchId);
+    if (unit) unit.push(p);
+    else {
+      const fresh = [p];
+      batches.set(p.batchId, fresh);
+      units.push(fresh);
+    }
+  }
+  return units;
 }
 
 /** "email.reply" → "email reply", "social.campaign" → "social campaign". */

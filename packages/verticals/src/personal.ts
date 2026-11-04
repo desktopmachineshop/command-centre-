@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 /** Sun–Thu 21:00 wrap: tomorrow's calendar, open items and what is waiting for approval. */
 const EVENING_WRAP = `Write Dave's evening wrap. Follow the personal-assistant skill (UK dates, 24-hour times, concise).
@@ -21,8 +22,9 @@ export default defineVertical({
   // mail: read-only lookups in this business's mailboxes (and, for the Chief of Staff, every one).
   mcpServers: ["brain", "pa", "mail"],
   // The morning brief moved to the Chief of Staff (src/org.ts), whose tasks run in this vertical.
-  // notify only reaches Dave's own devices, so the brief is sent without an approval step and reported in the digest.
-  policies: { "brain.write": "auto", notify: "auto-with-digest", "email.label": "auto" },
+  // notify only reaches Dave's own devices, so the brief is sent without an approval step and reported in the digest
+  // (INTERNAL_AUTO_POLICIES, shared by every vertical, with reminders and to-dos).
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   roles: [
     {
       id: "pa",

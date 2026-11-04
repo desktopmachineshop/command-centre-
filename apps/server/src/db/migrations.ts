@@ -461,4 +461,16 @@ export const migrations: { id: string; sql: string }[] = [
       alter table task_replies add column if not exists files jsonb;
     `,
   },
+  {
+    // Batches: related proposals (one message per open delivery order) approved or rejected once (src/actions.ts).
+    id: "0020_proposal_batches",
+    sql: `
+      alter table proposals add column if not exists batch_id uuid;
+      -- The batch's one-line summary, on each of its items.
+      alter table proposals add column if not exists batch_summary text;
+      create index if not exists proposals_batch_idx on proposals (batch_id) where batch_id is not null;
+      -- "followup": a later note from the role that handed this task off (Pipeline.handoff), not a report back.
+      alter table task_replies add column if not exists kind text;
+    `,
+  },
 ];

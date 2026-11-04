@@ -1,3 +1,5 @@
+import { existsSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Peer } from "../src/hub";
 import { DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./helpers";
@@ -43,12 +45,19 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(request.prompt).toBe("dms: what sold yesterday?");
     expect(request.systemPrompt).toContain("Desktop Machine Shop");
     expect(Object.keys(request.mcpServers!)).toEqual(["actions", "brain", "pa"]);
-    // Plus read-only access to files attached in the chat box, and to the role's own skill folders (their supporting files live in the bank).
+    // Plus read-only access to files attached in the chat box, read and write in this task's own scratch
+    // folder, and read access to the role's own skill folders (their supporting files live in the bank).
+    const scratch = realpathSync(join(request.cwd!, "scratch", body.task.id));
     expect(request.allowedTools).toEqual([
       "Skill", "mcp__actions", "mcp__brain", "mcp__pa", "WebSearch", "WebFetch",
       expect.stringMatching(/^Read\(\/\/.*\/chat-files\/\*\*\)$/),
+      `Read(/${scratch}/**)`,
+      `Write(/${scratch}/**)`,
+      `Edit(/${scratch}/**)`,
       expect.stringMatching(/^Read\(\/\/.*\/skills\/brain-notes\/\*\*\)$/),
     ]);
+    expect(existsSync(join(request.cwd!, "scratch", body.task.id))).toBe(true);
+    expect(request.systemPrompt).toContain("## Scratch folder");
     expect(request.systemPrompt).toContain("You can search the web (WebSearch) and read pages (WebFetch)");
     expect(request.cwd).toMatch(/workspaces\/dms\/shop-lead$/);
   });

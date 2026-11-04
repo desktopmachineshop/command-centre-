@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { INTERNAL_AUTO_POLICIES } from "./policies";
 import { saasRoles } from "./saas-org";
 
 export default defineVertical({
@@ -10,6 +11,6 @@ export default defineVertical({
   intents: ["support", "bug", "feature-request", "billing"],
   skills: ["brain-notes", "email-triage-and-reply", "video-reel"],
   mcpServers: ["brain", "pa"],
-  policies: { "brain.write": "auto", "email.label": "auto" },
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   roles: saasRoles("OpenD", { docsWriter: true }),
 });

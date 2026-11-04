@@ -12,23 +12,139 @@ import { ErrorReport } from "../copy";
 
 export function Approvals({ api, feed, id }: { api: Api; feed: LiveFeed; id?: string }) {
   const { data, error } = useLoad(() => api.proposals("pending"), feed, (m) => m.type === "proposal.updated");
-  // From a notification: #/approvals/<id> puts that proposal first; ?action= asks to confirm the button pressed.
-  const focus = id ? data?.find((p) => p.id === id) : undefined;
+  // A batch (propose_batch) is one card with all its items, decided once.
+  const units = data ? approvalUnits(data) : undefined;
+  // From a notification: #/approvals/<id> puts that proposal (or its batch) first; ?action= asks to confirm the button pressed.
+  const focus = id ? units?.find((u) => u.some((p) => p.id === id)) : undefined;
   const action = routeQuery().get("action");
-  const rest = data?.filter((p) => p !== focus);
+  const rest = units?.filter((u) => u !== focus);
   return (
     <section>
-      <PageHead title="Approvals" sub={data?.length ? `${data.length} waiting for you` : undefined} />
+      <PageHead title="Approvals" sub={units?.length ? `${units.length} waiting for you` : undefined} />
       {error && <ErrorBanner>{error}</ErrorBanner>}
       {!data && !error && <Skeleton rows={2} />}
       {data?.length === 0 && <Empty icon="approvals">Nothing waiting for you. Outward-facing actions that need a yes show up here.</Empty>}
       {id && data && !focus && <Empty icon="check">That proposal is no longer waiting for approval.</Empty>}
-      {focus && (action === "approve" || action === "reject") && <ConfirmAction api={api} proposal={focus} action={action} />}
-      {focus && <ProposalCard api={api} proposal={focus} />}
-      {rest?.map((p) => (
-        <ProposalCard key={p.id} api={api} proposal={p} />
+      {focus && (action === "approve" || action === "reject") && <ConfirmAction api={api} unit={focus} action={action} />}
+      {focus && <UnitCard api={api} unit={focus} />}
+      {rest?.map((u) => (
+        <UnitCard key={u[0]!.batchId ?? u[0]!.id} api={api} unit={u} />
       ))}
     </section>
+  );
+}
+
+/** Pending proposals, newest first, as cards: a batch's items together (oldest first), others alone. */
+export function approvalUnits(proposals: Proposal[]): Proposal[][] {
+  const units: Proposal[][] = [];
+  const batches = new Map<string, Proposal[]>();
+  for (const p of proposals) {
+    if (!p.batchId) units.push([p]);
+    else if (batches.has(p.batchId)) batches.get(p.batchId)!.unshift(p);
+    else {
+      const unit = [p];
+      batches.set(p.batchId, unit);
+      units.push(unit);
+    }
+  }
+  return units;
+}
+
+function UnitCard({ api, unit }: { api: Api; unit: Proposal[] }) {
+  return unit[0]!.batchId ? <BatchCard api={api} items={unit} /> : <ProposalCard api={api} proposal={unit[0]!} />;
+}
+
+/** Who an item goes to, from its payload: an address, an Odoo record, a social account. */
+function recipientOf(p: Proposal): string | null {
+  const v = p.payload;
+  if (typeof v.to === "string" && v.to) return v.to;
+  if (Array.isArray(v.to)) return v.to.join(", ");
+  if (typeof v.model === "string" && typeof v.id === "number") return `${v.model} #${v.id}${v.internal === true ? " (internal note)" : ""}`;
+  if (typeof v.accountId === "string") return v.accountId;
+  return null;
+}
+
+/** The text an item sends, from its payload. */
+function messageOf(p: Proposal): string | null {
+  for (const k of ["body", "text", "message", "content"]) if (typeof p.payload[k] === "string" && p.payload[k]) return p.payload[k] as string;
+  return null;
+}
+
+/**
+ * A batch: every item with its recipient and message, then one Approve all / Reject all. An item
+ * can be left out (rejected) first; the batch decision covers the items still waiting.
+ */
+function BatchCard({ api, items }: { api: Api; items: Proposal[] }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const first = items[0]!;
+  const batchId = first.batchId!;
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const kinds = [...new Set(items.map((p) => p.actionType))];
+  return (
+    <div className="card proposal batch is-pending" data-batch={batchId}>
+      <div className="proposal-head small">
+        <span className="row">
+          <VTag id={first.vertical} /> {kinds.map((k) => <code key={k} className="action-type">{k}</code>)}
+        </span>
+        <span className="muted">batch of {items.length}</span>
+      </div>
+      <p className="title">{first.batchSummary ?? first.summary}</p>
+      <ol className="batch-items">
+        {items.map((p) => {
+          const to = recipientOf(p);
+          const text = messageOf(p);
+          return (
+            <li key={p.id} className="batch-item">
+              <div className="row wrap">
+                <strong>{p.summary}</strong>
+                <button className="ghost small" disabled={busy || items.length === 1} title="Reject just this one" onClick={() => act(() => api.reject(p.id))}>
+                  Leave out
+                </button>
+              </div>
+              {to && <div className="small muted">To: {to}</div>}
+              {text && <pre className="batch-message">{text}</pre>}
+              <details>
+                <summary className="muted small">Details</summary>
+                <pre>{JSON.stringify(p.payload, null, 2)}</pre>
+              </details>
+            </li>
+          );
+        })}
+      </ol>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <div className="proposal-foot" data-help-key="approvals.decide">
+        <span className="muted small">
+          {ago(first.createdAt)}
+          {first.taskId && (
+            <>
+              {" · "}
+              <a href={`#/task/${first.taskId}`}>task</a>
+            </>
+          )}
+        </span>
+        <span className="actions">
+          <button className="danger-text" disabled={busy} onClick={() => act(() => api.rejectBatch(batchId))}>
+            <Icon name="x" size={16} />
+            Reject all {items.length}
+          </button>
+          <button className="primary" disabled={busy} onClick={() => act(() => api.approveBatch(batchId))}>
+            <Icon name="check" size={16} />
+            Approve all {items.length}
+          </button>
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -37,13 +153,16 @@ export function Approvals({ api, feed, id }: { api: Api; feed: LiveFeed; id?: st
  * service worker only opens the app here; the request is sent from the app
  * with its own credentials, after Dave confirms.
  */
-function ConfirmAction({ api, proposal, action }: { api: Api; proposal: Proposal; action: "approve" | "reject" }) {
+function ConfirmAction({ api, unit, action }: { api: Api; unit: Proposal[]; action: "approve" | "reject" }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const proposal = unit[0]!;
+  const batchId = proposal.batchId;
   const confirm = async () => {
     setBusy(true);
     try {
-      await (action === "approve" ? api.approve : api.reject)(proposal.id);
+      if (batchId) await (action === "approve" ? api.approveBatch : api.rejectBatch)(batchId);
+      else await (action === "approve" ? api.approve : api.reject)(proposal.id);
       go("approvals");
     } catch (e) {
       setError((e as Error).message);
@@ -53,15 +172,18 @@ function ConfirmAction({ api, proposal, action }: { api: Api; proposal: Proposal
   return (
     <div className="card confirm" data-help-pane="approvals.confirm" role="alertdialog" aria-label={`Confirm ${action}`}>
       <p className="title">
-        {action === "approve" ? "Approve" : "Reject"} this {proposal.actionType} for {proposal.vertical}?
+        {batchId
+          ? `${action === "approve" ? "Approve" : "Reject"} all ${unit.length} in this batch for ${proposal.vertical}?`
+          : `${action === "approve" ? "Approve" : "Reject"} this ${proposal.actionType} for ${proposal.vertical}?`}
       </p>
-      <p>{proposal.summary}</p>
+      <p>{batchId ? `${proposal.batchSummary ?? proposal.summary}. Every item is listed below.` : proposal.summary}</p>
       <div className="button-row">
         <button onClick={() => go(`approvals/${proposal.id}`)} disabled={busy}>
           Cancel
         </button>
         <button className={action === "approve" ? "primary" : "danger"} onClick={confirm} disabled={busy}>
           Yes, {action}
+          {batchId ? ` all ${unit.length}` : ""}
         </button>
       </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}

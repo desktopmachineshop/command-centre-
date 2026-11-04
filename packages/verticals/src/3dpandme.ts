@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 export default defineVertical({
   id: "3dpandme",
@@ -9,7 +10,7 @@ export default defineVertical({
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
   skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
   mcpServers: ["brain", "odoo", "pa"],
-  policies: { "brain.write": "auto", "email.label": "auto" },
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   roles: [
     {
       id: "content-lead",

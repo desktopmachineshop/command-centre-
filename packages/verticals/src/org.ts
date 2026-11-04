@@ -12,7 +12,7 @@ const MORNING_BRIEF = `Write Dave's morning brief for today. Follow the personal
 7. Decide today's priorities: fixed calendar commitments, reminders due, overdue to-dos, approvals waiting more than a day, failed tasks worth a retry, and whatever the notes or journal flag for today.
 8. Propose exactly one "notify" action with title "Morning brief", category "briefing" and a body of 3 to 6 short lines, most important first: the first commitment and any clash, reminders due, the top to-do or two, then the approvals waiting (count and the oldest one), then anything else worth knowing. No greeting, no filler. If there is truly nothing, say so in one line.
 
-Do not propose any other action.`;
+Do not propose any other action, and do not use the mail tools: reading outside mail would hold this brief for approval instead of sending it.`;
 
 /**
  * The org root: the Chief of Staff above every vertical lead. Its tasks run in
@@ -29,8 +29,9 @@ export const chiefOfStaff = defineOrgRoot({
   mcpServers: ["brain", "pa", "mail"],
   actions: ["notify", "brain.journal", "brain.write"],
   schedules: [
-    // To turn the morning brief on, set enabled: true.
-    { id: "morning-brief", cron: "0 7 * * 1-5", timezone: "Europe/London", prompt: MORNING_BRIEF, enabled: false },
+    // On by default. It fires at 07:00, the end of the default quiet hours (22:00-07:00), so its
+    // "briefing" notify (auto-with-digest in personal) pushes straight away. To turn it off, set enabled: false.
+    { id: "morning-brief", cron: "0 7 * * 1-5", timezone: "Europe/London", prompt: MORNING_BRIEF, enabled: true },
   ],
   kpis: ["Morning brief sent by 07:15 on weekdays", "No approval waits more than 24 hours unflagged", "Escalations answered the same day"],
   autonomyNotes:

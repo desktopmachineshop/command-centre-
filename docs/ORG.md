@@ -65,7 +65,7 @@ flowchart TD
 
 Tools are the MCP servers a role can reach (every run also gets `actions`) and the action types
 it normally proposes. Missions are shortened to their first sentence; the full text is in the
-manifests and on the Org page. All schedules ship turned off.
+manifests and on the Org page. The morning brief ships turned on; every other schedule ships turned off.
 
 | Vertical | Role (id) | Reports to | Mission | Intents | Skills | Tools | Schedules |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -88,7 +88,7 @@ manifests and on the Org page. All schedules ship turned off.
 | opend | **Docs Writer** (`docs-writer`) | product-lead | Keeps the OpenD documentation clear and current. | – | brain-notes | brain; brain.write | – |
 | openv, opend | **DevRel & Content** (`devrel-content`) | product-lead | Tells people what the product does and why it matters. | – | brain-notes, social-platform-guide, video-reel | brain; social.post, social.campaign, video.produce, brain.write | – |
 | openv, opend | **Billing & Admin** (`billing-admin`) | product-lead | Handles subscriptions, invoices and payment questions. | billing | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
-| command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. | software | brain-notes, software-lead | brain; github.pr.create (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre- | – |
+| command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. | software | brain-notes, software-lead | brain; github.pr.create (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre-; 200 turns per run | – |
 
 `dms-catalogue-pricing` and `dms-supplier-pricelists` are the skills added for the org. The other roles reuse the existing
 skills bank; their charter travels in the system prompt.
@@ -133,6 +133,19 @@ Tasks from before roles have no role and count as the vertical lead's.
   email, a webhook, Odoo, social) gets search only: a page fetch could carry data out to a URL
   that the input planted. This needs no setting on the role; a role's `tools` add more
   (Bash, Edit, ...) on top.
+- **Scratch folder:** for work Dave started, `scratch/<task id>` in the workspace, which the run may
+  read, write and edit (and nothing else outside the brain). One per task, so a file written there
+  (say, a CLAUDE.md) never reaches another task; folders older than two weeks are removed. A task
+  from outside input gets none.
+- **Transcripts:** the `actions` tool `search_transcripts` searches earlier runs' messages,
+  read-only (the Chief of Staff across every vertical, other roles their own). Reading the
+  transcript of a task from outside input counts as reading that input: later proposals are drafts.
+  There is no shell for the Chief of Staff on purpose: it reads outside mail and the web, and a shell on
+  the server can read the process environment, which holds every secret.
+- **Turns:** each run stops after `AGENT_MAX_TURNS` agent turns (default 30), or the role's own
+  `maxTurns` (the Software Lead has 200, since a code change takes many reads, edits and checks). A
+  run that hits the limit fails with `error_max_turns`; its report back says it stopped part-way,
+  with its last summary, so the Chief of Staff offers a retry or a split instead of guessing.
 - **Mail:** a role with the `mail` server can search its business's mailboxes and read attachments
   itself, so work that didn't start from an email (a chat, a handoff) doesn't have to be passed
   on to find the mail. Mail it reads is outside input: its later proposals are drafts and its
@@ -151,7 +164,14 @@ another role with the note and the original request, and the agent then stops.
 - **Loop protection:**
   - at most 3 handoffs in one chain (`MAX_HANDOFF_DEPTH`, `maxHandoffDepth` on the pipeline);
   - never back to a role already in the chain, and never to yourself;
-  - one handoff per task and target, so a repeat returns the existing task.
+  - one task per handing-off task and target. A second handoff to the same role is a **follow-up**:
+    the note goes to that role's task (it waits if the task is running, and runs it again
+    otherwise), and the task reports back again. The same note twice sends nothing, there are at
+    most 3 follow-ups per task (`MAX_FOLLOW_UPS`), and work from outside input can't send a
+    follow-up into a task that has none.
+- **Split, don't chain:** a request that spans several roles goes out as one handoff per role from
+  the same task. Each is one step deep, so the limit of 3 applies to each branch, not to the number
+  of roles, and each role reports back separately. The Chief of Staff's prompt tells it to do this.
 
   The system prompt tells the agent how many handoffs are left. At the limit, the tool refuses
   and the agent finishes the work or notifies Dave.

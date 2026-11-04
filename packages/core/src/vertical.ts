@@ -56,6 +56,8 @@ export const Role = z.object({
    * outside input never gets them. Unset: none, just skills and MCP tools.
    */
   tools: z.array(z.enum(["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"])).default([]),
+  /** Most agent turns per run for this role. Unset: the server's AGENT_MAX_TURNS. A coding role needs many more than a chat. */
+  maxTurns: z.number().int().min(1).max(500).optional(),
   /** GitHub repository ("owner/name") checked out for each of the role's tasks, in its workspace (needs GITHUB_TOKEN). */
   repo: z
     .string()
@@ -117,6 +119,22 @@ export function defineVertical(input: VerticalManifestInput): VerticalManifest {
 
 export function policyFor(vertical: VerticalManifest, actionType: string): Policy {
   return vertical.policies[actionType] ?? vertical.defaultPolicy;
+}
+
+/** Policy key of an internal Odoo note: `odoo.message.post` with `internal: true`, which only staff see. */
+export const INTERNAL_ODOO_NOTE = "odoo.message.post.internal";
+
+/**
+ * The policy for one proposal. Like `policyFor`, except that an internal Odoo note
+ * (`odoo.message.post` with `internal: true`, exactly) uses the `odoo.message.post.internal`
+ * policy when the vertical sets one. A message to the record's followers (the customer) keeps
+ * `odoo.message.post`'s policy.
+ */
+export function proposalPolicy(vertical: VerticalManifest, actionType: string, payload: Record<string, unknown>): Policy {
+  if (actionType === "odoo.message.post" && payload.internal === true && vertical.policies[INTERNAL_ODOO_NOTE]) {
+    return vertical.policies[INTERNAL_ODOO_NOTE];
+  }
+  return policyFor(vertical, actionType);
 }
 
 /**

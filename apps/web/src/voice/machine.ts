@@ -27,6 +27,9 @@ export type Expect = "none" | "command" | "reply" | "approval" | "confirm";
 export interface Approval {
   proposalId: string;
   summary: string;
+  /** A batch: deciding it decides all `batchSize` items. */
+  batchId?: string;
+  batchSize?: number;
 }
 
 export interface DriveState {

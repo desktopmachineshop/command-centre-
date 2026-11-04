@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from "node:fs";
-import { mkdir, readdir, readlink, rm, symlink } from "node:fs/promises";
+import { mkdir, readdir, readlink, rm, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { Role, VerticalManifest } from "@cc/core";
 
@@ -74,4 +74,30 @@ async function linkTo(target: string, link: string): Promise<boolean> {
     if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
     throw err;
   }
+}
+
+/** Scratch folders older than this are removed when a new one is made. */
+const SCRATCH_DAYS = 14;
+
+/**
+ * A scratch folder for one task, `<cwd>/scratch/<task id>`, and the permission rules that let the
+ * run read, write and edit files there and nowhere else. One per task, so nothing a run writes
+ * there (say, a CLAUDE.md) is seen by another task. Folders older than SCRATCH_DAYS are removed.
+ */
+export async function prepareScratch(cwd: string, taskId: string): Promise<{ dir: string; rules: string[] }> {
+  const root = join(cwd, "scratch");
+  const id = taskId.replace(/[^A-Za-z0-9-]/g, "");
+  if (!id) throw new Error("bad task id");
+  await mkdir(root, { recursive: true });
+  const cutoff = Date.now() - SCRATCH_DAYS * 86_400_000;
+  for (const name of await readdir(root).catch(() => [] as string[])) {
+    if (name === id) continue;
+    const at = join(root, name);
+    const info = await stat(at).catch(() => null);
+    if (info && info.mtimeMs < cutoff) await rm(at, { recursive: true, force: true }).catch(() => {});
+  }
+  const dir = join(root, id);
+  await mkdir(dir, { recursive: true });
+  const real = realpathSync(dir);
+  return { dir: real, rules: ["Read", "Write", "Edit"].map((tool) => `${tool}(/${real}/**)`) };
 }

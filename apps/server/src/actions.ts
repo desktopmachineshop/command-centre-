@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { Brain } from "@cc/brain";
-import { type EventSource, type NewProposal, type NotificationCategory, type NotificationPriority, NewProposal as NewProposalSchema, type Policy, policyFor, type Proposal } from "@cc/core";
+import { type EventSource, type NewProposal, type NotificationCategory, type NotificationPriority, NewProposal as NewProposalSchema, type Policy, type Proposal, proposalPolicy } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { Store } from "./db/store";
 import type { Hub } from "./hub";
@@ -92,11 +93,16 @@ export class ActionService {
    * Tasks whose runs read mail through the mail MCP server. Kept in memory: after a restart a
    * resumed run that reads mail again is marked again, and handoffs carry it (Pipeline.handoff).
    */
-  private readonly readMail = new Set<string>();
+  private readonly readMail = new Map<string, string>();
 
   /** Marks a task as having read outside mail: its later proposals are drafts (see untrustedSource). */
   markReadMail(taskId: string): void {
-    this.readMail.add(taskId);
+    this.markOutsideInput(taskId, "email");
+  }
+
+  /** Marks a task as having read outside input of `source` (e.g. a transcript of an email task): its later proposals are drafts. */
+  markOutsideInput(taskId: string, source: string): void {
+    if (!this.readMail.has(taskId)) this.readMail.set(taskId, source);
   }
 
   /** The executors in use now: a proposal approved after a reload runs with the new credentials. */
@@ -107,13 +113,92 @@ export class ActionService {
   /** `forceDraft` (a reason) holds this proposal for approval whatever the vertical's policy says. */
   async propose(input: NewProposal, options: { forceDraft?: string } = {}): Promise<Proposal> {
     const p = NewProposalSchema.parse(input);
-    const executor = this.executors[p.actionType];
-    if (!executor) {
-      throw new Error(`Unknown action type "${p.actionType}". Known: ${Object.keys(this.executors).join(", ")}`);
-    }
     const vertical = this.verticals.require(p.vertical);
-    await executor.validate?.(p.payload, { vertical: vertical.id });
-    let policy: Policy = policyFor(vertical, p.actionType);
+    await this.check(p.actionType, p.payload, vertical.id);
+    const decided = await this.decide(p, options.forceDraft);
+    const proposal = await this.store.insertProposal({ taskId: p.taskId ?? null, vertical: p.vertical, actionType: p.actionType, summary: p.summary, ...decided });
+    this.hub.broadcast({ type: "proposal.updated", proposal });
+
+    if (decided.policy === "draft") {
+      await this.requestApproval(vertical.name, vertical.id, p.summary, proposal.id);
+      return proposal;
+    }
+    return this.execute(proposal.id, ["pending"]);
+  }
+
+  /**
+   * Proposes related actions as one batch (say, a message to each open delivery order), which
+   * Dave approves or rejects once (`approveBatch`, `rejectBatch`) after seeing every item. Every
+   * item is checked first, and a refused one stops the whole batch before anything is stored.
+   * Each item gets its policy as if proposed alone (outside input still makes drafts); if any of
+   * them needs approval, they all wait, so the batch is decided as a whole. Dave gets one
+   * approval request for the batch, not one per item.
+   */
+  async proposeBatch(input: {
+    taskId?: string | null;
+    vertical: string;
+    summary: string;
+    items: { actionType: string; summary: string; payload?: Record<string, unknown> }[];
+  }): Promise<{ batchId: string; proposals: Proposal[] }> {
+    if (!input.summary.trim()) throw new Error("A batch needs a summary");
+    if (input.items.length < 1 || input.items.length > MAX_BATCH) throw new Error(`A batch has 1 to ${MAX_BATCH} items, got ${input.items.length}`);
+    const vertical = this.verticals.require(input.vertical);
+    const items = input.items.map((item) => NewProposalSchema.parse({ ...item, taskId: input.taskId ?? null, vertical: vertical.id }));
+    for (const [i, item] of items.entries()) {
+      try {
+        await this.check(item.actionType, item.payload, vertical.id);
+      } catch (err) {
+        throw new Error(`Item ${i + 1} (${item.actionType}): ${(err as Error).message}. Nothing in the batch was proposed.`);
+      }
+    }
+    let decided = await Promise.all(items.map((item) => this.decide(item)));
+    if (decided.some((d) => d.policy === "draft")) {
+      const reason = "part of a batch that waits for Dave's approval as a whole";
+      decided = decided.map((d) => (d.policy === "draft" ? d : { policy: "draft", payload: { ...d.payload, policyDowngrade: { from: d.policy, reason } } }));
+    }
+    const batchId = randomUUID();
+    const stored = await this.store.transaction(async (tx) => {
+      const out: Proposal[] = [];
+      for (const [i, item] of items.entries()) {
+        out.push(await tx.insertProposal({ taskId: item.taskId ?? null, vertical: vertical.id, actionType: item.actionType, summary: item.summary, batchId, batchSummary: input.summary.trim(), ...decided[i]! }));
+      }
+      return out;
+    });
+    for (const proposal of stored) this.hub.broadcast({ type: "proposal.updated", proposal });
+
+    if (decided[0]!.policy === "draft") {
+      const body = `${input.summary.trim()} (${plural(stored.length, "item")}). ${stored
+        .slice(0, 3)
+        .map((p) => p.summary)
+        .join("; ")}${stored.length > 3 ? `; and ${stored.length - 3} more` : ""}`;
+      await this.requestApproval(vertical.name, vertical.id, body, stored[0]!.id, { batchId, batchSize: stored.length, title: `Approve ${stored.length}: ${vertical.name}` });
+      return { batchId, proposals: stored };
+    }
+    const done: Proposal[] = [];
+    for (const proposal of stored) done.push(await this.execute(proposal.id, ["pending"]));
+    return { batchId, proposals: done };
+  }
+
+  /** Refuses an unknown action type, or a payload its executor's `validate` rejects. */
+  private async check(actionType: string, payload: Record<string, unknown>, vertical: string): Promise<void> {
+    const executor = this.executors[actionType];
+    if (!executor) {
+      throw new Error(`Unknown action type "${actionType}". Known: ${Object.keys(this.executors).join(", ")}`);
+    }
+    await executor.validate?.(payload, { vertical });
+  }
+
+  /**
+   * The policy a proposal gets: the vertical's (an internal Odoo note has its own, see
+   * proposalPolicy), downgraded to `draft` with the reason in `payload.policyDowngrade` when
+   * outside input triggered the task or the caller forces a draft.
+   */
+  private async decide(
+    p: { taskId?: string | null; vertical: string; actionType: string; payload: Record<string, unknown> },
+    forceDraft?: string,
+  ): Promise<{ policy: Policy; payload: Record<string, unknown> }> {
+    const vertical = this.verticals.require(p.vertical);
+    let policy: Policy = proposalPolicy(vertical, p.actionType, p.payload);
     let payload = p.payload;
     const untrusted =
       policy !== "draft" && !UNTRUSTED_AUTO_ALLOWED.has(p.actionType) && !(await this.filesOwnEmail(p.taskId, p.actionType, payload))
@@ -123,40 +208,36 @@ export class ActionService {
       payload = { ...payload, policyDowngrade: { from: policy, reason: `task was triggered by untrusted ${untrusted} input` } };
       policy = "draft";
     }
-    if (options.forceDraft && policy !== "draft") {
-      payload = { ...payload, policyDowngrade: { from: policy, reason: options.forceDraft } };
+    if (forceDraft && policy !== "draft") {
+      payload = { ...payload, policyDowngrade: { from: policy, reason: forceDraft } };
       policy = "draft";
     }
-    const proposal = await this.store.insertProposal({
-      taskId: p.taskId ?? null,
-      vertical: p.vertical,
-      actionType: p.actionType,
-      summary: p.summary,
-      payload,
-      policy,
-    });
-    this.hub.broadcast({ type: "proposal.updated", proposal });
+    return { policy, payload };
+  }
 
-    if (policy === "draft") {
-      // notifications: one "approvals" notification, replaced by each new request, with Approve/Reject buttons.
-      const pendingApprovals = (await this.store.listProposals({ status: "pending", limit: 200 })).length;
-      await this.ctx.notifier.notify({
-        title: `Approve: ${vertical.name}`,
-        body: p.summary,
-        url: `/approvals/${proposal.id}`,
-        category: "approval",
-        priority: "high",
-        vertical: vertical.id,
-        tag: "approvals",
-        actions: [
-          { action: "approve", title: "Approve" },
-          { action: "reject", title: "Reject" },
-        ],
-        data: { proposalId: proposal.id, pendingApprovals },
-      });
-      return proposal;
-    }
-    return this.execute(proposal.id, ["pending"]);
+  /** notifications: one "approvals" notification, replaced by each new request, with Approve/Reject buttons. */
+  private async requestApproval(
+    verticalName: string,
+    verticalId: string,
+    body: string,
+    proposalId: string,
+    batch?: { batchId: string; batchSize: number; title: string },
+  ): Promise<void> {
+    const pendingApprovals = (await this.store.listProposals({ status: "pending", limit: 200 })).length;
+    await this.ctx.notifier.notify({
+      title: batch?.title ?? `Approve: ${verticalName}`,
+      body,
+      url: `/approvals/${proposalId}`,
+      category: "approval",
+      priority: "high",
+      vertical: verticalId,
+      tag: "approvals",
+      actions: [
+        { action: "approve", title: batch ? "Review all" : "Approve" },
+        { action: "reject", title: batch ? "Reject all" : "Reject" },
+      ],
+      data: { proposalId, pendingApprovals, ...(batch ? { batchId: batch.batchId, batchSize: batch.batchSize } : {}) },
+    });
   }
 
   /**
@@ -166,7 +247,8 @@ export class ActionService {
   async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
     if (!taskId) return null;
     // A run that looked mail up itself (the mail MCP server) has read outside input too.
-    if (this.readMail.has(taskId)) return "email";
+    const read = this.readMail.get(taskId);
+    if (read) return read;
     const task = await this.store.getTask(taskId);
     const event = task ? await this.store.getEvent(task.eventId) : null;
     if (!event) return "unknown";
@@ -223,6 +305,40 @@ export class ActionService {
     return proposal;
   }
 
+  /**
+   * Approves every item of a batch still pending, one after another; an item that fails to run
+   * doesn't stop the others. Throws ProposalStateError when nothing in the batch is pending.
+   */
+  async approveBatch(batchId: string): Promise<Proposal[]> {
+    const pending = oldestFirst(await this.store.listProposals({ batchId, status: "pending", limit: MAX_BATCH }));
+    if (!pending.length) throw new ProposalStateError(`batch ${batchId}`);
+    const out: Proposal[] = [];
+    for (const p of pending) {
+      try {
+        out.push(await this.execute(p.id, ["pending"]));
+      } catch (err) {
+        // Decided meanwhile (say, left out from the Approvals page): skip it.
+        if (!(err instanceof ProposalStateError)) throw err;
+      }
+    }
+    return out;
+  }
+
+  /** Rejects every item of a batch still pending. Throws ProposalStateError when nothing is. */
+  async rejectBatch(batchId: string): Promise<Proposal[]> {
+    const pending = oldestFirst(await this.store.listProposals({ batchId, status: "pending", limit: MAX_BATCH }));
+    if (!pending.length) throw new ProposalStateError(`batch ${batchId}`);
+    const out: Proposal[] = [];
+    for (const p of pending) {
+      try {
+        out.push(await this.reject(p.id));
+      } catch (err) {
+        if (!(err instanceof ProposalStateError)) throw err;
+      }
+    }
+    return out;
+  }
+
   async reject(id: string): Promise<Proposal> {
     const proposal = await this.store.transitionProposal(id, ["pending"], "rejected");
     if (!proposal) throw new ProposalStateError(id);
@@ -265,6 +381,16 @@ export class ActionService {
     const done = await this.store.setTaskStatusIf(task.id, ["awaiting_approval"], "done");
     if (done) this.hub.broadcast({ type: "task.updated", task: done });
   }
+}
+
+/** Most items in one batch. */
+export const MAX_BATCH = 100;
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Oldest first; `proposals` come newest first from the database. */
+function oldestFirst(proposals: Proposal[]): Proposal[] {
+  return [...proposals].reverse().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 /** An edited payload its executor refuses. */
