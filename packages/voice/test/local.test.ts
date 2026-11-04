@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { encodeWav, int16ToFloat, SentenceAssembler, speechPieces } from "../src/index";
-import { type AsrWorkerMessage, isInstalled, KOKORO_VOICES, LOCAL_MODELS, LocalSpeech, LocalTextToSpeech, type WorkerLike } from "../src/local/index";
+import { type AsrWorkerMessage, CLEANUP_MODELS, installModel, isInstalled, KOKORO_VOICES, LOCAL_MODELS, LocalSpeech, LocalTextToSpeech, SpeechGate, type WorkerLike } from "../src/local/index";
 
 describe("wav", () => {
   it("encodes 16-bit mono PCM with a valid header, and decodes it back", () => {
@@ -150,5 +150,51 @@ describe("LocalSpeech", () => {
       { text: "One.", sid: KOKORO_VOICES.bm_george, speed: 1.3 },
       { text: "Two.", sid: KOKORO_VOICES.bf_emma, speed: 1.3 },
     ]);
+  });
+});
+
+describe("SpeechGate", () => {
+  const frame = (v: number, n = 1600) => new Float32Array(n).fill(v);
+
+  it("passes silence in place of non-speech, then speech with the audio just before it", () => {
+    const gate = new SpeechGate(3200, 1600);
+    expect([...gate.push(frame(0.3), false)].every((x) => x === 0)).toBe(true);
+    expect([...gate.push(frame(0.4), false)].every((x) => x === 0)).toBe(true);
+    const start = gate.push(frame(0.5), true);
+    // The preroll (the last 3200 samples before detection) comes first, so no syllable is lost.
+    expect(start.length).toBe(3200 + 1600);
+    expect(start[0]).toBeCloseTo(0.3);
+    expect(start[1600]).toBeCloseTo(0.4);
+    expect(start[3200]).toBeCloseTo(0.5);
+    expect(gate.open).toBe(true);
+  });
+
+  it("keeps a short hangover after speech, then closes", () => {
+    const gate = new SpeechGate(0, 1600);
+    gate.push(frame(0.5), true);
+    expect(gate.push(frame(0.2), false)[0]).toBeCloseTo(0.2); // within the hangover
+    expect(gate.push(frame(0.2), false)[0]).toBe(0); // past it
+    expect(gate.open).toBe(false);
+  });
+});
+
+describe("clean-up models", () => {
+  it("installs a single-file model, without tar", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cc-voice-"));
+    const fetch = (async () => new Response(new Uint8Array([1, 2, 3]))) as typeof globalThis.fetch;
+    await installModel(root, CLEANUP_MODELS.vad, fetch);
+    expect(isInstalled(root, CLEANUP_MODELS.vad)).toBe(true);
+  });
+
+  it("passes the voice detector to the recogniser always, and the denoiser only when asked", () => {
+    const root = installedRoot();
+    for (const m of Object.values(CLEANUP_MODELS)) {
+      mkdirSync(join(root, m.dir), { recursive: true });
+      writeFileSync(join(root, m.dir, m.files[0]!), "");
+    }
+    const paths = (denoise: boolean) => (new LocalSpeech({ root, denoise, log: () => {} }) as unknown as { cleanupPaths(): { denoise: string | null; vad: string | null } }).cleanupPaths();
+    expect(paths(false).denoise).toBeNull();
+    expect(paths(false).vad).toMatch(/silero_vad\.onnx$/);
+    expect(paths(true).denoise).toMatch(/gtcrn_simple\.onnx$/);
   });
 });

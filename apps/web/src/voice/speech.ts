@@ -279,17 +279,11 @@ export class RecorderListener implements Listener {
       throw new Error(`No microphone available (${name})`);
     }
     const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((t) => MediaRecorder.isTypeSupported?.(t)) ?? "";
-    // Filter the mic before it is recorded or measured: a high-pass cuts rumble and handling
-    // noise, a low-pass cuts the hiss of rustling, leaving the speech band.
+    // A high-pass cuts rumble and handling thumps before the mic is recorded or measured.
     const ctx = new AudioContext();
-    const highpass = ctx.createBiquadFilter();
-    highpass.type = "highpass";
-    highpass.frequency.value = 120;
-    const lowpass = ctx.createBiquadFilter();
-    lowpass.type = "lowpass";
-    lowpass.frequency.value = 5500;
+    const highpass = rumbleFilter(ctx);
     const clean = ctx.createMediaStreamDestination();
-    ctx.createMediaStreamSource(stream).connect(highpass).connect(lowpass).connect(clean);
+    ctx.createMediaStreamSource(stream).connect(highpass).connect(clean);
     const recorder = new MediaRecorder(clean.stream, mime ? { mimeType: mime } : undefined);
     const chunks: Blob[] = [];
     recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
@@ -298,10 +292,10 @@ export class RecorderListener implements Listener {
 
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
-    lowpass.connect(analyser);
+    highpass.connect(analyser);
     const samples = new Float32Array(analyser.fftSize);
     const meter = ctx.createAnalyser();
-    lowpass.connect(meter);
+    highpass.connect(meter);
     let noiseFloor = 0;
     this.level = new AnalyserLevel(meter);
     let quietSince = Date.now();
@@ -319,12 +313,14 @@ export class RecorderListener implements Listener {
       for (const s of samples) sum += s * s;
       const rms = Math.sqrt(sum / samples.length);
       const now = Date.now();
-      if (rms > speechThreshold(noiseFloor)) {
+      const speech = rms > speechThreshold(noiseFloor);
+      if (speech) {
         heardAt ||= now;
         quietSince = now;
-      } else {
-        noiseFloor = updateNoiseFloor(noiseFloor, rms);
       }
+      // Tracked during "speech" too (more slowly), so steady noise louder than the starting
+      // threshold (a car) is learnt as noise instead of keeping the turn open for ever.
+      noiseFloor = updateNoiseFloor(noiseFloor, rms, speech);
       if (!heardAt && now - started > timeoutMs) stop();
       if (heardAt && !latched && now - quietSince > endOfTurnMs) stop();
       // A segment stays under what the server transcribes; a latched turn carries on in the next one.
@@ -350,6 +346,15 @@ export class RecorderListener implements Listener {
 }
 
 // ---------- Live (streaming) listening ----------
+
+/** 120 Hz high-pass: rumble, wind and handling thumps go, speech (from about 150 Hz) stays. */
+export function rumbleFilter(ctx: BaseAudioContext): BiquadFilterNode {
+  const f = ctx.createBiquadFilter();
+  f.type = "highpass";
+  f.frequency.value = 120;
+  f.Q.value = 0.707;
+  return f;
+}
 
 const MIC_CONSTRAINTS: MediaStreamConstraints = { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } };
 
@@ -428,7 +433,7 @@ const CAPTURE_WORKLET = `class CcCapture extends AudioWorkletProcessor {
 registerProcessor("cc-capture", CcCapture);`;
 
 /** Calls `onFrame` with the microphone's float samples; AudioWorklet where it exists, else ScriptProcessor. */
-async function captureFrames(ctx: AudioContext, source: MediaStreamAudioSourceNode, onFrame: (samples: Float32Array) => void): Promise<() => void> {
+async function captureFrames(ctx: AudioContext, source: AudioNode, onFrame: (samples: Float32Array) => void): Promise<() => void> {
   const sink = ctx.createGain();
   sink.gain.value = 0; // processing nodes only run when connected towards the output
   sink.connect(ctx.destination);
@@ -477,7 +482,10 @@ export class StreamingListener implements Listener {
     const stream = await openMic();
     const ctx = new AudioContext();
     void ctx.resume?.();
-    const source = ctx.createMediaStreamSource(stream);
+    // Rumble and thumps are filtered before both the waveform and what goes to the server, which
+    // then keeps everything but speech from the recogniser (its voice detector).
+    const source = rumbleFilter(ctx);
+    ctx.createMediaStreamSource(stream).connect(source);
     const analyser = ctx.createAnalyser();
     source.connect(analyser);
     this.level = new AnalyserLevel(analyser);
