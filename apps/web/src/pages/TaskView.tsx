@@ -5,7 +5,7 @@ import type { Api, ChatFile } from "../api";
 import { ago, askText, emailAsk, readableEmailBody, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLive, useLoad } from "../live";
-import { ErrorBanner, Skeleton, Status, VTag } from "../ui";
+import { ErrorBanner, Skeleton, Status, TaskTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
 import { useStickToBottom } from "../scroll";
@@ -86,7 +86,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
       <div className="task-main">
       <div className="card">
         <div className="task-head">
-          <VTag id={task.vertical} />
+          <TaskTag task={task} />
           <Status value={task.status} />
         </div>
         <TaskAsk prompt={task.prompt} />

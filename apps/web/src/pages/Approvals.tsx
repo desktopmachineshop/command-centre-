@@ -9,6 +9,7 @@ import { SocialProposalBody, useSocialAccounts } from "../social";
 import { Empty, ErrorBanner, PageHead, Skeleton, Status, VTag } from "../ui";
 import { VideoPreview, videoOf } from "../video";
 import { ErrorReport } from "../copy";
+import { hasReadable, PayloadView } from "../payload";
 
 export function Approvals({ api, feed, id }: { api: Api; feed: LiveFeed; id?: string }) {
   const { data, error } = useLoad(() => api.proposals("pending"), feed, (m) => m.type === "proposal.updated");
@@ -114,10 +115,12 @@ function BatchCard({ api, items }: { api: Api; items: Proposal[] }) {
               </div>
               {to && <div className="small muted">To: {to}</div>}
               {text && <pre className="batch-message">{text}</pre>}
-              <details>
-                <summary className="muted small">Details</summary>
-                <pre>{JSON.stringify(p.payload, null, 2)}</pre>
-              </details>
+              {hasReadable(p.payload, SHOWN_IN_BATCH) && (
+                <details>
+                  <summary className="muted small">Details</summary>
+                  <PayloadView payload={p.payload} skip={SHOWN_IN_BATCH} />
+                </details>
+              )}
             </li>
           );
         })}
@@ -239,11 +242,14 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
           ]}
         />
       )}
-      <details>
-        <summary className="muted small">Details</summary>
-        <pre>{JSON.stringify(proposal.payload, null, 2)}</pre>
-        {proposal.result != null && <pre>{JSON.stringify(proposal.result, null, 2)}</pre>}
-      </details>
+      {hasReadable(proposal.payload) && (
+        // Open unless the card already shows the content (a social post, a video to watch).
+        <details className="proposal-details" open={!social && !video}>
+          <summary className="muted small">Details</summary>
+          <PayloadView payload={proposal.payload} />
+        </details>
+      )}
+      {proposal.status === "executed" && proposal.result != null && <ProposalResult result={proposal.result} />}
       {proposal.status === "pending" && mode === "view" && !sent && (
         <div className="proposal-tools row wrap">
           <button className="ghost" data-help-key="approvals.edit" disabled={busy} onClick={() => setMode("edit")}>
@@ -308,6 +314,22 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
         )}
       </div>
     </div>
+  );
+}
+
+/** Fields a batch item already shows (recipient, message) above its details. */
+const SHOWN_IN_BATCH = ["to", "body", "text", "message", "content"];
+
+/** What an approved action came back with, readable; nothing when it is just { ok: true }. */
+function ProposalResult({ result }: { result: unknown }) {
+  const value = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : { result };
+  const rest = Object.fromEntries(Object.entries(value).filter(([k]) => k !== "ok"));
+  if (!hasReadable(rest)) return null;
+  return (
+    <details className="proposal-details">
+      <summary className="muted small">Result</summary>
+      <PayloadView payload={rest} />
+    </details>
   );
 }
 

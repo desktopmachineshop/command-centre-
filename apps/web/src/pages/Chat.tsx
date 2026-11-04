@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Api, ChatFile } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { Icon } from "../icons";
-import { Empty, ErrorBanner, PageHead, VTag } from "../ui";
+import { Empty, ErrorBanner, PageHead, TaskTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
 import { AttachedFiles, Composer } from "../composer";
@@ -224,7 +224,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             </div>
             <div className="bubble agent">
               <div className="row between small">
-                <VTag id={t.task.vertical} />
+                <TaskTag task={t.task} />
                 <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
                   {t.task.status.replace("_", " ")}
                 </a>
