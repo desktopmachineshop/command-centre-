@@ -31,6 +31,7 @@
       </ul>
       <p>A role's id, title or any name in its <uicontrol>Address as</uicontrol> list on the <xref href="../business/org.dita">Org</xref> page works.</p>
       <p>Tick <uicontrol>Read replies aloud</uicontrol> at the top to hear each reply as it arrives (the same switch is on a task's page). It is off by default and remembered per device. <uicontrol>Stop</uicontrol> appears while it is speaking and cuts it off mid-reply.</p>
+      <p>You can keep writing while the agent is still working: each message you send waits, shown dimmed as queued, and goes out by itself, in order, once the agent has answered. <uicontrol>Cancel</uicontrol> removes a queued message; starting a new chat clears the queue. Queued messages are kept only while the page is open.</p>
     </body>
   </topic>
   <topic id="dictate">

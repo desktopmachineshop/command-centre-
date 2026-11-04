@@ -23,6 +23,9 @@ function onLatest(ts: Turn[], taskId: string, f: (t: Turn) => Turn): Turn[] {
   return ts;
 }
 
+type Queued = { id: number; text: string; files: ChatFile[] };
+let queueId = 0;
+
 type Chain = { taskIds: string[]; proposals: Proposal[] };
 
 /**
@@ -127,6 +130,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   /** "New chat": a clean screen and a new thread. */
   const newChat = () => {
     readAloud.stop();
+    setQueue([]);
     clearChat();
     setTurns([]);
     setThreadId(null);
@@ -151,13 +155,37 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
     }
   });
 
+  /** The thread's latest task, and whether it has answered (so a follow-up can continue it). */
+  const thread = threadId ? turns.findLast((t) => t.task.id === threadId)?.task : undefined;
+  const ready = !thread || REPLYABLE.includes(thread.status);
+
+  /** Messages written while the agent is still working: each is sent, in order, once it has answered. */
+  const [queue, setQueue] = useState<Queued[]>([]);
+  const sending = useRef(false);
+  useEffect(() => {
+    if (!ready || sending.current || !queue.length || restoring) return;
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    sending.current = true;
+    void dispatch(next!.text, next!.files, false).then((ok) => {
+      sending.current = false;
+      if (!ok) setQueue([]); // the rest would only fail the same way; the error is shown
+    });
+  });
+
   const send = async (message: string, files: ChatFile[]) => {
-    const thread = threadId ? turns.findLast((t) => t.task.id === threadId)?.task : undefined;
-    if (thread && !REPLYABLE.includes(thread.status)) {
-      setError("Still working on the last message: wait for its answer, or start a new chat.");
-      return false;
+    if (!ready || queue.length) {
+      setQueue((q) => [...q, { id: ++queueId, text: message, files }]);
+      setText("");
+      setError(null);
+      return true;
     }
-    setText("");
+    return dispatch(message, files, true);
+  };
+
+  /** Sends now. `restore`: on failure, put the message back in the box (not for a queued one). */
+  const dispatch = async (message: string, files: ChatFile[], restore: boolean) => {
+    if (restore) setText("");
     setError(null);
     const ids = files.map((f) => f.id);
     try {
@@ -168,8 +196,8 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
       setTurns((ts) => [...ts, { key: ts.length, text: message, ...(shown.length ? { files: shown } : {}), task, messages: [], at: threadId ? task.updatedAt : task.createdAt }]);
       return true;
     } catch (err) {
-      setError((err as Error).message);
-      setText(message);
+      setError(restore ? (err as Error).message : `Couldn't send the queued message "${message.slice(0, 60)}": ${(err as Error).message}`);
+      if (restore) setText(message);
       return false;
     }
   };
@@ -223,6 +251,20 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
             </div>
           </div>
         ))}
+        {queue.map((q) => (
+          <div key={q.id} className="turn queued">
+            <div className="bubble me">
+              {q.text}
+              <AttachedFiles files={q.files.map((f) => ({ name: f.name, size: f.size }))} />
+              <div className="row between small">
+                <span className="muted">Queued: sends when the agent has answered</span>
+                <button type="button" onClick={() => setQueue((all) => all.filter((x) => x.id !== q.id))} aria-label={`Cancel queued message: ${q.text.slice(0, 40)}`}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <Composer api={api} value={text} onChange={setText} onSend={send} label="Message" placeholder="What needs doing?">
@@ -231,6 +273,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
           onChange={(e) => {
             setVertical(e.target.value);
             setThreadId(null);
+            setQueue([]);
           }}
           aria-label="Send to"
           data-help-key="chat.send-to"

@@ -4036,3 +4036,6 @@ details[open] > summary .brain-tree-chevron {
   gap: var(--sp-2);
   align-items: center;
 }
+.turn.queued .bubble.me {
+  opacity: 0.7;
+}
