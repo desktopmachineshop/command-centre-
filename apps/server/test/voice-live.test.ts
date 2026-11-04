@@ -192,7 +192,7 @@ describe.skipIf(!DB_URL)("live transcription socket /ws/voice (integration)", ()
 
   beforeAll(async () => {
     await resetDatabase(DB_URL!);
-    ctx = await makeServer({ overrides: { localSpeech: new LocalSpeech({ root: installedRoot(), worker: fakeWorker, sherpa: () => ({}) as never, log: () => {} }) } });
+    ctx = await makeServer({ overrides: { localSpeech: new LocalSpeech({ root: installedRoot(), engine: "kokoro", worker: fakeWorker, sherpa: () => ({}) as never, log: () => {} }) } });
     served = await serveServer(ctx.server);
   });
   afterAll(async () => {

@@ -5,7 +5,19 @@ import { MIME } from "../mime";
 import type { Fetch, SynthesisResult, SynthesizeOptions, TextToSpeech } from "../types";
 import { encodeWav } from "../wav";
 import { SPEECH_GATE_SOURCE } from "./gate";
-import { CLEANUP_MODELS, installModel, isInstalled, KOKORO_VOICES, LOCAL_MODELS, type LocalModelName, modelPath } from "./models";
+import {
+  CLEANUP_MODELS,
+  installModel,
+  isInstalled,
+  KOKORO_VOICES,
+  LOCAL_MODELS,
+  type LocalModel,
+  type LocalModelName,
+  modelPath,
+  PIPER_VOICES,
+  type PiperVoice,
+  piperModel,
+} from "./models";
 
 /** The parts of sherpa-onnx-node used here (it ships no types). */
 export interface SherpaTts {
@@ -39,7 +51,12 @@ export type LocalStatus = "missing" | "installing" | "ready" | "failed";
 export interface LocalSpeechOptions {
   /** Where models are kept, e.g. $DATA_DIR/models/voice. */
   root: string;
-  /** Kokoro voice name (KOKORO_VOICES), default bf_emma (British). */
+  /**
+   * The voice engine: "piper" (default: fast, British medium-quality voices) or "kokoro" (more
+   * natural, about five times slower on CPU).
+   */
+  engine?: "piper" | "kokoro";
+  /** Piper: a PIPER_VOICES name, default cori. Kokoro: a KOKORO_VOICES name, default bf_emma. */
   voice?: string;
   /** 0.7–1.3, default 1. */
   speed?: number;
@@ -176,12 +193,22 @@ export class LocalSpeech {
   private sherpaModule: Sherpa | null = null;
   private installing: Promise<void> | null = null;
   readonly voice: string;
+  readonly engine: "piper" | "kokoro";
+  /** The voice model in use (depends on engine and voice). */
+  readonly ttsModel: LocalModel;
 
   constructor(private readonly options: LocalSpeechOptions) {
-    this.voice = options.voice && options.voice in KOKORO_VOICES ? options.voice : "bf_emma";
+    this.engine = options.engine ?? "piper";
+    if (this.engine === "kokoro") {
+      this.voice = options.voice && options.voice in KOKORO_VOICES ? options.voice : "bf_emma";
+      this.ttsModel = LOCAL_MODELS.tts;
+    } else {
+      this.voice = PIPER_VOICES.includes(options.voice as PiperVoice) ? options.voice! : "cori";
+      this.ttsModel = piperModel(this.voice as PiperVoice);
+    }
     this.status = {
       asr: isInstalled(options.root, LOCAL_MODELS.asr) ? "ready" : "missing",
-      tts: isInstalled(options.root, LOCAL_MODELS.tts) ? "ready" : "missing",
+      tts: isInstalled(options.root, this.ttsModel) ? "ready" : "missing",
     };
   }
 
@@ -207,7 +234,7 @@ export class LocalSpeech {
           continue;
         }
         if (this.status[name] === "ready") continue;
-        const model = LOCAL_MODELS[name];
+        const model = name === "tts" ? this.ttsModel : LOCAL_MODELS[name];
         this.status[name] = "installing";
         const started = Date.now();
         this.log(`downloading ${model.dir} (about ${model.mb} MB)`);
@@ -229,7 +256,7 @@ export class LocalSpeech {
   /** Loads the engines ahead of use (e.g. when Drive mode opens), so the first word isn't delayed. */
   async warm(which: LocalModelName[] = ["asr", "tts"]): Promise<void> {
     if (which.includes("asr") && this.asrReady) await this.asr().loaded.catch(() => {});
-    if (which.includes("tts") && this.ttsReady) await this.kokoro().catch(() => {});
+    if (which.includes("tts") && this.ttsReady) await this.loadVoice().catch(() => {});
   }
 
   /**
@@ -273,10 +300,11 @@ export class LocalSpeech {
 
   /** Synthesizes one piece of speech (calls are queued: one engine, one at a time). */
   synthesize(text: string, opts: { voice?: string; speed?: number } = {}): Promise<{ samples: Float32Array; sampleRate: number }> {
-    const sid = KOKORO_VOICES[opts.voice ?? this.voice] ?? KOKORO_VOICES[this.voice]!;
+    // Piper voices have one speaker each; a Kokoro voice is a speaker id in its one model.
+    const sid = this.engine === "kokoro" ? (KOKORO_VOICES[opts.voice ?? this.voice] ?? KOKORO_VOICES[this.voice]!) : 0;
     const speed = Math.min(1.3, Math.max(0.7, opts.speed ?? this.options.speed ?? 1));
     const run = this.ttsChain.then(async () => {
-      const tts = await this.kokoro();
+      const tts = await this.loadVoice();
       this.touch("tts");
       const audio = await tts.generateAsync({ text, sid, speed });
       this.touch("tts");
@@ -353,22 +381,28 @@ export class LocalSpeech {
     this.streams.clear();
   }
 
-  private kokoro(): Promise<SherpaTts> {
+  private loadVoice(): Promise<SherpaTts> {
     if (!this.ttsReady) return Promise.reject(new Error("voice model isn't installed yet"));
     this.touch("tts");
     if (this.tts) return this.tts;
-    const m = LOCAL_MODELS.tts;
+    const m = this.ttsModel;
     const root = this.options.root;
     const started = Date.now();
+    const voice =
+      this.engine === "kokoro"
+        ? {
+            kokoro: {
+              model: modelPath(root, m, "model.onnx"),
+              voices: modelPath(root, m, "voices.bin"),
+              tokens: modelPath(root, m, "tokens.txt"),
+              dataDir: modelPath(root, m, "espeak-ng-data"),
+            },
+          }
+        : { vits: { model: modelPath(root, m, m.files[0]), tokens: modelPath(root, m, "tokens.txt"), dataDir: modelPath(root, m, "espeak-ng-data") } };
     this.tts = this.sherpa()
       .OfflineTts.createAsync({
         model: {
-          kokoro: {
-            model: modelPath(root, m, "model.onnx"),
-            voices: modelPath(root, m, "voices.bin"),
-            tokens: modelPath(root, m, "tokens.txt"),
-            dataDir: modelPath(root, m, "espeak-ng-data"),
-          },
+          ...voice,
           numThreads: Math.min(4, this.threads()),
         },
         maxNumSentences: 1,
@@ -418,7 +452,9 @@ function rssMb() {
 /** The Kokoro voice behind the provider-neutral TextToSpeech contract (WAV out). */
 export class LocalTextToSpeech implements TextToSpeech {
   readonly provider = "local";
-  readonly model = LOCAL_MODELS.tts.dir;
+  get model() {
+    return this.speech.ttsModel.dir;
+  }
   constructor(private readonly speech: LocalSpeech) {}
 
   get defaultVoice() {
@@ -426,7 +462,8 @@ export class LocalTextToSpeech implements TextToSpeech {
   }
 
   async synthesize(text: string, opts: SynthesizeOptions = {}): Promise<SynthesisResult> {
-    const voice = opts.voice && opts.voice in KOKORO_VOICES ? opts.voice : undefined;
+    // Only a Kokoro voice can be switched per request (Piper is one model per voice).
+    const voice = this.speech.engine === "kokoro" && opts.voice && opts.voice in KOKORO_VOICES ? opts.voice : undefined;
     const { samples, sampleRate } = await this.speech.synthesize(text, { voice, speed: opts.speed });
     return { audio: encodeWav(samples, sampleRate), mime: MIME.wav };
   }

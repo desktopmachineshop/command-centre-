@@ -1985,12 +1985,13 @@ CPU (sherpa-onnx), so nothing needs an API key:
   the chat's dictation box and in Drive mode, on every device, including the iPhone Home Screen
   app and the Windows desktop app, where browser recognition is unreliable. In conversation mode
   a pause of about 0.8 s ends your turn.
-- **The voice** (Kokoro, British `bf_emma` by default): replies are synthesised a sentence at a
+- **The voice** (Piper's British `cori` voice by default; Kokoro, more natural but about five
+  times slower on CPU, with `VOICE_LOCAL_ENGINE=kokoro`): replies are synthesised a sentence at a
   time and played back to back with natural pauses, the first sentence as soon as it's known.
   It's the default voice when ready; **Options → Use the natural voice** switches back to the
   device's own voice.
 
-The models (about 380 MB) download once into `DATA_DIR/models/voice` on first start (the logs say
+The models (about 130 MB with Piper, 380 MB with Kokoro) download once into `DATA_DIR/models/voice` on first start (the logs say
 when each is ready); until then voice uses the browser's speech. The engines load on first use
 and unload after 10 minutes unused, so they only use memory (about 0.5 GB) while you talk.
 Recognition runs in a worker thread, so it never stalls the server.
@@ -2007,7 +2008,8 @@ noise, and denoising made it slightly worse under rustling ("ask" heard as "last
 | Variable | Default | |
 | --- | --- | --- |
 | `VOICE_LOCAL` | `auto` | `off` turns self-hosted speech off |
-| `VOICE_LOCAL_VOICE` | `bf_emma` | `bf_isabella`, `bm_george`, `bm_lewis` (British), or `af_*` / `am_*` (American) |
+| `VOICE_LOCAL_ENGINE` | `piper` | `kokoro`: more natural, about five times slower (a short phrase takes about 1.5 s on Railway instead of about 0.2 s) |
+| `VOICE_LOCAL_VOICE` | `cori` / `bf_emma` | Piper: `cori`, `jenny_dioco`, `alba`, `northern_english_male`, `alan`, `southern_english_female`. Kokoro: `bf_emma`, `bf_isabella`, `bm_george`, `bm_lewis` (British), or `af_*` / `am_*` (American) |
 | `VOICE_LOCAL_SPEED` | `1.05` | 0.7–1.3 |
 | `VOICE_DENOISE` | `off` | `on` adds neural denoising (GTCRN) before recognition; see below |
 | `VOICE_FRONT` | `auto` | `off` sends every Drive request straight to the agents |

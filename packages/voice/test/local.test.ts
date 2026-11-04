@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { encodeWav, int16ToFloat, SentenceAssembler, speechPieces } from "../src/index";
-import { type AsrWorkerMessage, CLEANUP_MODELS, installModel, isInstalled, KOKORO_VOICES, LOCAL_MODELS, LocalSpeech, LocalTextToSpeech, SpeechGate, type WorkerLike } from "../src/local/index";
+import { type AsrWorkerMessage, CLEANUP_MODELS, piperModel, installModel, isInstalled, KOKORO_VOICES, LOCAL_MODELS, LocalSpeech, LocalTextToSpeech, SpeechGate, type WorkerLike } from "../src/local/index";
 
 describe("wav", () => {
   it("encodes 16-bit mono PCM with a valid header, and decodes it back", () => {
@@ -100,7 +100,9 @@ describe("LocalSpeech", () => {
     expect(() => speech.openStream(() => {})).toThrow(/aren't installed/);
     const root = installedRoot();
     expect(isInstalled(root, LOCAL_MODELS.asr)).toBe(true);
-    expect(new LocalSpeech({ root, log: () => {} }).status).toEqual({ asr: "ready", tts: "ready" });
+    expect(new LocalSpeech({ root, engine: "kokoro", log: () => {} }).status).toEqual({ asr: "ready", tts: "ready" });
+    // The default engine is Piper, whose voice isn't in this folder yet.
+    expect(new LocalSpeech({ root, log: () => {} }).status).toEqual({ asr: "ready", tts: "missing" });
   });
 
   it("streams text from the recognition worker, marks pauses, and finishes with the full text", async () => {
@@ -139,7 +141,7 @@ describe("LocalSpeech", () => {
         }),
       },
     });
-    const speech = new LocalSpeech({ root: installedRoot(), voice: "bm_george", speed: 2, sherpa, log: () => {} });
+    const speech = new LocalSpeech({ root: installedRoot(), engine: "kokoro", voice: "bm_george", speed: 2, sherpa, log: () => {} });
     const tts = new LocalTextToSpeech(speech);
     expect(tts.defaultVoice).toBe("bm_george");
     const [a] = await Promise.all([tts.synthesize("One."), tts.synthesize("Two.", { voice: "bf_emma" })]);
@@ -196,5 +198,38 @@ describe("clean-up models", () => {
     expect(paths(false).denoise).toBeNull();
     expect(paths(false).vad).toMatch(/silero_vad\.onnx$/);
     expect(paths(true).denoise).toMatch(/gtcrn_simple\.onnx$/);
+  });
+});
+
+describe("Piper voice (the default)", () => {
+  it("loads the chosen British Piper voice as a single-speaker VITS model", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cc-voice-"));
+    const model = piperModel("jenny_dioco");
+    mkdirSync(join(root, model.dir, "espeak-ng-data"), { recursive: true });
+    for (const f of model.files.filter((f) => f.includes("."))) writeFileSync(join(root, model.dir, f), "");
+    const configs: any[] = [];
+    const calls: { sid: number }[] = [];
+    const sherpa = () => ({
+      OfflineTts: {
+        createAsync: async (config: unknown) => {
+          configs.push(config);
+          return { sampleRate: 22050, generateAsync: async (r: { sid: number }) => (calls.push(r), { samples: new Float32Array(4), sampleRate: 22050 }) };
+        },
+      },
+    });
+    const speech = new LocalSpeech({ root, voice: "jenny_dioco", sherpa, log: () => {} });
+    expect(speech.engine).toBe("piper");
+    expect(speech.ttsReady).toBe(true);
+    const tts = new LocalTextToSpeech(speech);
+    expect(tts.model).toBe("vits-piper-en_GB-jenny_dioco-medium");
+    // A Kokoro voice name is ignored: Piper has one speaker per model.
+    await tts.synthesize("Hello.", { voice: "bm_george" });
+    expect(configs[0].model.vits.model).toMatch(/en_GB-jenny_dioco-medium\.onnx$/);
+    expect(configs[0].model.kokoro).toBeUndefined();
+    expect(calls[0]!.sid).toBe(0);
+  });
+
+  it("falls back to cori for an unknown voice name", () => {
+    expect(new LocalSpeech({ root: tmpdir(), voice: "bf_emma", log: () => {} }).voice).toBe("cori");
   });
 });
