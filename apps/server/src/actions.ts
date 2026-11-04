@@ -127,7 +127,10 @@ export class ActionService {
       payload = { ...payload, policyDowngrade: { from: policy, reason: options.forceDraft } };
       policy = "draft";
     }
+    // A batch label is the agent's; scoped to its task so two tasks (or a task-less call) can't join each other's batch.
+    const batchId = p.batchId ? `${p.taskId ?? "admin"}/${p.batchId}` : null;
     const proposal = await this.store.insertProposal({
+      batchId,
       taskId: p.taskId ?? null,
       vertical: p.vertical,
       actionType: p.actionType,
@@ -148,10 +151,13 @@ export class ActionService {
         priority: "high",
         vertical: vertical.id,
         tag: "approvals",
-        actions: [
-          { action: "approve", title: "Approve" },
-          { action: "reject", title: "Reject" },
-        ],
+        // A batch has no one-tap buttons: Dave opens Approvals to see every recipient and message first.
+        actions: batchId
+          ? []
+          : [
+              { action: "approve", title: "Approve" },
+              { action: "reject", title: "Reject" },
+            ],
         data: { proposalId: proposal.id, pendingApprovals },
       });
       return proposal;
@@ -223,6 +229,34 @@ export class ActionService {
     return proposal;
   }
 
+  /**
+   * Approves a batch in one go. `ids` is what Dave was shown: if the batch has gained or lost a
+   * pending proposal since, nothing runs and he must look again. Each proposal then runs (and
+   * succeeds or fails) on its own, exactly as if approved singly.
+   */
+  async approveBatch(batchId: string, ids: string[]): Promise<Proposal[]> {
+    return this.decideBatch(batchId, ids, (id) => this.execute(id, ["pending"]));
+  }
+
+  async rejectBatch(batchId: string, ids: string[]): Promise<Proposal[]> {
+    return this.decideBatch(batchId, ids, (id) => this.reject(id));
+  }
+
+  private async decideBatch(batchId: string, ids: string[], decide: (id: string) => Promise<Proposal>): Promise<Proposal[]> {
+    const members = await this.store.pendingBatch(batchId);
+    const shown = new Set(ids);
+    if (members.length === 0 || members.length !== shown.size || members.some((m) => !shown.has(m.id))) throw new BatchChangedError(batchId);
+    const done: Proposal[] = [];
+    for (const m of members) {
+      try {
+        done.push(await decide(m.id));
+      } catch (err) {
+        if (!(err instanceof ProposalStateError)) throw err; // decided singly in the meantime: skip it
+      }
+    }
+    return done;
+  }
+
   async reject(id: string): Promise<Proposal> {
     const proposal = await this.store.transitionProposal(id, ["pending"], "rejected");
     if (!proposal) throw new ProposalStateError(id);
@@ -264,6 +298,13 @@ export class ActionService {
     // Conditional: a reply may have re-queued the task since it was read.
     const done = await this.store.setTaskStatusIf(task.id, ["awaiting_approval"], "done");
     if (done) this.hub.broadcast({ type: "task.updated", task: done });
+  }
+}
+
+/** The batch's pending proposals are not the ones Dave was looking at. */
+export class BatchChangedError extends Error {
+  constructor(batchId: string) {
+    super(`Batch ${batchId} has changed or is no longer pending: reload and review it again`);
   }
 }
 

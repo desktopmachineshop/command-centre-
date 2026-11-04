@@ -30,6 +30,13 @@
       <p>The <uicontrol>Approve</uicontrol> and <uicontrol>Reject</uicontrol> buttons on a push notification never act from the lock screen. They open the app on that proposal and ask you to confirm with <uicontrol>Yes, approve</uicontrol> or <uicontrol>Yes, reject</uicontrol>. If someone (or another device) already decided it, the page says it is no longer waiting.</p>
     </body>
   </topic>
+  <topic id="batch">
+    <title>Approving a batch</title>
+    <prolog><resourceid appname="command-centre" appid="approvals.batch"/></prolog>
+    <body>
+      <p>When an agent has a bulk job (for example a message to every open delivery order) it groups the proposals into one batch. The batch shows as a single card listing every item: open each to see the recipient and the full message. <uicontrol>Approve all</uicontrol> or <uicontrol>Reject all</uicontrol> applies to exactly the list on screen; if the batch changed while you were looking (an item was added or decided elsewhere), nothing happens and the page asks you to review it again. Each item still runs on its own, so one failing does not stop the others. Batches have no one-tap buttons on the push notification.</p>
+    </body>
+  </topic>
   <topic id="edit">
     <title>Edit before approving</title>
     <prolog><resourceid appname="command-centre" appid="approvals.edit"/></prolog>

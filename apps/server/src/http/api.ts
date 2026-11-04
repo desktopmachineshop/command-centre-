@@ -4,7 +4,7 @@ import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
 import type { AuthService } from "../accounts/service";
-import { type ActionService, ProposalInvalidError, ProposalStateError } from "../actions";
+import { type ActionService, BatchChangedError, ProposalInvalidError, ProposalStateError } from "../actions";
 import { ReplyStateError } from "../voice/conversations";
 import { tokenMatches } from "../auth";
 import type { BudgetService } from "../budget";
@@ -234,6 +234,20 @@ export function apiRoutes(deps: ApiDeps) {
   });
   app.post("/proposals/:id/approve", async (c) => c.json(await actions.approve(c.req.param("id"))));
   app.post("/proposals/:id/reject", async (c) => c.json(await actions.reject(c.req.param("id"))));
+  /** One decision for a whole batch. `ids` are the proposals Dave saw; a changed batch is refused (409). */
+  const batchBody = z.object({ ids: z.array(z.string()).min(1).max(500) });
+  for (const verb of ["approve", "reject"] as const) {
+    app.post(`/batches/:batchId/${verb}`, async (c) => {
+      const { ids } = batchBody.parse(await c.req.json());
+      const batchId = c.req.param("batchId");
+      try {
+        return c.json(await (verb === "approve" ? actions.approveBatch(batchId, ids) : actions.rejectBatch(batchId, ids)));
+      } catch (err) {
+        if (err instanceof BatchChangedError) return c.json({ error: err.message }, 409);
+        throw err;
+      }
+    });
+  }
   /** Dave edits what a pending proposal will do (e.g. the email text) before approving it. */
   app.patch("/proposals/:id", async (c) => {
     const body = z.object({ payload: z.record(z.string(), z.unknown()) }).parse(await c.req.json());

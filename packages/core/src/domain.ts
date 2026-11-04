@@ -124,12 +124,15 @@ export const NewProposal = z.object({
   actionType: z.string().min(1),
   summary: z.string().min(1),
   payload: z.record(z.string(), z.unknown()).default({}),
+  /** Groups related proposals (e.g. one message per open order) so they are approved or rejected together. */
+  batchId: z.string().min(1).max(200).nullish(),
 });
 export type NewProposal = z.input<typeof NewProposal>;
 
 export const Proposal = NewProposal.extend({
   id: z.string(),
   taskId: z.string().nullable(),
+  batchId: z.string().nullable(),
   policy: Policy,
   status: ProposalStatus,
   createdAt: z.string(),

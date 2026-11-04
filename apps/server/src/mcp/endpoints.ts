@@ -42,9 +42,15 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
         summary: z.string().describe("One line Dave can approve or reject from a phone notification"),
         payload: z.record(z.string(), z.unknown()).default({}),
         vertical: z.string().optional().describe("Only needed outside an agent run"),
+        batchId: z
+          .string()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe("Give every proposal of one bulk job (e.g. a message to each open order) the same label: Dave then approves or rejects them all at once, after seeing the full list."),
       },
     },
-    async ({ actionType, summary, payload, vertical }) => {
+    async ({ actionType, summary, payload, vertical, batchId }) => {
       const scope = caller.kind === "run" ? caller.scope : null;
       try {
         const proposal = await actions.propose({
@@ -53,6 +59,7 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
           actionType,
           summary,
           payload,
+          batchId,
         });
         const state = proposal.status === "pending" ? "waiting for Dave's approval" : proposal.status;
         return { content: [{ type: "text", text: `Proposal ${proposal.id}: ${state}` }] };

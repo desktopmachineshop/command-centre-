@@ -128,6 +128,47 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     await ctx.api(`/api/proposals/${again[0].id}/approve`, { method: "POST" });
   });
 
+  it("approves or rejects a batch of proposals with one decision, only for the list Dave saw", async () => {
+    const journal = (n: number, batchId?: string) => ({
+      server: "actions", tool: "propose_action",
+      args: { actionType: "brain.journal", summary: `Message order ${n}`, payload: { text: `order ${n}` }, ...(batchId ? { batchId } : {}) },
+    });
+    calls.push(journal(1, "open-orders"), journal(2, "open-orders"), journal(3, "open-orders"));
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "message all open orders" } });
+    await ctx.queue.drain();
+    const mine = async () => (await ctx.api("/api/proposals?status=pending")).body.filter((p: any) => p.taskId === body.task.id);
+    const pending = await mine();
+    expect(pending).toHaveLength(3);
+    const batchId = pending[0].batchId;
+    expect(batchId).toContain("open-orders");
+    expect(pending.every((p: any) => p.batchId === batchId)).toBe(true);
+    // Batch members carry no one-tap approve/reject buttons on the notification.
+    expect((ctx.notifier.sent.at(-1) as { actions?: unknown[] }).actions ?? []).toEqual([]);
+
+    const url = `/api/batches/${encodeURIComponent(batchId)}`;
+    const ids = pending.map((p: any) => p.id);
+    // A list that isn't exactly what is pending is refused and nothing runs.
+    expect((await ctx.api(`${url}/approve`, { method: "POST", json: { ids: ids.slice(1) } })).status).toBe(409);
+    expect(await mine()).toHaveLength(3);
+
+    const approved = await ctx.api(`${url}/approve`, { method: "POST", json: { ids } });
+    expect(approved.body.map((p: any) => p.status)).toEqual(["executed", "executed", "executed"]);
+    expect((await ctx.api(`${url}/approve`, { method: "POST", json: { ids } })).status).toBe(409);
+    expect((await ctx.api(`/api/tasks/${body.task.id}`)).body.task.status).toBe("done");
+  });
+
+  it("rejects a whole batch at once", async () => {
+    calls.push(
+      { server: "actions", tool: "propose_action", args: { actionType: "brain.journal", summary: "A", payload: { text: "a" }, batchId: "b" } },
+      { server: "actions", tool: "propose_action", args: { actionType: "brain.journal", summary: "B", payload: { text: "b" }, batchId: "b" } },
+    );
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "two things" } });
+    await ctx.queue.drain();
+    const pending = (await ctx.api("/api/proposals?status=pending")).body.filter((p: any) => p.taskId === body.task.id);
+    const res = await ctx.api(`/api/batches/${encodeURIComponent(pending[0].batchId)}/reject`, { method: "POST", json: { ids: pending.map((p: any) => p.id) } });
+    expect(res.body.map((p: any) => p.status)).toEqual(["rejected", "rejected"]);
+  });
+
   it("doesn't mark a task done over a reply that re-queued it while its approval settled", async () => {
     calls.push({
       server: "actions",
