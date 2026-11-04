@@ -19,13 +19,15 @@ import {
   type Speaker,
   VoicePermissionError,
 } from "../voice/speech";
+import { speakerFor, useVoiceChoice } from "../voice/choice";
 import { pickListener } from "../voice/dictation";
+import { VoicePicker } from "../voice/VoicePicker";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
 import { VoiceOrb, Waveform } from "../voice/Waveform";
 
 // Per-device preferences. Storage can be missing (private mode), so every access is guarded.
-const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", serverVoice: "cc.drive.serverVoice", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
+const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
 /** What the talk button shows: the orb, the live trace, or both (the default). */
 type Viz = "both" | "orb" | "trace";
 function readPref(key: string): string | null {
@@ -101,8 +103,8 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [talkingTo, setTalkingTo] = useState<RoleChoice | null>(null);
   const talkingToRef = useRef(talkingTo);
   talkingToRef.current = talkingTo;
-  // The server's voice (self-hosted or keyed) is the natural one, so it's the default when there is one.
-  const [preferServerVoice, setPreferServerVoice] = useState(readPref(PREFS.serverVoice) !== "0");
+  // The voice this device speaks with (voice/choice.ts): the server's default, a chosen server voice, or the device's own.
+  const [voiceChoice] = useVoiceChoice();
   const [viz, setViz] = useState<Viz>(() => {
     const v = readPref(PREFS.viz);
     return v === "orb" || v === "trace" ? v : "both";
@@ -164,10 +166,8 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const speaker = useMemo<Speaker | null>(() => {
     const browser = hasSynthesis() ? new BrowserSpeaker(browserVoice, lang) : null;
     // The browser voice says any sentence the server can't (offline, provider down).
-    const server = config?.tts ? new ServerSpeaker((text) => api.speak(text), browser) : null;
-    if (server && (preferServerVoice || !browser || !browserVoice)) return server;
-    return browser ?? server;
-  }, [api, config, browserVoice, lang, preferServerVoice]);
+    return speakerFor(api, config, voiceChoice, browser);
+  }, [api, config, browserVoice, lang, voiceChoice]);
 
   const speakerRef = useRef(speaker);
   speakerRef.current = speaker;
@@ -747,19 +747,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
             <option value="trace">Live trace only</option>
           </select>
         </label>
-        {config?.tts && (
-          <label className="row small">
-            <input
-              type="checkbox"
-              checked={preferServerVoice}
-              onChange={(e) => {
-                writePref(PREFS.serverVoice, e.target.checked ? "1" : "0");
-                setPreferServerVoice(e.target.checked);
-              }}
-            />
-            {config.tts.provider === "local" ? "Use the natural voice (runs on the server)" : `Use the server voice (${config.tts.provider})`}
-          </label>
-        )}
+        <VoicePicker api={api} config={config} />
         <p className="muted small">
           Listening: {listener ? (listener.kind === "browser" ? "browser" : listener.kind === "live" ? "live, on the server" : `server (${config?.stt?.provider})`) : "unavailable"} · Voice:{" "}
           {speaker ? (speaker.kind === "browser" ? (browserVoice?.name ?? "browser default") : config?.tts?.provider) : "unavailable"} · Screen:{" "}

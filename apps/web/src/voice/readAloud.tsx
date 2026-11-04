@@ -2,7 +2,9 @@ import { speakable } from "@cc/voice/speakable";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { withoutVoiceLine } from "../format";
 import { Icon } from "../icons";
-import { BrowserSpeaker, hasSynthesis, loadVoices, pickVoice } from "./speech";
+import type { Api, VoiceConfig } from "../api";
+import { readVoiceChoice, speakerFor } from "./choice";
+import { BrowserSpeaker, hasSynthesis, loadVoices, pickVoice, ServerSpeaker, type Speaker, sharedAudioContext } from "./speech";
 
 const KEY = "cc.readAloud";
 
@@ -30,28 +32,39 @@ export function spokenText(text: string): string {
 
 /**
  * Read agent replies aloud in Chat and Task view. `offer(text)` queues a reply (ignored while
- * off); `stop()` cuts the voice mid-reply and drops what is queued. Uses the browser's voice, so
- * it needs no server setup; `available` is false where the browser has none.
+ * off); `stop()` cuts the voice mid-reply and drops what is queued. Speaks with the voice chosen
+ * for this device (voice/choice.ts, the same as Drive mode): the server's when there is one,
+ * else the browser's. `available` is false where neither can speak.
  */
-export function useReadAloud() {
+export function useReadAloud(api?: Pick<Api, "speak" | "voiceConfig">) {
   const [enabled, setEnabled] = useState(readReadAloud);
   const [speaking, setSpeaking] = useState(false);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
-  const speaker = useRef<BrowserSpeaker | null>(null);
+  const speaker = useRef<Speaker | null>(null);
+  const [config, setConfig] = useState<VoiceConfig | null>(null);
+  useEffect(() => {
+    api?.voiceConfig().then(setConfig).catch(() => setConfig(null));
+  }, [api]);
+  const configRef = useRef(config);
+  configRef.current = config;
   const queue = useRef<string[]>([]);
   const running = useRef(false);
   const epoch = useRef(0);
-  const available = hasSynthesis();
+  const available = hasSynthesis() || Boolean(config?.tts);
+  const availableRef = useRef(available);
+  availableRef.current = available;
 
+  /** A speaker for the current choice (rebuilt per reply, so a change of voice applies at once). */
   const ensureSpeaker = useCallback(async () => {
-    if (!speaker.current) {
-      const voices = await loadVoices();
-      const lang = navigator.language || "en-GB";
-      speaker.current ??= new BrowserSpeaker(pickVoice(voices, lang), lang);
-    }
-    return speaker.current;
-  }, []);
+    const lang = configRef.current?.language ?? (navigator.language || "en-GB");
+    const browser = hasSynthesis() ? new BrowserSpeaker(pickVoice(await loadVoices(), lang), lang) : null;
+    const s = api ? speakerFor(api, configRef.current, readVoiceChoice(), browser) : browser;
+    if (!s) throw new Error("no voice");
+    if (s instanceof ServerSpeaker) s.unlock();
+    speaker.current = s;
+    return s;
+  }, [api]);
 
   const stop = useCallback(() => {
     epoch.current++;
@@ -79,7 +92,7 @@ export function useReadAloud() {
 
   const offer = useCallback(
     (text: string) => {
-      if (!enabledRef.current || !hasSynthesis()) return;
+      if (!enabledRef.current || !availableRef.current) return;
       const say = spokenText(text);
       if (!say) return;
       queue.current.push(say);
@@ -91,6 +104,8 @@ export function useReadAloud() {
   const set = useCallback(
     (on: boolean) => {
       writeReadAloud(on);
+      // Called from the switch's tap: unlock audio now, as iOS requires, for replies that arrive later.
+      if (on && configRef.current?.tts) sharedAudioContext();
       setEnabled(on);
       enabledRef.current = on;
       if (!on) stop();

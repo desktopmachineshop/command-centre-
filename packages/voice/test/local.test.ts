@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { encodeWav, int16ToFloat, SentenceAssembler, speechPieces } from "../src/index";
-import { type AsrWorkerMessage, CLEANUP_MODELS, installModel, isInstalled, KOKORO_VOICES, LOCAL_MODELS, LocalSpeech, LocalTextToSpeech, SpeechGate, type WorkerLike } from "../src/local/index";
+import { type AsrWorkerMessage, CLEANUP_MODELS, DEFAULT_VOICE_ID, findVoice, ttsModelConfig, VoiceNotInstalledError, VOICES, installModel, isInstalled, KOKORO_VOICES, LOCAL_MODELS, LocalSpeech, LocalTextToSpeech, SpeechGate, type WorkerLike } from "../src/local/index";
 
 describe("wav", () => {
   it("encodes 16-bit mono PCM with a valid header, and decodes it back", () => {
@@ -100,7 +100,9 @@ describe("LocalSpeech", () => {
     expect(() => speech.openStream(() => {})).toThrow(/aren't installed/);
     const root = installedRoot();
     expect(isInstalled(root, LOCAL_MODELS.asr)).toBe(true);
-    expect(new LocalSpeech({ root, log: () => {} }).status).toEqual({ asr: "ready", tts: "ready" });
+    expect(new LocalSpeech({ root, engine: "kokoro", log: () => {} }).status).toEqual({ asr: "ready", tts: "ready" });
+    // The default engine is Piper, whose voice isn't in this folder yet.
+    expect(new LocalSpeech({ root, log: () => {} }).status).toEqual({ asr: "ready", tts: "missing" });
   });
 
   it("streams text from the recognition worker, marks pauses, and finishes with the full text", async () => {
@@ -139,10 +141,10 @@ describe("LocalSpeech", () => {
         }),
       },
     });
-    const speech = new LocalSpeech({ root: installedRoot(), voice: "bm_george", speed: 2, sherpa, log: () => {} });
+    const speech = new LocalSpeech({ root: installedRoot(), engine: "kokoro", voice: "bm_george", speed: 2, sherpa, log: () => {} });
     const tts = new LocalTextToSpeech(speech);
-    expect(tts.defaultVoice).toBe("bm_george");
-    const [a] = await Promise.all([tts.synthesize("One."), tts.synthesize("Two.", { voice: "bf_emma" })]);
+    expect(tts.defaultVoice).toBe("kokoro:bm_george");
+    const [a] = await Promise.all([tts.synthesize("One."), tts.synthesize("Two.", { voice: "kokoro:bf_emma" })]);
     expect(a.mime).toBe("audio/wav");
     expect(a.audio.byteLength).toBe(44 + 20);
     expect(maxActive).toBe(1);
@@ -196,5 +198,89 @@ describe("clean-up models", () => {
     expect(paths(false).denoise).toBeNull();
     expect(paths(false).vad).toMatch(/silero_vad\.onnx$/);
     expect(paths(true).denoise).toMatch(/gtcrn_simple\.onnx$/);
+  });
+});
+
+describe("voice catalogue", () => {
+  /** A models folder with the given voices' files in place (no real models). */
+  function withVoices(...ids: string[]) {
+    const root = mkdtempSync(join(tmpdir(), "cc-voice-"));
+    for (const id of ids) {
+      const m = findVoice(id)!.model;
+      for (const f of m.files) {
+        if (f.includes(".")) {
+          mkdirSync(join(root, m.dir), { recursive: true });
+          writeFileSync(join(root, m.dir, f), "");
+        } else mkdirSync(join(root, m.dir, f), { recursive: true });
+      }
+    }
+    return root;
+  }
+  const fakeSherpa = (configs: any[], calls: { text: string; sid: number }[]) => () => ({
+    OfflineTts: {
+      createAsync: async (config: any) => {
+        configs.push(config);
+        return { sampleRate: 22050, generateAsync: async (r: { text: string; sid: number }) => (calls.push(r), { samples: new Float32Array(4), sampleRate: 22050 }) };
+      },
+    },
+  });
+
+  it("names every voice by family and resolves the older bare names", () => {
+    expect(VOICES.every((v) => /^[a-z]+:[a-z_]+$/.test(v.id))).toBe(true);
+    expect(new Set(VOICES.map((v) => v.id)).size).toBe(VOICES.length);
+    expect(findVoice("piper:cori")?.engine).toBe("vits");
+    expect(findVoice("jenny_dioco")?.id).toBe("piper:jenny_dioco");
+    expect(findVoice("bf_emma", "kokoro")?.id).toBe("kokoro:bf_emma");
+    expect(findVoice("nope")).toBeUndefined();
+    expect(new LocalSpeech({ root: tmpdir(), log: () => {} }).voice).toBe(DEFAULT_VOICE_ID);
+    expect(new LocalSpeech({ root: tmpdir(), engine: "kokoro", log: () => {} }).voice).toBe("kokoro:bf_emma");
+    expect(new LocalSpeech({ root: tmpdir(), voice: "alba", log: () => {} }).voice).toBe("piper:alba");
+  });
+
+  it("builds each engine's sherpa config from the voice's own files", () => {
+    expect(ttsModelConfig(findVoice("piper:alba")!, "/m")).toEqual({
+      vits: { model: "/m/vits-piper-en_GB-alba-medium/en_GB-alba-medium.onnx", tokens: "/m/vits-piper-en_GB-alba-medium/tokens.txt", dataDir: "/m/vits-piper-en_GB-alba-medium/espeak-ng-data" },
+    });
+    expect(Object.keys(ttsModelConfig(findVoice("kokoro:bm_lewis")!, "/m"))).toEqual(["kokoro"]);
+  });
+
+  it("speaks a chosen voice, loading each model once, and a Kokoro voice as its speaker id", async () => {
+    const configs: any[] = [];
+    const calls: { text: string; sid: number }[] = [];
+    const speech = new LocalSpeech({ root: withVoices("piper:cori", "piper:alan", "kokoro:bm_george"), sherpa: fakeSherpa(configs, calls), log: () => {} });
+    expect((await speech.synthesize("One.")).voice).toBe("piper:cori");
+    expect((await speech.synthesize("Two.", { voice: "piper:alan" })).voice).toBe("piper:alan");
+    await speech.synthesize("Three.", { voice: "piper:cori" });
+    await speech.synthesize("Four.", { voice: "kokoro:bm_george" });
+    expect(calls.map((c) => c.sid)).toEqual([0, 0, 0, KOKORO_VOICES.bm_george]);
+    expect(configs.map((c) => Object.keys(c.model)[0])).toEqual(["vits", "vits", "kokoro"]);
+  });
+
+  it("keeps at most two voice models loaded, dropping the least recently used", async () => {
+    const configs: any[] = [];
+    const speech = new LocalSpeech({ root: withVoices("piper:cori", "piper:alan", "piper:alba"), sherpa: fakeSherpa(configs, []), log: () => {} });
+    for (const v of ["piper:cori", "piper:alan", "piper:alba", "piper:alan", "piper:cori"]) await speech.synthesize("x", { voice: v });
+    // cori was dropped when alba loaded, so it loads again; alan stayed loaded.
+    expect(configs.map((c) => c.model.vits.model.match(/en_GB-(\w+)-medium/)[1])).toEqual(["cori", "alan", "alba", "cori"]);
+  });
+
+  it("downloads a voice chosen before it's installed, with the default speaking meanwhile (or a 'still downloading' error)", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetch = (async () => {
+      await gate;
+      return new Response("not a real archive");
+    }) as typeof globalThis.fetch;
+    const speech = new LocalSpeech({ root: withVoices("piper:cori"), fetch, sherpa: fakeSherpa([], []), log: () => {} });
+    expect((await speech.synthesize("Hi.", { voice: "piper:jenny_dioco" })).voice).toBe("piper:cori");
+    expect(speech.voices().find((v) => v.id === "piper:jenny_dioco")?.status).toBe("installing");
+    await expect(speech.synthesize("Hi.", { voice: "piper:jenny_dioco", fallback: false })).rejects.toBeInstanceOf(VoiceNotInstalledError);
+    release();
+    await speech.installVoice("piper:jenny_dioco").catch(() => {});
+    // That "archive" wasn't one: the failure is reported, so the app can offer a retry.
+    const jenny = speech.voices().find((v) => v.id === "piper:jenny_dioco")!;
+    expect(jenny.status).toBe("failed");
+    expect(jenny.error).toBeTruthy();
+    expect(speech.voices().find((v) => v.id === "piper:cori")).toMatchObject({ status: "ready", isDefault: true });
   });
 });

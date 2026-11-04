@@ -5,6 +5,7 @@ import { ChatFileIds, type ChatFiles } from "../chat-files";
 import { ReplyStateError, type VoiceConversations } from "../voice/conversations";
 import type { VoiceFront } from "../voice/front";
 import type { VoiceService } from "../voice/service";
+import { VoiceNotInstalledError } from "@cc/voice/local";
 
 export interface VoiceApiDeps {
   service: VoiceService;
@@ -77,17 +78,31 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
     }
   });
 
+  app.get("/voice/voices", (c) => c.json(service.voices()));
+
+  app.post("/voice/voices/:id/install", (c) => {
+    const id = c.req.param("id");
+    // Answers at once: the download runs on, and GET /voice/voices shows its progress.
+    const job = service.installVoice(id);
+    job.catch((err) => console.error("[voice] install", id, (err as Error).message));
+    return c.json(service.voices(), 202);
+  });
+
   app.post("/voice/speak", async (c) => {
-    if (!service.tts) return c.json({ error: "no text-to-speech provider configured; use the browser's speech synthesis" }, 503);
-    const body = z.object({ text: z.string().trim().min(1).max(2000), voice: z.string().max(100).optional() }).parse(await c.req.json());
+    const body = z
+      .object({ text: z.string().trim().min(1).max(2000), voice: z.string().max(100).optional(), fallback: z.boolean().optional() })
+      .parse(await c.req.json());
+    if (!service.tts && !(body.voice && service.options.local)) return c.json({ error: "no text-to-speech provider configured; use the browser's speech synthesis" }, 503);
     try {
-      const { audio, mime, cached } = await service.speak(body.text, body.voice);
+      const { audio, mime, cached, voice } = await service.speak(body.text, body.voice, { fallback: body.fallback });
       return c.body(audio as Uint8Array<ArrayBuffer>, 200, {
         "content-type": mime,
         "cache-control": "private, max-age=86400",
         "x-cc-cache": cached ? "hit" : "miss",
+        ...(voice ? { "x-cc-voice": voice } : {}),
       });
     } catch (err) {
+      if (err instanceof VoiceNotInstalledError) return c.json({ error: err.message, downloading: true, voice: err.voice.id }, 409);
       console.error("[voice] speak", err instanceof Error ? err.message : err);
       return c.json(providerError(err), 502);
     }

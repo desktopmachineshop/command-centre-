@@ -9,7 +9,10 @@ describe("audio level", () => {
   it("maps RMS to 0..1 on a decibel scale, silent below the noise floor", () => {
     expect(rmsToLevel(0)).toBe(0);
     expect(rmsToLevel(0.0005)).toBe(0); // about -66 dB: room noise
-    expect(rmsToLevel(0.2)).toBe(1); // loud speech
+    expect(rmsToLevel(0.4)).toBe(1); // loud speech, about -8 dB
+    const speech = rmsToLevel(0.1); // -20 dB: normal speech near the mic, with headroom left
+    expect(speech).toBeGreaterThan(0.7);
+    expect(speech).toBeLessThan(0.85);
     const mid = rmsToLevel(0.01); // -40 dB
     expect(mid).toBeGreaterThan(0.3);
     expect(mid).toBeLessThan(0.5);

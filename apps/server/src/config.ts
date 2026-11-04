@@ -179,7 +179,15 @@ const Env = z.object({
    * downloads the models (about 380 MB) into DATA_DIR/models/voice on first start; "off" disables it.
    */
   VOICE_LOCAL: z.enum(["auto", "off"]).default("auto"),
-  /** Kokoro voice: bf_emma (default), bf_isabella, bm_george, bm_lewis, or an American one (af_*, am_*). */
+  /**
+   * The self-hosted voice engine: "piper" (default: fast British voices) or "kokoro" (more natural,
+   * about five times slower on CPU).
+   */
+  VOICE_LOCAL_ENGINE: z.enum(["piper", "kokoro"]).default("piper"),
+  /**
+   * Piper: cori (default), jenny_dioco, alba, northern_english_male, alan, southern_english_female.
+   * Kokoro: bf_emma (default), bf_isabella, bm_george, bm_lewis, or an American one (af_*, am_*).
+   */
   VOICE_LOCAL_VOICE: z.string().optional(),
   /** Kokoro speaking speed, 0.7–1.3. */
   VOICE_LOCAL_SPEED: z.coerce.number().min(0.7).max(1.3).default(1.05),
@@ -334,7 +342,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       maxUploadBytes: e.VOICE_MAX_UPLOAD_KB * 1024,
       maxSeconds: e.VOICE_MAX_SECONDS,
       language: e.VOICE_LANGUAGE,
-      local: e.VOICE_LOCAL === "off" ? null : { voice: e.VOICE_LOCAL_VOICE, speed: e.VOICE_LOCAL_SPEED, denoise: e.VOICE_DENOISE === "on", root: join(dataDir, "models", "voice") },
+      local: e.VOICE_LOCAL === "off" ? null : { engine: e.VOICE_LOCAL_ENGINE, voice: e.VOICE_LOCAL_VOICE, speed: e.VOICE_LOCAL_SPEED, denoise: e.VOICE_DENOISE === "on", root: join(dataDir, "models", "voice") },
       // On whenever the agents run on Claude Code (env or the Accounts page; checked per turn in app.ts).
       front: e.VOICE_FRONT === "off" ? null : { model: e.VOICE_FRONT_MODEL },
     },

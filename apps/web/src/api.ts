@@ -259,6 +259,19 @@ export type VoiceConfig = {
   calendar: boolean;
 };
 
+/** A self-hosted voice (GET /api/voice/voices). */
+export type VoiceOption = {
+  id: string;
+  label: string;
+  description: string;
+  tier: "fast" | "natural";
+  sizeMb: number;
+  status: "missing" | "installing" | "ready" | "failed";
+  error: string | null;
+  isDefault: boolean;
+};
+export type VoiceList = { default: string | null; voices: VoiceOption[] };
+
 /** One line of POST /api/voice/turn's stream. */
 export type VoiceTurnEvent =
   | { delta: string }
@@ -473,15 +486,21 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       }
       if (buffer.trim()) yield JSON.parse(buffer) as VoiceTurnEvent;
     },
-    speak: async (text: string, voice?: string) => {
+    /**
+     * `voice`: a self-hosted voice id. One still downloading speaks in the default voice, or with
+     * `fallback: false` (a preview) fails with a 409 `{downloading: true}`.
+     */
+    speak: async (text: string, voice?: string, opts: { fallback?: boolean } = {}) => {
       const res = await fetch(`${base}/api/voice/speak`, {
         method: "POST",
         ...authed({ "content-type": "application/json" }),
-        body: JSON.stringify({ text, voice }),
+        body: JSON.stringify({ text, voice, ...(opts.fallback === false ? { fallback: false } : {}) }),
       });
       if (!res.ok) throw await failed(res);
       return res.blob();
     },
+    voices: () => call<VoiceList>("/voice/voices"),
+    installVoice: (id: string) => post<VoiceList>(`/voice/voices/${encodeURIComponent(id)}/install`),
     // --- end voice ---
     /** Uploads an image or video as the raw body; returns its public URL. */
     uploadMedia: async (file: File) => {

@@ -26,7 +26,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   /** Narrow screens: Conversation or Actions. Wide screens show both side by side. */
   const [tab, setTab] = useState<"conversation" | "actions">("conversation");
   const [retryError, setRetryError] = useState<string | null>(null);
-  const readAloud = useReadAloud();
+  const readAloud = useReadAloud(api);
   useLive(feed, (m) => {
     if (m.type === "run.message" && m.taskId === id) {
       if (m.message.type === "text") readAloud.offer(m.message.text);

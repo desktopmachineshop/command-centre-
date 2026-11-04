@@ -1,6 +1,6 @@
 import type { Proposal, Task } from "@cc/core";
 import { plural, type SpeechToText, speakable, spokenUsd, type TextToSpeech, truncate } from "@cc/voice";
-import { type LocalSpeech, LocalTextToSpeech } from "@cc/voice/local";
+import { findVoice, type LocalSpeech, LocalTextToSpeech } from "@cc/voice/local";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { BudgetService } from "../budget";
 import { dayStart } from "../days";
@@ -86,6 +86,10 @@ export class VoiceService {
     if (this.options.tts) return this.options.tts;
     const local = this.options.local;
     if (!local?.ttsReady) return undefined;
+    return this.localTtsFor(local);
+  }
+
+  private localTtsFor(local: LocalSpeech): LocalTextToSpeech {
     if (this.localTts?.speech !== local) this.localTts = { speech: local, tts: new LocalTextToSpeech(local) };
     return this.localTts.tts;
   }
@@ -113,7 +117,7 @@ export class VoiceService {
     return {
       stt: stt ? { provider: stt.provider, model: stt.model, streaming: this.streaming } : this.streaming ? { provider: "local", model: "kroko", streaming: true } : null,
       tts: tts ? { provider: tts.provider, model: tts.model, voice: tts.defaultVoice } : null,
-      local: local ? { stt: local.status.asr, tts: local.status.tts } : null,
+      local: local ? { stt: local.status.asr, tts: local.status.tts, voices: true } : null,
       maxUploadBytes,
       maxSeconds,
       language,
@@ -122,8 +126,33 @@ export class VoiceService {
   }
 
   /** Synthesizes `text`, from the cache for short phrases ("Working on it", confirmations). */
-  async speak(text: string, voice?: string): Promise<{ audio: Uint8Array; mime: string; cached: boolean }> {
-    const tts = this.tts;
+  /** The self-hosted voices that can be chosen (empty without self-hosted speech). */
+  voices() {
+    const local = this.options.local;
+    if (!local) return { default: this.tts?.defaultVoice ?? null, voices: [] };
+    return {
+      default: this.options.tts ? null : local.voice,
+      voices: local.voices().map((v) => ({ id: v.id, label: v.label, description: v.description, tier: v.tier, sizeMb: v.model.mb, status: v.status, error: v.error ?? null, isDefault: v.isDefault })),
+    };
+  }
+
+  /** Starts downloading a self-hosted voice; resolves once it's ready. */
+  installVoice(id: string): Promise<void> {
+    const local = this.options.local;
+    if (!local) return Promise.reject(new Error("self-hosted speech is off"));
+    return local.installVoice(id);
+  }
+
+  /**
+   * Synthesizes `text`, from the cache for short phrases ("On it", confirmations). `voice`: a
+   * self-hosted voice id ("piper:jenny_dioco") speaks with that voice, even when a keyed
+   * provider is the default; one not downloaded yet starts downloading and the default speaks
+   * meanwhile, unless `fallback` is false (VoiceNotInstalledError).
+   */
+  async speak(text: string, voice?: string, opts: { fallback?: boolean } = {}): Promise<{ audio: Uint8Array; mime: string; cached: boolean; voice?: string }> {
+    const local = this.options.local;
+    const localVoice = voice && local && findVoice(voice) ? voice : undefined;
+    const tts: TextToSpeech | undefined = localVoice ? this.localTtsFor(local!) : this.tts;
     if (!tts) throw new Error("no TTS provider configured");
     const key = `${tts.provider}:${tts.model}:${voice ?? tts.defaultVoice}:${text}`;
     const hit = this.cache.get(key);
@@ -133,13 +162,16 @@ export class VoiceService {
       return { ...hit, cached: true };
     }
     const started = Date.now();
-    const { audio, mime } = await tts.synthesize(text, { voice, format: "mp3", language: this.options.language });
+    const result = await (tts as LocalTextToSpeech).synthesize(text, { voice, format: "mp3", language: this.options.language, fallback: opts.fallback });
+    const { audio, mime } = result;
     if (tts.provider === "local" && Date.now() - started > 1500) console.log(`[voice] slow synthesis: ${Date.now() - started} ms for ${text.length} chars`);
-    if (text.length <= (this.options.cacheMaxChars ?? 300)) {
+    // A fallback (the chosen voice still downloading) isn't cached under the chosen voice.
+    const fellBack = Boolean(voice && result.voice && result.voice !== voice);
+    if (!fellBack && text.length <= (this.options.cacheMaxChars ?? 300)) {
       this.cache.set(key, { audio, mime });
       while (this.cache.size > (this.options.cacheEntries ?? 200)) this.cache.delete(this.cache.keys().next().value!);
     }
-    return { audio, mime, cached: false };
+    return { audio, mime, cached: false, voice: result.voice };
   }
 
   private verticalName(id: string) {
