@@ -212,7 +212,7 @@ describe("voice API without server providers", () => {
   const app = voiceApiRoutes({ service, conversations: {} as never });
 
   it("reports none and refuses server speech, so the PWA uses the browser", async () => {
-    expect(await (await app.request("/voice/config")).json()).toEqual({ stt: null, tts: null, maxUploadBytes: 1024, maxSeconds: 60, language: "en-GB", calendar: false });
+    expect(await (await app.request("/voice/config")).json()).toEqual({ stt: null, tts: null, local: null, maxUploadBytes: 1024, maxSeconds: 60, language: "en-GB", calendar: false });
     expect((await app.request("/voice/transcribe", { method: "POST", body: "x", headers: { "content-type": "audio/webm" } })).status).toBe(503);
     expect((await app.request("/voice/speak", { method: "POST", body: JSON.stringify({ text: "hi" }), headers: { "content-type": "application/json" } })).status).toBe(503);
   });

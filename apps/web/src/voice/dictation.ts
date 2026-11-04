@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Api, VoiceConfig } from "../api";
-import { BrowserListener, hasBrowserRecognition, hasRecorder, isIosStandalone, type Listener, RecorderListener, VoicePermissionError } from "./speech";
+import type { LevelSource } from "./level";
+import {
+  BrowserListener,
+  hasBrowserRecognition,
+  hasLiveCapture,
+  hasRecorder,
+  isIosStandalone,
+  type Listener,
+  RecorderListener,
+  StreamingListener,
+  VoicePermissionError,
+} from "./speech";
 
 /**
- * The best way to listen on this device: the browser's own recognition where it works,
- * else recording and the server's speech-to-text (when one is set up), else nothing.
+ * The best way to listen on this device: live transcription on the server (self-hosted) where
+ * it's ready, which streams the words as they're said on every device (including the iPhone
+ * home-screen app and the desktop app, where browser recognition is unreliable); else the
+ * browser's own recognition; else recording and the server's speech-to-text; else nothing.
  * Shared by Drive mode and the chat's dictation button.
  */
-export function pickListener(api: Pick<Api, "transcribe">, config: VoiceConfig | null): Listener | null {
+export function pickListener(api: Pick<Api, "transcribe" | "voiceListenUrl" | "token">, config: VoiceConfig | null): Listener | null {
+  if (config?.stt?.streaming && hasLiveCapture()) return new StreamingListener(api.voiceListenUrl, api.token);
   const browser = hasBrowserRecognition();
   const server = Boolean(config?.stt) && hasRecorder();
   const transcribe = async (audio: Blob, seconds: number, language: string) => (await api.transcribe(audio, seconds, language)).text;
@@ -32,11 +46,12 @@ export function joinDictation(typed: string, spoken: string): string {
  * Dictation into a text box, like the mic in Claude: start, talk (pauses are fine), stop, and the
  * words land after whatever was typed, ready to edit or send. Nothing is sent by itself.
  */
-export function useDictation(api: Pick<Api, "voiceConfig" | "transcribe">) {
+export function useDictation(api: Pick<Api, "voiceConfig" | "transcribe" | "voiceListenUrl" | "token">) {
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const active = useRef(false);
+  const cancelled = useRef(false);
 
   useEffect(() => {
     api.voiceConfig().then(setConfig).catch(() => setConfig(null));
@@ -53,6 +68,7 @@ export function useDictation(api: Pick<Api, "voiceConfig" | "transcribe">) {
     async (onText: (spoken: string, final: boolean) => void): Promise<string | null> => {
       if (!listener || active.current) return null;
       active.current = true;
+      cancelled.current = false;
       setError(null);
       setListening(true);
       try {
@@ -63,6 +79,10 @@ export function useDictation(api: Pick<Api, "voiceConfig" | "transcribe">) {
           latched: true,
           onInterim: (t) => onText(t, false),
         });
+        if (cancelled.current) {
+          onText("", true);
+          return null;
+        }
         onText(text ?? "", true);
         return text;
       } catch (err) {
@@ -82,5 +102,12 @@ export function useDictation(api: Pick<Api, "voiceConfig" | "transcribe">) {
   );
 
   const stop = useCallback(() => listener?.stop(), [listener]);
-  return { available: listener !== null, listening, error, start, stop, clearError: () => setError(null) };
+  /** Stops and throws away what was said. */
+  const cancel = useCallback(() => {
+    cancelled.current = true;
+    listener?.stop();
+  }, [listener]);
+  /** The microphone level, for the waveform. */
+  const level = useCallback((): LevelSource | null => listener?.level ?? null, [listener]);
+  return { available: listener !== null, listening, error, start, stop, cancel, level, clearError: () => setError(null) };
 }

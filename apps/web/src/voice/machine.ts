@@ -39,6 +39,8 @@ export interface DriveState {
   expect: Expect;
   /** What is being spoken now. */
   utterance: string | null;
+  /** The speech is a reply still being streamed (Drive's reply stream supplies the words). */
+  streamed: boolean;
   /** The last thing spoken, for "repeat". */
   lastSpoken: string | null;
   /** Task whose agent asked a question and waits for Dave's reply. */
@@ -64,6 +66,8 @@ export interface Say {
   taskId?: string;
   approval?: Approval;
   confirm?: Approval & { action: "approve" | "reject" };
+  /** The words come from a streamed reply rather than `text`. */
+  streamed?: boolean;
 }
 
 export type DriveAction =
@@ -81,8 +85,8 @@ export type DriveAction =
   | { type: "waiting"; taskId: string }
   /** `background`: an agent answer arriving on its own, rather than the reply to what Dave just said. */
   | ({ type: "say"; background?: boolean } & Say)
-  /** Speech finished. */
-  | { type: "spoken" }
+  /** Speech finished. `text`: what a streamed reply said in the end (for "repeat"). */
+  | { type: "spoken"; text?: string }
   | { type: "skip"; proposalId: string }
   | { type: "resetSkips" }
   /** "stop", "cancel", "that's all": end everything. */
@@ -99,6 +103,7 @@ export function initialDriveState(mode: VoiceMode = "push", followUp = false): D
     seq: 0,
     expect: "none",
     utterance: null,
+    streamed: false,
     lastSpoken: null,
     conversation: null,
     waitingFor: null,
@@ -118,7 +123,8 @@ function speak(state: DriveState, say: Say): DriveState {
     phase: "speaking",
     seq: state.seq + 1,
     utterance: say.text,
-    lastSpoken: say.text,
+    streamed: say.streamed ?? false,
+    lastSpoken: say.streamed ? state.lastSpoken : say.text,
     expect: say.expect,
     conversation: say.expect === "reply" && say.taskId ? { taskId: say.taskId } : say.expect === "reply" ? state.conversation : null,
     approval: say.approval ?? (say.expect === "approval" || say.expect === "confirm" ? state.approval : null),
@@ -132,7 +138,7 @@ function speak(state: DriveState, say: Say): DriveState {
 /** Back to idle; delivers a pending answer first. */
 function settle(state: DriveState): DriveState {
   if (state.pending) return speak(state, state.pending);
-  return { ...state, phase: "idle", utterance: null };
+  return { ...state, phase: "idle", utterance: null, streamed: false };
 }
 
 export function driveReducer(state: DriveState, action: DriveAction): DriveState {
@@ -146,10 +152,10 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
       switch (state.phase) {
         case "speaking": // Interrupt (screen only)
           if (action.source === "headset") return state;
-          return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, stillThereAsked: false, error: null };
+          return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, streamed: false, stillThereAsked: false, error: null };
         case "idle":
         case "waiting": // speak over a long run (e.g. "cancel")
-          return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, stillThereAsked: false, error: null };
+          return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, streamed: false, stillThereAsked: false, error: null };
         case "listening":
           return settle({ ...state, phase: "idle" });
         default:
@@ -175,6 +181,8 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
     }
 
     case "waiting":
+      // Never cut off speech or Dave: the answer is still followed, and spoken when it comes.
+      if (state.phase === "speaking" || state.phase === "listening") return { ...state, waitingFor: action.taskId };
       return { ...state, phase: "waiting", waitingFor: action.taskId, expect: "none", confirm: null };
 
     case "say": {
@@ -188,9 +196,10 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
 
     case "spoken": {
       if (state.phase !== "speaking") return state;
+      if (action.text) state = { ...state, lastSpoken: action.text };
       if (state.pending) return speak(state, state.pending);
       const listen = state.mode === "conversational" && state.expect !== "none" && (state.expect !== "command" || state.followUp);
-      if (listen) return { ...state, phase: "listening", seq: state.seq + 1, utterance: null };
+      if (listen) return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, streamed: false };
       return settle({ ...state, phase: "idle", expect: state.expect === "command" ? "none" : state.expect });
     }
 
@@ -208,12 +217,11 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
       };
 
     case "error":
-      return { ...state, phase: "idle", utterance: null, waitingFor: null, error: action.message };
+      return { ...state, phase: "idle", utterance: null, streamed: false, waitingFor: null, error: action.message };
   }
 }
 
-/** How long to listen before treating it as silence. */
-/** How long a pause ends Dave's turn (he can also tap Send). */
+/** How long a pause ends Dave's turn with browser recognition (he can also tap Send); live transcription ends it sooner, on the server. */
 export const END_OF_TURN_MS = 2500;
 
 /** Push to talk is latched: a turn lasts until Send, for up to this long (a long message, with pauses to think). */

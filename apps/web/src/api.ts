@@ -250,13 +250,22 @@ export type Campaign = { title: string; posts: { accountId: string; content: Pos
 
 // --- voice (Drive mode) ---
 export type VoiceConfig = {
-  stt: { provider: string; model: string } | null;
+  /** `streaming`: live transcription over /ws/voice (self-hosted on the server). */
+  stt: { provider: string; model: string; streaming?: boolean } | null;
   tts: { provider: string; model: string; voice: string } | null;
   maxUploadBytes: number;
   maxSeconds: number;
   language: string;
   calendar: boolean;
 };
+
+/** One line of POST /api/voice/turn's stream. */
+export type VoiceTurnEvent =
+  | { delta: string }
+  | { done: true; text: string; handoff: { taskId: string | null } | null }
+  | { error: string };
+
+export type VoiceTurnRequest = { text: string; vertical?: string; role?: string; talkingTo?: string; lastSpoken?: string | null };
 
 export type VoiceBriefing = { text: string; approvals: { count: number }; cost: { todayUsd: number } };
 
@@ -432,6 +441,33 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       });
       if (!res.ok) throw await failed(res);
       return (await res.json()) as { text: string };
+    },
+    /** Live transcription socket (self-hosted on the server). */
+    voiceListenUrl: `${base.replace(/^http/, "ws") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`}/ws/voice`,
+    voiceWarm: (front = false) => post<{ ok: boolean; front: boolean }>("/voice/warm", { front }),
+    /** Drive mode's fast voice front: yields its streamed reply, then whether it handed on to an agent. */
+    voiceTurn: async function* (request: VoiceTurnRequest, signal?: AbortSignal): AsyncGenerator<VoiceTurnEvent> {
+      const res = await fetch(`${base}/api/voice/turn`, {
+        method: "POST",
+        ...authed({ "content-type": "application/json" }),
+        body: JSON.stringify(request),
+        signal,
+      });
+      if (!res.ok || !res.body) throw await failed(res);
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += value;
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line) yield JSON.parse(line) as VoiceTurnEvent;
+        }
+      }
+      if (buffer.trim()) yield JSON.parse(buffer) as VoiceTurnEvent;
     },
     speak: async (text: string, voice?: string) => {
       const res = await fetch(`${base}/api/voice/speak`, {

@@ -41,6 +41,7 @@
     "nodemailer": "^10.2.1",
     "pg": "^8.23.1",
     "pg-boss": "^12.38.0",
+    "sherpa-onnx-node": "1.13.8",
     "unpdf": "^1.9.1",
     "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",

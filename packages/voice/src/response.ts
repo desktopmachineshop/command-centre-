@@ -46,7 +46,8 @@ export function parseVoiceResponse(result: string | null | undefined): VoiceResp
 /** Prompt rules for voice mode, appended to the task prompt. */
 export const voiceResponseInstructions = [
   "VOICE MODE: Dave is driving and will hear your answer read aloud, not see it.",
-  "- Answer in one to three short spoken sentences. No markdown, lists, tables, code, emoji or URLs.",
+  "- Answer in one to three short spoken sentences, the way a capable assistant talks on the phone: lead with the answer, use contractions, one idea per sentence. No markdown, lists, tables, code, emoji or URLs.",
+  "- Don't repeat the question or narrate what you did (\"I searched the brain and...\"); just say what Dave needs to know.",
   "- Say numbers, money, dates and times naturally (\"three pm\", \"forty-two pounds\", \"order ten forty-two\").",
   "- Don't read out long content (emails, documents); summarise and say it's ready on screen.",
   "- If you need an answer from Dave before you can continue, ask one short question and stop; otherwise finish the job.",

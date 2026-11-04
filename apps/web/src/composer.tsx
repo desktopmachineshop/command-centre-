@@ -4,12 +4,15 @@ import { formatBytes } from "./format";
 import { Icon } from "./icons";
 import { ErrorBanner } from "./ui";
 import { joinDictation, useDictation } from "./voice/dictation";
+import { Waveform } from "./voice/Waveform";
 
 /**
  * The message box shared by the Chat page and a task's "Reply to the agent": a text box,
  * the dictation mic and Send. Enter sends, Shift+Enter is a new line. The mic dictates
- * into the box (nothing is sent by itself); Send while dictating finishes listening, then
- * sends everything said. The mic is hidden where the device can't listen.
+ * into the box (nothing is sent by itself): while it listens, a live waveform follows the
+ * voice and the words appear as they're said; ✓ keeps them, ✕ throws them away. Send while
+ * dictating finishes listening, then sends everything said. The mic is hidden where the
+ * device can't listen.
  *
  * Files: the paperclip picks them, and pasting (a screenshot, a file copied in the file manager)
  * or dropping them on the box attaches them too. Each uploads straight away and shows as a chip
@@ -49,7 +52,7 @@ export function Composer({
   className = "",
   children,
 }: {
-  api: Pick<Api, "voiceConfig" | "transcribe"> & Partial<Pick<Api, "uploadChatFile">>;
+  api: Pick<Api, "voiceConfig" | "transcribe" | "voiceListenUrl" | "token"> & Partial<Pick<Api, "uploadChatFile">>;
   value: string;
   onChange: (text: string) => void;
   /**
@@ -130,6 +133,8 @@ export function Composer({
       }
     : {};
 
+  const elapsed = useElapsed(dictation.listening);
+
   const toggleMic = () => {
     if (dictation.listening) return dictation.stop();
     typedBefore.current = value;
@@ -161,7 +166,7 @@ export function Composer({
       if (ok !== false && files.length) setAttachments((as) => as.filter((a) => !a.file || !files.includes(a.file)));
     });
   };
-  const classes = ["composer", dictation.available ? "has-mic" : "", upload ? "has-attach" : "", attachments.length ? "has-files" : "", dragging ? "is-dragging" : "", className];
+  const classes = ["composer", dictation.available ? "has-mic" : "", dictation.listening ? "is-recording" : "", upload ? "has-attach" : "", attachments.length ? "has-files" : "", dragging ? "is-dragging" : "", className];
 
   return (
     <>
@@ -188,7 +193,7 @@ export function Composer({
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={dictation.listening ? "Listening… press the mic again when you're done" : placeholder}
+          placeholder={dictation.listening ? "Listening…" : placeholder}
           aria-label={label}
           rows={2}
           onPaste={onPaste}
@@ -222,6 +227,17 @@ export function Composer({
             </button>
           </>
         )}
+        {dictation.listening && (
+          <div className="dictation-bar" role="group" aria-label="Dictating">
+            <button type="button" className="dictation-cancel" onClick={dictation.cancel} aria-label="Cancel dictation" title="Cancel: discard what was said">
+              <Icon name="x" size={16} />
+            </button>
+            <Waveform source={dictation.level} className="dictation-wave" />
+            <span className="dictation-time" aria-hidden="true">
+              {elapsed}
+            </span>
+          </div>
+        )}
         {dictation.available && (
           <button
             type="button"
@@ -229,10 +245,10 @@ export function Composer({
             onClick={toggleMic}
             aria-pressed={dictation.listening}
             data-help-key="chat.dictate"
-            aria-label={dictation.listening ? "Stop dictating" : "Dictate"}
-            title={dictation.listening ? "Stop dictating" : "Dictate: talk instead of typing"}
+            aria-label={dictation.listening ? "Done dictating" : "Dictate"}
+            title={dictation.listening ? "Done: keep what was said" : "Dictate: talk instead of typing"}
           >
-            <Icon name={dictation.listening ? "stop" : "mic"} size={16} />
+            <Icon name={dictation.listening ? "check" : "mic"} size={16} />
           </button>
         )}
         <button className="primary send" aria-label="Send" disabled={busy}>
@@ -264,4 +280,17 @@ export function AttachedFiles({ files }: { files: Pick<ChatFile, "name" | "size"
       ))}
     </ul>
   );
+}
+
+/** "0:07" since `running` became true. */
+function useElapsed(running: boolean): string {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const started = Date.now();
+    setSeconds(0);
+    const t = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 250);
+    return () => clearInterval(t);
+  }, [running]);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }

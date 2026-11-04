@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
 import { type OdooEventsConfig, parseOdooEventsConfig } from "@cc/odoo";
@@ -174,6 +174,21 @@ const Env = z.object({
   VOICE_MAX_SECONDS: z.coerce.number().positive().default(60),
   /** Language hint for transcription and the PWA's voices. */
   VOICE_LANGUAGE: z.string().default("en-GB"),
+  /**
+   * Self-hosted speech (open models, no keys): live transcription and the Kokoro voice. "auto"
+   * downloads the models (about 380 MB) into DATA_DIR/models/voice on first start; "off" disables it.
+   */
+  VOICE_LOCAL: z.enum(["auto", "off"]).default("auto"),
+  /** Kokoro voice: bf_emma (default), bf_isabella, bm_george, bm_lewis, or an American one (af_*, am_*). */
+  VOICE_LOCAL_VOICE: z.string().optional(),
+  /** Kokoro speaking speed, 0.7–1.3. */
+  VOICE_LOCAL_SPEED: z.coerce.number().min(0.7).max(1.3).default(1.05),
+  /**
+   * Drive mode's fast voice front: a warm Claude Code session (same sign-in as the agents) that
+   * answers in about a second and hands real work to the agents. "auto": on with the claude-code runner.
+   */
+  VOICE_FRONT: z.enum(["auto", "off"]).default("auto"),
+  VOICE_FRONT_MODEL: z.string().default("haiku"),
   // --- end voice ---
   // --- Personal assistant (see docs/SETUP.md, "Personal assistant") ---
   /** JSON array of Google Calendar accounts; see `GoogleCalendarAccount` in @cc/pa. */
@@ -314,6 +329,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       maxUploadBytes: e.VOICE_MAX_UPLOAD_KB * 1024,
       maxSeconds: e.VOICE_MAX_SECONDS,
       language: e.VOICE_LANGUAGE,
+      local: e.VOICE_LOCAL === "off" ? null : { voice: e.VOICE_LOCAL_VOICE, speed: e.VOICE_LOCAL_SPEED, root: join(dataDir, "models", "voice") },
+      front: e.VOICE_FRONT === "off" || e.AGENT_RUNNER !== "claude-code" ? null : { model: e.VOICE_FRONT_MODEL },
     },
     // --- end voice ---
     pa: { calendarAccounts },

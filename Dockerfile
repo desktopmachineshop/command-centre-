@@ -16,6 +16,7 @@ COPY packages/social/package.json packages/social/
 COPY packages/triage/package.json packages/triage/
 COPY packages/verticals/package.json packages/verticals/
 COPY packages/video/package.json packages/video/
+COPY packages/voice/package.json packages/voice/
 RUN pnpm install --frozen-lockfile
 COPY . .
 # Railway passes the commit being built; it becomes the web build id (dist/version.json).
@@ -26,8 +27,9 @@ RUN pnpm --filter @cc/server deploy --prod --legacy /out
 FROM node:22-slim
 # git: the brain's optional git mirror. ca-certificates: HTTPS for git and the Claude API.
 # bsdutils: `script`, the terminal "Connect Claude" runs `claude setup-token` in.
+# bzip2: unpacks the self-hosted speech models (downloaded once into /data/models/voice).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates bsdutils \
+  && apt-get install -y --no-install-recommends git ca-certificates bsdutils bzip2 \
   && rm -rf /var/lib/apt/lists/*
 # Claude Code CLI, the agent driver. Pin with --build-arg CLAUDE_CODE_VERSION=x.y.z.
 ARG CLAUDE_CODE_VERSION=latest

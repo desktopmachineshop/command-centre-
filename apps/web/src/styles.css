@@ -2654,13 +2654,12 @@ a.stat:hover {
   font-weight: 800;
   letter-spacing: 0.01em;
 }
-.drive .drive-ptt:hover:not(:disabled) {
+.drive .drive-ptt.idle:hover:not(:disabled) {
   background: var(--accent-solid-hover);
 }
 .drive .drive-ptt.listening {
   background: var(--danger-solid);
   border-color: var(--danger-solid);
-  animation: drive-pulse 1.2s ease-out infinite;
 }
 .drive .drive-ptt.speaking {
   background: var(--success-solid);
@@ -2672,17 +2671,74 @@ a.stat:hover {
   color: var(--accent);
   border-color: var(--accent);
 }
-@keyframes drive-pulse {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger-solid) 60%, transparent);
-  }
+/*
+ * The orb inside the talk button (voice/Waveform.tsx VoiceOrb): rings that swell with the live
+ * level (--level, 0..1) of the microphone while listening and of the voice while speaking, and
+ * breathe slowly while thinking.
+ */
+.drive .drive-ptt {
+  position: relative;
+}
+.voice-orb {
+  --level: 0;
+  --orb: var(--danger-solid);
+  position: absolute;
+  inset: -6px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.voice-orb-core {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  transform: scale(calc(1 + var(--level) * 0.05));
+  transition: transform 60ms linear;
+}
+/* Glow rings: an outer shadow only, so they never tint the button itself. */
+.voice-orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 calc(var(--level) * 16px) color-mix(in srgb, var(--orb) 30%, transparent);
+  transition: box-shadow 70ms linear;
+}
+.voice-orb-ring.two {
+  box-shadow: 0 0 0 calc(var(--level) * 30px) color-mix(in srgb, var(--orb) 14%, transparent);
+}
+.drive .drive-ptt.speaking .voice-orb {
+  --orb: var(--success-solid);
+}
+.drive .drive-ptt.waiting .voice-orb,
+.drive .drive-ptt.sending .voice-orb {
+  --orb: var(--accent);
+}
+.drive .drive-ptt.waiting .voice-orb-ring,
+.drive .drive-ptt.sending .voice-orb-ring {
+  animation: orb-breathe 2.4s ease-in-out infinite;
+}
+.drive .drive-ptt.waiting .voice-orb-ring.two,
+.drive .drive-ptt.sending .voice-orb-ring.two {
+  animation-delay: -1.2s;
+}
+@keyframes orb-breathe {
+  0%,
   100% {
-    box-shadow: 0 0 0 28px transparent;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--orb) 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 18px color-mix(in srgb, var(--orb) 12%, transparent);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .drive .drive-ptt.listening {
-    animation: none;
+  .voice-orb-ring,
+  .voice-orb-core {
+    animation: none !important;
+    transition: none !important;
+  }
+  .voice-orb-core {
+    transform: none;
   }
 }
 .drive-caption {
@@ -3661,15 +3717,49 @@ details[open] > summary .brain-tree-chevron {
   border-color: var(--border);
 }
 .composer button.mic.is-listening {
-  background: var(--danger-solid);
-  border-color: var(--danger-solid);
-  color: #fff;
-  animation: pulse 1.4s ease-in-out infinite;
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: var(--on-accent);
 }
-@media (prefers-reduced-motion: reduce) {
-  .composer button.mic.is-listening {
-    animation: none;
-  }
+/* While dictating: ✕, a live waveform and the time, in place of the picker and hint. */
+.composer.is-recording {
+  border-color: var(--accent);
+}
+.composer.is-recording > select {
+  display: none;
+}
+.composer .dictation-bar {
+  grid-column: 1 / span 2;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  height: 40px;
+}
+.composer button.dictation-cancel {
+  grid-area: auto;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  justify-content: center;
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.composer .dictation-wave {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  color: var(--accent);
+}
+.composer .dictation-time {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  min-width: 2.6em;
+  text-align: right;
 }
 
 /*

@@ -171,7 +171,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
 
     const mic = page.getByRole("button", { name: "Dictate" });
     await mic.click();
-    const stop = page.getByRole("button", { name: "Stop dictating" });
+    const stop = page.getByRole("button", { name: "Done dictating" });
     expect(await stop.getAttribute("aria-pressed")).toBe("true");
     await page.evaluate(() => (window as unknown as { __say: (t: string) => void }).__say("where is order 1042"));
     await expect.poll(() => box.inputValue()).toBe("dms: where is order 1042");
@@ -228,7 +228,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
     await box.fill("Yes,");
 
     await reply.getByRole("button", { name: "Dictate" }).click();
-    const stop = reply.getByRole("button", { name: "Stop dictating" });
+    const stop = reply.getByRole("button", { name: "Done dictating" });
     expect(await stop.getAttribute("aria-pressed")).toBe("true");
     await page.evaluate(() => (window as unknown as { __say: (t: string) => void }).__say("send it today"));
     await expect.poll(() => box.inputValue()).toBe("Yes, send it today");

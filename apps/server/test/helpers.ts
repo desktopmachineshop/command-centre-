@@ -49,6 +49,7 @@ export async function makeServer(
     DATA_DIR: dataDir,
     SKILLS_DIR: skillsDir,
     AGENT_RUNNER: "echo",
+    VOICE_LOCAL: "off",
     SCHEDULES_ENABLED: "false",
     INTERNAL_BASE_URL: "http://cc.test",
     ...options.env,

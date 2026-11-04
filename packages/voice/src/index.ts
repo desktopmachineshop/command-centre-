@@ -19,3 +19,5 @@ export {
   type VoiceResponse,
   type VoiceResponseType,
 } from "./response";
+export { encodeWav, int16ToFloat } from "./wav";
+export { SentenceAssembler, speechPieces } from "./sentences";

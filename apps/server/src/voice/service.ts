@@ -1,5 +1,6 @@
 import type { Proposal, Task } from "@cc/core";
 import { plural, type SpeechToText, speakable, spokenUsd, type TextToSpeech, truncate } from "@cc/voice";
+import { type LocalSpeech, LocalTextToSpeech } from "@cc/voice/local";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { BudgetService } from "../budget";
 import { dayStart } from "../days";
@@ -27,6 +28,8 @@ export interface VoiceServiceOptions {
   stt?: SpeechToText;
   tts?: TextToSpeech;
   calendar?: VoiceCalendar;
+  /** Self-hosted speech (open models): live transcription, and the voice when no TTS key is set. */
+  local?: LocalSpeech | null;
   maxUploadBytes: number;
   maxSeconds: number;
   language: string;
@@ -75,15 +78,41 @@ export class VoiceService {
   get stt() {
     return this.options.stt;
   }
-  get tts() {
-    return this.options.tts;
+  private localTts: { speech: LocalSpeech; tts: LocalTextToSpeech } | null = null;
+
+  /** The keyed TTS provider, else the self-hosted voice once its model is installed. */
+  get tts(): TextToSpeech | undefined {
+    if (this.options.tts) return this.options.tts;
+    const local = this.options.local;
+    if (!local?.ttsReady) return undefined;
+    if (this.localTts?.speech !== local) this.localTts = { speech: local, tts: new LocalTextToSpeech(local) };
+    return this.localTts.tts;
+  }
+
+  /** Live (streaming) transcription is self-hosted; ready once its model is installed. */
+  get streaming(): boolean {
+    return Boolean(this.options.local?.asrReady);
+  }
+
+  /** Loads the self-hosted engines ahead of use. */
+  async warm(): Promise<void> {
+    await this.options.local?.warm();
+  }
+
+  /** e.g. "2 approvals waiting", for the voice front's context. */
+  async pendingLine(): Promise<string> {
+    const pending = await this.store.listProposals({ status: "pending", limit: 200 });
+    return pending.length ? `${plural(pending.length, "approval")} waiting` : "no approvals waiting";
   }
 
   config() {
-    const { stt, tts, maxUploadBytes, maxSeconds, language } = this.options;
+    const { stt, maxUploadBytes, maxSeconds, language } = this.options;
+    const tts = this.tts;
+    const local = this.options.local;
     return {
-      stt: stt ? { provider: stt.provider, model: stt.model } : null,
+      stt: stt ? { provider: stt.provider, model: stt.model, streaming: this.streaming } : this.streaming ? { provider: "local", model: "kroko", streaming: true } : null,
       tts: tts ? { provider: tts.provider, model: tts.model, voice: tts.defaultVoice } : null,
+      local: local ? { stt: local.status.asr, tts: local.status.tts } : null,
       maxUploadBytes,
       maxSeconds,
       language,
@@ -93,7 +122,7 @@ export class VoiceService {
 
   /** Synthesizes `text`, from the cache for short phrases ("Working on it", confirmations). */
   async speak(text: string, voice?: string): Promise<{ audio: Uint8Array; mime: string; cached: boolean }> {
-    const tts = this.options.tts;
+    const tts = this.tts;
     if (!tts) throw new Error("no TTS provider configured");
     const key = `${tts.provider}:${tts.model}:${voice ?? tts.defaultVoice}:${text}`;
     const hit = this.cache.get(key);
@@ -102,7 +131,9 @@ export class VoiceService {
       this.cache.set(key, hit);
       return { ...hit, cached: true };
     }
+    const started = Date.now();
     const { audio, mime } = await tts.synthesize(text, { voice, format: "mp3", language: this.options.language });
+    if (tts.provider === "local" && Date.now() - started > 1500) console.log(`[voice] slow synthesis: ${Date.now() - started} ms for ${text.length} chars`);
     if (text.length <= (this.options.cacheMaxChars ?? 300)) {
       this.cache.set(key, { audio, mime });
       while (this.cache.size > (this.options.cacheEntries ?? 200)) this.cache.delete(this.cache.keys().next().value!);
