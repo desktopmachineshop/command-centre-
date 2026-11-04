@@ -3,7 +3,7 @@ import type { VoiceTurnEvent } from "../src/api";
 import { rms, rmsToLevel, smooth } from "../src/voice/level";
 import { ReplyStream } from "../src/voice/reply";
 import { Downsampler, pauseAfter } from "../src/voice/speech";
-import { barsFor } from "../src/voice/Waveform";
+import { barsFor, RING_SLOTS, ringFade } from "../src/voice/Waveform";
 
 describe("audio level", () => {
   it("maps RMS to 0..1 on a decibel scale, silent below the noise floor", () => {
@@ -27,6 +27,15 @@ describe("audio level", () => {
   it("fits the bar history to the width, newest on the right", () => {
     expect(barsFor([0.1, 0.2, 0.3], 5)).toEqual([0, 0, 0.1, 0.2, 0.3]);
     expect(barsFor([0.1, 0.2, 0.3], 2)).toEqual([0.2, 0.3]);
+  });
+
+  it("keeps the fresh part of the orb trace solid and fades the old lap out ahead of the head", () => {
+    expect(ringFade(0, RING_SLOTS)).toBe(1);
+    expect(ringFade(RING_SLOTS / 2 - 1, RING_SLOTS)).toBe(1);
+    const tail = [0.6, 0.75, 0.9, 0.99].map((f) => ringFade(Math.round(f * (RING_SLOTS - 1)), RING_SLOTS));
+    for (let i = 1; i < tail.length; i++) expect(tail[i]).toBeLessThan(tail[i - 1]!);
+    expect(ringFade(RING_SLOTS - 1, RING_SLOTS)).toBeLessThan(0.1);
+    expect(ringFade(RING_SLOTS - 1, RING_SLOTS)).toBeGreaterThan(0);
   });
 });
 

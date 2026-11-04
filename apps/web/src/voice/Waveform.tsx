@@ -78,6 +78,87 @@ export function Waveform({ source, className = "" }: { source: () => LevelSource
   return <canvas ref={canvas} className={`waveform ${className}`.trim()} aria-hidden="true" />;
 }
 
+/** Slots in one lap of the orb trace: at BAR_MS a slot, a lap takes about five seconds. */
+export const RING_SLOTS = 90;
+/** The share of a lap, at the old end, over which the trace fades out ahead of the head. */
+const RING_FADE = 0.45;
+const RING_FLOOR = 0.06;
+
+/**
+ * Opacity of an orb-trace slot by age: 0 is the slot just written, `slots - 1` the oldest, which
+ * the head overwrites next. Fresh trace is solid; the last stretch before the head fades away. Pure.
+ */
+export function ringFade(age: number, slots: number): number {
+  const fadeFrom = slots * (1 - RING_FADE);
+  if (age < fadeFrom) return 1;
+  const t = Math.min(1, (age - fadeFrom) / (slots - 1 - fadeFrom || 1));
+  // Ease out so most of the tail stays readable and only the end closest to the head vanishes.
+  return Math.max(RING_FLOOR, 1 - t * t);
+}
+
+/**
+ * Drive mode's live trace, wrapped around the orb: a sweep that goes round clockwise from the
+ * top, one radial bar per moment of the level, writing over the previous lap as it gets there.
+ * The old lap fades out just ahead of the head. Drawn on a canvas in the element's text colour;
+ * the canvas sits over the button, and the bars start `gap` px outside its edge.
+ */
+export function OrbTrace({ source, className = "", gap = 6 }: { source: () => LevelSource | null; className?: string; gap?: number }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const slots = useRef<number[]>(new Array<number>(RING_SLOTS).fill(-1));
+  const head = useRef(0);
+  const peak = useRef(0);
+  const lastBar = useRef(0);
+
+  useFrames((now) => {
+    const el = canvas.current;
+    if (!el) return;
+    peak.current = Math.max(peak.current, source()?.read() ?? 0);
+    if (now - lastBar.current < BAR_MS) return;
+    lastBar.current = now;
+    slots.current[head.current] = peak.current;
+    head.current = (head.current + 1) % RING_SLOTS;
+    peak.current = 0;
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    if (el.width !== Math.round(w * dpr) || el.height !== Math.round(h * dpr)) {
+      el.width = Math.round(w * dpr);
+      el.height = Math.round(h * dpr);
+    }
+    const ctx = el.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const parent = el.parentElement;
+    const cx = w / 2;
+    const cy = h / 2;
+    const outer = Math.min(w, h) / 2 - 2;
+    const inner = Math.min(outer - 8, (parent ? Math.min(parent.clientWidth, parent.clientHeight) / 2 + parent.clientLeft : outer / 2) + gap);
+    const span = Math.max(4, outer - inner);
+    ctx.strokeStyle = getComputedStyle(el).color;
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(2, ((2 * Math.PI * inner) / RING_SLOTS) * 0.5);
+    for (let i = 0; i < RING_SLOTS; i++) {
+      const level = slots.current[i] ?? -1;
+      if (level < 0) continue;
+      const age = (head.current - 1 - i + RING_SLOTS) % RING_SLOTS;
+      const a = (i / RING_SLOTS) * 2 * Math.PI - Math.PI / 2;
+      const len = Math.max(1, level * span);
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      ctx.globalAlpha = ringFade(age, RING_SLOTS) * (level > 0.02 ? 1 : 0.35);
+      ctx.beginPath();
+      ctx.moveTo(cx + cos * inner, cy + sin * inner);
+      ctx.lineTo(cx + cos * (inner + len), cy + sin * (inner + len));
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  });
+
+  return <canvas ref={canvas} className={`orb-trace ${className}`.trim()} aria-hidden="true" />;
+}
+
 /**
  * Drive mode's orb: swells and glows with the microphone while listening, with the voice while
  * speaking, and breathes slowly while thinking. The level is passed to CSS as `--level`.
