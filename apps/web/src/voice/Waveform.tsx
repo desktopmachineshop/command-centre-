@@ -99,10 +99,11 @@ export function ringFade(age: number, slots: number): number {
 /**
  * Drive mode's live trace, wrapped around the orb: a sweep that goes round clockwise from the
  * top, one radial bar per moment of the level, writing over the previous lap as it gets there.
- * The old lap fades out just ahead of the head. Drawn on a canvas in the element's text colour;
- * the canvas sits over the button, and the bars start `gap` px outside its edge.
+ * The old lap fades out just ahead of the head. Drawn on a canvas in the element's text colour.
+ * The bars fill the outer band of the canvas, `--trace-band` px deep (CSS; 15% of the diameter
+ * if unset), starting `gap` px out from the band's inner edge, where the orb ends.
  */
-export function OrbTrace({ source, className = "", gap = 6 }: { source: () => LevelSource | null; className?: string; gap?: number }) {
+export function OrbTrace({ source, className = "", gap = 4 }: { source: () => LevelSource | null; className?: string; gap?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const slots = useRef<number[]>(new Array<number>(RING_SLOTS).fill(-1));
   const head = useRef(0);
@@ -130,13 +131,15 @@ export function OrbTrace({ source, className = "", gap = 6 }: { source: () => Le
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const parent = el.parentElement;
+    const style = getComputedStyle(el);
     const cx = w / 2;
     const cy = h / 2;
-    const outer = Math.min(w, h) / 2 - 2;
-    const inner = Math.min(outer - 8, (parent ? Math.min(parent.clientWidth, parent.clientHeight) / 2 + parent.clientLeft : outer / 2) + gap);
+    const radius = Math.min(w, h) / 2;
+    const band = Number.parseFloat(style.getPropertyValue("--trace-band")) || radius * 0.3;
+    const outer = radius - 2;
+    const inner = Math.min(outer - 8, radius - band + gap);
     const span = Math.max(4, outer - inner);
-    ctx.strokeStyle = getComputedStyle(el).color;
+    ctx.strokeStyle = style.color;
     ctx.lineCap = "round";
     ctx.lineWidth = Math.max(2, ((2 * Math.PI * inner) / RING_SLOTS) * 0.5);
     for (let i = 0; i < RING_SLOTS; i++) {
