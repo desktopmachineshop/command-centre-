@@ -184,6 +184,11 @@ const Env = z.object({
   /** Kokoro speaking speed, 0.7–1.3. */
   VOICE_LOCAL_SPEED: z.coerce.number().min(0.7).max(1.3).default(1.05),
   /**
+   * Neural denoising (GTCRN) of the microphone before live transcription: "off" (default) or "on".
+   * The voice detector, which keeps non-speech sounds from the recogniser, is always on.
+   */
+  VOICE_DENOISE: z.enum(["off", "on"]).default("off"),
+  /**
    * Drive mode's fast voice front: a warm Claude Code session (same sign-in as the agents) that
    * answers in about a second and hands real work to the agents. "auto": on with the claude-code runner.
    */
@@ -329,7 +334,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       maxUploadBytes: e.VOICE_MAX_UPLOAD_KB * 1024,
       maxSeconds: e.VOICE_MAX_SECONDS,
       language: e.VOICE_LANGUAGE,
-      local: e.VOICE_LOCAL === "off" ? null : { voice: e.VOICE_LOCAL_VOICE, speed: e.VOICE_LOCAL_SPEED, root: join(dataDir, "models", "voice") },
+      local: e.VOICE_LOCAL === "off" ? null : { voice: e.VOICE_LOCAL_VOICE, speed: e.VOICE_LOCAL_SPEED, denoise: e.VOICE_DENOISE === "on", root: join(dataDir, "models", "voice") },
       // On whenever the agents run on Claude Code (env or the Accounts page; checked per turn in app.ts).
       front: e.VOICE_FRONT === "off" ? null : { model: e.VOICE_FRONT_MODEL },
     },

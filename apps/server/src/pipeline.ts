@@ -358,7 +358,7 @@ export class Pipeline {
       const progress = startProgressUpdates({
         notifier: this.deps.notifier,
         intervalMs: (this.deps.progressIntervalSeconds ?? 120) * 1000,
-        title: event?.title ?? task.prompt.split("\n")[0]!.slice(0, 80),
+        title: event?.title ?? task.intent,
         url: `/task/${taskId}`,
         vertical: vertical.id,
         tag: `progress-${taskId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 22)}`,

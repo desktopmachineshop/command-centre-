@@ -2013,11 +2013,21 @@ when each is ready); until then voice uses the browser's speech. The engines loa
 and unload after 10 minutes unused, so they only use memory (about 0.5 GB) while you talk.
 Recognition runs in a worker thread, so it never stalls the server.
 
+**Background noise.** The browser's own noise suppression and echo cancellation are on, and a
+120 Hz high-pass removes rumble, wind and handling thumps before the waveform and the server see
+the audio. On the server, a voice detector (Silero VAD, under 1 MB) lets only speech through to
+the recogniser and gives it silence in place of everything else, with a little audio from just
+before each phrase so the first syllable isn't clipped. That keeps rustling, bumps and road noise
+from turning into stray words. Neural denoising (GTCRN) is available with `VOICE_DENOISE=on`, but
+is off by default: on test recordings the recogniser was already robust to engine and rustling
+noise, and denoising made it slightly worse under rustling ("ask" heard as "last").
+
 | Variable | Default | |
 | --- | --- | --- |
 | `VOICE_LOCAL` | `auto` | `off` turns self-hosted speech off |
 | `VOICE_LOCAL_VOICE` | `bf_emma` | `bf_isabella`, `bm_george`, `bm_lewis` (British), or `af_*` / `am_*` (American) |
 | `VOICE_LOCAL_SPEED` | `1.05` | 0.7–1.3 |
+| `VOICE_DENOISE` | `off` | `on` adds neural denoising (GTCRN) before recognition; see below |
 | `VOICE_FRONT` | `auto` | `off` sends every Drive request straight to the agents |
 | `VOICE_FRONT_MODEL` | `haiku` | the model the voice front uses |
 
