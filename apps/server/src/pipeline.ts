@@ -9,6 +9,7 @@ import { type BudgetService, bypassesBudget } from "./budget";
 import type { Store } from "./db/store";
 import { type CodeOptions, prepareCheckout } from "./code";
 import type { Hub } from "./hub";
+import { startProgressUpdates } from "./progress";
 import type { Notifier } from "./push";
 import type { TaskQueue } from "./queue";
 import type { RunTokens } from "./run-tokens";
@@ -39,6 +40,8 @@ export interface PipelineDeps {
   voice?: Pick<VoiceConversations, "beforeRun" | "afterRun" | "report" | "hasPending">;
   /** For events whose triage asks for a push (`push`), e.g. an incoming RFQ. */
   notifier?: Notifier;
+  /** Seconds between progress pushes during a long run (default 120; 0 turns them off). */
+  progressIntervalSeconds?: number;
   /** Coding roles (a role with `repo`): GitHub access for their per-task checkouts (./code.ts). */
   code?: CodeOptions;
   /** The Read rule for files attached in the chat box (ChatFiles.readRule), given to runs of work Dave started. */
@@ -327,6 +330,14 @@ export class Pipeline {
 
       // Persist messages in order without blocking the stream.
       let chain = Promise.resolve();
+      const progress = startProgressUpdates({
+        notifier: this.deps.notifier,
+        intervalMs: (this.deps.progressIntervalSeconds ?? 120) * 1000,
+        title: task.title,
+        url: `/task/${taskId}`,
+        vertical: vertical.id,
+        tag: `progress-${taskId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 22)}`,
+      });
       const result = await runner.run(
         {
           prompt: turn?.prompt ?? runPrompt(task, event),
@@ -340,9 +351,10 @@ export class Pipeline {
         },
         (message) => {
           hub.broadcast({ type: "run.message", runId: run.id, taskId, message });
+          progress.note(message);
           chain = chain.then(() => store.appendRunMessage(run.id, message)).catch(() => {});
         },
-      );
+      ).finally(() => progress.stop());
       await chain;
       await store.finishRun(run.id, result);
       // --- voice: store and broadcast the structured spoken answer of voice-mode runs ---
