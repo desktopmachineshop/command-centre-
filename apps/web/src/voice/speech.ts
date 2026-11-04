@@ -5,7 +5,7 @@
  * Every piece degrades: a missing API reports itself rather than throwing.
  */
 
-import { AnalyserLevel, type LevelSource, PulseLevel, SILENT } from "./level";
+import { AnalyserLevel, type LevelSource, PulseLevel, SILENT, speechThreshold, updateNoiseFloor } from "./level";
 
 export class VoicePermissionError extends Error {}
 
@@ -279,19 +279,30 @@ export class RecorderListener implements Listener {
       throw new Error(`No microphone available (${name})`);
     }
     const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((t) => MediaRecorder.isTypeSupported?.(t)) ?? "";
-    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    // Filter the mic before it is recorded or measured: a high-pass cuts rumble and handling
+    // noise, a low-pass cuts the hiss of rustling, leaving the speech band.
+    const ctx = new AudioContext();
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = "highpass";
+    highpass.frequency.value = 120;
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = "lowpass";
+    lowpass.frequency.value = 5500;
+    const clean = ctx.createMediaStreamDestination();
+    ctx.createMediaStreamSource(stream).connect(highpass).connect(lowpass).connect(clean);
+    const recorder = new MediaRecorder(clean.stream, mime ? { mimeType: mime } : undefined);
     const chunks: Blob[] = [];
     recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     const started = Date.now();
     let heardAt = 0;
 
-    const ctx = new AudioContext();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
-    ctx.createMediaStreamSource(stream).connect(analyser);
+    lowpass.connect(analyser);
     const samples = new Float32Array(analyser.fftSize);
     const meter = ctx.createAnalyser();
-    ctx.createMediaStreamSource(stream).connect(meter);
+    lowpass.connect(meter);
+    let noiseFloor = 0;
     this.level = new AnalyserLevel(meter);
     let quietSince = Date.now();
 
@@ -308,9 +319,11 @@ export class RecorderListener implements Listener {
       for (const s of samples) sum += s * s;
       const rms = Math.sqrt(sum / samples.length);
       const now = Date.now();
-      if (rms > 0.02) {
+      if (rms > speechThreshold(noiseFloor)) {
         heardAt ||= now;
         quietSince = now;
+      } else {
+        noiseFloor = updateNoiseFloor(noiseFloor, rms);
       }
       if (!heardAt && now - started > timeoutMs) stop();
       if (heardAt && !latched && now - quietSince > endOfTurnMs) stop();
