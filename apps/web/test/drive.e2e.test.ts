@@ -192,7 +192,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls);
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
 
     const talk = page.locator("button.drive-ptt");
     await talk.waitFor({ timeout: 20_000 });
@@ -256,7 +256,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls, { batch: true });
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
     const talk = page.locator("button.drive-ptt");
     await talk.waitFor({ timeout: 20_000 });
     const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
@@ -294,7 +294,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls);
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
     const talk = page.locator("button.drive-ptt");
     const picker = page.getByLabel("Talking to");
     await picker.waitFor({ timeout: 20_000 });
@@ -360,7 +360,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls, { front: true });
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
     const talk = page.locator("button.drive-ptt");
     await talk.waitFor({ timeout: 20_000 });
     await expect.poll(() => calls.some((c) => c.path === "/voice/warm"), { timeout: 15_000 }).toBe(true);
@@ -432,7 +432,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
 
     // Opened from the chat composer: Drive grows inside the composer, in the shell (top bar and tab bar still there).
     await page.goto(`${base}/#/chat`);
-    await page.locator('a.tool[href="#/drive"]').click();
+    await page.locator('a.tool[href="#/converse"]').click();
     await page.locator("button.drive-ptt").waitFor({ timeout: 20_000 });
     expect(await page.locator(".shell .topbar").count()).toBe(1);
     expect(await page.locator(".composer .composer-panel .drive").count()).toBe(1);

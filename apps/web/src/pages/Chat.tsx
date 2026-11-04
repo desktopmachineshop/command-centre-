@@ -379,7 +379,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
         onChange={setText}
         onSend={send}
         label="Message"
-        placeholder={driving ? "Or type to Drive" : "What needs doing?"}
+        placeholder={driving ? "Or type it here" : "What needs doing?"}
         className={driving ? `is-driving is-${driveStage}` : ""}
         panel={driving ? <Drive api={api} feed={feed} commandRef={driveCommand} /> : undefined}
       >
@@ -410,12 +410,12 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
           <ReadAloudToggle readAloud={readAloud} />
           <a
             className={`tool ${drive ? "is-on" : ""}`}
-            href={drive ? "#/chat" : "#/drive"}
-            aria-label={drive ? "Fold Drive mode away, back to typing" : "Drive mode: talk hands-free"}
-            title={drive ? "Fold Drive mode away, back to typing" : "Drive mode: talk hands-free"}
+            href={drive ? "#/chat" : "#/converse"}
+            aria-label={drive ? "Fold Converse away, back to typing" : "Converse: talk it through hands-free"}
+            title={drive ? "Fold Converse away, back to typing" : "Converse: talk it through hands-free"}
           >
             <Icon name={drive ? "fold" : "drive"} size={16} />
-            <span>{drive ? "Fold" : "Drive"}</span>
+            <span>{drive ? "Fold" : "Converse"}</span>
           </a>
         </div>
       </Composer>

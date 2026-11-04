@@ -97,13 +97,13 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
           <Icon name="mic" />
           <h3>Voice</h3>
         </div>
-        <p className="muted small">The voice this device speaks with, in Drive mode and when reading replies aloud. Fast voices start at once; the most natural ones pause a little before each sentence.</p>
+        <p className="muted small">The voice this device speaks with, in Converse and when reading replies aloud. Fast voices start at once; the most natural ones pause a little before each sentence.</p>
         <VoicePicker api={api} config={voiceConfig} />
       </div>
       <div className="card">
         <div className="card-head">
           <Icon name="drive" />
-          <h3>Drive mode</h3>
+          <h3>Converse</h3>
         </div>
         <DriveSettings />
       </div>

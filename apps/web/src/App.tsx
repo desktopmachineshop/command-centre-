@@ -118,7 +118,7 @@ export const NAV: NavItem[] = [
   { key: "approvals", label: "Approvals", icon: "approvals", group: "Work", mobilePrimary: true },
   { key: "chat", label: "Chat", icon: "chat", group: "Work", mobilePrimary: true },
   { key: "notifications", label: "Notifications", icon: "bell", group: "Work" },
-  { key: "drive", label: "Drive", icon: "drive", group: "Work" },
+  { key: "converse", label: "Converse", icon: "drive", group: "Work" },
   { key: "social", label: "Social", icon: "social", group: "Business" },
   { key: "org", label: "Org", icon: "org", group: "Business" },
   { key: "brain", label: "Brain", icon: "brain", group: "Knowledge" },
@@ -130,7 +130,7 @@ export const NAV: NavItem[] = [
 ];
 
 /** Routes without their own nav entry, and the entry they highlight. */
-const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications" };
+const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications", drive: "converse" };
 
 
 const PHONE = "(max-width: 759.98px)";
@@ -194,8 +194,10 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
     case "today":
       body = <Today api={api} feed={feed} />;
       break;
-    // Drive mode is the chat with its composer grown to hold it (pages/Chat.tsx). The same
-    // element as "chat" below, so going between them keeps the chat and animates the composer.
+    // Converse is the chat with its composer grown to hold it (pages/Chat.tsx, pages/Drive.tsx).
+    // The same element as "chat" below, so going between them keeps the chat and animates the
+    // composer. #/drive is its old name, kept so links and the installed shortcut still work.
+    case "converse":
     case "drive":
       body = <Chat api={api} feed={feed} drive />;
       break;

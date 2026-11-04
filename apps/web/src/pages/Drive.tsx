@@ -73,8 +73,8 @@ const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
  * everything else sent to the agent in voice mode with its answer read aloud.
  */
 /**
- * Drive mode, shown inside the chat composer (pages/Chat.tsx), which grows to hold it; the
- * composer's Drive button leaves it. Unmounting stops any listening and speaking.
+ * Drive mode, called "Converse" in the app, shown inside the chat composer (pages/Chat.tsx),
+ * which grows to hold it; the composer's Fold button leaves it. Unmounting stops any listening and speaking.
  */
 export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; commandRef?: MutableRefObject<((text: string) => void) | null> }) {
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
@@ -589,7 +589,7 @@ export function Drive({ api, feed, commandRef }: { api: Api; feed: LiveFeed; com
   const busy = state.phase === "sending";
 
   return (
-    <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Drive mode">
+    <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Converse">
       <header className="drive-bar">
         <div className="drive-modes" role="group" aria-label="Voice mode">
           <button type="button" aria-pressed={state.mode === "push"} className={state.mode === "push" ? "primary" : ""} onClick={() => setMode("push")}>

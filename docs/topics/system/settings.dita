@@ -9,6 +9,7 @@
   <body>
     <p><wintitle>App</wintitle> shows whether the app is installed, how to install it on this device, and the version with <uicontrol>Check for updates</uicontrol>. See <xref href="../start/install.dita">Install the app</xref>. <uicontrol>Manage accounts</uicontrol> goes to <xref href="accounts.dita">Accounts</xref>; <uicontrol>Sign out</uicontrol> signs out this device only.</p>
     <p>For push notifications, use <xref href="notification-settings.dita#devices">Notification settings</xref>, which also names the device and sets what it gets.</p>
+    <p><wintitle>Voice</wintitle> chooses the voice this device speaks with. <wintitle>Converse</wintitle> sets how <xref href="../work/converse.dita">Converse</xref> behaves on this device: <uicontrol>Listen for a follow-up after each answer</uicontrol>, and whether the orb shows the live trace (<uicontrol>Show</uicontrol>). Set these before setting off; they aren't in Converse itself.</p>
   </body>
   <topic id="password">
     <title>Change your password</title>

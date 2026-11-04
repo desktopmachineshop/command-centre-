@@ -30,7 +30,7 @@ export function readViz(): Viz {
   return v === "orb" || v === "trace" ? v : "both";
 }
 
-/** Settings → Drive mode: what used to be Drive's Options, set before setting off. */
+/** Settings → Converse: what used to be Drive mode's Options, set before setting off. */
 export function DriveSettings() {
   const [followUp, setFollowUp] = useState(() => readPref(DRIVE_PREFS.followUp) === "1");
   const [viz, setViz] = useState<Viz>(readViz);
@@ -62,10 +62,10 @@ export function DriveSettings() {
           <option value="trace">Live trace only</option>
         </select>
       </label>
-      <p className="muted small" data-help-pane="drive.commands">
+      <p className="muted small" data-help-pane="converse.commands">
         Say "what's new", "read approvals", "approve", "next", "repeat", "stop", or a request like "shop: has order 1042 shipped?". Say "talk
         to the shop lead" to talk to one role ("back to chief of staff" for the default, who hands things on and reports back), "who am I
-        talking to?", or ask one role once: "ask customer support whether order 1042 shipped". In Drive mode you can also type any of
+        talking to?", or ask one role once: "ask customer support whether order 1042 shipped". In Converse you can also type any of
         these in the chat box.
       </p>
     </div>
