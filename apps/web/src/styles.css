@@ -3020,11 +3020,29 @@ a.stat:hover {
 }
 .briefing-lines {
   padding-left: 20px;
+  /* Long links (a /media URL) wrap instead of running off the card. */
+  overflow-wrap: anywhere;
   font-size: 1.05rem;
   line-height: var(--lh-read);
 }
 .briefing-lines li {
   margin: 4px 0;
+}
+/* Pictures and videos a notification is about (Notifications.tsx). */
+.notification-media {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.image-preview {
+  margin: var(--sp-2) 0;
+}
+.image-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
 }
 .device input:not([type="checkbox"]) {
   min-width: 0;

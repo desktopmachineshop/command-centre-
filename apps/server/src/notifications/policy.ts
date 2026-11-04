@@ -240,6 +240,8 @@ export interface PushPayload {
   requireInteraction: boolean;
   actions: { action: string; title: string }[];
   data: Record<string, unknown>;
+  /** The notification's first image, shown large on platforms that support it (Chrome on Android and Windows). */
+  image?: string;
   /** Unread count in the notification centre, for the app badge. */
   unread?: number;
 }
@@ -265,6 +267,7 @@ export function pushPayload(n: Omit<StoredNotification, "status" | "createdAt" |
     requireInteraction: n.priority === "urgent",
     actions: n.actions.slice(0, 2),
     data: { ...n.data, notificationId: n.id },
+    image: n.media.find((m) => m.type === "image")?.url,
     unread,
   };
 }

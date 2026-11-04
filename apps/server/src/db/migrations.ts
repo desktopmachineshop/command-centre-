@@ -475,4 +475,12 @@ export const migrations: { id: string; sql: string }[] = [
   },
   // A number to call on a reminder (SQL in @cc/pa).
   { id: PA_PHONE_MIGRATION_ID, sql: PA_PHONE_MIGRATION_SQL },
+  {
+    // Pictures and videos a notification is about, shown in the notification centre and briefing view.
+    id: "0022_notification_media",
+    sql: `
+      -- [{url, type: "image" | "video", alt?, durationSec?, width?, height?}]
+      alter table notifications add column if not exists media jsonb not null default '[]';
+    `,
+  },
 ];

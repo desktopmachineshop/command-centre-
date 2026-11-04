@@ -1,3 +1,4 @@
+import type { NotificationMedia } from "@cc/core";
 import { describe, expect, it } from "vitest";
 import {
   collapsedPayload,
@@ -72,6 +73,25 @@ describe("notification preferences", () => {
     // Off-site URLs and junk fields are dropped.
     const n = normalize({ title: "x", body: "y", url: "https://evil.example", priority: "nope" as never, category: "bogus" as never });
     expect(n).toMatchObject({ url: undefined, priority: undefined, category: "agent" });
+  });
+
+  it("keeps well-formed media only: http(s), image or video, at most 4", () => {
+    expect(normalize({ title: "x", body: "y" }).media).toEqual([]);
+    const video = { url: "https://cc.example/media/a.mp4", type: "video" as const, alt: "Clip", durationSec: 35, width: 1080, height: 1920 };
+    const junk = [
+      { url: "javascript:alert(1)", type: "image" },
+      { url: "/media/a.png", type: "image" },
+      { url: "https://cc.example/a.pdf", type: "document" },
+      null,
+      "https://cc.example/a.png",
+    ];
+    expect(normalize({ title: "x", body: "y", media: [...junk, video] as never }).media).toEqual([video]);
+    // Bad dimensions are dropped, not the item.
+    expect(normalize({ title: "x", body: "y", media: [{ url: video.url, type: "video", width: -1, durationSec: Number.NaN }] }).media).toEqual([
+      { url: video.url, type: "video" },
+    ]);
+    const many = Array.from({ length: 6 }, (_, i) => ({ url: `https://cc.example/${i}.png`, type: "image" as const }));
+    expect(normalize({ title: "x", body: "y", media: many }).media).toHaveLength(4);
   });
 
   it("routes devices by minimum priority", () => {
@@ -181,8 +201,17 @@ describe("push payloads", () => {
       { action: "approve", title: "Approve" },
       { action: "reject", title: "Reject" },
     ],
+    media: [] as NotificationMedia[],
     data: { proposalId: "p1", pendingApprovals: 3 },
   };
+
+  it("shows the first image as the push's large picture, and nothing for video only", () => {
+    expect(pushPayload(base, true).image).toBeUndefined();
+    const video = { url: "https://cc.example/media/a.mp4", type: "video" as const };
+    const image = { url: "https://cc.example/media/b.png", type: "image" as const };
+    expect(pushPayload({ ...base, media: [video] }, true).image).toBeUndefined();
+    expect(pushPayload({ ...base, media: [video, image] }, true).image).toBe(image.url);
+  });
 
   it("carries tag, renotify, silent, actions and the badge count", () => {
     const p = pushPayload(base, true, 4);

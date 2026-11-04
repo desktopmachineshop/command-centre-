@@ -4,6 +4,7 @@ import {
   type NotificationAction,
   type NotificationCategory,
   type NotificationInput,
+  type NotificationMedia,
   type NotificationPrefs,
   type NotificationPriority,
   type StoredNotification,
@@ -146,6 +147,7 @@ export class NotificationService implements Notifier {
       url,
       tag: n.tag,
       actions: n.actions,
+      media: n.media,
       data,
       status: STATUS[route.kind],
       pushed: route.kind === "push",
@@ -278,8 +280,30 @@ export function normalize(input: NotificationInput) {
     tag: typeof input.tag === "string" && input.tag ? input.tag.slice(0, 64) : null,
     renotify: typeof input.renotify === "boolean" ? input.renotify : undefined,
     actions,
+    media: normalizeMedia(input.media),
     data: input.data && typeof input.data === "object" && !Array.isArray(input.data) ? input.data : {},
   };
+}
+
+/** Keeps well-formed media only: absolute http(s) URLs, image or video, at most 4. */
+export function normalizeMedia(media: unknown): NotificationMedia[] {
+  if (!Array.isArray(media)) return [];
+  const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) && x > 0 ? x : undefined);
+  const out: NotificationMedia[] = [];
+  for (const m of media) {
+    if (!m || typeof m !== "object") continue;
+    const { url, type, alt, durationSec, width, height } = m as Record<string, unknown>;
+    if (typeof url !== "string" || !/^https?:\/\/\S+$/i.test(url) || url.length > 2000) continue;
+    if (type !== "image" && type !== "video") continue;
+    const item: NotificationMedia = { url, type };
+    if (typeof alt === "string" && alt) item.alt = alt.slice(0, 300);
+    if (num(durationSec)) item.durationSec = num(durationSec);
+    if (num(width)) item.width = num(width);
+    if (num(height)) item.height = num(height);
+    out.push(item);
+    if (out.length === 4) break;
+  }
+  return out;
 }
 
 export { isCategory };

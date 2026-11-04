@@ -58,6 +58,21 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     expect(transport.sent[0]!.payload).toMatchObject({ title: "Hello", category: "agent", silent: false, unread: 1 });
   });
 
+  it("stores media with the notification and pushes the first image", async () => {
+    const media = [
+      { url: "https://cc.example/media/a.mp4", type: "video" as const, durationSec: 35, width: 1080, height: 1920 },
+      { url: "https://cc.example/media/b.png", type: "image" as const, alt: "Kit" },
+    ];
+    await notifications().notify({ title: "Video ready: Kit", body: "35s 1080x1920", media });
+    const { body } = await ctx.api("/api/notifications");
+    expect(body.items[0].media).toEqual(media);
+    expect((await ctx.api(`/api/notifications/${body.items[0].id}`)).body.media).toEqual(media);
+    expect(transport.sent[0]!.payload).toMatchObject({ image: "https://cc.example/media/b.png" });
+    // Without media, an empty list.
+    await notifications().notify({ title: "Plain", body: "text" });
+    expect((await ctx.api("/api/notifications")).body.items[0].media).toEqual([]);
+  });
+
   it("serves the inbox: filter, unread count, read, read-all", async () => {
     await notifications().notify({ title: "A", body: "a", category: "reminder" });
     await notifications().notify({ title: "B", body: "b", category: "agent" });

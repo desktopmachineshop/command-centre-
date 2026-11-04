@@ -47,6 +47,12 @@ describe("service worker notification logic", () => {
     expect(options.data).toMatchObject({ url: "/approvals/p-1", proposalId: "p-1", notificationId: "n-1", category: "approval" });
   });
 
+  it("shows an http(s) image as the large picture, and ignores anything else", () => {
+    expect(notificationOptions({ title: "A", image: "https://cc.example/media/b.png" }).options.image).toBe("https://cc.example/media/b.png");
+    expect(notificationOptions({ title: "A", image: "javascript:alert(1)" }).options.image).toBeUndefined();
+    expect(notificationOptions({ title: "A" }).options.image).toBeUndefined();
+  });
+
   it("still shows old {title, body, url} payloads, with no renotify without a tag", () => {
     const { title, options } = notificationOptions({ title: "Hi", body: "There", url: "/" });
     expect(title).toBe("Hi");
