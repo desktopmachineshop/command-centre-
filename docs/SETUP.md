@@ -822,12 +822,44 @@ generated assets, big attachments) can live in **your Google Drive** instead
 
 - **`local`** (the default): files stay on the volume, exactly as before. `media` is
   `DATA_DIR/media/`, other folders are `DATA_DIR/storage/<folder>/`.
-- **`gdrive`**: new files go to a **Command Centre** folder in your My Drive, with the subfolders
-  `media`, `renders`, `footage`, `attachments` and `assets`. The folders are created on first use
-  and their ids are remembered in Postgres.
+- **`gdrive`**: new files go to a **Command Centre** folder in your My Drive, with a folder per
+  vertical (named after it, e.g. `Desktop Machine Shop`, plus `Shared` for files with no
+  vertical) and in each the subfolders `media`, `renders`, `footage`, `attachments` and `assets`.
+  The folders are created on first use and their ids are remembered in Postgres, so renaming a
+  vertical keeps its folder.
 
-Postgres keeps a small index (`storage_files`, migration `0011_storage`) that maps each public id
-to its Drive file id (or its local file), with its name, size, type, folder and creation time.
+Postgres keeps a small index (`storage_files`, migrations `0011_storage` and `0022_storage_vertical`)
+that maps each public id to its Drive file id (or its local file), with its name, size, type,
+folder, creation time and **vertical**.
+
+### By vertical
+
+- Every file belongs to a vertical, or is shared. Social uploads take the vertical of the accounts
+  being posted to, video files their product's vertical, and chat attachments the vertical the
+  message was routed to. Files from before this were matched to a vertical by the proposal, chat
+  message or video job that names them; the rest are shared.
+- The **Storage** page shows usage by vertical (tap one to filter), filters the file list by
+  vertical, and lets you move a file to another vertical (**Move to …**). On Drive that moves it to
+  that vertical's folder; its Drive id and `/media` link don't change. On the server volume the
+  vertical is in the index only: local paths never move.
+- Drive files from before (in `Command Centre/<folder>`) are moved into their vertical folders once,
+  in the background after the first start with this version, and the empty old folders can be
+  deleted by hand.
+
+### Work in progress
+
+A piece of work's intermediate files are kept only until its final version is published:
+- A video production tags its screen captures and narration as work in progress (`wip`) and its
+  render as the final file, all with the same `work` (`video:<production id>`). When a post with the
+  render goes out (`social.post` or `social.campaign` on approval, or a scheduled post when it
+  publishes), the production's work-in-progress files are deleted, from Drive too. The render
+  stays, since the post links to it. Work that is never published is cleared by the nightly
+  render clean-up after `RENDER_RETENTION_DAYS` (local files).
+- The Storage page marks work-in-progress files **WIP**.
+- The Software Lead's task checkouts are its work in progress: when `github.pr.merge` merges a PR,
+  the checkout that built it is removed, and each night any checkout whose branch is already in the
+  default branch (a PR merged on GitHub itself) is removed too. A checkout with uncommitted changes
+  is always kept.
 
 ### What stays the same
 
@@ -2183,8 +2215,10 @@ checkout is logged as `[code] checkout of … failed: …`.
   it only records them in your repository). The labels are `bug`, `area:<category>`,
   `agent:<agent>`, `severity:<severity>` and `from-brain`, and the GitHub number is written back
   to the note. To run it now, ask the Software Lead in Chat: "file the issue log now".
-- Old checkouts stay on the volume; delete `workspaces/command-centre/software-lead/work/*` to
-  free space (a task whose checkout is gone gets a fresh one on its next run).
+- A checkout is removed once its PR is merged (by `github.pr.merge`, or nightly for PRs merged on
+  GitHub); one with uncommitted changes is kept. Checkouts of tasks that never raised a PR stay on
+  the volume; delete `workspaces/command-centre/software-lead/work/*` to free space (a task whose
+  checkout is gone gets a fresh one on its next run).
 
 ## Extending
 

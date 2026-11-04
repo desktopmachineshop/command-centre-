@@ -105,6 +105,11 @@ export class ChatFiles {
     }
   }
 
+  /** Files a message carried now belong to its task's vertical (best effort: a failure only leaves them shared). */
+  async tag(ids: string[], vertical: string): Promise<void> {
+    await this.o.storage.tag(ids, { vertical }).catch((err) => console.error("[chat-files] tag", (err as Error).message));
+  }
+
   /**
    * The message's files as the agent gets them. Every id must be a file uploaded for the chat;
    * a file that can't be copied or read is still listed, with the reason, so the agent can say so.

@@ -15,6 +15,8 @@ import {
   isBlobId,
   newBlobId,
   type PutOptions,
+  SHARED_VERTICAL,
+  tagsOf,
   type UploadSession,
   type UploadSessionOptions,
   UploadIncompleteError,
@@ -47,6 +49,8 @@ export interface GoogleDriveBlobStoreOptions {
   cache?: DiskCache;
   /** Top-level folder in My Drive. */
   rootFolderName?: string;
+  /** The Drive folder name for a vertical id (its display name). Default: the id; "Shared" for files with none. */
+  verticalFolderName?: (vertical: string) => string;
   chunkSize?: number;
   retries?: number;
   /** Overridable for tests. */
@@ -141,8 +145,67 @@ export class GoogleDriveBlobStore implements BlobStore {
     return this.memo("root", () => this.ensureFolder(this.rootFolderName, "root", "gdrive.folder.root"));
   }
 
-  folderId(folder: Folder): Promise<string> {
-    return this.memo(folder, async () => this.ensureFolder(folder, await this.rootFolderId(), `gdrive.folder.${folder}`));
+  /** "Command Centre/<vertical>": one folder per vertical, "Shared" for files with none. Remembered by id, so a renamed vertical keeps its folder. */
+  verticalFolderId(vertical: string | null): Promise<string> {
+    const v = vertical ?? SHARED_VERTICAL;
+    const name = v === SHARED_VERTICAL ? "Shared" : (this.o.verticalFolderName?.(v) ?? v);
+    return this.memo(`v:${v}`, async () => this.ensureFolder(name, await this.rootFolderId(), `gdrive.folder.v.${v}`));
+  }
+
+  /** "Command Centre/<vertical>/<folder>", where new files go. */
+  folderId(folder: Folder, vertical: string | null = null): Promise<string> {
+    const v = vertical ?? SHARED_VERTICAL;
+    return this.memo(`v:${v}/${folder}`, async () => this.ensureFolder(folder, await this.verticalFolderId(vertical), `gdrive.folder.v.${v}.${folder}`));
+  }
+
+  /**
+   * Puts a file's Drive copy in its vertical's folder (Drive keeps the file id, so links and the
+   * index stay valid). Returns whether it had to move.
+   */
+  private async place(row: BlobRecord): Promise<boolean> {
+    if (!row.remoteId) return false;
+    const target = await this.folderId(row.folder, row.vertical);
+    const file = await this.json<{ parents?: string[] }>(`${DRIVE_API}/files/${encodeURIComponent(row.remoteId)}?fields=parents`);
+    const parents = file.parents ?? [];
+    if (parents.length === 1 && parents[0] === target) return false;
+    const params = new URLSearchParams({ addParents: target, fields: "id" });
+    const remove = parents.filter((p) => p !== target);
+    if (remove.length) params.set("removeParents", remove.join(","));
+    await this.json(`${DRIVE_API}/files/${encodeURIComponent(row.remoteId)}?${params}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    return true;
+  }
+
+  /** Changes a file's vertical, moving its Drive copy to that vertical's folder. */
+  async setVertical(id: string, vertical: string | null): Promise<void> {
+    const row = await this.o.index.get(id);
+    if (!row || row.backend !== "gdrive") return;
+    const next = { ...row, vertical: tagsOf({ vertical }).vertical };
+    if (row.status === "ready") await this.place(next);
+    await this.o.index.update(id, { vertical: next.vertical });
+  }
+
+  /**
+   * Moves every file the app has on Drive into its vertical's folder (files from before
+   * folders were per vertical sat in "Command Centre/<folder>"). Safe to run again: a file
+   * already in place costs one metadata read.
+   */
+  async organise(options: { limit?: number } = {}): Promise<{ moved: number; checked: number; failed: { id: string; error: string }[] }> {
+    const rows = await this.o.index.list({ backend: "gdrive", status: "ready", limit: options.limit ?? 10_000 });
+    const out = { moved: 0, checked: 0, failed: [] as { id: string; error: string }[] };
+    for (const row of rows) {
+      try {
+        out.checked++;
+        if (await this.place(row)) out.moved++;
+      } catch (err) {
+        out.failed.push({ id: row.id, error: (err as Error).message });
+      }
+    }
+    if (out.moved) this.log(`moved ${out.moved} Drive file(s) into their vertical folders`);
+    return out;
   }
 
   private memo(key: string, make: () => Promise<string>): Promise<string> {
@@ -163,14 +226,14 @@ export class GoogleDriveBlobStore implements BlobStore {
   }
 
   /** Starts a resumable session and returns its session URI (the Location header). */
-  private async startSession(id: string, o: { name: string; contentType: string; folder: Folder; size?: number; origin?: string }): Promise<string> {
+  private async startSession(id: string, o: { name: string; contentType: string; folder: Folder; vertical: string | null; size?: number; origin?: string }): Promise<string> {
     const headers: Record<string, string> = { "content-type": "application/json; charset=UTF-8", "x-upload-content-type": o.contentType };
     if (o.size !== undefined) headers["x-upload-content-length"] = String(o.size);
     if (o.origin) headers.origin = o.origin;
     const res = await this.request(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&fields=id,size,mimeType`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ name: o.name, mimeType: o.contentType, parents: [await this.folderId(o.folder)], appProperties: { ccId: id } }),
+      body: JSON.stringify({ name: o.name, mimeType: o.contentType, parents: [await this.folderId(o.folder, o.vertical)], appProperties: { ccId: id } }),
     });
     const location = res.headers.get("location");
     if (!res.ok || !location) throw new DriveApiError(`Drive upload session failed (${res.status}): ${(await res.text()).slice(0, 300)}`, res.status);
@@ -180,8 +243,9 @@ export class GoogleDriveBlobStore implements BlobStore {
 
   async put(source: BlobSource, options: PutOptions): Promise<BlobInfo> {
     const folder = options.folder ?? "media";
+    const tags = tagsOf(options);
     const id = options.id ?? newBlobId(options.name);
-    const uploadUrl = await this.startSession(id, { ...options, folder });
+    const uploadUrl = await this.startSession(id, { ...options, folder, vertical: tags.vertical });
     const { body, size } = await uploadStreamResumable(toReadable(source), {
       uploadUrl,
       fetch: this.doFetch,
@@ -192,7 +256,7 @@ export class GoogleDriveBlobStore implements BlobStore {
     const file = body as { id: string; size?: string };
     const record: BlobRecord = {
       id, backend: "gdrive", remoteId: file.id, name: options.name, size: file.size ? Number(file.size) : size,
-      contentType: options.contentType, folder, status: "ready", uploadUrl: null, localPath: null, createdAt: new Date(),
+      contentType: options.contentType, folder, status: "ready", uploadUrl: null, localPath: null, createdAt: new Date(), ...tags,
     };
     await this.o.index.put(record);
     return toInfo(record);
@@ -281,11 +345,12 @@ export class GoogleDriveBlobStore implements BlobStore {
    */
   async createUploadSession(options: UploadSessionOptions): Promise<UploadSession> {
     const folder = options.folder ?? "media";
+    const tags = tagsOf(options);
     const id = newBlobId(options.name);
-    const uploadUrl = await this.startSession(id, { ...options, folder });
+    const uploadUrl = await this.startSession(id, { ...options, folder, vertical: tags.vertical });
     await this.o.index.put({
       id, backend: "gdrive", remoteId: null, name: options.name, size: options.size, contentType: options.contentType, folder,
-      status: "pending", uploadUrl, localPath: null, createdAt: new Date(),
+      status: "pending", uploadUrl, localPath: null, createdAt: new Date(), ...tags,
     });
     return { id, uploadUrl, chunkSize: this.o.chunkSize ?? DEFAULT_CHUNK_SIZE, backend: "gdrive", expiresAt: new Date(Date.now() + 7 * 86_400_000) };
   }

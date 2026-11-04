@@ -127,7 +127,7 @@ function Composer({ api, accounts }: { api: Api; accounts: SocialAccount[] }) {
     for (const file of Array.from(files ?? [])) {
       setUploading((n) => n + 1);
       try {
-        const m = await api.uploadMedia(file);
+        const m = await api.uploadMedia(file, vertical);
         setMedia((list) => [...list, { url: m.url, type: m.type }]);
       } catch (e) {
         setError(`${file.name}: ${(e as Error).message}`);

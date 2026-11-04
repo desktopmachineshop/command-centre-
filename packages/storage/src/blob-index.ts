@@ -1,4 +1,4 @@
-import type { BackendKind, Folder } from "./types";
+import { type BackendKind, type Folder, SHARED_VERTICAL } from "./types";
 
 /** One row of the storage index (Postgres table `storage_files`, migration 0011_storage). */
 export interface BlobRecord {
@@ -17,11 +17,29 @@ export interface BlobRecord {
   /** The local file (local backend) or warm cache copy (gdrive), if any. */
   localPath: string | null;
   createdAt: Date;
+  /** The vertical the file belongs to; null for shared files. */
+  vertical: string | null;
+  /** The piece of work it belongs to (e.g. "video:<production id>"). */
+  work: string | null;
+  /** An intermediate file of `work`, deleted once its final file is published. */
+  wip: boolean;
+}
+
+export interface ListFilter {
+  folder?: Folder;
+  backend?: BackendKind;
+  status?: BlobRecord["status"];
+  /** A vertical id, or "shared" for files with none. */
+  vertical?: string;
+  work?: string;
+  limit?: number;
 }
 
 export interface UsageRow {
   folder: Folder;
   backend: BackendKind;
+  /** null: shared. */
+  vertical: string | null;
   files: number;
   bytes: number;
 }
@@ -35,7 +53,7 @@ export interface BlobIndex {
   /** Atomically moves `id` from status `from` to `to`; the updated row, or null if it wasn't `from`. */
   transition(id: string, from: BlobRecord["status"], to: BlobRecord["status"]): Promise<BlobRecord | null>;
   delete(id: string): Promise<void>;
-  list(filter?: { folder?: Folder; backend?: BackendKind; status?: BlobRecord["status"]; limit?: number }): Promise<BlobRecord[]>;
+  list(filter?: ListFilter): Promise<BlobRecord[]>;
   usage(): Promise<UsageRow[]>;
   /** Small key/value state, e.g. remembered Drive folder ids. */
   getState(key: string): Promise<string | null>;
@@ -65,9 +83,16 @@ export class MemoryBlobIndex implements BlobIndex {
   async delete(id: string) {
     this.rows.delete(id);
   }
-  async list(filter: { folder?: Folder; backend?: BackendKind; status?: BlobRecord["status"]; limit?: number } = {}) {
+  async list(filter: ListFilter = {}) {
     return [...this.rows.values()]
-      .filter((r) => (!filter.folder || r.folder === filter.folder) && (!filter.backend || r.backend === filter.backend) && (!filter.status || r.status === filter.status))
+      .filter(
+        (r) =>
+          (!filter.folder || r.folder === filter.folder) &&
+          (!filter.backend || r.backend === filter.backend) &&
+          (!filter.status || r.status === filter.status) &&
+          (!filter.vertical || (r.vertical ?? SHARED_VERTICAL) === filter.vertical) &&
+          (!filter.work || r.work === filter.work),
+      )
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice(0, filter.limit ?? 1000)
       .map((r) => ({ ...r }));
@@ -76,8 +101,8 @@ export class MemoryBlobIndex implements BlobIndex {
     const by = new Map<string, UsageRow>();
     for (const r of this.rows.values()) {
       if (r.status !== "ready") continue;
-      const k = `${r.folder}/${r.backend}`;
-      const u = by.get(k) ?? { folder: r.folder, backend: r.backend, files: 0, bytes: 0 };
+      const k = `${r.folder}/${r.backend}/${r.vertical}`;
+      const u = by.get(k) ?? { folder: r.folder, backend: r.backend, vertical: r.vertical, files: 0, bytes: 0 };
       u.files++;
       u.bytes += r.size;
       by.set(k, u);
@@ -107,6 +132,9 @@ const COLUMNS: Record<keyof Omit<BlobRecord, "id" | "createdAt">, string> = {
   status: "status",
   uploadUrl: "upload_url",
   localPath: "local_path",
+  vertical: "vertical",
+  work: "work",
+  wip: "wip",
 };
 
 function fromRow(r: any): BlobRecord {
@@ -122,6 +150,9 @@ function fromRow(r: any): BlobRecord {
     uploadUrl: r.upload_url,
     localPath: r.local_path,
     createdAt: new Date(r.created_at),
+    vertical: r.vertical ?? null,
+    work: r.work ?? null,
+    wip: r.wip === true,
   };
 }
 
@@ -136,12 +167,13 @@ export class PgBlobIndex implements BlobIndex {
 
   async put(r: BlobRecord) {
     await this.db.query(
-      `insert into storage_files (id, backend, remote_id, name, size, content_type, folder, status, upload_url, local_path, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `insert into storage_files (id, backend, remote_id, name, size, content_type, folder, status, upload_url, local_path, created_at, vertical, work, wip)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        on conflict (id) do update set backend = excluded.backend, remote_id = excluded.remote_id, name = excluded.name,
          size = excluded.size, content_type = excluded.content_type, folder = excluded.folder, status = excluded.status,
-         upload_url = excluded.upload_url, local_path = excluded.local_path`,
-      [r.id, r.backend, r.remoteId, r.name, r.size, r.contentType, r.folder, r.status, r.uploadUrl, r.localPath, r.createdAt],
+         upload_url = excluded.upload_url, local_path = excluded.local_path, vertical = excluded.vertical,
+         work = excluded.work, wip = excluded.wip`,
+      [r.id, r.backend, r.remoteId, r.name, r.size, r.contentType, r.folder, r.status, r.uploadUrl, r.localPath, r.createdAt, r.vertical ?? null, r.work ?? null, r.wip ?? false],
     );
   }
 
@@ -161,20 +193,21 @@ export class PgBlobIndex implements BlobIndex {
     await this.db.query("delete from storage_files where id = $1", [id]);
   }
 
-  async list(filter: { folder?: Folder; backend?: BackendKind; status?: BlobRecord["status"]; limit?: number } = {}) {
+  async list(filter: ListFilter = {}) {
     const { rows } = await this.db.query(
       `select * from storage_files where ($1::text is null or folder = $1) and ($2::text is null or backend = $2)
-       and ($3::text is null or status = $3) order by created_at desc limit $4`,
-      [filter.folder ?? null, filter.backend ?? null, filter.status ?? null, filter.limit ?? 1000],
+       and ($3::text is null or status = $3) and ($5::text is null or coalesce(vertical, '${SHARED_VERTICAL}') = $5)
+       and ($6::text is null or work = $6) order by created_at desc limit $4`,
+      [filter.folder ?? null, filter.backend ?? null, filter.status ?? null, filter.limit ?? 1000, filter.vertical ?? null, filter.work ?? null],
     );
     return rows.map(fromRow);
   }
 
   async usage() {
     const { rows } = await this.db.query(
-      "select folder, backend, count(*)::int as files, coalesce(sum(size), 0)::bigint as bytes from storage_files where status = 'ready' group by folder, backend order by folder, backend",
+      "select folder, backend, vertical, count(*)::int as files, coalesce(sum(size), 0)::bigint as bytes from storage_files where status = 'ready' group by folder, backend, vertical order by vertical nulls last, folder, backend",
     );
-    return rows.map((r: any) => ({ folder: r.folder, backend: r.backend, files: Number(r.files), bytes: Number(r.bytes) }));
+    return rows.map((r: any) => ({ folder: r.folder, backend: r.backend, vertical: r.vertical ?? null, files: Number(r.files), bytes: Number(r.bytes) }));
   }
 
   async getState(key: string) {

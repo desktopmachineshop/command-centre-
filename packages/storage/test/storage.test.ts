@@ -12,6 +12,7 @@ import {
   LocalBlobStore,
   MemoryBlobIndex,
   Storage,
+  mediaIdsIn,
   UploadIncompleteError,
   uploadResumable,
 } from "../src";
@@ -104,10 +105,13 @@ describe("GoogleDriveBlobStore (mocked fetch)", () => {
     await store.put(bytes(10), { name: "b.png", contentType: "image/png" });
     await store.put(bytes(10), { name: "c.mp4", contentType: "video/mp4", folder: "renders" });
     const folders = [...fake.files.values()].filter((f) => f.mimeType === "application/vnd.google-apps.folder");
-    expect(folders.map((f) => f.name).sort()).toEqual(["Command Centre", "media", "renders"]);
+    // Files with no vertical go in "Command Centre/Shared/<folder>".
+    expect(folders.map((f) => f.name).sort()).toEqual(["Command Centre", "Shared", "media", "renders"]);
     const root = folders.find((f) => f.name === "Command Centre")!;
     expect(root.parents).toEqual(["root"]);
-    expect(folders.filter((f) => f.name !== "Command Centre").every((f) => f.parents[0] === root.id)).toBe(true);
+    const shared = folders.find((f) => f.name === "Shared")!;
+    expect(shared.parents).toEqual([root.id]);
+    expect(folders.filter((f) => f.name === "media" || f.name === "renders").every((f) => f.parents[0] === shared.id)).toBe(true);
     expect(await index.getState("gdrive.folder.root")).toBe(root.id);
     expect(await store.folderUrl()).toBe(`https://drive.google.com/drive/folders/${root.id}`);
 
@@ -243,6 +247,79 @@ describe("DiskCache", () => {
     const reloaded = new DiskCache(dir, 2000);
     await reloaded.init();
     expect(reloaded.stats().files).toBe(2);
+  });
+});
+
+describe("storage by vertical", () => {
+  it("files each vertical's uploads in its own Drive folder, named after it", async () => {
+    const fake = new FakeDrive();
+    const index = new MemoryBlobIndex();
+    const tokens = createGoogleTokenProvider({ clientId: "c", clientSecret: "s", refreshToken: "r", fetch: fake.fetch });
+    const store = new GoogleDriveBlobStore({ tokens, index, fetch: fake.fetch, chunkSize: CHUNK_UNIT, backoff: () => 0, log: () => {}, verticalFolderName: (v) => ({ dms: "Desktop Machine Shop" })[v] ?? v });
+    const a = await store.put(bytes(10), { name: "reel.mp4", contentType: "video/mp4", folder: "renders", vertical: "dms" });
+    const b = await store.put(bytes(10), { name: "noah.jpg", contentType: "image/jpeg", vertical: "personal" });
+    const c = await store.put(bytes(10), { name: "logo.png", contentType: "image/png", vertical: "shared" });
+    const remote = async (id: string) => (await index.get(id))!.remoteId!;
+    expect(fake.pathOf(await remote(a.id))).toBe("Command Centre/Desktop Machine Shop/renders");
+    expect(fake.pathOf(await remote(b.id))).toBe("Command Centre/personal/media");
+    expect(fake.pathOf(await remote(c.id))).toBe("Command Centre/Shared/media");
+    expect([a.vertical, b.vertical, c.vertical]).toEqual(["dms", "personal", null]);
+    await expect(store.put(bytes(1), { name: "x", contentType: "text/plain", vertical: "../etc" })).rejects.toThrow(/invalid vertical/);
+
+    // Moving a file keeps its Drive id (and so every link) and changes its folder.
+    const storage = new Storage({ index, local: new LocalBlobStore({ dataDir: tmp(), index }), drive: store });
+    expect((await storage.setVertical(c.id, "dms"))?.vertical).toBe("dms");
+    expect(fake.pathOf(await remote(c.id))).toBe("Command Centre/Desktop Machine Shop/media");
+    expect(await storage.list(undefined, { vertical: "dms" })).toHaveLength(2);
+    expect(await storage.list(undefined, { vertical: "shared" })).toHaveLength(0);
+    expect((await storage.usage()).byFolder.find((u) => u.vertical === "personal")).toMatchObject({ files: 1, bytes: 10 });
+  });
+
+  it("moves Drive files from the old flat folders into their vertical folders", async () => {
+    const fake = new FakeDrive();
+    const index = new MemoryBlobIndex();
+    const tokens = createGoogleTokenProvider({ clientId: "c", clientSecret: "s", refreshToken: "r", fetch: fake.fetch });
+    const store = new GoogleDriveBlobStore({ tokens, index, fetch: fake.fetch, chunkSize: CHUNK_UNIT, backoff: () => 0, log: () => {} });
+    const info = await store.put(bytes(10), { name: "old.mp4", contentType: "video/mp4", folder: "renders" });
+    // As the previous layout had it: "Command Centre/renders", and the backfill set its vertical.
+    const old = fake.files.get((await index.get(info.id))!.remoteId!)!;
+    old.parents = [(await (store as unknown as { ensureFolder(n: string, p: string, k: string): Promise<string> }).ensureFolder("renders", await store.rootFolderId(), "gdrive.folder.renders"))];
+    await index.update(info.id, { vertical: "dms" });
+    expect(await store.organise()).toEqual({ moved: 1, checked: 1, failed: [] });
+    expect(fake.pathOf(old.id)).toBe("Command Centre/dms/renders");
+    expect(await store.organise()).toEqual({ moved: 0, checked: 1, failed: [] });
+  });
+
+  it("deletes a work's work-in-progress files once its final file is published, and nothing else", async () => {
+    const index = new MemoryBlobIndex();
+    const storage = new Storage({ index, local: new LocalBlobStore({ dataDir: tmp(), index }) });
+    const work = { vertical: "dms", work: "video:p1" };
+    const capture = await storage.put(bytes(100), { name: "p1/intro.webm", contentType: "video/webm", folder: "renders", ...work, wip: true });
+    const voice = await storage.put(bytes(50), { name: "p1/voice-intro.mp3", contentType: "audio/mpeg", folder: "renders", ...work, wip: true });
+    const final = await storage.put(bytes(500), { name: "p1/reel.mp4", contentType: "video/mp4", folder: "renders", ...work, wip: false });
+    const other = await storage.put(bytes(70), { name: "p2/intro.webm", contentType: "video/webm", folder: "renders", vertical: "dms", work: "video:p2", wip: true });
+    const reserved = await storage.reserve({ name: "p1/outro.webm", contentType: "video/webm", folder: "renders", baseUrl: "https://cc.test", ...work, wip: true });
+
+    // Publishing a work-in-progress file, or a file of no work, releases nothing.
+    expect(await storage.releaseWork([capture.id, other.id, "f".repeat(32)])).toEqual({ deleted: [], freedBytes: 0 });
+    const content = { text: "New reel", media: [{ url: `https://cc.test/media/${final.id}`, type: "video" }] };
+    const released = await storage.releaseWork(mediaIdsIn(content));
+    expect(released.deleted.sort()).toEqual([capture.id, voice.id, reserved.id].sort());
+    expect(released.freedBytes).toBe(150);
+    expect(await storage.head(final.id)).not.toBeNull();
+    expect(await storage.head(other.id)).not.toBeNull();
+    expect(await storage.head(capture.id)).toBeNull();
+    expect(await storage.releaseWork(mediaIdsIn(content))).toEqual({ deleted: [], freedBytes: 0 });
+  });
+
+  it("tags a file's vertical only where none is set", async () => {
+    const index = new MemoryBlobIndex();
+    const storage = new Storage({ index, local: new LocalBlobStore({ dataDir: tmp(), index }) });
+    const a = await storage.put(bytes(5), { name: "a.pdf", contentType: "application/pdf", folder: "attachments" });
+    const b = await storage.put(bytes(5), { name: "b.pdf", contentType: "application/pdf", folder: "attachments", vertical: "personal" });
+    await storage.tag([a.id, b.id], { vertical: "dms" });
+    expect((await storage.head(a.id))?.vertical).toBe("dms");
+    expect((await storage.head(b.id))?.vertical).toBe("personal");
   });
 });
 

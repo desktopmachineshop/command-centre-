@@ -48,7 +48,7 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     api.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (init?.method === "POST" && url.pathname === `/repos/${REPO}/issues`) return Response.json({ html_url: `https://github.test/${REPO}/issues/7`, number: 7 }, { status: 201 });
     if (init?.method === "POST") return Response.json({ html_url: `https://github.test/${REPO}/pull/11`, number: 11 }, { status: 201 });
-    if (url.pathname === `/repos/${REPO}/pulls/11`) return Response.json({ state: "open", merged: false, html_url: `https://github.test/${REPO}/pull/11`, head: { sha: "abc123" } });
+    if (url.pathname === `/repos/${REPO}/pulls/11`) return Response.json({ state: "open", merged: false, html_url: `https://github.test/${REPO}/pull/11`, head: { sha: "abc123", ref: "cc/latched-ptt" } });
     if (url.pathname === `/repos/${REPO}/pulls/11/merge`) return Response.json({ merged: true, sha: "def456" });
     if (url.pathname.startsWith(`/repos/${REPO}/pulls/`)) return Response.json({ message: "Not Found" }, { status: 404 });
     return Response.json([]);
@@ -102,6 +102,14 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     expect(api.length).toBe(before); // nothing sent to GitHub yet
     const approved = (await ctx.api(`/api/proposals/${merge.id}/approve`, { method: "POST" })).body;
     expect(approved).toMatchObject({ status: "executed", result: { ok: true, result: { number: 11, merged: true, sha: "def456" } } });
+    // Released: the task checkout that built it (work/<task id>, on cc/latched-ptt) is cleared away.
+    const cleared = approved.result.result.clearedCheckouts as string[];
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatch(/^work\/[0-9a-f-]{36}$/);
+    const roleDir = runner.requests[0]!.cwd!;
+    expect(existsSync(join(roleDir, cleared[0]!))).toBe(false);
+    // Its local branch stays: its tip isn't the merged head GitHub reported (abc123).
+    expect(sh(join(roleDir, "repo"), "branch", "--list", "cc/latched-ptt")).toContain("cc/latched-ptt");
     expect(api.at(-1)).toEqual({ method: "PUT", path: `/repos/${REPO}/pulls/11/merge`, body: { merge_method: "merge", sha: "abc123" } });
 
     const missing = await ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.pr.merge", summary: "x", payload: { number: 99 } });

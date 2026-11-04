@@ -70,6 +70,14 @@ export class FakeDrive {
         this.files.delete(file.id);
         return new Response(null, { status: 204 });
       }
+      // files.update: moving between folders with addParents / removeParents.
+      if (method === "PATCH") {
+        const remove = (url.searchParams.get("removeParents") ?? "").split(",").filter(Boolean);
+        const add = (url.searchParams.get("addParents") ?? "").split(",").filter(Boolean);
+        file.parents = [...file.parents.filter((p) => !remove.includes(p)), ...add.filter((p) => !file.parents.includes(p))];
+        return json({ id: file.id });
+      }
+      if (url.searchParams.get("fields") === "parents") return json({ parents: file.parents });
       if (url.searchParams.get("alt") === "media") {
         const range = /bytes=(\d+)-(\d+)/.exec(headers.range ?? "");
         if (range) {
@@ -121,6 +129,13 @@ export class FakeDrive {
   private resource(id: string) {
     const f = this.files.get(id)!;
     return { id, mimeType: f.mimeType, size: String(f.data.length) };
+  }
+
+  /** A file's folder path by name, e.g. "Command Centre/Desktop Machine Shop/renders". */
+  pathOf(id: string): string {
+    const names: string[] = [];
+    for (let f = this.files.get(id)?.parents[0]; f && this.files.get(f); f = this.files.get(f)!.parents[0]) names.unshift(this.files.get(f)!.name);
+    return names.join("/");
   }
 
   /** Chunk PUTs (with bytes) sent to upload sessions. */

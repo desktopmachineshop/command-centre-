@@ -14,7 +14,8 @@ Read `README.md` and `docs/ARCHITECTURE.md` first if the area is new to you.
 The task's prompt context says where your checkout is (`work/<task id>` inside your workspace).
 The server fetched it fresh from GitHub and checked out the default branch before your run
 (detached). It is yours alone for this task; a reply or report on the same task finds it as you
-left it.
+left it. Once its PR is merged the server removes the checkout (unless it has uncommitted
+changes), so commit everything worth keeping before you raise the PR.
 
 - git itself has no GitHub credentials in your environment, by design: don't push or fetch with
   it. Pushing and opening the PR is the `github.pr.create` action, which runs straight away;

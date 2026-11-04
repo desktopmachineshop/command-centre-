@@ -310,6 +310,8 @@ export interface PublishDueOptions {
   adapters: AdapterMap;
   /** Called once per failed post (the server pushes a notification). */
   onFailure?: (post: ScheduledPost, error: string) => Promise<void>;
+  /** Called once per published post (the server clears its media's work-in-progress files). */
+  onPublished?: (post: ScheduledPost) => Promise<unknown>;
   fetch?: typeof fetch;
   logger?: AdapterLogger;
   now?: () => Date;
@@ -356,6 +358,7 @@ export async function publishDueScheduledPosts(options: PublishDueOptions): Prom
       const r = await adapter!.publish(account, post.content, ctx);
       await options.store.finishScheduledPost(post.id, "published", { ok: true, id: r.id, url: r.url ?? null });
       published++;
+      await options.onPublished?.(post).catch((err) => log.error(`after publishing ${post.id}`, err));
     } catch (err) {
       const error = (err as Error)?.message ?? String(err);
       await options.store.finishScheduledPost(post.id, "failed", { ok: false, error });

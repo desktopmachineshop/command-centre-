@@ -21,7 +21,7 @@ import {
 } from "@cc/social";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
-import { createGoogleTokenProvider, type GoogleTokenProvider } from "@cc/storage";
+import { createGoogleTokenProvider, type GoogleTokenProvider, mediaIdsIn } from "@cc/storage";
 import { createVoiceProviders, type SpeechToText, type TextToSpeech } from "@cc/voice";
 import { createNodeWebSocket } from "@hono/node-ws";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -36,7 +36,7 @@ import type { Config } from "./config";
 import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
-import { type CodeOptions, createCodeExecutors } from "./code";
+import { type CodeOptions, createCodeExecutors, sweepMergedCheckouts } from "./code";
 import { DigestService } from "./digest";
 import type { OdooLateNow, OdooStockNow } from "./odoo-digest";
 import { createSendcloudMcpServer, ShippingService } from "@cc/sendcloud";
@@ -260,6 +260,32 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     }
   }
   /** `strict` (boot, Railway's SOCIAL_ACCOUNTS only): a bad account stops the server, as before. */
+  /**
+   * Work in progress (packages/storage): once a post goes out with a work's final file (a rendered
+   * video), that work's intermediate files (captures, narration) are deleted. Runs after
+   * social.post / social.campaign publish straight away, and after each scheduled post.
+   */
+  const releaseWork = async (published: unknown, vertical: string) => {
+    const { deleted, freedBytes } = await storage.releaseWork(mediaIdsIn(published));
+    if (deleted.length) console.log(`[storage] ${vertical}: deleted ${deleted.length} work-in-progress file(s) (${Math.round(freedBytes / 1024 / 1024)} MB) after publishing`);
+  };
+  const releasingWork = (executors: Record<string, ActionExecutor>): Record<string, ActionExecutor> =>
+    Object.fromEntries(
+      Object.entries(executors).map(([type, e]) => [
+        type,
+        type !== "social.post" && type !== "social.campaign"
+          ? e
+          : {
+              ...e,
+              execute: async (payload: Record<string, unknown>, ctx: Parameters<ActionExecutor["execute"]>[1]) => {
+                const result = await e.execute(payload, ctx);
+                // A scheduled post releases its work when it actually goes out (onPublished below).
+                if ((result as { status?: string } | null)?.status !== "scheduled") await releaseWork(payload, ctx.vertical ?? "?").catch((err) => console.error("[storage] release work", err));
+                return result;
+              },
+            },
+      ]),
+    );
   const buildSocial = (c: Config, strict = false) => {
     // On reload, one unusable account (shown on the Accounts page) mustn't take the others down with it.
     const usable = strict ? c.social.accounts : c.social.accounts.filter((a) => {
@@ -271,7 +297,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (strict) for (const a of accounts) verticals.require(a.vertical);
     return {
       accounts,
-      executors: accounts.length ? createSocialExecutors(accounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone }) : {},
+      executors: accounts.length ? releasingWork(createSocialExecutors(accounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone })) : {},
       inbound: accounts.length
         ? new SocialInbound({ accounts, adapters: socialAdapters, store, ingest: (e) => pipeline.ingest(e), defaultPollSeconds: c.social.defaultPollSeconds })
         : undefined,
@@ -286,6 +312,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       store,
       accounts,
       adapters: socialAdapters,
+      onPublished: (post) => releaseWork(post.content, post.vertical),
       onFailure: (post, error) =>
         notifier.notify({
           title: "Scheduled post failed",
@@ -320,12 +347,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     const sameBackend =
       prev.backend === c.storage.backend && !prev.google === !c.storage.google && prev.driveFolder === c.storage.driveFolder && prev.cacheBytes === c.storage.cacheBytes;
     if (storageServing && !sameBackend) return "Switching file storage takes effect after the next restart";
-    if (!storageServing) storage.replaceBackends(createStorage(c, pool, { fetch: overrides.googleFetch, tokens: liveDriveTokens }));
+    if (!storageServing) storage.replaceBackends(createStorage(c, pool, { fetch: overrides.googleFetch, tokens: liveDriveTokens, verticalName }));
     driveTokens = googleTokens(c);
     storageConfig = c.storage;
     return undefined;
   };
-  const storage = createStorage(config, pool, { fetch: overrides.googleFetch, tokens: liveDriveTokens });
+  /** A vertical's Drive folder is named after it ("Command Centre/Desktop Machine Shop/renders"). */
+  const verticalName = (id: string) => verticals.get(id)?.name ?? id;
+  const storage = createStorage(config, pool, { fetch: overrides.googleFetch, tokens: liveDriveTokens, verticalName });
   // --- desktop: computers linked by signing in from the desktop app, each with its own worker token ---
   const desktop = new DesktopService(pool, { dataDir: config.dataDir });
   const workerAuth: WorkerAuth = async (token) => {
@@ -351,10 +380,27 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     uploadMaxBytes: config.storage.uploadMaxBytes,
     workerAuth,
     refuseUpload: (bytes: number) => uploadRefusal(storage, housekeeping, bytes),
+    verticals: () => verticals.all().map((v) => v.id),
     volume: async () => {
       const disk = await diskSpace(config.dataDir);
       return disk && { ...disk, minFreeBytes: housekeeping.minFreeBytes, renderRetentionDays: housekeeping.renderRetentionDays };
     },
+  };
+  /**
+   * Once, after storage became per vertical: delete the work-in-progress files of work already
+   * published, and move Drive files into their vertical folders. Remembered when it all worked.
+   */
+  const tidyStorageOnce = async () => {
+    if ((await storage.index.getState("storage.layout")) === "by-vertical") return;
+    const { rows } = await pool.query<{ content: unknown }>(
+      `select payload as content from proposals where status = 'executed' and action_type in ('social.post', 'social.campaign')
+       union all select content from scheduled_posts where status = 'published'`,
+    );
+    const released = await storage.releaseWork(mediaIdsIn(rows.map((r) => r.content)));
+    if (released.deleted.length) console.log(`[storage] deleted ${released.deleted.length} work-in-progress file(s) of work already published`);
+    const organised = await storage.organiseDrive();
+    if (organised?.failed.length) throw new Error(`${organised.failed.length} Drive file(s) could not be moved, e.g. ${organised.failed[0]!.id}: ${organised.failed[0]!.error}`);
+    await storage.index.setState("storage.layout", "by-vertical");
   };
   // Files pasted, dropped or attached in the chat box (./chat-files.ts).
   const chatFiles = new ChatFiles({ storage, dataDir: config.dataDir, uploadMaxBytes: config.storage.uploadMaxBytes, refuseUpload: storageDeps.refuseUpload });
@@ -838,6 +884,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       brainMirror?.schedule();
       await storage.init(); // storage: index media from before the index, load the cache
+      void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical
       storageServing = true; // storage: from here a backend switch waits for a restart
       if (queue instanceof PgBossTaskQueue) await queue.start();
       await queue.work((taskId) => pipeline.runTask(taskId));
@@ -857,13 +904,24 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         paReminders: deliverReminders,
         issuesAudit: runIssuesAudit,
         integrationsRefresh: () => refreshExpiringTokens({ service: integrations, notifier, fetch: overrides.integrationsFetch }), // --- integrations oauth ---
-        storageHousekeeping: () =>
-          storageHousekeeping({
+        storageHousekeeping: async () => {
+          await storageHousekeeping({
             storage,
             options: housekeeping,
             pendingPayloads: async () => (await store.listProposals({ status: "pending", limit: 1000 })).map((p) => p.payload),
             notify: (n) => notifier.notify({ ...n, category: "alert", tag: "storage-full" }),
-          }),
+          });
+          // Coding roles' work in progress: task checkouts whose branch has been merged.
+          for (const v of verticals.all()) {
+            for (const role of verticals.roles(v.id).filter((r) => r.repo)) {
+              const removed = await sweepMergedCheckouts(code, join(config.dataDir, "workspaces", v.id, role.id)).catch((err) => {
+                console.error(`[code] sweeping ${v.id}/${role.id} checkouts:`, (err as Error).message);
+                return [];
+              });
+              if (removed.length) console.log(`[code] removed ${removed.length} merged checkout(s) of ${role.id}: ${removed.join(", ")}`);
+            }
+          }
+        },
       });
       notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
       started = true;

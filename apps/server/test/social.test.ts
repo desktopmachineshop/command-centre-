@@ -223,6 +223,36 @@ describe.skipIf(!DB_URL)("social (integration)", () => {
     expect(ig.state.published.filter((p) => p.content.text === "Part 4!")).toHaveLength(1);
   });
 
+  it("deletes a video's work-in-progress files once its final render is published, now or when scheduled", async () => {
+    const storage = ctx.server.storage;
+    const make = async (work: string) => {
+      const tags = { vertical: "3dpandme", work };
+      const capture = await storage.put(Buffer.from("capture"), { name: `${work}/intro.webm`, contentType: "video/webm", folder: "renders", ...tags, wip: true });
+      const voice = await storage.put(Buffer.from("voice"), { name: `${work}/voice-intro.mp3`, contentType: "audio/mpeg", folder: "renders", ...tags, wip: true });
+      const final = await storage.put(Buffer.from("render"), { name: `${work}/reel.mp4`, contentType: "video/mp4", folder: "renders", ...tags, wip: false });
+      const post = { accountId: "3dp-ig", content: { text: "New reel", media: [{ url: `https://command.example.com/media/${final.id}`, type: "video" }] } };
+      return { capture, voice, final, post };
+    };
+
+    // Published on approval.
+    const now = await make("video:now");
+    const composed = await ctx.api("/api/social/compose", { method: "POST", json: { title: "Reel", posts: [now.post] } });
+    expect((await ctx.api(`/api/proposals/${composed.body.id}/approve`, { method: "POST" })).body).toMatchObject({ status: "executed" });
+    expect(await storage.head(now.capture.id)).toBeNull();
+    expect(await storage.head(now.voice.id)).toBeNull();
+    expect(await storage.head(now.final.id)).not.toBeNull();
+
+    // Scheduled: kept until the post goes out.
+    const later = await make("video:later");
+    const scheduled = await ctx.api("/api/social/compose", { method: "POST", json: { title: "Reel 2", posts: [later.post], publishAt: new Date(Date.now() + 1200).toISOString() } });
+    await ctx.api(`/api/proposals/${scheduled.body.id}/approve`, { method: "POST" });
+    expect(await storage.head(later.capture.id)).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 1300));
+    await systemJobs.socialPublish!();
+    expect(await storage.head(later.capture.id)).toBeNull();
+    expect(await storage.head(later.final.id)).not.toBeNull();
+  });
+
   it("cancels a post only while it is still scheduled", async () => {
     const composed = await ctx.api("/api/social/compose", {
       method: "POST",
