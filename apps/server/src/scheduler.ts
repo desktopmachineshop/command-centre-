@@ -56,6 +56,8 @@ export function startSystemJobs(options: {
   integrationsRefresh?: () => Promise<unknown>;
   /** Deletes old renders on the volume and warns when it's nearly full, nightly. */
   storageHousekeeping?: () => Promise<unknown>;
+  /** Moves issue notes written outside the brain's issues/ folder into it, daily. */
+  issuesAudit?: () => Promise<unknown>;
 }): Cron[] {
   const job = (name: string, cron: string, fn: () => Promise<unknown>) =>
     new Cron(cron, { timezone: options.timezone, protect: true }, async () => {
@@ -68,5 +70,6 @@ export function startSystemJobs(options: {
   if (options.paReminders) jobs.push(job("pa-reminders", "* * * * *", options.paReminders));
   if (options.integrationsRefresh) jobs.push(job("integrations-refresh", "17 4 * * *", options.integrationsRefresh));
   if (options.storageHousekeeping) jobs.push(job("storage-housekeeping", "43 3 * * *", options.storageHousekeeping));
+  if (options.issuesAudit) jobs.push(job("issues-audit", "23 2 * * *", options.issuesAudit));
   return jobs;
 }

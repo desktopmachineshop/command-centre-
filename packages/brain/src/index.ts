@@ -4,3 +4,4 @@ export * from "./mcp";
 export * from "./pg";
 export * from "./mirror";
 export * from "./seed";
+export * from "./issues";

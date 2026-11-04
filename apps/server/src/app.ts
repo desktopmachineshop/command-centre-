@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
-import { GitBrain, GitMirror, PgBrain } from "@cc/brain";
+import { auditIssues, GitBrain, GitMirror, ISSUES_README, PgBrain } from "@cc/brain";
 import { ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
 import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
@@ -177,6 +177,19 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   let brainMirror: GitMirror | null = null;
   const brain = new PgBrain(pool, { onChange: () => brainMirror?.schedule() });
   if (brainGit) brainMirror = new GitMirror(brain, brainGit);
+  /**
+   * The central issue log (issues/, packages/brain/src/issues.ts): writes its README once, then moves
+   * any issue note written elsewhere into it and journals what moved. At start-up and nightly.
+   */
+  const runIssuesAudit = async () => {
+    if (!(await brain.read("issues/README.md"))) await brain.write("issues/README.md", { body: ISSUES_README }, { message: "issues: the central issue log", author: "system" });
+    const { moved } = await auditIssues(brain, { verticals: verticals.all().map((v) => v.brainFolder) });
+    if (moved.length) {
+      console.log(`[issues] moved ${moved.length} issue note(s) into issues/: ${moved.map((m) => `${m.from} → ${m.to}`).join(", ")}`);
+      await brain.appendJournal(`Issues audit moved ${moved.length} note(s) into issues/: ${moved.map((m) => `${m.from} → ${m.to}`).join("; ")}`, { vertical: "command-centre" });
+    }
+    return moved;
+  };
   // --- end brain ---
   // --- Notifications: inbox, preferences, quiet hours, rate limits, devices (src/notifications) ---
   const notifications = new NotificationService(new NotificationStore(pool), overrides.pushTransport ?? new WebPushTransport(config.vapid), {
@@ -449,6 +462,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const code: CodeOptions = overrides.code ?? { token: config.githubToken };
   const codeExecutors = createCodeExecutors({
     ...code,
+    brain,
     locate: (vertical) => {
       const role = verticals.get(vertical) ? verticals.roles(vertical).find((r) => r.repo) : undefined;
       return role?.repo ? { roleDir: join(config.dataDir, "workspaces", vertical, role.id), repo: role.repo } : null;
@@ -796,6 +810,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     /** Sends due reminders; the every-minute system job calls this. */
     deliverReminders,
+    /** Moves issue notes written outside the brain's issues/ into it (start-up and nightly). */
+    issuesAudit: runIssuesAudit,
     storage,
     integrations,
     org,
@@ -819,6 +835,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         }
       }
       await brain.init();
+      await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       brainMirror?.schedule();
       await storage.init(); // storage: index media from before the index, load the cache
       storageServing = true; // storage: from here a backend switch waits for a restart
@@ -838,6 +855,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         rollover,
         socialPublish: publishScheduledPosts, // a no-op until a social account is set up
         paReminders: deliverReminders,
+        issuesAudit: runIssuesAudit,
         integrationsRefresh: () => refreshExpiringTokens({ service: integrations, notifier, fetch: overrides.integrationsFetch }), // --- integrations oauth ---
         storageHousekeeping: () =>
           storageHousekeeping({

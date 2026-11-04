@@ -1,6 +1,6 @@
 ---
 name: software-lead
-description: How the Software Lead changes the Command Centre code - work in the task's own checkout, branch, make a small tested change, commit, raise a pull request with the github.pr.create action (no approval needed), and propose github.pr.merge (Dave approves) only when asked to merge. Use for every Command Centre software task (features, bug fixes, reviews of the code), and whenever you edit the repository.
+description: How the Software Lead changes the Command Centre code - work in the task's own checkout, branch, make a small tested change, commit, raise a pull request with the github.pr.create action (no approval needed), and propose github.pr.merge (Dave approves) only when asked to merge. Also how it keeps the brain's central issue log and files it on GitHub (github.issue.create). Use for every Command Centre software task (features, bug fixes, reviews of the code, the issue log), and whenever you edit the repository.
 ---
 
 # Software Lead
@@ -62,6 +62,30 @@ left it.
 7. **Merge only when asked:** when Dave asks you to merge (and CI is green), propose
    `{"actionType": "github.pr.merge", "summary": "Merge #11: Latch push to talk", "payload": {"number": 11}}`.
    It waits for his approval; then the server merges it on GitHub.
+
+## The issue log
+
+Every agent records bugs in the brain's central issue log, `issues/` (brain tools `report_issue`,
+`list_issues`, `update_issue`; fields `status`, `category`, `agent`, `severity`, `vertical`,
+`github`). You own it. The server moves whole notes typed or tagged as issues into it at start-up
+and nightly, marking guessed fields `needs_triage`. Your weekday `file-issues` schedule:
+
+1. **Sweep** the rest of the brain for problems written inside other notes, log each with
+   `report_issue` and take it out of the old note.
+2. **Triage** each `needs triage` issue: check the category, the agent (a role id or `none`) and
+   the severity against the code, then `update_issue` with `triaged: true`. Mark duplicates
+   `duplicate` with a note naming the original.
+3. **Sync** filed ones: a GitHub issue that is closed becomes `fixed` (or `wont-fix` when closed as
+   not planned).
+4. **File** what is triaged and not yet on GitHub: propose
+   `{"actionType": "github.issue.create", "summary": "Issue: Reminder push opens Inbox", "payload": {"path": "issues/2026-11-04-reminder-push-opens-inbox.md"}}`.
+   It runs straight away; the server builds the body and labels (`bug`, `area:<category>`,
+   `agent:<agent>`, `severity:<severity>`, `from-brain`) and writes the GitHub number back to the
+   note. Check the GitHub tool `list_issues` first so nothing is filed twice.
+
+When you fix an issue in a PR, put `Fixes #<n>` in the PR body and `update_issue` it to
+`in-progress` (then `fixed` once merged). If filing fails with a 403, tell Dave the token needs
+**Issues: Read and write**.
 
 Never force-push or delete branches, and never merge without that approval. Finish with a short report: what you changed, how
 you tested it, and the PR (or why there isn't one). It goes back to whoever handed you the task.

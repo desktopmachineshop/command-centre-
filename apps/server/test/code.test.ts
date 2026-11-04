@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRunner, AgentRunRequest } from "@cc/agent-runtime";
+import { reportIssue } from "@cc/brain";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./helpers";
 
@@ -45,6 +46,7 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
   const fakeApi = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input));
     api.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (init?.method === "POST" && url.pathname === `/repos/${REPO}/issues`) return Response.json({ html_url: `https://github.test/${REPO}/issues/7`, number: 7 }, { status: 201 });
     if (init?.method === "POST") return Response.json({ html_url: `https://github.test/${REPO}/pull/11`, number: 11 }, { status: 201 });
     if (url.pathname === `/repos/${REPO}/pulls/11`) return Response.json({ state: "open", merged: false, html_url: `https://github.test/${REPO}/pull/11`, head: { sha: "abc123" } });
     if (url.pathname === `/repos/${REPO}/pulls/11/merge`) return Response.json({ merged: true, sha: "def456" });
@@ -105,6 +107,33 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     const missing = await ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.pr.merge", summary: "x", payload: { number: 99 } });
     expect((await ctx.api(`/api/proposals/${missing.id}/approve`, { method: "POST" })).body.result.error).toContain("no pull request #99");
     await expect(ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.pr.merge", summary: "x", payload: { number: "eleven" } })).rejects.toThrow(/number/);
+  });
+
+  it("files an issue from the brain's issue log on GitHub without approval, and writes the number back", async () => {
+    const { issue } = await reportIssue(ctx.server.brain, {
+      title: "Reminder push opens Inbox",
+      description: "Tapping a reminder opened Inbox instead of Today.",
+      category: "ui",
+      agent: "pa",
+      severity: "high",
+      reportedBy: "pa",
+    });
+    const filed = await ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.issue.create", summary: "Issue: push opens Inbox", payload: { path: issue.path } });
+    expect(filed).toMatchObject({ policy: "auto", status: "executed", result: { ok: true, result: { number: 7, url: `https://github.test/${REPO}/issues/7`, already: false } } });
+    const post = api.at(-1)!;
+    expect(post).toMatchObject({ method: "POST", path: `/repos/${REPO}/issues` });
+    expect(post.body.title).toBe("Reminder push opens Inbox");
+    expect(post.body.labels).toEqual(["bug", "area:ui", "severity:high", "from-brain", "agent:pa"]);
+    expect(post.body.body).toContain("| Agent affected | pa |");
+    expect(post.body.body).toContain(`<!-- brain:${issue.path} -->`);
+    expect((await ctx.server.brain.read(issue.path))!.frontmatter.github).toBe(7);
+
+    // Filed already: no second GitHub issue.
+    const before = api.length;
+    const again = await ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.issue.create", summary: "again", payload: { path: issue.path } });
+    expect(again.result).toMatchObject({ result: { number: 7, already: true } });
+    expect(api.length).toBe(before);
+    await expect(ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.issue.create", summary: "x", payload: { path: "command-centre/notes.md" } })).rejects.toThrow(/issues\/ folder/);
   });
 
   it("refuses to push the default branch or a branch that doesn't exist", async () => {

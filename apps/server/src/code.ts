@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { type Brain, ISSUE_CATEGORIES, issueOf, isIssuePath, notePath, updateIssue } from "@cc/brain";
 import type { ActionExecutor } from "./actions";
 
 const exec = promisify(execFile);
@@ -15,7 +16,7 @@ const exec = promisify(execFile);
  * agent's environment hold no credentials.
  */
 export interface CodeOptions {
-  /** Fine-grained token with Contents and Pull requests (read and write) on the repository. */
+  /** Fine-grained token with Contents, Pull requests and Issues (read and write) on the repository. */
   token?: string;
   /** Where repositories are cloned from and pushed to (tests use a local path). Default https://github.com. */
   gitBase?: string;
@@ -96,6 +97,8 @@ export function createCodeExecutors(
   o: CodeOptions & {
     /** The coding role of a vertical: its workspace folder and repository; null if it has none. */
     locate: (vertical: string) => { roleDir: string; repo: string } | null;
+    /** The brain, for github.issue.create (reads the issue note, writes the GitHub number back). */
+    brain?: Brain;
   },
 ): Record<string, ActionExecutor> {
   const parse = (payload: Record<string, unknown>) => {
@@ -117,7 +120,71 @@ export function createCodeExecutors(
     return { status: res.status, json: (await res.json().catch(() => ({}))) as T };
   };
 
+  const issueNote = async (payload: Record<string, unknown>) => {
+    if (!o.brain) throw new Error("The brain isn't available to file issues");
+    const raw = typeof payload.path === "string" ? payload.path.trim() : "";
+    const path = raw ? notePath(raw) : "";
+    if (!path || !isIssuePath(path)) throw new Error("payload.path must be an issue note in the brain's issues/ folder (from list_issues)");
+    const note = await o.brain.read(path);
+    if (!note) throw new Error(`There is no issue note at ${path}`);
+    return { path, note, issue: issueOf(note) };
+  };
+
   return {
+    "github.issue.create": {
+      description:
+        "File an issue from the brain's issue log as a GitHub issue in your repository. payload: { path (issues/… from list_issues), title? (default: the note's title) }. The server builds the body and labels (bug, area:<category>, agent:<agent>, severity:<severity>, from-brain) from the note and writes the GitHub number back to it. Already filed: returns the existing issue.",
+      validate: async (payload, ctx) => {
+        await issueNote(payload);
+        if (!o.locate(ctx.vertical)) throw new Error(`${ctx.vertical} has no coding role with a repository`);
+      },
+      execute: async (payload, ctx) => {
+        const { path, note, issue } = await issueNote(payload);
+        const where = ctx.vertical ? o.locate(ctx.vertical) : null;
+        if (!where) throw new Error(`${ctx.vertical ?? "This vertical"} has no coding role with a repository`);
+        if (!o.token && /^https?:/.test(gitBase(o))) throw new Error("GITHUB_TOKEN is not set");
+        const url = (n: number) => `https://github.com/${where.repo}/issues/${n}`;
+        if (issue.github) return { number: issue.github, url: url(issue.github), already: true };
+        // The marker finds an issue filed before a failed write-back, so it is never filed twice.
+        const marker = `<!-- brain:${path} -->`;
+        const found = await api<{ number: number; html_url: string; body?: string | null; pull_request?: unknown }[]>(`/repos/${where.repo}/issues?state=all&labels=from-brain&per_page=100`);
+        if (found.status === 403 || found.status === 401) throw new Error(githubIssueAccess(found.status, where.repo));
+        const existing = Array.isArray(found.json) ? found.json.find((i) => !i.pull_request && i.body?.includes(marker)) : undefined;
+        let number: number;
+        let link: string;
+        if (existing) {
+          ({ number, html_url: link } = existing);
+        } else {
+          const title = (typeof payload.title === "string" && payload.title.trim()) || issue.title;
+          const body = [
+            note.body.replace(/^#\s+.+\n+/, "").trim(),
+            "",
+            "| Field | Value |",
+            "| --- | --- |",
+            `| Category | ${issue.category}: ${ISSUE_CATEGORIES[issue.category]} |`,
+            `| Agent affected | ${issue.agent} |`,
+            `| Severity | ${issue.severity} |`,
+            ...(issue.vertical ? [`| Vertical | ${issue.vertical} |`] : []),
+            `| Reported | ${issue.reported} by ${issue.reportedBy} |`,
+            `| Brain note | \`${path}\` |`,
+            "",
+            "_Filed by the Command Centre Software Lead from the brain's issue log._",
+            marker,
+          ].join("\n");
+          const labels = [issue.category === "docs" ? "documentation" : "bug", `area:${issue.category}`, `severity:${issue.severity}`, "from-brain", ...(issue.agent !== "none" ? [`agent:${issue.agent}`] : [])];
+          const created = await api<{ number?: number; html_url?: string; message?: string }>(`/repos/${where.repo}/issues`, {
+            method: "POST",
+            body: { title: title.slice(0, 250), body: body.slice(0, 60_000), labels },
+          });
+          if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created.status, where.repo));
+          if (created.status >= 300 || !created.json.number) throw new Error(`GitHub refused the issue: ${created.json.message ?? `HTTP ${created.status}`}`);
+          number = created.json.number;
+          link = created.json.html_url ?? url(number);
+        }
+        await updateIssue(o.brain!, path, { github: number, by: "software-lead" });
+        return { number, url: link, already: !!existing };
+      },
+    },
     "github.pr.create": {
       description:
         "Push a branch you committed in your checkout and open a pull request (or update the open one). payload: { branch, title, body (markdown: what, why, testing), base? (default: the default branch) }. Never the default branch.",
@@ -192,4 +259,11 @@ function parseMerge(payload: Record<string, unknown>): { number: number; method:
   const method = payload.method === undefined ? "merge" : payload.method;
   if (method !== "merge" && method !== "squash" && method !== "rebase") throw new Error('payload.method must be "merge", "squash" or "rebase"');
   return { number, method };
+}
+
+/** A 401/403 on issues, in words Dave can act on. */
+function githubIssueAccess(status: number, repo: string): string {
+  return status === 401
+    ? "GitHub rejected GITHUB_TOKEN (401): it is wrong, expired or revoked. Make a new fine-grained token and update GITHUB_TOKEN in Railway."
+    : `GITHUB_TOKEN may not create issues on ${repo} (403). Edit the fine-grained token on GitHub: Repository permissions → Issues → Read and write.`;
 }

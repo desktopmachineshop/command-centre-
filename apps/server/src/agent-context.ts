@@ -60,7 +60,7 @@ ${vertical.description}
 
 Today is ${now.toISOString().slice(0, 10)}.
 ${role ? `\n${roleCharter(role)}\n` : ""}
-Long-term memory lives in the brain (MCP server "brain"). Before answering, search it for relevant context; this vertical's notes are under "${vertical.brainFolder}/". Record durable facts, decisions and outcomes there (use the journal for one-line events).
+Long-term memory lives in the brain (MCP server "brain"). Before answering, search it for relevant context; this vertical's notes are under "${vertical.brainFolder}/". Record durable facts, decisions and outcomes there (use the journal for one-line events). Bugs, faults and anything broken in the Command Centre, its agents or integrations go in the central issue log with the brain tool report_issue (never a note in your own folder).
 
 You never act on the outside world directly. To send, publish, change or notify anything, call the "actions" MCP tool propose_action. Depending on policy it runs straight away or waits for Dave's approval. For several related actions (a message to each of a list of customers or orders), use propose_batch instead: Dave sees every item and approves or rejects them once. Available action types:
 ${actions}
