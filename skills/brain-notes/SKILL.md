@@ -23,6 +23,7 @@ relevant before you answer or propose an action.
 | A decision and its reasoning | `<vertical>/decisions/YYYY-MM-DD-<topic>.md` |
 | A repeatable how-to | `<vertical>/playbooks/<topic>.md` |
 | Something that happened today | `append_journal` (one line, with the vertical) |
+| A bug, fault or problem with the Command Centre, an agent or an integration | `report_issue` (the central issue log, `issues/`), never your own folder |
 
 ## Note format
 
@@ -40,6 +41,24 @@ Short summary first, then details. Link related notes with [[other-note]].
 ## History
 - 2026-10-23: Asked about ER11 collets for a 300W spindle; recommended the 7-piece set.
 ```
+
+## Issues
+
+Every agent uses one issue log: `issues/`, written with the brain tools `report_issue`,
+`list_issues` and `update_issue` (plain `write` refuses issue notes outside it). Report anything
+broken or wrong in the app, an agent's behaviour, or an outside service: a page that fails, a tool
+error, a sync that dropped data, a skill that told you the wrong thing.
+
+- `category`: `ui`, `backend`, `integration`, `agent` (an agent's skill, prompt, routing or
+  permissions), `data`, `infrastructure`, `docs` or `other`.
+- `agent`: the role id of the agent affected (yourself if you went wrong), or `none`.
+- `severity`: `critical` (data loss, security, everything down), `high` (a feature unusable),
+  `medium` (wrong but workable), `low` (cosmetic).
+- A specific title ("Odoo stock sync skips variants", not "Odoo problem"), and in the description
+  what happened, what should have, and how to see it again. Never put secrets in it.
+- Seen it again? `report_issue` with the same title adds a History line rather than a duplicate.
+- Log it and carry on with your task; don't work around it silently. The Software Lead
+  triages the log and files it on GitHub.
 
 ## Rules
 

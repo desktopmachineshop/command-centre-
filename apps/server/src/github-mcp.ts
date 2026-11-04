@@ -23,7 +23,7 @@ const clip = (s: unknown, max = 2000) => (typeof s === "string" ? (s.length > ma
 export function explainGithubError(status: number, message: string | undefined, repo: string): string {
   if (status === 401) return "GitHub rejected GITHUB_TOKEN (401): it is wrong, expired or revoked. Make a new fine-grained token and update GITHUB_TOKEN in Railway.";
   if (status === 403 && /rate limit/i.test(message ?? "")) return `GitHub rate-limited the token: ${message}`;
-  if (status === 403) return `GITHUB_TOKEN can't do this on ${repo} (403${message ? `: ${message}` : ""}). Give the fine-grained token read access to Pull requests, Issues, Checks/Commit statuses and Actions on this repository.`;
+  if (status === 403) return `GITHUB_TOKEN can't do this on ${repo} (403${message ? `: ${message}` : ""}). Give the fine-grained token access to Pull requests and Issues (read and write), and Commit statuses and Actions (read), on this repository.`;
   if (status === 404) return `GitHub says ${repo} (or the item) doesn't exist for GITHUB_TOKEN (404). A fine-grained token only sees the repositories it was granted: add ${repo} under "Repository access".`;
   return `GitHub returned HTTP ${status}${message ? `: ${message}` : ""}`;
 }

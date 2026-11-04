@@ -69,7 +69,7 @@ describe("github MCP (read-only, the server's token)", () => {
     expect(res.error).toBe(true);
     expect(res.text).toMatch(/GitHub rejected GITHUB_TOKEN \(401\).*Railway/);
     expect(explainGithubError(404, "Not Found", "dms/cc")).toMatch(/Repository access/);
-    expect(explainGithubError(403, "Resource not accessible by personal access token", "dms/cc")).toMatch(/read access to Pull requests/);
+    expect(explainGithubError(403, "Resource not accessible by personal access token", "dms/cc")).toMatch(/Pull requests and Issues \(read and write\)/);
   });
 });
 

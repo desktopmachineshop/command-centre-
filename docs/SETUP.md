@@ -2133,9 +2133,10 @@ The **Command Centre** business has one role, the **Software Lead**, which works
 own code (`desktopmachineshop/command-centre-`). Ask it in Chat or Drive mode ("software: make the
 digest arrive at 8am", "talk to the software lead"), or let the Chief of Staff hand it the work.
 
-**Set up:** create a fine-grained GitHub token on that repository only, with **Contents** and
-**Pull requests** (read and write), plus **Issues**, **Commit statuses** and **Actions** (read) so it
-can see issues and CI, and set it as `GITHUB_TOKEN` in Railway. A fine-grained token sees only the
+**Set up:** create a fine-grained GitHub token on that repository only, with **Contents**,
+**Pull requests** and **Issues** (read and write; Issues so it can file the brain's issue log),
+plus **Commit statuses** and **Actions** (read) so it can see CI, and set it as `GITHUB_TOKEN` in
+Railway. Changing an existing token's permissions keeps its value, so Railway needs no update. A fine-grained token sees only the
 repositories listed under its *Repository access*; for a repository owned by an organisation, the
 organisation may also have to approve the token. To check it, ask the Software Lead "check your
 GitHub access": its `access` tool reports whether the token works and what it may do, and a failed
@@ -2169,6 +2170,19 @@ checkout is logged as `[code] checkout of … failed: …`.
   why the tools are only given to tasks you start. Review every PR before merging. For stronger
   isolation, run coding on a desktop worker, or in Anthropic's cloud (see
   [docs/plans/managed-agents.md](plans/managed-agents.md), not built yet).
+- **The issue log.** Every agent records bugs and faults in one place in the brain, `issues/`, with
+  the brain tools `report_issue`, `list_issues` and `update_issue` (the plain `write` tool refuses
+  issue notes anywhere else). Each issue has `status` (open, in-progress, fixed, wont-fix,
+  duplicate), `category` (ui, backend, integration, agent, data, infrastructure, docs, other),
+  `agent` (the affected role id, or `none`), `severity`, `vertical`, who reported it and when, and
+  `github` once filed. At start-up and nightly (02:23) the server moves any note typed or tagged as
+  an issue or bug, or kept in an `issues`/`bugs` folder, into `issues/`, marks it `needs_triage`,
+  and logs what it moved in the journal. On weekdays at 18:07 the Software Lead's `file-issues`
+  schedule sweeps the brain for problems written inside other notes, triages, closes the ones
+  fixed on GitHub, and files the rest as GitHub issues with `github.issue.create` (no approval:
+  it only records them in your repository). The labels are `bug`, `area:<category>`,
+  `agent:<agent>`, `severity:<severity>` and `from-brain`, and the GitHub number is written back
+  to the note. To run it now, ask the Software Lead in Chat: "file the issue log now".
 - Old checkouts stay on the volume; delete `workspaces/command-centre/software-lead/work/*` to
   free space (a task whose checkout is gone gets a fresh one on its next run).
 

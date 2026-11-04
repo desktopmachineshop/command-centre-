@@ -73,7 +73,7 @@ describe("brain MCP server", () => {
     await client.connect(clientT);
 
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(tools).toEqual(["append_journal", "list", "read", "search", "write"]);
+    expect(tools).toEqual(["append_journal", "list", "list_issues", "read", "report_issue", "search", "update_issue", "write"]);
 
     await client.callTool({ name: "write", arguments: { path: "dms/note.md", body: "# Note\n\nhello" } });
     const read = await client.callTool({ name: "read", arguments: { path: "dms/note.md" } });

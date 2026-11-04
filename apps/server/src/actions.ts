@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Brain } from "@cc/brain";
+import { type Brain, isMisplacedIssue } from "@cc/brain";
 import { type EventSource, type NewProposal, type NotificationCategory, type NotificationPriority, NewProposal as NewProposalSchema, type Policy, type Proposal, proposalPolicy } from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { Store } from "./db/store";
@@ -38,6 +38,13 @@ export const builtinExecutors: Record<string, ActionExecutor> = {
   },
   "brain.write": {
     description: "Create or replace a brain note. payload: { path, body, frontmatter? }",
+    validate: (payload) => {
+      // Issues have one home (the brain's issues/ log, written with the brain tool report_issue).
+      const path = str(payload, "path").replace(/^\/+/, "");
+      if (!path.startsWith("issues/") && isMisplacedIssue({ path, frontmatter: (payload.frontmatter ?? {}) as Record<string, unknown> })) {
+        throw new Error(`Issues go in the brain's central issue log, not ${path}: use the brain tool report_issue`);
+      }
+    },
     execute: async (payload, { brain }) => {
       const frontmatter = (payload.frontmatter ?? {}) as Record<string, unknown>;
       return (await brain.write(str(payload, "path"), { body: str(payload, "body"), frontmatter })).path;

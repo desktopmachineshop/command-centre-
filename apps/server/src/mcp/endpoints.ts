@@ -224,7 +224,19 @@ export function mcpRoutes(deps: {
     await next();
   });
 
-  app.all("/brain", (c) => handle(createBrainMcpServer(deps.brain), c.req.raw));
+  app.all("/brain", (c) => {
+    // Issues record who reported them (the run's role, or Dave) and may only name a known agent.
+    const caller = c.get("caller");
+    const role = caller.kind === "run" ? deps.verticals.roleFor(caller.scope.vertical, caller.scope.role).id : "dave";
+    return handle(
+      createBrainMcpServer(deps.brain, {
+        caller: role,
+        vertical: caller.kind === "run" ? caller.scope.vertical : undefined,
+        agents: () => [...new Set(deps.verticals.all().flatMap((v) => deps.verticals.roles(v.id).map((r) => r.id)))],
+      }),
+      c.req.raw,
+    );
+  });
   app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller"), deps.handoff, deps.searchTranscripts), c.req.raw));
   app.all("/:name", (c) => {
     const servers = (typeof deps.servers === "function" ? deps.servers() : deps.servers) ?? {};

@@ -1,20 +1,23 @@
 import type { Task } from "@cc/core";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import type { Api } from "../api";
 import { ago, askText, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
-import { useRouteQuery } from "../router";
-import { Empty, ErrorBanner, PageHead, Skeleton, Status, VTag } from "../ui";
+import { go, useRouteQuery } from "../router";
+import { Empty, ErrorBanner, PageHead, Skeleton, Status, VerticalsContext, VTag } from "../ui";
 
 const FILTERS = ["", "queued", "running", "awaiting_approval", "deferred", "done", "failed"] as const;
 
 export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [status, setStatus] = useState<string>("");
-  // `#/inbox?vertical=&role=` (from the Org page) narrows the list to one role.
+  // `#/inbox?vertical=` (the vertical filter) narrows the list to one vertical; `&role=` (from the Org page) to one role.
   const query = useRouteQuery();
-  const vertical = query.get("vertical") ?? undefined;
-  const role = query.get("role") ?? undefined;
+  const vertical = query.get("vertical") || undefined;
+  const role = query.get("role") || undefined;
+  const verticals = Object.values(useContext(VerticalsContext)).sort((a, b) => a.name.localeCompare(b.name));
+  // Choosing a vertical clears a role filter, which may belong to another vertical.
+  const pickVertical = (id: string) => go(id ? `inbox?vertical=${encodeURIComponent(id)}` : "inbox");
   const { data, error } = useLoad(
     () => api.tasks(status || undefined, { vertical, role }),
     feed,
@@ -34,10 +37,20 @@ export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
           ) : undefined
         }
       >
+        <select className="inbox-filter" data-help-key="inbox.filter" value={vertical ?? ""} onChange={(e) => pickVertical(e.target.value)} aria-label="Filter by vertical">
+          <option value="">all verticals</option>
+          {verticals.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+          {/* A vertical in the link that the list doesn't know (yet): keep it selectable. */}
+          {vertical && !verticals.some((v) => v.id === vertical) && <option value={vertical}>{vertical}</option>}
+        </select>
         <select className="inbox-filter" data-help-key="inbox.filter" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter by status">
           {FILTERS.map((f) => (
             <option key={f} value={f}>
-              {f ? f.replace("_", " ") : "all"}
+              {f ? f.replace("_", " ") : "all statuses"}
             </option>
           ))}
         </select>
