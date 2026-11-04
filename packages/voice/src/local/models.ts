@@ -50,6 +50,18 @@ export const CLEANUP_MODELS = {
   vad: { dir: "silero-vad", url: `${RELEASES}/asr-models/silero_vad.onnx`, files: ["silero_vad.onnx"], mb: 1, single: true },
 } satisfies Record<string, LocalModel>;
 
+/**
+ * Piper's British voices at medium quality (VITS, single speaker): about 0.08x real time on four
+ * threads, five to ten times faster than Kokoro, a little less natural.
+ */
+export const PIPER_VOICES = ["cori", "jenny_dioco", "alba", "northern_english_male", "alan", "southern_english_female"] as const;
+export type PiperVoice = (typeof PIPER_VOICES)[number];
+
+export function piperModel(voice: PiperVoice): LocalModel {
+  const name = `en_GB-${voice}-medium`;
+  return { dir: `vits-piper-${name}`, url: `${RELEASES}/tts-models/vits-piper-${name}.tar.bz2`, files: [`${name}.onnx`, "tokens.txt", "espeak-ng-data"], mb: 64 };
+}
+
 /** Kokoro v0.19 speaker ids by voice name. */
 export const KOKORO_VOICES: Record<string, number> = {
   af: 0,

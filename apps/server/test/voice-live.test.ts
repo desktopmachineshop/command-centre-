@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { type AsrWorkerMessage, LOCAL_MODELS, LocalSpeech, type WorkerLike } from "@cc/voice/local";
+import { type AsrWorkerMessage, findVoice, LOCAL_MODELS, LocalSpeech, type WorkerLike } from "@cc/voice/local";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { voiceApiRoutes } from "../src/http/voice";
+import { VoiceService } from "../src/voice/service";
 import { FrontStreamSplitter, HANDOFF, VoiceFront } from "../src/voice/front";
 import { ADMIN, DB_URL, makeServer, resetDatabase, serveServer } from "./helpers";
 
@@ -192,7 +193,7 @@ describe.skipIf(!DB_URL)("live transcription socket /ws/voice (integration)", ()
 
   beforeAll(async () => {
     await resetDatabase(DB_URL!);
-    ctx = await makeServer({ overrides: { localSpeech: new LocalSpeech({ root: installedRoot(), worker: fakeWorker, sherpa: () => ({}) as never, log: () => {} }) } });
+    ctx = await makeServer({ overrides: { localSpeech: new LocalSpeech({ root: installedRoot(), engine: "kokoro", worker: fakeWorker, sherpa: () => ({}) as never, log: () => {} }) } });
     served = await serveServer(ctx.server);
   });
   afterAll(async () => {
@@ -218,7 +219,7 @@ describe.skipIf(!DB_URL)("live transcription socket /ws/voice (integration)", ()
 
   it("reports the self-hosted streaming transcription and voice in the config", async () => {
     const { body } = await ctx.api("/api/voice/config");
-    expect(body).toMatchObject({ stt: { provider: "local", streaming: true }, tts: { provider: "local", voice: "bf_emma" }, local: { stt: "ready", tts: "ready" } });
+    expect(body).toMatchObject({ stt: { provider: "local", streaming: true }, tts: { provider: "local", voice: "kokoro:bf_emma" }, local: { stt: "ready", tts: "ready", voices: true } });
   });
 
   it("refuses a socket without a valid token", async () => {
@@ -253,5 +254,55 @@ describe.skipIf(!DB_URL)("live transcription socket /ws/voice (integration)", ()
     ws.send(JSON.stringify({ type: "stop" }));
     await closed;
     expect(messages.map((m) => m.type)).toEqual(["ready", "partial", "final"]);
+  });
+});
+
+describe("choosing a self-hosted voice (/voice/voices, /voice/speak)", () => {
+  /** Cori downloaded; others download through `fetch` (held until `release`). */
+  function setup() {
+    const root = mkdtempSync(join(tmpdir(), "cc-voice-"));
+    const cori = findVoice("piper:cori")!.model;
+    mkdirSync(join(root, cori.dir, "espeak-ng-data"), { recursive: true });
+    for (const f of cori.files.filter((f) => f.includes("."))) writeFileSync(join(root, cori.dir, f), "");
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const fetch = (async () => {
+      await held;
+      return new Response("x");
+    }) as typeof globalThis.fetch;
+    const spoken: { text: string; sid: number }[] = [];
+    const sherpa = () => ({
+      OfflineTts: { createAsync: async () => ({ sampleRate: 22050, generateAsync: async (r: { text: string; sid: number }) => (spoken.push(r), { samples: new Float32Array(8), sampleRate: 22050 }) }) },
+    });
+    const local = new LocalSpeech({ root, fetch, sherpa: sherpa as never, log: () => {} });
+    const service = new VoiceService({} as never, {} as never, {} as never, { local, maxUploadBytes: 1024, maxSeconds: 60, language: "en-GB", timezone: "Europe/London" });
+    const app = voiceApiRoutes({ service, conversations: {} as never });
+    const post = (path: string, body?: unknown) => app.request(path, { method: "POST", body: body ? JSON.stringify(body) : undefined, headers: { "content-type": "application/json" } });
+    return { app, post, release, spoken };
+  }
+
+  it("lists the voices with what's downloaded, and starts a download on request", async () => {
+    const { app, post } = setup();
+    const list = (await (await app.request("/voice/voices")).json()) as { default: string; voices: { id: string; status: string; tier: string }[] };
+    expect(list.default).toBe("piper:cori");
+    expect(list.voices.find((v) => v.id === "piper:cori")).toMatchObject({ status: "ready", tier: "fast" });
+    expect(list.voices.find((v) => v.id === "kokoro:bf_emma")).toMatchObject({ status: "missing", tier: "natural" });
+    const res = await post(`/voice/voices/${encodeURIComponent("piper:alba")}/install`);
+    expect(res.status).toBe(202);
+    const after = (await res.json()) as typeof list;
+    expect(after.voices.find((v) => v.id === "piper:alba")?.status).toBe("installing");
+  });
+
+  it("speaks the default meanwhile for a voice still downloading, or says so for a preview", async () => {
+    const { post } = setup();
+    const res = await post("/voice/speak", { text: "Hello there.", voice: "piper:jenny_dioco" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-cc-voice")).toBe("piper:cori");
+    const preview = await post("/voice/speak", { text: "Hello there.", voice: "piper:jenny_dioco", fallback: false });
+    expect(preview.status).toBe(409);
+    expect(await preview.json()).toMatchObject({ downloading: true, voice: "piper:jenny_dioco" });
+    // The fallback wasn't cached under Jenny: the same request synthesizes again.
+    const again = await post("/voice/speak", { text: "Hello there.", voice: "piper:jenny_dioco" });
+    expect(again.headers.get("x-cc-cache")).toBe("miss");
   });
 });

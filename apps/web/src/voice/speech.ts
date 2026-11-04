@@ -770,6 +770,19 @@ async function* once(text: string): AsyncIterable<string> {
   yield text;
 }
 
+let audioContext: AudioContext | null = null;
+
+/**
+ * One AudioContext for the server voice across the app. iOS only lets audio play once a tap has
+ * resumed it, so call this from a tap (e.g. switching on "Read replies aloud"); later playback,
+ * such as a reply arriving, then works.
+ */
+export function sharedAudioContext(): AudioContext {
+  audioContext ??= new AudioContext();
+  void audioContext.resume?.().catch(() => {});
+  return audioContext;
+}
+
 /** The pause after a piece: a breath after a sentence, a beat after a clause. Pure. */
 export function pauseAfter(piece: string): number {
   return /[.!?]["')\]]*$/.test(piece.trim()) ? 0.24 : /[,;:—–-]$/.test(piece.trim()) ? 0.08 : 0.14;
@@ -801,7 +814,7 @@ export class ServerSpeaker implements Speaker {
   /** Creates (or resumes) the audio context; call from a tap so iOS lets it play. */
   unlock(): AudioContext {
     if (!this.ctx) {
-      this.ctx = new AudioContext();
+      this.ctx = sharedAudioContext();
       this.analyser = this.ctx.createAnalyser();
       this.analyser.connect(this.ctx.destination);
       this.meter = new AnalyserLevel(this.analyser);

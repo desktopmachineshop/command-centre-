@@ -37,6 +37,8 @@ export interface SynthesisResult {
   mime: string;
   /** Word timings, when the provider returns them and `timings` was asked for. */
   words?: WordTiming[];
+  /** The voice actually used, when it can differ from the one asked for (a fallback). */
+  voice?: string;
 }
 
 export interface TextToSpeech {

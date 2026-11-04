@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useInstall } from "../install";
 import { useUpdate } from "../update";
-import type { Api } from "../api";
+import type { Api, VoiceConfig } from "../api";
+import { VoicePicker } from "../voice/VoicePicker";
 import { Icon } from "../icons";
 import { PageHead } from "../ui";
 import { Account } from "./Account";
@@ -19,6 +20,10 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
   const update = useUpdate();
   const [checking, setChecking] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
+  useEffect(() => {
+    api.voiceConfig().then(setVoiceConfig).catch(() => setVoiceConfig(null));
+  }, [api]);
 
   const enablePush = async () => {
     try {
@@ -85,6 +90,14 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
             </button>
           )}
         </div>
+      </div>
+      <div className="card">
+        <div className="card-head">
+          <Icon name="mic" />
+          <h3>Voice</h3>
+        </div>
+        <p className="muted small">The voice this device speaks with, in Drive mode and when reading replies aloud. Fast voices start at once; the most natural ones pause a little before each sentence.</p>
+        <VoicePicker api={api} config={voiceConfig} />
       </div>
       <div className="card">
         <div className="card-head">
