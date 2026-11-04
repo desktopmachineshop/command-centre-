@@ -5,19 +5,27 @@ import type { BlobIndex, UsageRow } from "./blob-index";
 import type { CacheStats, DiskCache } from "./cache";
 import type { GoogleDriveBlobStore } from "./google/drive";
 import type { LocalBlobStore } from "./local";
+import { toInfo } from "./local";
 import type {
   BackendKind,
   BlobBody,
   BlobInfo,
   BlobSource,
   BlobStore,
+  BlobTags,
   ByteRange,
   Folder,
   PutOptions,
   UploadSession,
   UploadSessionOptions,
 } from "./types";
-import { isBlobId, newBlobId } from "./types";
+import { isBlobId, newBlobId, tagsOf } from "./types";
+
+/** Blob ids in /media/<id> links anywhere in a value (a post's content, a proposal payload). */
+export function mediaIdsIn(value: unknown): string[] {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  return [...new Set([...text.matchAll(/\/media\/([a-f0-9]{32}(?:\.[a-z0-9]{1,8})?)/g)].map((m) => m[1]!))];
+}
 
 export interface StorageOptions {
   index: BlobIndex;
@@ -98,9 +106,65 @@ export class Storage implements BlobStore {
     return (await this.backendOf(id))?.delete(id) ?? false;
   }
 
-  async list(folder?: Folder, options: { limit?: number } = {}): Promise<BlobInfo[]> {
-    const rows = await this.index.list({ folder, status: "ready", limit: options.limit });
-    return rows.map((r) => ({ id: r.id, name: r.name, size: r.size, contentType: r.contentType, folder: r.folder, backend: r.backend, createdAt: r.createdAt }));
+  /** Ready files, newest first; `vertical` narrows to one vertical ("shared": files with none). */
+  async list(folder?: Folder, options: { limit?: number; vertical?: string } = {}): Promise<BlobInfo[]> {
+    const rows = await this.index.list({ folder, status: "ready", limit: options.limit, vertical: options.vertical });
+    return rows.map(toInfo);
+  }
+
+  /** Moves a file to another vertical (null: shared). On Drive it moves to that vertical's folder; local paths never change. */
+  async setVertical(id: string, vertical: string | null): Promise<BlobInfo | null> {
+    const row = isBlobId(id) ? await this.index.get(id) : null;
+    if (!row || row.status !== "ready") return null;
+    const tags = tagsOf({ vertical });
+    if (row.backend === "gdrive") {
+      if (!this.drive) throw new Error("Google Drive isn't connected, so its files can't be moved");
+      await this.drive.setVertical(id, tags.vertical);
+    } else await this.index.update(id, { vertical: tags.vertical });
+    return toInfo({ ...row, vertical: tags.vertical });
+  }
+
+  /** Tags files after the fact (e.g. a chat attachment once its task's vertical is known), only where unset. */
+  async tag(ids: string[], tags: BlobTags): Promise<void> {
+    for (const id of ids) {
+      const row = isBlobId(id) ? await this.index.get(id) : null;
+      if (!row) continue;
+      if (tags.vertical && !row.vertical) await this.setVertical(id, tags.vertical).catch(() => this.index.update(id, { vertical: tagsOf(tags).vertical }));
+      if (tags.work && !row.work) await this.index.update(id, { work: tags.work });
+    }
+  }
+
+  /**
+   * The final file of a piece of work has been published: delete that work's
+   * work-in-progress files (wip), which nothing needs any more. `publishedIds` are the files
+   * that went out (e.g. from mediaIdsIn(post content)); ids that aren't a work's final file are ignored.
+   */
+  async releaseWork(publishedIds: string[]): Promise<{ deleted: string[]; freedBytes: number }> {
+    const out = { deleted: [] as string[], freedBytes: 0 };
+    const works = new Set<string>();
+    for (const id of publishedIds) {
+      const row = isBlobId(id) ? await this.index.get(id) : null;
+      if (row?.work && !row.wip) works.add(row.work);
+    }
+    for (const work of works) {
+      for (const row of await this.index.list({ work, limit: 10_000 })) {
+        if (!row.wip) continue;
+        try {
+          if (row.status === "ready" ? await this.delete(row.id) : (await this.index.delete(row.id), true)) {
+            out.deleted.push(row.id);
+            out.freedBytes += row.size;
+          }
+        } catch (err) {
+          console.error(`[storage] could not delete work-in-progress file ${row.id}:`, (err as Error).message);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Moves Drive files into their vertical folders (see GoogleDriveBlobStore.organise); a no-op without Drive. */
+  async organiseDrive(): Promise<{ moved: number; checked: number; failed: { id: string; error: string }[] } | null> {
+    return this.drive ? this.drive.organise() : null;
   }
 
   createUploadSession(options: UploadSessionOptions & { baseUrl?: string }): Promise<UploadSession> {
@@ -112,12 +176,12 @@ export class Storage implements BlobStore {
    * (video jobs): `<baseUrl>/api/storage/put/<id>?key=…`. The server streams the
    * body into the configured backend under that id.
    */
-  async reserve(o: { name: string; contentType: string; folder?: Folder; baseUrl: string }): Promise<{ id: string; putUrl: string }> {
+  async reserve(o: { name: string; contentType: string; folder?: Folder; baseUrl: string } & BlobTags): Promise<{ id: string; putUrl: string }> {
     const id = newBlobId(o.name);
     const putUrl = `${o.baseUrl.replace(/\/+$/, "")}/api/storage/put/${id}?key=${randomBytes(24).toString("base64url")}`;
     await this.index.put({
       id, backend: "local", remoteId: null, name: o.name, size: 0, contentType: o.contentType, folder: o.folder ?? "renders",
-      status: "pending", uploadUrl: putUrl, localPath: null, createdAt: new Date(),
+      status: "pending", uploadUrl: putUrl, localPath: null, createdAt: new Date(), ...tagsOf(o),
     });
     return { id, putUrl };
   }
@@ -127,7 +191,7 @@ export class Storage implements BlobStore {
    * atomically, so of concurrent PUTs only one gets it. Hand it back with
    * `releaseReservation` if the upload fails, so a retry works.
    */
-  async claimReservation(id: string, key: string): Promise<{ name: string; contentType: string; folder: Folder } | null> {
+  async claimReservation(id: string, key: string): Promise<({ name: string; contentType: string; folder: Folder } & BlobTags) | null> {
     if (!isBlobId(id)) return null;
     const row = await this.index.get(id);
     if (!row || row.status !== "pending" || !row.uploadUrl?.includes("/api/storage/put/")) return null;
@@ -136,7 +200,7 @@ export class Storage implements BlobStore {
     const given = Buffer.from(key);
     if (!expected.length || expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
     if (!(await this.index.transition(id, "pending", "uploading"))) return null;
-    return { name: row.name, contentType: row.contentType, folder: row.folder };
+    return { name: row.name, contentType: row.contentType, folder: row.folder, vertical: row.vertical, work: row.work, wip: row.wip };
   }
 
   /** Puts a claimed reservation back to pending (its upload failed). */
@@ -188,7 +252,7 @@ export class Storage implements BlobStore {
     for (const row of await this.index.list({ backend: "local", status: "ready", limit: options.limit ?? 10_000 })) {
       const path = this.local.pathFor(row.id, row.folder);
       try {
-        const info = await this.drive.put(createReadStream(path), { id: row.id, name: row.name, contentType: row.contentType, folder: row.folder });
+        const info = await this.drive.put(createReadStream(path), { id: row.id, name: row.name, contentType: row.contentType, folder: row.folder, vertical: row.vertical, work: row.work, wip: row.wip });
         if (info.size !== row.size) throw new Error(`size mismatch after upload (${info.size} vs ${row.size})`);
         copied.push(row.id);
         if (options.deleteLocal) {

@@ -170,6 +170,7 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
       if (body.files?.length && !deps.chatFiles) return c.json({ error: "file attachments are not available on this server" }, 400);
       const files = body.files?.length && deps.chatFiles ? await deps.chatFiles.context(body.files) : undefined;
       const task = await conversations.reply(c.req.param("id"), body.text, body.voice ?? false, files);
+      if (task && files) await deps.chatFiles!.tag(files.files.map((f) => f.id), task.vertical); // storage by vertical
       return task ? c.json(task, 202) : c.json({ error: "not found" }, 404);
     } catch (err) {
       if (err instanceof ReplyStateError) return c.json({ error: err.message }, 409);

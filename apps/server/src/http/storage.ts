@@ -1,4 +1,4 @@
-import { FOLDERS, type BlobInfo, type Storage, UploadIncompleteError } from "@cc/storage";
+import { FOLDERS, type BlobInfo, SHARED_VERTICAL, type Storage, UploadIncompleteError } from "@cc/storage";
 import { Readable, Transform } from "node:stream";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
@@ -18,6 +18,8 @@ export interface StorageApiDeps {
    * refuses uploads that would fill its own volume (./storage-housekeeping.ts).
    */
   refuseUpload?: (bytes: number) => Promise<string | null>;
+  /** Vertical ids a file may belong to (besides "shared"); unchecked when absent. */
+  verticals?: () => string[];
   /** The server volume's free and total bytes and the housekeeping limits, for the Storage page. */
   volume?: () => Promise<{ free: number; total: number; minFreeBytes: number; renderRetentionDays: number } | null>;
 }
@@ -38,7 +40,17 @@ const SessionRequest = z.object({
   contentType: z.string().regex(/^[\w.+-]+\/[\w.+-]+$/, "a MIME type like video/mp4").toLowerCase(),
   size: z.number().int().positive(),
   folder: z.enum(FOLDERS).default("media"),
+  /** The vertical the file belongs to; omitted or "shared" for none. */
+  vertical: z.string().optional(),
 });
+
+/** A vertical id from a request: a known vertical, "shared" (stored as none), or a 400. */
+function checkVertical(deps: StorageApiDeps, vertical: string | undefined | null): string | null | Response {
+  if (!vertical || vertical === SHARED_VERTICAL) return null;
+  const known = deps.verticals?.();
+  if (known && !known.includes(vertical)) return Response.json({ error: `unknown vertical "${vertical}"` }, { status: 400 });
+  return vertical;
+}
 const Complete = z.object({ id: z.string().regex(/^[a-f0-9]{32}(\.[a-z0-9]{1,8})?$/) });
 
 /** The public /media URL for a blob, when its extension is one /media serves. */
@@ -51,11 +63,14 @@ const withUrl = (c: Context, deps: StorageApiDeps, info: BlobInfo) => ({ ...info
 async function createSession(c: Context, deps: StorageApiDeps, folders: readonly string[]) {
   const body = SessionRequest.parse(await c.req.json());
   if (!folders.includes(body.folder)) return c.json({ error: `folder must be one of ${folders.join(", ")}` }, 400);
+  const vertical = checkVertical(deps, body.vertical);
+  if (vertical instanceof Response) return vertical;
   if (body.size > deps.uploadMaxBytes) return c.json({ error: `file is larger than ${Math.round(deps.uploadMaxBytes / 1024 / 1024)} MB` }, 413);
   const refused = await full(c, deps, body.size);
   if (refused) return refused;
   const session = await deps.storage.createUploadSession({
     ...body,
+    vertical,
     origin: c.req.header("origin") || undefined,
     baseUrl: `${publicOrigin(c, deps.publicBaseUrl)}/api/storage/uploads`,
   });
@@ -87,8 +102,18 @@ export function storageApiRoutes(deps: StorageApiDeps) {
   app.get("/storage", async (c) => {
     const folder = z.enum(FOLDERS).optional().parse(c.req.query("folder") || undefined);
     const limit = z.coerce.number().int().min(1).max(1000).default(200).parse(c.req.query("limit"));
-    const files = await storage.list(folder, { limit });
+    const vertical = c.req.query("vertical") || undefined;
+    const files = await storage.list(folder, { limit, vertical });
     return c.json({ ...(await storage.usage()), volume: (await deps.volume?.()) ?? null, files: files.map((f) => withUrl(c, deps, f)) });
+  });
+
+  /** Moves a file to another vertical ("shared" for none); on Drive it moves to that vertical's folder. */
+  app.patch("/storage/:id", async (c) => {
+    const body = z.object({ vertical: z.string().nullable() }).parse(await c.req.json());
+    const vertical = checkVertical(deps, body.vertical);
+    if (vertical instanceof Response) return vertical;
+    const info = await storage.setVertical(c.req.param("id"), vertical);
+    return info ? c.json(withUrl(c, deps, info)) : c.json({ error: "not found" }, 404);
   });
 
   app.delete("/storage/:id", async (c) => {

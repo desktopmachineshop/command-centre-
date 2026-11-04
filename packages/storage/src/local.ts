@@ -18,6 +18,7 @@ import {
   type PutOptions,
   type UploadSession,
   type UploadSessionOptions,
+  tagsOf,
   UploadIncompleteError,
 } from "./types";
 import { toReadable } from "./util";
@@ -53,6 +54,9 @@ export const toInfo = (r: BlobRecord): BlobInfo => ({
   folder: r.folder,
   backend: r.backend,
   createdAt: r.createdAt,
+  vertical: r.vertical ?? null,
+  work: r.work ?? null,
+  wip: r.wip ?? false,
 });
 
 /**
@@ -75,6 +79,7 @@ export class LocalBlobStore implements BlobStore {
 
   async put(source: BlobSource, options: PutOptions): Promise<BlobInfo> {
     const folder = options.folder ?? "media";
+    const tags = tagsOf(options);
     const id = options.id ?? newBlobId(options.name);
     const path = this.pathFor(id, folder);
     // Unique per write, so two writers of the same id never share (and interleave) a temp file.
@@ -90,7 +95,7 @@ export class LocalBlobStore implements BlobStore {
     const { size } = await stat(path);
     const record: BlobRecord = {
       id, backend: "local", remoteId: null, name: options.name, size, contentType: options.contentType, folder,
-      status: "ready", uploadUrl: null, localPath: path, createdAt: new Date(),
+      status: "ready", uploadUrl: null, localPath: path, createdAt: new Date(), ...tags,
     };
     await this.options.index.put(record);
     return toInfo(record);
@@ -109,7 +114,7 @@ export class LocalBlobStore implements BlobStore {
     if (!type) return null;
     const info = await stat(this.pathFor(id, "media")).catch(() => null);
     if (!info?.isFile()) return null;
-    return { id, name: id, size: info.size, contentType: type, folder: "media", backend: "local", createdAt: info.mtime };
+    return { id, name: id, size: info.size, contentType: type, folder: "media", backend: "local", createdAt: info.mtime, vertical: null, work: null, wip: false };
   }
 
   async get(id: string, options: { range?: ByteRange } = {}): Promise<BlobBody | null> {
@@ -157,7 +162,7 @@ export class LocalBlobStore implements BlobStore {
     await mkdir(this.dirFor(folder), { recursive: true });
     await this.options.index.put({
       id, backend: "local", remoteId: null, name: options.name, size: options.size, contentType: options.contentType, folder,
-      status: "pending", uploadUrl, localPath: null, createdAt: new Date(),
+      status: "pending", uploadUrl, localPath: null, createdAt: new Date(), ...tagsOf(options),
     });
     return { id, uploadUrl, chunkSize: DEFAULT_CHUNK_SIZE, backend: "local", expiresAt: new Date(Date.now() + this.ttl) };
   }

@@ -15,6 +15,9 @@ const file = (id: string, daysOld: number, size = 10 * MB, backend: "local" | "g
   folder: "renders",
   backend,
   createdAt: new Date(now.getTime() - daysOld * DAY),
+  vertical: null,
+  work: null,
+  wip: false,
 });
 
 /** A Storage stand-in: just the renders list and delete. */
