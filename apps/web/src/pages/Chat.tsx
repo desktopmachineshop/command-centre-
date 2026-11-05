@@ -184,10 +184,11 @@ function useDriveExpand(sectionRef: RefObject<HTMLElement | null>, want: boolean
 }
 
 /**
- * Touch gestures on the chat box: swipe up opens Converse, swipe down (on the grown box) folds it
- * back to chat. Only on the box itself, so the chat above still scrolls; not from the text box or
- * a picker, which keep their own touches. A swipe is quick (under 0.8 s), at least 60 px, and
- * mostly up or down. The box doesn't scroll the page under a swipe (styles.css, touch-action).
+ * Touch gestures on the chat box, from the swipe strip on its right-hand edge (.composer-swipe,
+ * shown on touch screens): swipe up opens Converse, swipe down (on the grown box) folds it back to
+ * chat. Only from the strip, so the rest of the box and the chat keep their own touches, and a
+ * swipe down near the top of the screen isn't mistaken for the phone's own pull-down. A swipe is
+ * quick (under 0.8 s), at least 50 px, and mostly up or down; the strip lights up while touched.
  */
 function useComposerSwipe(sectionRef: RefObject<HTMLElement | null>, converse: boolean) {
   const converseRef = useRef(converse);
@@ -195,31 +196,37 @@ function useComposerSwipe(sectionRef: RefObject<HTMLElement | null>, converse: b
   useEffect(() => {
     const el = sectionRef.current;
     if (!el) return;
-    let start: { x: number; y: number; t: number } | null = null;
-    const own = (t: EventTarget | null) => t instanceof Element && !!t.closest(".composer") && !t.closest("textarea, select, input");
+    let start: { x: number; y: number; t: number; strip: Element } | null = null;
+    const done = () => {
+      start?.strip.classList.remove("is-touched");
+      start = null;
+    };
     const onStart = (e: TouchEvent) => {
       const p = e.touches[0];
-      start = e.touches.length === 1 && p && own(e.target) ? { x: p.clientX, y: p.clientY, t: performance.now() } : null;
+      const strip = e.target instanceof Element ? e.target.closest(".composer-swipe") : null;
+      done();
+      if (e.touches.length !== 1 || !p || !strip) return;
+      start = { x: p.clientX, y: p.clientY, t: performance.now(), strip };
+      strip.classList.add("is-touched");
     };
     const onEnd = (e: TouchEvent) => {
       const p = e.changedTouches[0];
-      if (!start || !p) return;
-      const dx = p.clientX - start.x;
-      const dy = p.clientY - start.y;
-      const quick = performance.now() - start.t < 800;
-      start = null;
-      if (!quick || Math.abs(dy) < 60 || Math.abs(dy) < 1.5 * Math.abs(dx)) return;
+      const s = start;
+      done();
+      if (!s || !p) return;
+      const dx = p.clientX - s.x;
+      const dy = p.clientY - s.y;
+      if (performance.now() - s.t > 800 || Math.abs(dy) < 50 || Math.abs(dy) < 1.5 * Math.abs(dx)) return;
       if (dy < 0 && !converseRef.current) go("converse");
       else if (dy > 0 && converseRef.current) go("chat");
     };
-    const onCancel = () => (start = null);
     el.addEventListener("touchstart", onStart, { passive: true });
     el.addEventListener("touchend", onEnd, { passive: true });
-    el.addEventListener("touchcancel", onCancel, { passive: true });
+    el.addEventListener("touchcancel", done, { passive: true });
     return () => {
       el.removeEventListener("touchstart", onStart);
       el.removeEventListener("touchend", onEnd);
-      el.removeEventListener("touchcancel", onCancel);
+      el.removeEventListener("touchcancel", done);
     };
   }, []);
 }
@@ -450,6 +457,13 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
             ))}
           </select>
         )}
+        {/* The swipe strip on the right-hand edge (touch screens): up opens Converse, down folds it. */}
+        <div className="composer-swipe" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+            <path d={drive ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6"} />
+          </svg>
+          <span className="grip" />
+        </div>
         <div className="composer-tools" role="group" aria-label="Chat options">
           {threadId && (
             <button type="button" className="tool" onClick={newChat} title="Start a new chat">

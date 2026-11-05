@@ -2622,15 +2622,51 @@ a.stat:hover {
  * the top bar. Its own controls keep their places at its top and bottom edges; the text box's place
  * (.composer-panel) takes the extra height, animated, and holds Drive with the orb in the middle.
  */
-/* Swipes on the chat box open and fold Converse (Chat.tsx useComposerSwipe), so the box itself
-   doesn't scroll the page under a finger; the text box and pickers keep their own touches. */
-.composer {
-  touch-action: none;
+/*
+ * The swipe strip on the chat box's right-hand edge (Chat.tsx useComposerSwipe), on touch screens:
+ * swipe up from it opens Converse, swipe down folds it. A translucent grip with a chevron pointing
+ * the way it goes; the box keeps a little room on the right for it, and it doesn't scroll the page.
+ */
+.composer-swipe {
+  display: none;
 }
-.composer textarea,
-.composer select,
-.composer input {
-  touch-action: auto;
+@media (pointer: coarse) {
+  .composer:has(> .composer-swipe) {
+    padding-right: 30px;
+  }
+  .composer-swipe {
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    right: 2px;
+    width: 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: var(--r-full);
+    color: var(--text-2);
+    opacity: 0.45;
+    touch-action: none;
+    transition:
+      opacity 150ms ease,
+      background 150ms ease;
+  }
+  .composer-swipe .grip {
+    width: 4px;
+    height: min(44px, 40%);
+    border-radius: 2px;
+    background: currentColor;
+  }
+  .composer.is-driving .composer-swipe {
+    flex-direction: column-reverse;
+  }
+  .composer-swipe.is-touched {
+    opacity: 0.9;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
 }
 .composer-spacer {
   height: var(--drive-spacer);
