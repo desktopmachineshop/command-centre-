@@ -39,11 +39,16 @@ WORKDIR /app
 COPY --from=build /out ./
 COPY --from=build /app/apps/web/dist ./web
 COPY skills ./skills
+# The help docs and setup notes, which agents search at /mcp/help (no screenshots or media).
+COPY docs/topics ./docs/topics
+COPY docs/maps ./docs/maps
+COPY docs/help-contexts.yaml docs/*.md ./docs/
 
 ENV NODE_ENV=production \
     PORT=8080 \
     DATA_DIR=/data \
     SKILLS_DIR=/app/skills \
+    DOCS_DIR=/app/docs \
     WEB_DIST_DIR=/app/web \
     HOME=/data/home
 # Runs as root: Railway mounts volumes root-owned. /data holds the brain and Claude config;

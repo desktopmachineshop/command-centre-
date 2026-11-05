@@ -49,6 +49,8 @@ const Env = z.object({
   /** Private git remote for the brain, e.g. https://<token>@github.com/you/brain.git */
   BRAIN_REMOTE_URL: z.string().optional(),
   SKILLS_DIR: z.string().optional(),
+  /** The repo's docs folder (in-app help topics and setup notes), searchable by agents at /mcp/help. */
+  DOCS_DIR: z.string().optional(),
   /** Built PWA to serve at /. */
   WEB_DIST_DIR: z.string().optional(),
   /** Base URL agents use to reach this server's MCP endpoints. */
@@ -295,6 +297,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     brainDir: resolve(e.BRAIN_DIR ?? `${dataDir}/brain`),
     brainRemoteUrl: e.BRAIN_REMOTE_URL || undefined,
     skillsDir: resolve(e.SKILLS_DIR ?? "../../skills"),
+    docsDir: resolve(e.DOCS_DIR ?? "../../docs"),
     webDistDir: e.WEB_DIST_DIR ? resolve(e.WEB_DIST_DIR) : undefined,
     internalBaseUrl: e.INTERNAL_BASE_URL ?? `http://127.0.0.1:${e.PORT}`,
     credentialsKey: e.CREDENTIALS_KEY,

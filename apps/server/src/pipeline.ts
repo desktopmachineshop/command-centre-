@@ -28,6 +28,8 @@ export interface PipelineDeps {
   runTokens: RunTokens;
   dataDir: string;
   skillsDir: string;
+  /** The app's pages and help topic ids, for the system prompt (HelpDocs.pageGuide). */
+  appGuide?: string;
   internalBaseUrl: string;
   maxTurns: number;
   /** MCP servers mounted at /mcp/<name> that manifests may list, or a function giving them at run time (odoo comes and goes). Default: brain. */
@@ -368,7 +370,7 @@ export class Pipeline {
           prompt: turn?.prompt ?? runPrompt(task, event),
           resumeSessionId: turn?.resumeSessionId,
           promptWithoutResume: turn?.promptWithoutResume,
-          systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief), ...workbench.notes].join("\n\n"),
+          systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief, this.deps.appGuide), ...workbench.notes].join("\n\n"),
           cwd,
           mcpServers,
           allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...skillReadRules(this.deps.skillsDir, vertical, role)],

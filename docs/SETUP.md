@@ -2306,10 +2306,18 @@ In the app, the **?** button in the top bar and **F1** open help for the page in
 - Without the help panel, **?** opens the page for the key in a new tab, from `apps/web/src/help-topics.json`.
   After changing keys in the docs, regenerate it with `pnpm --filter @cc/web help-topics`; the test fails until you do.
 
+The agents read the same docs. Every run gets the read-only `help` MCP server (`apps/server/src/help-docs.ts`):
+`search_help`, `read_help_topic` and `list_help_topics` over the DITA topics (with each page's route from
+`help-contexts.yaml`) and these Markdown notes, one topic per `##` section. Its system prompt also has a short
+account of how the Command Centre works and a one-line guide to each page, built from the map, so a new or
+changed topic reaches the agents on the next deploy. The Docker image ships `docs/` without the screenshots
+and media (`DOCS_DIR`, default `/app/docs`); without it the server logs a warning and runs get no `help` server.
+
 Settings:
 
 | Variable | Default | |
 | --- | --- | --- |
+| `DOCS_DIR` | `../../docs` (`/app/docs` in the image) | The docs folder the agents' `help` server reads. |
 | `OPEND_DOCS_URL` | `https://command-centre.opend.app` | The docs site, and the `aud` of embed tokens: it must match the site's public URL exactly. |
 | `OPEND_HELP_APP` | `command-centre` | The app name in `help-contexts.yaml` and in each `resourceid`. |
 | `OPEND_EMBED_SECRET` | unset | The docs site's embed secret (32+ characters). Without it, **?** opens the help page in a new tab (the docs site signs you in first if it is private). |

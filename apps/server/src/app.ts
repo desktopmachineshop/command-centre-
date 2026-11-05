@@ -55,6 +55,7 @@ import { Hub } from "./hub";
 import { paVoiceCalendar, reminderPushActions } from "./http/pa";
 import { type Caller, mcpRoutes } from "./mcp/endpoints";
 import { createGithubMcpServer } from "./github-mcp";
+import { createHelpMcpServer, HelpDocs } from "./help-docs";
 import { Pipeline } from "./pipeline";
 import { NotificationService, startNotificationJobs, teeNotifier } from "./notifications/service";
 import { NotificationStore } from "./notifications/store";
@@ -573,6 +574,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       onRead: scope ? () => actions.markReadMail(scope.taskId) : undefined,
     });
   };
+  // help: the Command Centre's own docs (in-app help and setup notes), for every run. Read once.
+  const helpDocs = HelpDocs.load(config.docsDir);
+  if (!helpDocs.size) console.warn(`[help] no docs at ${config.docsDir}: agents can't look up how the app works (DOCS_DIR)`);
   /** The servers at /mcp/<name> besides brain and actions; odoo only while Odoo is configured, mail while a mailbox is. */
   const extraMcpServers = (): Record<string, (caller: Caller) => McpServer> => {
     const client = odoo.current.client;
@@ -587,6 +591,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           }
         : {}),
       pa: paMcpServer,
+      ...(helpDocs.size ? { help: () => createHelpMcpServer(helpDocs) } : {}),
       // Read-only GitHub for coding roles (pull requests, CI, issues), with the server's token.
       ...(code.token
         ? {
@@ -677,6 +682,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     runTokens,
     dataDir: config.dataDir,
     skillsDir: config.skillsDir,
+    appGuide: helpDocs.pageGuide(),
     internalBaseUrl: config.internalBaseUrl,
     maxTurns: config.agent.maxTurns,
     notifier, // pushes for filed events that ask for one (incoming RFQs, supplier replies)

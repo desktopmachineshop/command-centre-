@@ -127,7 +127,11 @@ Tasks from before roles have no role and count as the vertical lead's.
 - **MCP servers:** the role's `mcpServers`, or the vertical's when the role doesn't list any. The
   run token carries the role, and `/mcp/<server>` refuses servers the role doesn't have.
 - **System prompt:** the role charter (title, mission, who it reports to, intents, usual actions,
-  autonomy notes) and the other roles it can hand work to, each with one line and its intents.
+  autonomy notes) and the other roles it can hand work to, each with one line and its intents; then
+  how the Command Centre works and a one-line guide to each page of the app (`agent-context.ts`).
+- **Help:** every run, whatever its role lists, gets the read-only `help` MCP server: it searches and
+  reads the in-app help and the setup notes in `docs/`, so "how do I…" questions are answered from
+  the docs, not guessed (see SETUP.md, In-app help).
 - **The web:** every run can search the web (`WebSearch`) and, for work Dave started (chat,
   schedules and handoffs from those), read pages (`WebFetch`). A task from outside input (an
   email, a webhook, Odoo, social) gets search only: a page fetch could carry data out to a URL

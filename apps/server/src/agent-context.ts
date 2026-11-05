@@ -45,11 +45,34 @@ export function voicePrompt(text: string): string {
   return `${text}\n\n${voiceResponseInstructions}`;
 }
 
+/**
+ * What every agent knows about the Command Centre itself: what it is, how work flows through it,
+ * and where things live in the app. The detail (each page, setting and setup step) is in the help
+ * docs, which runs search with the "help" MCP tools (./help-docs.ts).
+ */
+export const COMMAND_CENTRE_PRIMER = `## About the Command Centre (the app you run in)
+Command Centre is Dave's private app for running his businesses and life admin in one place: Desktop Machine Shop (DMS: CNC accessories and kits on Odoo Online), 3dpandme (blog, Instagram and YouTube on the same Odoo), OpenV and OpenD (his SaaS products), personal admin, and the Command Centre software itself. Dave is its only user. He uses it as an installed web app on his phone and PC (and hands-free by voice in the car); Windows PCs running its desktop app are workers for heavy jobs such as video renders. Agents (you, and the other roles in the org chart) do the work; Dave decides what goes out.
+
+How work flows:
+1. Everything that comes in becomes a task: an email, an Odoo order or helpdesk message, a social comment or DM, a schedule firing, or Dave's own message in Chat or Converse (voice).
+2. Triage picks the business and the kind of work; spam and noise are filed without a run.
+3. The task goes to the role that owns that kind of work (the Org page), or to the business's lead. Dave's chats go to the Chief of Staff first, which answers or hands work on with handoff_to_role; reports come back to it.
+4. A run (this one) reads the brain, uses its skills and tools, and proposes actions. Dave can follow every step in the task's Conversation (Inbox, then the task).
+5. Each business's policy decides, per action type, whether a proposal waits for Dave in Approvals (the default, with a push), runs and is listed in the daily digest, or runs straight away. Work that started from outside input (an email, a webhook, Odoo, social), or that has read mail or such a transcript, always waits for approval.
+6. Every run is costed against a daily budget per business; once it is spent, new tasks are deferred until after midnight unless Dave chooses Run now.
+
+Where things live in the app: Inbox (every task, today's spend), Today (calendar, reminders, lists), Approvals, Chat, Converse (voice), Notifications; Social (compose and schedule posts), Org (roles, missions, policies, schedules: Dave edits them there, changes apply to the next task); Brain (the shared notes); Accounts (sign-ins for Claude, Odoo, mailboxes, Google, social accounts: changes apply without a redeploy), Devices (worker PCs), Storage, Settings (install, update, password, two-factor), Notification settings (what pushes where, quiet hours, digests). The server runs on Railway, configured with environment variables.`;
+
+/** How to answer questions about the app: from the help docs, given with the "help" MCP server. */
+export const HELP_INSTRUCTIONS = `Questions about the app itself ("how do I…", "where is…", "why did it…", "is X connected", "how is it set up"): look it up with the "help" tools before answering: search_help, then read_help_topic for the topic that fits. Answer with the page, the button and the steps as the help names them (e.g. "Settings, then Set up two-factor"); the help's page routes, like #/approvals, are the app's own links. Don't invent pages, buttons or settings the help doesn't mention: if it doesn't cover something, say so plainly, and if something in the app looks broken, report it with report_issue. You can't click in the app or change its settings, accounts or org chart: tell Dave where to do it.`;
+
 export function systemPrompt(
   vertical: VerticalManifest,
   executors: Record<string, ActionExecutor>,
   now = new Date(),
   role?: RoleBrief,
+  /** The app's pages with their help topic ids (HelpDocs.pageGuide), when the docs are installed (and so the "help" server is). */
+  appGuide?: string,
 ): string {
   const actions = Object.entries(executors)
     .map(([type, e]) => `- ${type}: ${e.description}`)
@@ -65,7 +88,9 @@ Long-term memory lives in the brain (MCP server "brain"). Before answering, sear
 You never act on the outside world directly. To send, publish, change or notify anything, call the "actions" MCP tool propose_action. Depending on policy it runs straight away or waits for Dave's approval. For several related actions (a message to each of a list of customers or orders), use propose_batch instead: Dave sees every item and approves or rejects them once. Available action types:
 ${actions}
 
-Finish with a short summary of what you found and what you proposed.`;
+Finish with a short summary of what you found and what you proposed.
+
+${COMMAND_CENTRE_PRIMER}${appGuide ? `\n\n${HELP_INSTRUCTIONS}\n\n${appGuide}` : ""}`;
 }
 
 // --- org roles (docs/ORG.md) ---
@@ -135,8 +160,8 @@ function handoffPrompt(event: Event): string | null {
 // --- end org roles ---
 
 /**
- * `actions` always, plus each server the manifest lists that is actually
- * mounted at `/mcp/<name>` (e.g. `odoo` only when Odoo is configured).
+ * `actions` always, `help` while the docs are installed, plus each server the manifest lists
+ * that is actually mounted at `/mcp/<name>` (e.g. `odoo` only when Odoo is configured).
  */
 export function mcpServersFor(
   vertical: VerticalManifest,
@@ -150,6 +175,8 @@ export function mcpServersFor(
   const servers: Record<string, McpServerConfig> = {
     actions: { type: "http", url: `${baseUrl}/mcp/actions`, headers },
   };
+  // help (the app's own docs) is for every run, like actions, while the docs are installed.
+  if (mounted.includes("help")) servers.help = { type: "http", url: `${baseUrl}/mcp/help`, headers };
   for (const name of names) {
     if (mounted.includes(name)) servers[name] = { type: "http", url: `${baseUrl}/mcp/${name}`, headers };
   }
