@@ -20,6 +20,7 @@ import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import { SetupError, type WorkerService } from "../workers";
+import { type DavinciRenders, DavinciRequestError } from "../davinci";
 import { type IntegrationService, integrationRoutes } from "../integrations";
 import type { ClaudeSetup } from "../integrations/claude-setup";
 import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
@@ -65,6 +66,8 @@ export interface ApiDeps {
   help?: HelpConfig;
   /** Files pasted, dropped or attached in the chat box (see ../chat-files.ts). */
   chatFiles?: ChatFiles;
+  /** DaVinci Resolve renders on a desktop worker (see ../davinci.ts). */
+  davinci?: DavinciRenders;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -309,6 +312,16 @@ export function apiRoutes(deps: ApiDeps) {
       .object({ kind: z.string().min(1), requires: z.array(Capability).default([]), payload: z.record(z.string(), z.unknown()).default({}) })
       .parse(await c.req.json());
     return c.json(await workers.submit(body), 201);
+  });
+  /** Renders clips in DaVinci Resolve on a PC with the `davinci` capability; Dave is notified when it's done. */
+  app.post("/davinci/render", async (c) => {
+    if (!deps.davinci) return c.json({ error: "DaVinci renders are not set up on this server" }, 404);
+    try {
+      return c.json(await deps.davinci.start(await c.req.json().catch(() => null)), 201);
+    } catch (err) {
+      if (err instanceof DavinciRequestError) return c.json({ error: err.message }, 400);
+      throw err;
+    }
   });
   /** Cancels a job no computer has picked up (409 once it has started or finished). */
   app.post("/jobs/:id/cancel", async (c) => {
