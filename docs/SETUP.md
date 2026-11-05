@@ -2156,7 +2156,12 @@ with streaming in and out, no tools, signed in like the agents, so no API key) s
 mode opens and stopped after 10 minutes unused. It answers chit-chat, general questions and
 follow-ups itself in about a second, and for anything about your businesses or any action it says
 a short acknowledgement and ends with a hand-off marker; the server then creates the same voice
-task `POST /api/chat` would. If the front can't start or doesn't answer within a few seconds, the
+task `POST /api/chat` would, with what Dave had just heard in its prompt so "that" and "her" make
+sense. Drive sends the agents' latest answer and its task with each turn (for 20 minutes after
+it), and the front tells the two kinds of hand-off apart: `[[continue]]` for a follow-up on that
+answer ("yes, send it", "and the other one?") goes back to that task as Dave's reply, resuming its
+session with everything it found (if it is still running, the reply waits and the task runs again
+after); `[[handoff]]` for a new request starts a new task. If the front can't start or doesn't answer within a few seconds, the
 request goes straight to the agent. `POST /api/voice/turn {text, vertical?, role?, talkingTo?,
 lastSpoken?}` streams NDJSON: `{delta}` chunks, then `{done, text, handoff: {taskId} | null}`.
 `POST /api/voice/warm {front?}` loads the engines (and starts the front) ahead of use.

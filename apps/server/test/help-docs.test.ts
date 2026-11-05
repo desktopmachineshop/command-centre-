@@ -6,7 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { verticals } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { builtinExecutors } from "../src/actions";
-import { COMMAND_CENTRE_PRIMER, HELP_INSTRUCTIONS, mcpServersFor, systemPrompt } from "../src/agent-context";
+import { COMMAND_CENTRE_PRIMER, HELP_INSTRUCTIONS, mcpServersFor, systemPrompt, taskPrompt } from "../src/agent-context";
 import { createHelpMcpServer, ditaToText, HelpDocs, markdownTopics } from "../src/help-docs";
 import { DB_URL, makeServer, McpCallingRunner, resetDatabase } from "./helpers";
 
@@ -145,6 +145,14 @@ describe("help MCP server", () => {
     mkdirSync(join(dir, "topics"));
     const call = await connect(HelpDocs.load(dir));
     expect((await call("search_help", { query: "approvals" })).text).toContain("aren't installed");
+  });
+});
+
+describe("a request handed on from Drive mode", () => {
+  it("carries what Dave had just heard, so the agent can tell what he means", () => {
+    const event = { id: "e1", source: "chat", kind: "message", title: "send it to her", payload: { text: "send it to her", voice: true, heard: `the agents' last answer: "Jane's quote is ready."` } };
+    expect(taskPrompt(event as never)).toBe(`send it to her\n\n(Said in Drive mode. To work out what he means, just before this Dave heard the agents' last answer: "Jane's quote is ready.")`);
+    expect(taskPrompt({ ...event, payload: { text: "hello" } } as never)).toBe("hello");
   });
 });
 

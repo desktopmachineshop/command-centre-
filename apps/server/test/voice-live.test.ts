@@ -6,9 +6,10 @@ import { PassThrough } from "node:stream";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { type AsrWorkerMessage, findVoice, LOCAL_MODELS, LocalSpeech, type WorkerLike } from "@cc/voice/local";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { voiceApiRoutes } from "../src/http/voice";
+import { heardContext, voiceApiRoutes } from "../src/http/voice";
+import { ReplyStateError } from "../src/voice/conversations";
 import { VoiceService } from "../src/voice/service";
-import { FrontStreamSplitter, HANDOFF, VoiceFront } from "../src/voice/front";
+import { CONTINUE, FrontStreamSplitter, HANDOFF, VoiceFront } from "../src/voice/front";
 import { ADMIN, DB_URL, makeServer, resetDatabase, serveServer } from "./helpers";
 
 describe("FrontStreamSplitter", () => {
@@ -20,6 +21,17 @@ describe("FrontStreamSplitter", () => {
     expect(s.handoff).toBe(true);
     expect(s.push(" more")).toBe("");
     expect(s.flush()).toBe("");
+  });
+
+  it("tells a follow-up (continue) from a new request, even split across deltas", () => {
+    const s = new FrontStreamSplitter();
+    expect(s.push("Okay, I'll tell her. [[con")).toBe("Okay, I'll tell her. ");
+    expect(s.push("tinue]]")).toBe("");
+    expect(s).toMatchObject({ handoff: true, continues: true });
+    const h = new FrontStreamSplitter();
+    h.push(`On it. ${HANDOFF}`);
+    expect(h).toMatchObject({ handoff: true, continues: false });
+    expect(CONTINUE).toBe("[[continue]]");
   });
 
   it("releases a held-back bracket that wasn't the marker", () => {
@@ -75,6 +87,7 @@ describe("VoiceFront", () => {
       log: () => {},
       spawn: fakeClaude((text) => {
         seen.push(text);
+        if (/let Jane know/.test(text)) return ["Okay, I'll tell her.", " [[continue]]"];
         return /joke/.test(text) ? ["Why did ", "the lathe… never mind."] : ["Sure, I'll ", "check that.", ` [[hand`, `off]]`];
       }, spawned),
     });
@@ -90,6 +103,11 @@ describe("VoiceFront", () => {
     expect(seen[1]).toBe(
       `[It is Tuesday 3 November at 3:30 pm; requests go to the Chief of Staff; 2 approvals waiting; last thing Dave heard: "Done."]\nwhere's order 1042?`,
     );
+    // After an agent's answer: the front is told it in full, and spots a follow-up on it.
+    const answer = "Order 1042 shipped on Monday with Royal Mail, tracking ending 4471.";
+    const follow = await front.turn({ text: "great, let Jane know", lastAnswer: answer, lastSpoken: answer }, { onDelta: () => {} });
+    expect(seen[2]).toBe(`[It is Tuesday 3 November at 3:30 pm; the agents' last answer to Dave: "${answer}"]\ngreat, let Jane know`);
+    expect(follow).toEqual({ text: "Okay, I'll tell her.", handoff: true, continues: true });
     front.stop();
   });
 
@@ -138,8 +156,68 @@ describe("POST /voice/turn", () => {
     const res = await app.request("/voice/turn", { method: "POST", body: JSON.stringify({ text: "check order 1042", vertical: "dms" }), headers: { "content-type": "application/json" } });
     expect(res.headers.get("content-type")).toBe("application/x-ndjson");
     const lines = (await res.text()).trim().split("\n").map((l) => JSON.parse(l));
-    expect(lines).toEqual([{ delta: "On it, " }, { delta: "I'll check." }, { done: true, text: "On it, I'll check.", handoff: { taskId: "t1" } }]);
+    expect(lines).toEqual([{ delta: "On it, " }, { delta: "I'll check." }, { done: true, text: "On it, I'll check.", handoff: { taskId: "t1", continued: false } }]);
     expect(handOffs).toEqual([{ text: "check order 1042", vertical: "dms" }]);
+  });
+
+  /** A front that hands every turn off, as a follow-up (CONTINUE) or a new request; records what it was told. */
+  const handingFront = (continues: boolean, told: unknown[] = []) =>
+    ({
+      turn: async (input: unknown) => {
+        told.push(input);
+        return { text: "Okay.", handoff: true, ...(continues ? { continues: true } : {}) };
+      },
+    }) as unknown as VoiceFront;
+  const turn = async (app: ReturnType<typeof voiceApiRoutes>, body: Record<string, unknown>) => {
+    const res = await app.request("/voice/turn", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+    return JSON.parse((await res.text()).trim().split("\n").at(-1)!);
+  };
+
+  it("sends a follow-up on the agents' last answer back to that task", async () => {
+    const replies: unknown[] = [];
+    const told: unknown[] = [];
+    const conversations = { reply: async (taskId: string, text: string, voice: boolean) => (replies.push({ taskId, text, voice }), { id: taskId }) };
+    const app = voiceApiRoutes({ service, conversations: conversations as never, front: () => handingFront(true, told), handOff: async () => ({ taskId: "new" }) });
+    const done = await turn(app, { text: "great, let Jane know", lastTaskId: "t1", lastAnswer: "Order 1042 shipped on Monday." });
+    expect(done.handoff).toEqual({ taskId: "t1", continued: true });
+    expect(replies).toEqual([{ taskId: "t1", text: "great, let Jane know", voice: true }]);
+    expect(told[0]).toMatchObject({ lastAnswer: "Order 1042 shipped on Monday." });
+  });
+
+  it("queues a follow-up on a task that is still working, to be taken after its run", async () => {
+    const reports: unknown[] = [];
+    const conversations = {
+      reply: async () => {
+        throw new ReplyStateError("task is running; reply once it has answered");
+      },
+      report: async (taskId: string, author: string, text: string) => (reports.push({ taskId, author, text }), null),
+    };
+    const app = voiceApiRoutes({ service, conversations: conversations as never, front: () => handingFront(true), handOff: async () => ({ taskId: "new" }) });
+    expect((await turn(app, { text: "and the other one?", lastTaskId: "t1", lastAnswer: "Checking 1042." })).handoff).toEqual({ taskId: "t1", continued: true });
+    expect(reports).toEqual([{ taskId: "t1", author: "dave", text: "and the other one?" }]);
+  });
+
+  it("starts a new task, with what Dave had just heard, for a new request or a follow-up whose task is gone", async () => {
+    const handOffs: unknown[] = [];
+    const handOff = async (r: unknown) => (handOffs.push(r), { taskId: "t2" });
+    const gone = { reply: async () => null };
+    const follow = voiceApiRoutes({ service, conversations: gone as never, front: () => handingFront(true), handOff });
+    expect((await turn(follow, { text: "send it", lastTaskId: "deleted", lastAnswer: "Draft ready." })).handoff).toEqual({ taskId: "t2", continued: false });
+    const fresh = voiceApiRoutes({ service, conversations: {} as never, front: () => handingFront(false), handOff });
+    await turn(fresh, { text: "book the van for Friday", lastSpoken: "It's sunny on Friday." });
+    expect(handOffs).toEqual([
+      { text: "send it", context: `the agents' last answer: "Draft ready."` },
+      { text: "book the van for Friday", context: `the last thing he heard: "It's sunny on Friday."` },
+    ]);
+  });
+
+  it("only uses a last answer that comes with its task", async () => {
+    const told: unknown[] = [];
+    const app = voiceApiRoutes({ service, conversations: {} as never, front: () => handingFront(false, told), handOff: async () => ({ taskId: "t2" }) });
+    await turn(app, { text: "hi", lastAnswer: "stale" });
+    expect(told[0]).toMatchObject({ lastAnswer: null });
+    expect(heardContext(null, null)).toBeUndefined();
+    expect(heardContext("Done.", "Done.")).toBe(`the agents' last answer: "Done."`);
   });
 
   it("is 503 without a front, and reports a failed turn in the stream", async () => {

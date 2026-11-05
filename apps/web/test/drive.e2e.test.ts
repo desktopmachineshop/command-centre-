@@ -103,7 +103,9 @@ async function mockApi(page: Page, calls: Calls, options: { front?: boolean; bat
       const own = /joke/i.test(body.text);
       const lines = own
         ? [{ delta: "Why did the lathe " }, { delta: "go to therapy? " }, { delta: "Too many turns." }, { done: true, text: "", handoff: null }]
-        : [{ delta: "Sure, I'll check " }, { delta: "where order ten forty-two is." }, { done: true, text: "", handoff: { taskId: "t1" } }];
+        : body.lastTaskId
+          ? [{ delta: "Okay, I'll tell her." }, { done: true, text: "", handoff: { taskId: body.lastTaskId, continued: true } }]
+          : [{ delta: "Sure, I'll check " }, { delta: "where order ten forty-two is." }, { done: true, text: "", handoff: { taskId: "t1" } }];
       return route.fulfill({ status: 200, contentType: "application/x-ndjson", body: lines.map((l) => JSON.stringify(l)).join("\n") });
     }
     if (path === "/voice/config") return json({ stt: null, tts: null, maxUploadBytes: 0, maxSeconds: 60, language: "en-GB", calendar: false });
@@ -471,6 +473,33 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(errors).toEqual([]);
     await page.close();
   }, 60_000);
+
+  it("hands a follow-up on the agent's answer back to the same task, with the answer", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => sessionStorage.setItem("cc.test.freshMode", "1"));
+    await page.addInitScript(MOCK_SPEECH);
+    const calls: Calls = [];
+    await mockApi(page, calls, { front: true });
+    await page.goto(`${base}/#/converse`);
+    const talk = page.locator("button.drive-ptt");
+    await talk.waitFor({ timeout: 20_000 });
+    await expect.poll(() => calls.some((c) => c.path === "/voice/warm"), { timeout: 15_000 }).toBe(true);
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.join(" | "));
+    // Hands free: the request, the answer to the agent's question, then a follow-up on its answer.
+    await page.evaluate(() => (window as unknown as { __transcripts: string[] }).__transcripts.push("where is order 1042?", "the one for Jane", "great, let Jane know"));
+    await talk.click();
+    await expect.poll(spoken, { timeout: 20_000 }).toContain("Order 1042 shipped on Monday.");
+    await expect.poll(spoken, { timeout: 20_000 }).toContain("Okay, I'll tell her.");
+    const turns = calls.filter((c) => c.path === "/voice/turn").map((c) => c.body as Record<string, unknown>);
+    // The first request had no earlier answer; the follow-up carries the task and what it said.
+    expect(turns[0]).toMatchObject({ text: "where is order 1042?", lastTaskId: null, lastAnswer: null });
+    expect(turns[1]).toMatchObject({ text: "great, let Jane know", lastTaskId: "t1", lastAnswer: "Order 1042 shipped on Monday." });
+    expect(calls.filter((c) => c.path === "/chat")).toHaveLength(0);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 90_000);
 
   it("speaks the voice front's reply as it streams, and follows a request it hands on", async () => {
     const page = await browser.newPage();
