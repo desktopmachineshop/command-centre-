@@ -1,30 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
-<topic id="drive">
-  <title>Drive mode: hands-free voice</title>
-  <shortdesc>A full-screen voice mode for the car: hear what's new, go through approvals and ask for things, with one big button or none at all.</shortdesc>
+<topic id="converse">
+  <title>Converse: hands-free voice</title>
+  <shortdesc>Talk to Command Centre instead of typing: hear what's new, go through approvals and ask for things, with one big button or none at all. Made for the car.</shortdesc>
   <prolog>
-    <resourceid appname="command-centre" appid="drive"/>
+    <resourceid appname="command-centre" appid="converse"/>
   </prolog>
   <body>
-    <fig id="fig-drive">
-      <title>Drive mode</title>
-      <image href="../../screenshots/drive-phone-light.png" placement="break" width="300">
-        <alt>Drive mode on a phone: the mode switch, who you are talking to, and one large Talk button.</alt>
+    <fig id="fig-converse">
+      <title>Converse</title>
+      <image href="../../screenshots/converse-phone-light.png" placement="break" width="300">
+        <alt>Converse on a phone: the chat box grown to fill the screen, with Read aloud, Fold and the Push to talk switch along the top, a large Talk orb in the middle, and who you are talking to at the bottom.</alt>
       </image>
     </fig>
-    <p>Open it from <uicontrol>Drive mode</uicontrol> in <xref href="chat.dita">Chat</xref>. The screen stays awake, and after the first tap a headset or steering-wheel play/pause button works as the big button. <uicontrol>Exit</uicontrol> goes back to Chat.</p>
-    <dl>
-      <dlentry><dt><uicontrol>Push to talk</uicontrol></dt><dd>Tap <uicontrol>Talk</uicontrol>, speak, tap <uicontrol>Send</uicontrol>.</dd></dlentry>
-      <dlentry><dt><uicontrol>Conversation</uicontrol></dt><dd>It listens again after each answer; speak, then pause.</dd></dlentry>
-    </dl>
-    <p>While it speaks, the button says <uicontrol>Interrupt</uicontrol>. <uicontrol>Talking to</uicontrol> chooses a role; the default, <uicontrol>Chief of Staff (hands it on)</uicontrol>, works out who should do it.</p>
-    <p>Under the fold-out you can type a command, turn on <uicontrol>Listen for a follow-up after each answer</uicontrol>, and use the server's voice instead of the phone's.</p>
+    <p>Tap <uicontrol>Converse</uicontrol> in the <xref href="chat.dita">Chat</xref> box. The box grows to fill the screen and the talk orb fades in, in the middle of it. Its own controls stay where they were: <uicontrol>Read aloud</uicontrol> at the top, beside <uicontrol>Push to talk</uicontrol>, and the text box, <uicontrol>Send</uicontrol> and the rest at the bottom. <uicontrol>Fold</uicontrol>, in the place of <uicontrol>Converse</uicontrol>, folds it back to typing.</p>
+    <p>The screen stays awake while it's open, and after the first tap a headset or steering-wheel play/pause button works as the orb.</p>
+    <p><uicontrol>Push to talk</uicontrol> is off to start with: tap <uicontrol>Talk</uicontrol> once, then speak and pause, and it listens again after each answer. Turn it on to tap <uicontrol>Talk</uicontrol>, speak, and tap <uicontrol>Send</uicontrol> each time. Each device remembers your choice.</p>
+    <p>While it speaks, the orb says <uicontrol>Interrupt</uicontrol>. The picker at the bottom, where Chat has <uicontrol>Send to</uicontrol>, chooses who you are talking to: a role, or the default, <uicontrol>Chief of Staff</uicontrol>, who works out who should do it. You can also type a command in the text box and press <uicontrol>Send</uicontrol>.</p>
+    <p>In <xref href="../system/settings.dita">Settings</xref>, under <uicontrol>Converse</uicontrol>, you can turn on <uicontrol>Listen for a follow-up after each answer</uicontrol> and choose what the orb shows. The voice it speaks with is under <uicontrol>Voice</uicontrol>.</p>
     <note>Approvals by voice always ask you to confirm: say <q>approve</q>, hear what it is, then say <q>yes, approve</q>. A request such as <q>approve the quote for Jane</q> is sent to the agent as a request, never taken as an approval.</note>
   </body>
   <topic id="commands">
     <title>Voice commands</title>
-    <prolog><resourceid appname="command-centre" appid="drive.commands"/></prolog>
+    <prolog><resourceid appname="command-centre" appid="converse.commands"/></prolog>
     <body>
       <p>A command must be the whole thing you say. <q>OK</q>, <q>hey</q>, <q>please</q> and <q>thanks</q> around it are fine. Anything else is sent to the agent as a request.</p>
       <simpletable>
@@ -39,13 +37,13 @@
         <strow><stentry><q>stop</q>, <q>quiet</q></stentry><stentry>Stop speaking.</stentry></strow>
         <strow><stentry><q>cancel</q>, <q>never mind</q></stentry><stentry>Drop what you were doing.</stentry></strow>
         <strow><stentry><q>that's all</q>, <q>goodbye</q></stentry><stentry>End the conversation.</stentry></strow>
-        <strow><stentry><q>conversation mode</q> / <q>push to talk</q></stentry><stentry>Switch mode.</stentry></strow>
+        <strow><stentry><q>push to talk</q> / <q>conversation mode</q></stentry><stentry>Turn push to talk on or off.</stentry></strow>
         <strow><stentry><q>talk to the shop lead</q>, <q>back to chief of staff</q></stentry><stentry>Choose who you are talking to.</stentry></strow>
         <strow><stentry><q>who am I talking to?</q></stentry><stentry>Hear which role is listening.</stentry></strow>
       </simpletable>
       <p>To send one request to a business or role, start with its name: <q>shop: has order 1042 shipped?</q> or <q>ask customer support whether order 1042 shipped</q>. Spoken names work: <q>d m s</q> or <q>machine shop</q>, <q>three d p and me</q>, <q>open v</q>, <q>open d</q>, <q>personal</q>.</p>
       <p>When the agent asks you a question, whatever you say next is your answer; only stop, cancel, end, repeat and the mode switches still work as commands.</p>
-      <p>The talk button shows a live trace of your voice while you speak and of the reply while it is spoken, beside the orb. Under <uicontrol>Show</uicontrol> in the settings you can keep both, or choose the orb only or the trace only.</p>
+      <p>The orb shows a live trace of your voice while you speak and of the reply while it is spoken, sweeping round it. Under <uicontrol>Show</uicontrol> in Settings → <uicontrol>Converse</uicontrol> you can keep both, or choose the orb only or the trace only.</p>
     </body>
   </topic>
 </topic>

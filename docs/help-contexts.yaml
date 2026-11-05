@@ -13,7 +13,8 @@ apps:
       /today: today
       /approvals/**: approvals
       /chat: chat
-      /drive: drive
+      /converse: converse
+      /drive: converse
       /notifications: notifications
       /briefing/**: notifications.briefing
       /notification-settings: notification-settings

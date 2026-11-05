@@ -51,6 +51,7 @@ export function Composer({
   busy = false,
   className = "",
   children,
+  panel,
 }: {
   api: Pick<Api, "voiceConfig" | "transcribe" | "voiceListenUrl" | "token"> & Partial<Pick<Api, "uploadChatFile">>;
   value: string;
@@ -67,6 +68,11 @@ export function Composer({
   className?: string;
   /** Controls before the mic, e.g. the chat's "Send to" picker. */
   children?: ReactNode;
+  /**
+   * Shown above the text box, growing into the space (Converse in the chat). While it's there the
+   * mic and the paperclip are off; everything else stays where it is.
+   */
+  panel?: ReactNode;
 }) {
   const dictation = useDictation(api);
   // What was typed before dictation started, and a send waiting for it to finish.
@@ -168,6 +174,23 @@ export function Composer({
   };
   const classes = ["composer", dictation.available ? "has-mic" : "", dictation.listening ? "is-recording" : "", upload ? "has-attach" : "", attachments.length ? "has-files" : "", dragging ? "is-dragging" : "", className];
 
+  const textBox = (
+    <textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={dictation.listening ? "Listening…" : placeholder}
+      aria-label={label}
+      rows={panel ? 1 : 2}
+      onPaste={onPaste}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.form?.requestSubmit();
+        }
+      }}
+    />
+  );
+
   return (
     <>
       {dictation.error && <ErrorBanner>{dictation.error}</ErrorBanner>}
@@ -190,20 +213,15 @@ export function Composer({
           </ul>
         )}
         {children}
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={dictation.listening ? "Listening…" : placeholder}
-          aria-label={label}
-          rows={2}
-          onPaste={onPaste}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              e.currentTarget.form?.requestSubmit();
-            }
-          }}
-        />
+        {panel ? (
+          // Converse: the panel grows above the text box, which stays on the bottom rows.
+          <div className="composer-main">
+            <div className="composer-panel">{panel}</div>
+            {textBox}
+          </div>
+        ) : (
+          textBox
+        )}
         {upload && (
           <>
             <input
@@ -220,6 +238,7 @@ export function Composer({
               type="button"
               className="attach"
               onClick={() => pickRef.current?.click()}
+              disabled={!!panel}
               aria-label="Attach files"
               title="Attach files: or paste them, or drop them here"
             >
@@ -243,6 +262,7 @@ export function Composer({
             type="button"
             className={`mic ${dictation.listening ? "is-listening" : ""}`}
             onClick={toggleMic}
+            disabled={!!panel}
             aria-pressed={dictation.listening}
             data-help-key="chat.dictate"
             aria-label={dictation.listening ? "Done dictating" : "Dictate"}

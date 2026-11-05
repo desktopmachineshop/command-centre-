@@ -8,7 +8,7 @@
   </prolog>
   <conbody>
     <ol>
-      <li><b>Something comes in.</b> An email, an Odoo order or helpdesk message, a social comment or DM, a schedule firing, or your own message in Chat or Drive mode.</li>
+      <li><b>Something comes in.</b> An email, an Odoo order or helpdesk message, a social comment or DM, a schedule firing, or your own message in Chat or Converse.</li>
       <li><b>It is sorted.</b> Triage decides which business (DMS, 3dpandme, OpenV, OpenD, personal) and what kind of work it is: an order-status question, a supplier email, spam and so on. Spam and noise are filed without running an agent.</li>
       <li><b>A role takes it.</b> The task goes to the role that owns that kind of work in the <xref href="../business/org.dita">org chart</xref>, or to the business's lead. Chat goes to the <term>Chief of Staff</term> first, which answers or hands it on.</li>
       <li><b>An agent works on it.</b> It reads the <xref href="../knowledge/brain.dita">Brain</xref>, uses its skills and the tools its role may reach (Odoo, mail, calendar), and writes up what it did. You can follow every step in the task's <wintitle>Conversation</wintitle>.</li>

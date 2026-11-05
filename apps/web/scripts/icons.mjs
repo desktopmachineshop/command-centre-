@@ -20,7 +20,7 @@ const GLYPHS = {
   approvals: "M9 12l2 2 4-4M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z",
   chat: "M4 5h16v11H9l-5 4z M8 9.5h8 M8 12.5h5",
   today: "M4 6h16v14H4z M4 10h16 M8 3v4 M16 3v4 M8 14h3v3H8z",
-  drive: "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z M5 11a7 7 0 0 0 14 0 M12 18v3",
+  converse: "M4 10v4 M8 7v10 M12 4v16 M16 7v10 M20 10v4",
 };
 
 /** [file, size, html body]. Transparent page so the rounded corners stay transparent. */

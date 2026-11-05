@@ -155,7 +155,7 @@ export function ReadAloudToggle({ readAloud }: { readAloud: ReturnType<typeof us
       onClick={() => readAloud.set(!readAloud.enabled)}
       title="Speak each reply as it arrives"
     >
-      <Icon name="speaker" size={16} />
+      <Icon name="narrate" size={16} />
       <span>Read aloud</span>
     </button>
   );

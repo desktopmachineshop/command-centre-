@@ -11,7 +11,7 @@
       <title>The pages</title>
       <simpletable>
         <sthead><stentry>Group</stentry><stentry>Pages</stentry></sthead>
-        <strow><stentry>Work</stentry><stentry><xref href="../work/inbox.dita">Inbox</xref>, <xref href="../work/today.dita">Today</xref>, <xref href="../work/approvals.dita">Approvals</xref>, <xref href="../work/chat.dita">Chat</xref>, <xref href="../work/notifications.dita">Notifications</xref>, <xref href="../work/drive.dita">Drive</xref></stentry></strow>
+        <strow><stentry>Work</stentry><stentry><xref href="../work/inbox.dita">Inbox</xref>, <xref href="../work/today.dita">Today</xref>, <xref href="../work/approvals.dita">Approvals</xref>, <xref href="../work/chat.dita">Chat</xref>, <xref href="../work/notifications.dita">Notifications</xref>, <xref href="../work/converse.dita">Converse</xref></stentry></strow>
         <strow><stentry>Business</stentry><stentry><xref href="../business/social.dita">Social</xref>, <xref href="../business/org.dita">Org</xref></stentry></strow>
         <strow><stentry>Knowledge</stentry><stentry><xref href="../knowledge/brain.dita">Brain</xref></stentry></strow>
         <strow><stentry>System</stentry><stentry><xref href="../system/accounts.dita">Accounts</xref>, <xref href="../system/devices.dita">Devices</xref>, <xref href="../system/storage.dita">Storage</xref>, <xref href="../system/settings.dita">Settings</xref>, <xref href="../system/notification-settings.dita">Notification settings</xref></stentry></strow>
