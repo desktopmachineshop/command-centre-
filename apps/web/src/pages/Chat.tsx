@@ -12,6 +12,7 @@ import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
 import { ReadAloudToggle, useReadAloud } from "../voice/readAloud";
 import { Drive } from "./Drive";
+import { go } from "../router";
 
 type Turn = { key: number; text: string; files?: { name: string; size: number }[]; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
 
@@ -182,6 +183,47 @@ function useDriveExpand(sectionRef: RefObject<HTMLElement | null>, want: boolean
   return stage;
 }
 
+/**
+ * Touch gestures on the chat box: swipe up opens Converse, swipe down (on the grown box) folds it
+ * back to chat. Only on the box itself, so the chat above still scrolls; not from the text box or
+ * a picker, which keep their own touches. A swipe is quick (under 0.8 s), at least 60 px, and
+ * mostly up or down. The box doesn't scroll the page under a swipe (styles.css, touch-action).
+ */
+function useComposerSwipe(sectionRef: RefObject<HTMLElement | null>, converse: boolean) {
+  const converseRef = useRef(converse);
+  converseRef.current = converse;
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    let start: { x: number; y: number; t: number } | null = null;
+    const own = (t: EventTarget | null) => t instanceof Element && !!t.closest(".composer") && !t.closest("textarea, select, input");
+    const onStart = (e: TouchEvent) => {
+      const p = e.touches[0];
+      start = e.touches.length === 1 && p && own(e.target) ? { x: p.clientX, y: p.clientY, t: performance.now() } : null;
+    };
+    const onEnd = (e: TouchEvent) => {
+      const p = e.changedTouches[0];
+      if (!start || !p) return;
+      const dx = p.clientX - start.x;
+      const dy = p.clientY - start.y;
+      const quick = performance.now() - start.t < 800;
+      start = null;
+      if (!quick || Math.abs(dy) < 60 || Math.abs(dy) < 1.5 * Math.abs(dx)) return;
+      if (dy < 0 && !converseRef.current) go("converse");
+      else if (dy > 0 && converseRef.current) go("chat");
+    };
+    const onCancel = () => (start = null);
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    el.addEventListener("touchcancel", onCancel, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchend", onEnd);
+      el.removeEventListener("touchcancel", onCancel);
+    };
+  }, []);
+}
+
 export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; drive?: boolean }) {
   const [verticals, setVerticals] = useState<{ id: string; name: string }[]>([]);
   const [vertical, setVertical] = useState("");
@@ -194,6 +236,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   const sectionRef = useRef<HTMLElement>(null);
   const driveStage = useDriveExpand(sectionRef, drive);
   const driving = driveStage !== "off";
+  useComposerSwipe(sectionRef, drive);
   /** Drive's typed-command handler while it's open (Drive sets it). */
   const driveCommand = useRef<((text: string) => void) | null>(null);
   /** Where Converse puts its Push to talk switch (the row of buttons) and its Talking to picker (in place of Send to). */
