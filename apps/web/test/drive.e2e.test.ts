@@ -397,6 +397,42 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.close();
   }, 90_000);
 
+  it("on a touch screen, swipe up on the chat box opens Converse and swipe down folds it", async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(MOCK_SPEECH);
+    await mockApi(page, []);
+    await page.goto(`${base}/#/chat`);
+    const box = page.locator(".composer");
+    await box.waitFor({ timeout: 20_000 });
+    const cdp = await context.newCDPSession(page);
+    /** A quick one-finger swipe from (x, y) by dy, as the touch screen sends it. */
+    const swipe = async (x: number, y: number, dy: number) => {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (let i = 1; i <= 5; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y + (dy * i) / 5 }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    };
+    // Swipe up from the chat box's bottom row (not the text box): Converse opens.
+    let r = (await page.locator(".composer button.send").boundingBox())!;
+    await swipe(r.x - 60, r.y + r.height / 2, -160);
+    await page.locator(".composer.is-open .drive").waitFor({ timeout: 10_000 });
+    expect(await page.evaluate(() => location.hash)).toBe("#/converse");
+    // A swipe starting in the text box is left to the text box.
+    r = (await page.locator(".composer textarea").boundingBox())!;
+    await swipe(r.x + 40, r.y + r.height / 2, 160);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => location.hash)).toBe("#/converse");
+    // Swipe down on the grown box: back to chat.
+    r = (await box.boundingBox())!;
+    await swipe(r.x + 30, r.y + r.height / 2, 200);
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/chat");
+    await expect.poll(() => page.locator(".drive").count()).toBe(0);
+    expect(errors).toEqual([]);
+    await context.close();
+  }, 60_000);
+
   it("on a computer, Space is the orb: hold to talk, or tap; not while typing", async () => {
     const page = await browser.newPage();
     const errors: string[] = [];

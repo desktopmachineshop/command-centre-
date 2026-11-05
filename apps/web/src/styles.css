@@ -2622,6 +2622,16 @@ a.stat:hover {
  * the top bar. Its own controls keep their places at its top and bottom edges; the text box's place
  * (.composer-panel) takes the extra height, animated, and holds Drive with the orb in the middle.
  */
+/* Swipes on the chat box open and fold Converse (Chat.tsx useComposerSwipe), so the box itself
+   doesn't scroll the page under a finger; the text box and pickers keep their own touches. */
+.composer {
+  touch-action: none;
+}
+.composer textarea,
+.composer select,
+.composer input {
+  touch-action: auto;
+}
 .composer-spacer {
   height: var(--drive-spacer);
   margin: 0 calc(-1 * var(--sp-2));
