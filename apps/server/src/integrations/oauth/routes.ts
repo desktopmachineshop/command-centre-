@@ -57,6 +57,16 @@ export function redirectUriFor(publicBaseUrl: string, provider: OAuthProvider): 
   return `${publicBaseUrl.replace(/\/+$/, "")}/oauth/${provider}/callback`;
 }
 
+/** A refusal's error, description and error_uri from the callback query, on one line and length-capped for the log. */
+export function providerErrorDetail(query: URLSearchParams): string {
+  const part = (key: string) => (query.get(key) ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
+  return ["error", "error_description", "error_subcode", "error_uri"]
+    .map((k) => [k, part(k)] as const)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(" | ");
+}
+
 function kindFor(provider: OAuthProvider): KindDef {
   return CATALOG.find((k) => k.oauth === provider)!;
 }
@@ -135,6 +145,8 @@ export function integrationOAuth(deps: OAuthDeps) {
     const state = randomBytes(32).toString("base64url");
     const redirectUri = redirectUriFor(base, name);
     const started = await provider.start(providerDeps, { app, redirectUri, state });
+    // Non-secret: which app the sign-in uses, so a provider's "unknown client" can be checked against it.
+    console.log(`[oauth ${name}] start for ${body.id}: clientId=${app.clientId ?? "-"} tenant=${app.tenant || "-"} redirectUri=${redirectUri}`);
     const stateData: StateData = { kind: def.kind, id: body.id, ...(body.vertical ? { vertical: body.vertical } : {}), data, redirectUri, keep: started.keep ?? {} };
     await deps.store.putState({ state: started.stateKey ?? state, provider: name, actor: actorOf(c), data: { ...stateData }, ttlSeconds: STATE_TTL_SECONDS });
     return c.json({ url: started.url });
@@ -191,7 +203,11 @@ export function integrationOAuth(deps: OAuthDeps) {
       if (!email || email.toLowerCase() !== taken.actor.toLowerCase()) return fail("Sign in to Command Centre as the user who pressed Connect, then start again");
     }
     const refused = provider.errorOf(query);
-    if (refused) return fail(refused);
+    if (refused) {
+      // The provider's own words (e.g. Microsoft's AADSTS code with its trace and correlation ids).
+      console.warn(`[oauth ${name}] provider error: ${providerErrorDetail(query)}`);
+      return fail(refused);
+    }
 
     const def = KINDS.get(st.kind)!;
     let app: Record<string, string> = {};
