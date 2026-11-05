@@ -6,22 +6,36 @@ import { Icon } from "../icons";
 import { Empty, ErrorBanner, PageHead, TaskTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
+import { Markdown } from "../markdown";
 import { AttachedFiles, Composer } from "../composer";
 import { chatExpired, clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
 import { ReadAloudToggle, useReadAloud } from "../voice/readAloud";
-import { Drive } from "./Drive";
+import { Drive, type Exchange } from "./Drive";
 import { go } from "../router";
 
-type Turn = { key: number; text: string; files?: { name: string; size: number }[]; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
+type Turn = {
+  key: number;
+  text: string;
+  files?: { name: string; size: number }[];
+  /** The task it went to; none for a Converse exchange the voice front answered itself. */
+  task?: Task;
+  messages: AgentMessage[];
+  result?: string;
+  /** Server time it was taken (see chat-store). */
+  at: string;
+  /** Said in Converse; `reply` is the voice front's spoken answer. */
+  voice?: boolean;
+  reply?: string;
+};
 
 /** A task in these states has answered, so a follow-up can continue it. */
 const REPLYABLE: Task["status"][] = ["done", "awaiting_approval", "failed"];
 
 /** Applies `f` to the latest turn on `taskId` (a task's follow-ups each have their own turn). */
 function onLatest(ts: Turn[], taskId: string, f: (t: Turn) => Turn): Turn[] {
-  for (let i = ts.length - 1; i >= 0; i--) if (ts[i]!.task.id === taskId) return ts.map((t, j) => (j === i ? f(t) : t));
+  for (let i = ts.length - 1; i >= 0; i--) if (ts[i]!.task?.id === taskId) return ts.map((t, j) => (j === i ? f(t) : t));
   return ts;
 }
 
@@ -263,7 +277,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
     setThreadId(saved.threadId);
     let cancelled = false;
     void (async () => {
-      const ids = [...new Set(saved.turns.map((t) => t.taskId))];
+      const ids = [...new Set(saved.turns.flatMap((t) => (t.taskId ? [t.taskId] : [])))];
       const details = new Map(await Promise.all(ids.map(async (id) => [id, await api.task(id).catch(() => null)] as const)));
       if (cancelled) return;
       const restored: Turn[] = [];
@@ -272,8 +286,12 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
         if (!detail) continue; // the task is gone: drop its turns
         const mine = saved.turns.map((t, i) => ({ t, i })).filter(({ t }) => t.taskId === id);
         const messages = messagesByTurn(mine.map(({ t }) => t), detail.runs);
-        mine.forEach(({ t, i }, n) => restored.push({ key: i, text: t.text, files: t.files, task: detail.task, messages: messages[n]!, at: t.at }));
+        mine.forEach(({ t, i }, n) => restored.push({ key: i, text: t.text, files: t.files, task: detail.task, messages: messages[n]!, at: t.at, voice: t.voice, reply: t.reply }));
       }
+      // Converse exchanges the voice front answered itself: no task, the answer kept as text.
+      saved.turns.forEach((t, i) => {
+        if (!t.taskId) restored.push({ key: i, text: t.text, messages: [], at: t.at, voice: t.voice, reply: t.reply });
+      });
       restored.sort((a, b) => a.key - b.key);
       // Turns sent while restoring stay after the restored ones.
       setTurns((live) => [...restored, ...live.map((t, n) => ({ ...t, key: restored.length + n }))]);
@@ -289,8 +307,44 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   useEffect(() => {
     if (restoring) return;
     lastActive.current = Date.now();
-    saveChat({ threadId, vertical, lastActive: lastActive.current, turns: turns.map((t) => ({ text: t.text, ...(t.files?.length ? { files: t.files } : {}), taskId: t.task.id, at: t.at })) });
+    saveChat({
+      threadId,
+      vertical,
+      lastActive: lastActive.current,
+      turns: turns.map((t) => ({
+        text: t.text,
+        ...(t.files?.length ? { files: t.files } : {}),
+        ...(t.task ? { taskId: t.task.id } : {}),
+        ...(t.voice ? { voice: true } : {}),
+        ...(t.reply ? { reply: t.reply } : {}),
+        at: t.at,
+      })),
+    });
   }, [turns, threadId, vertical, restoring]);
+
+  /**
+   * A request made in Converse goes in the chat's log too: what was said, the voice front's answer,
+   * and the agent's messages when it went to one (the task is loaded and the live feed adds the rest).
+   */
+  const addExchange = useCallback(
+    (e: Exchange) => {
+      const at = e.task?.createdAt ?? new Date().toISOString();
+      let key = -1;
+      setTurns((ts) => {
+        key = ts.length ? Math.max(...ts.map((t) => t.key)) + 1 : 0;
+        return [...ts, { key, text: e.text, task: e.task, messages: [], at, voice: true, reply: e.reply }];
+      });
+      if (e.task || !e.taskId) return;
+      void api
+        .task(e.taskId)
+        .then((detail) => {
+          const [messages] = messagesByTurn([{ at: detail.task.createdAt }], detail.runs);
+          setTurns((ts) => ts.map((t) => (t.key === key ? { ...t, task: detail.task, at: detail.task.createdAt, messages: messages ?? [] } : t)));
+        })
+        .catch(() => {});
+    },
+    [api],
+  );
 
   /** "New chat": a clean screen and a new thread. */
   const newChat = () => {
@@ -319,12 +373,12 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   }, []);
 
   // Proposals show inline on the latest turn of each task (follow-ups continue the same task).
-  const latestTurnOf = new Map(turns.map((t) => [t.task.id, t.key]));
+  const latestTurnOf = new Map(turns.flatMap((t) => (t.task ? [[t.task.id, t.key] as const] : [])));
   const chains = useChainProposals(api, feed, [...latestTurnOf.keys()]);
 
   // Newest at the bottom, followed as it streams in (unless scrolled up to read).
   const lastTurn = turns[turns.length - 1];
-  useStickToBottom(`${turns.length}:${lastTurn?.messages.length ?? 0}:${lastTurn?.task.status ?? ""}:${Object.values(chains).reduce((n, c) => n + c.proposals.length, 0)}`, !restoring);
+  useStickToBottom(`${turns.length}:${lastTurn?.messages.length ?? 0}:${lastTurn?.task?.status ?? ""}:${lastTurn?.reply?.length ?? 0}:${Object.values(chains).reduce((n, c) => n + c.proposals.length, 0)}`, !restoring);
 
   // Read aloud reads this chat's replies only (not every agent's messages), and never while Converse
   // is open: Converse speaks for itself, and two voices would talk over each other.
@@ -338,7 +392,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
 
   useLive(feed, (m) => {
     if (m.type === "run.message") {
-      const ours = turnsRef.current.some((t) => t.task.id === m.taskId);
+      const ours = turnsRef.current.some((t) => t.task?.id === m.taskId);
       if (m.message.type === "text" && ours && !drivingRef.current) readAloud.offer(m.message.text);
       setTurns((ts) => onLatest(ts, m.taskId, (t) => ({ ...t, messages: [...t.messages, m.message] })));
     }
@@ -348,7 +402,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   });
 
   /** The thread's latest task, and whether it has answered (so a follow-up can continue it). */
-  const thread = threadId ? turns.findLast((t) => t.task.id === threadId)?.task : undefined;
+  const thread = threadId ? turns.findLast((t) => t.task?.id === threadId)?.task : undefined;
   const ready = !thread || REPLYABLE.includes(thread.status);
 
   /** Messages written while the agent is still working: each is sent, in order, once it has answered. */
@@ -415,26 +469,32 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
         )}
         {turns.map((t) => (
           <div key={t.key} className="turn">
-            <div className="bubble me">
+            <div className={`bubble me ${t.voice ? "is-voice" : ""}`}>
+              {t.voice && <Icon name="mic" size={14} className="said" aria-label="Said in Converse" />}
               {t.text}
               <AttachedFiles files={t.files ?? []} />
             </div>
             <div className="bubble agent">
-              <div className="row between small">
-                <TaskTag task={t.task} />
-                <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
-                  {t.task.status.replace("_", " ")}
-                </a>
-              </div>
+              {t.task ? (
+                <div className="row between small">
+                  <TaskTag task={t.task} />
+                  <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
+                    {t.task.status.replace("_", " ")}
+                  </a>
+                </div>
+              ) : (
+                <div className="row small muted">Converse</div>
+              )}
+              {t.reply && <Markdown className="msg text" text={t.reply} />}
               <Transcript messages={t.messages} />
-              {t.task.status === "failed" && latestTurnOf.get(t.task.id) === t.key && (
+              {t.task?.status === "failed" && latestTurnOf.get(t.task.id) === t.key && (
                 <ErrorReport
                   title="This didn't finish"
                   error={t.task.note ?? "The agent's run failed without a message. Open the task for details."}
                   facts={[["Task", t.task.id], ["Business", t.task.vertical], ["Role", t.task.role], ["Asked", t.text.slice(0, 200)]]}
                 />
               )}
-              {latestTurnOf.get(t.task.id) === t.key && <InlineProposals api={api} proposals={chains[t.task.id]?.proposals ?? []} />}
+              {t.task && latestTurnOf.get(t.task.id) === t.key && <InlineProposals api={api} proposals={chains[t.task.id]?.proposals ?? []} />}
             </div>
           </div>
         ))}
@@ -463,7 +523,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
         label="Message"
         placeholder={driving ? "Or type it here" : "What needs doing?"}
         className={driving ? `is-driving is-${driveStage}` : ""}
-        panel={driving ? <Drive api={api} feed={feed} commandRef={driveCommand} toolbar={driveToolbar} pickerSlot={drivePicker} /> : undefined}
+        panel={driving ? <Drive api={api} feed={feed} commandRef={driveCommand} toolbar={driveToolbar} pickerSlot={drivePicker} onExchange={addExchange} /> : undefined}
       >
         {driving ? (
           <span ref={setDrivePicker} className="composer-picker-slot" />

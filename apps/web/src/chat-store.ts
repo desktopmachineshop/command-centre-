@@ -26,7 +26,12 @@ export interface SavedTurn {
   text: string;
   /** Files attached to it: what to show, the agent has them already. */
   files?: { name: string; size: number }[];
-  taskId: string;
+  /** The task it went to; none for a Converse exchange the voice front answered itself. */
+  taskId?: string;
+  /** Said in Converse rather than typed. */
+  voice?: boolean;
+  /** The voice front's spoken answer (Converse), kept as text. */
+  reply?: string;
   /**
    * When the server took it (ISO, the task's own timestamp, so it compares with run start times
    * on the same clock). Runs that started after it, before the next turn on the task, are its replies.

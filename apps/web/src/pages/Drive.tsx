@@ -21,6 +21,7 @@ import {
 } from "../voice/speech";
 import { speakerFor, useVoiceChoice } from "../voice/choice";
 import { pickListener } from "../voice/dictation";
+import type { Task } from "@cc/core";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
 import { OrbTrace, VoiceOrb } from "../voice/Waveform";
@@ -73,6 +74,9 @@ const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
  * the headset / steering-wheel play-pause button), local voice commands, and
  * everything else sent to the agent in voice mode with its answer read aloud.
  */
+/** A request made in Converse: what was said, and the voice front's answer and/or the agent task it went to. */
+export type Exchange = { text: string; reply?: string; taskId?: string; task?: Task };
+
 /**
  * Drive mode, called "Converse" in the app, shown inside the chat composer (pages/Chat.tsx),
  * which grows to hold it; the composer's Fold button leaves it. Unmounting stops any listening and speaking.
@@ -83,6 +87,7 @@ export function Drive({
   commandRef,
   toolbar,
   pickerSlot,
+  onExchange,
 }: {
   api: Api;
   feed: LiveFeed;
@@ -91,7 +96,11 @@ export function Drive({
   toolbar?: HTMLElement | null;
   /** Where the Talking to picker goes: the chat box's own picker, at the bottom. */
   pickerSlot?: HTMLElement | null;
+  /** Each request made in Converse and its answer (or the task it went to), for the chat's log. */
+  onExchange?: (exchange: Exchange) => void;
 }) {
+  const onExchangeRef = useRef(onExchange);
+  onExchangeRef.current = onExchange;
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
     // Push to talk is off unless chosen: Converse listens again after each answer.
     // Listening for a follow-up after each answer is on unless switched off in Settings.
@@ -422,6 +431,12 @@ export function Drive({
             if (frontRef.current) {
               const reply = new ReplyStream();
               reply.onText = setReplyText;
+              // Logged in the chat once it has all arrived (even if it was interrupted); a reply that
+              // never came is logged by the fallback below instead.
+              reply.onEnd = () => {
+                const said = reply.text.trim();
+                if (said) onExchangeRef.current?.({ text: cmd.text, reply: said, taskId: reply.handoff?.taskId ?? undefined });
+              };
               setReplyText("");
               const who = target.role ? (roles.find((r) => r.choice.vertical === target.vertical && r.choice.role === target.role)?.choice ?? null) : null;
               const ok = await reply.start((signal) =>
@@ -439,6 +454,7 @@ export function Drive({
               // The front failed: ask the agent directly, and don't try the front again this visit.
               if (reply.error) frontRef.current = false;
               if (reply.handoff?.taskId) {
+                onExchangeRef.current?.({ text: cmd.text, taskId: reply.handoff.taskId });
                 watched.current.add(reply.handoff.taskId);
                 followed.current.add(reply.handoff.taskId);
                 dispatch({ type: "waiting", taskId: reply.handoff.taskId });
@@ -446,6 +462,7 @@ export function Drive({
               }
             }
             const { task } = await api.chat(cmd.text, target.vertical, { voice: true, role: target.role });
+            onExchangeRef.current?.({ text: cmd.text, task });
             watched.current.add(task.id);
             followed.current.add(task.id);
             dispatch({ type: "waiting", taskId: task.id });

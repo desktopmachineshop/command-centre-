@@ -2686,6 +2686,12 @@ a.stat:hover {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 }
+/* A chat turn said in Converse (Chat.tsx): a small mic before the words. */
+.bubble.me .said {
+  vertical-align: -2px;
+  margin-right: 6px;
+  opacity: 0.75;
+}
 .composer-spacer {
   height: var(--drive-spacer);
   margin: 0 calc(-1 * var(--sp-2));
