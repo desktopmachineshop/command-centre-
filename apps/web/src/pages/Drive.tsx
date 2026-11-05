@@ -558,6 +558,41 @@ export function Drive({
   const pressRef = useRef(press);
   pressRef.current = press;
 
+  // On a computer, Space is the orb while Converse is open (not while typing in the text box or a
+  // picker): hold it to talk and let go to send, or tap it like the orb (tap to talk, tap to send;
+  // while it speaks, it interrupts). It takes Space from a focused button too, so a button clicked
+  // last doesn't swallow it.
+  const desktop = useMemo(() => typeof matchMedia === "function" && matchMedia("(hover: hover) and (pointer: fine)").matches, []);
+  useEffect(() => {
+    if (!desktop) return;
+    /** When the current Space press started listening (for hold-to-talk), else 0. */
+    let heldFrom = 0;
+    const typing = (t: EventTarget | null) =>
+      t instanceof HTMLElement && (t.isContentEditable || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLInputElement && t.type !== "checkbox" && t.type !== "radio"));
+    const isSpace = (e: KeyboardEvent) => (e.code === "Space" || e.key === " ") && !e.ctrlKey && !e.metaKey && !e.altKey;
+    const down = (e: KeyboardEvent) => {
+      if (!isSpace(e) || typing(e.target) || e.isComposing) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      const was = stateRef.current.phase;
+      pressRef.current("screen");
+      heldFrom = was !== "listening" && was !== "sending" && was !== "speaking" ? performance.now() : 0;
+    };
+    const up = (e: KeyboardEvent) => {
+      if (!isSpace(e) || typing(e.target)) return;
+      e.preventDefault();
+      // Held (not a tap): letting go sends, if it's still listening to this press.
+      if (heldFrom && performance.now() - heldFrom > 350 && stateRef.current.phase === "listening") pressRef.current("screen");
+      heldFrom = 0;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [desktop]);
+
   /** A command typed in the chat box (Chat passes it here while Drive is open). */
   const typeCommand = async (raw: string) => {
     const text = raw.trim();
@@ -660,6 +695,7 @@ export function Drive({
         {state.phase === "listening" && state.mode === "push" ? "Listening: tap Send when you're done" : PHASE_LABEL[state.phase]}
         {state.conversation && state.expect === "reply" && state.phase === "idle" ? " (your answer)" : ""}
       </p>
+      {desktop && state.phase === "idle" && <p className="drive-hint">or hold Space</p>}
 
       <button
         type="button"

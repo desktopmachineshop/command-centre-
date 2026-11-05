@@ -397,6 +397,47 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.close();
   }, 90_000);
 
+  it("on a computer, Space is the orb: hold to talk, or tap; not while typing", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(MOCK_SPEECH);
+    const calls: Calls = [];
+    await mockApi(page, calls);
+    await page.goto(`${base}/#/converse`);
+    await page.locator("button.drive-ptt").waitFor({ timeout: 20_000 });
+    await page.locator(".drive-hint", { hasText: "or hold Space" }).waitFor();
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.join(" | "));
+    const sayNext = (text: string) => page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
+    const idle = () => page.locator(".drive-state").getByText("Tap to talk").waitFor({ timeout: 15_000 });
+
+    // Hold Space: it listens while held, and letting go sends.
+    await sayNext("What's new?");
+    await page.keyboard.down("Space");
+    await page.locator(".drive-caption", { hasText: "What's new?" }).waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(400);
+    await page.keyboard.up("Space");
+    await expect.poll(spoken, { timeout: 15_000 }).toContain("You have 1 approval waiting");
+    await idle();
+
+    // Tap Space like the orb: once to talk, again to send.
+    await sayNext("read approvals");
+    await page.keyboard.press("Space");
+    await page.locator(".drive-caption", { hasText: "read approvals" }).waitFor({ timeout: 15_000 });
+    await page.keyboard.press("Space");
+    await expect.poll(spoken, { timeout: 15_000 }).toContain("Approval 1 of 1");
+    await idle();
+
+    // In the text box, Space is just a space.
+    const box = page.locator(".composer textarea");
+    await box.click();
+    await page.keyboard.type("a b");
+    expect(await box.inputValue()).toBe("a b");
+    expect(await page.locator(".drive-state").textContent()).toContain("Tap to talk");
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it("keeps the screen awake while open inside the app shell, and lets it sleep after leaving", async () => {
     const page = await browser.newPage();
     const errors: string[] = [];
