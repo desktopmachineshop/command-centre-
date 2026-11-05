@@ -49,6 +49,20 @@ export interface NotificationAction {
 }
 
 /**
+ * A picture or video a notification is about (a finished render, a generated
+ * image). The notification centre and briefing view show it in place; a push
+ * shows the first image as its large picture. `url` is absolute http(s).
+ */
+export interface NotificationMedia {
+  url: string;
+  type: "image" | "video";
+  alt?: string;
+  durationSec?: number;
+  width?: number;
+  height?: number;
+}
+
+/**
  * What callers pass to `Notifier.notify`. Only `title` and `body` are
  * required, so `{title, body, url?}` from before categories keeps working:
  * the category is then inferred (see `inferCategory` on the server), else `agent`.
@@ -67,6 +81,8 @@ export interface NotificationInput {
   /** Alert again when replacing a notification with the same tag. Default: only for urgent/high. */
   renotify?: boolean;
   actions?: NotificationAction[];
+  /** Images or videos to show with the notification (at most 4 are kept). */
+  media?: NotificationMedia[];
   data?: Record<string, unknown>;
 }
 
@@ -92,6 +108,7 @@ export interface StoredNotification {
   url: string | null;
   tag: string | null;
   actions: NotificationAction[];
+  media: NotificationMedia[];
   data: Record<string, unknown>;
   status: NotificationStatus;
   createdAt: string;

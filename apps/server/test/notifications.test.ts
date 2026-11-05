@@ -31,7 +31,7 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
 
   beforeAll(async () => {
     await resetDatabase(DB_URL!);
-    ctx = await makeServer({ overrides: { pushTransport: transport, notificationClock: () => now } });
+    ctx = await makeServer({ env: { PUBLIC_BASE_URL: "https://cc.example" }, overrides: { pushTransport: transport, notificationClock: () => now } });
     const phone = await ctx.api("/api/notifications/devices", {
       method: "POST",
       json: { subscription: sub("phone"), name: "Dave's phone" },
@@ -56,6 +56,23 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     expect(body.unread).toBe(1);
     expect(transport.sent.map((s) => s.endpoint).sort()).toEqual(["https://push.example/desktop", "https://push.example/phone"]);
     expect(transport.sent[0]!.payload).toMatchObject({ title: "Hello", category: "agent", silent: false, unread: 1 });
+  });
+
+  it("stores media with the notification and pushes the first image", async () => {
+    const media = [
+      { url: "https://cc.example/media/a.mp4", type: "video" as const, durationSec: 35, width: 1080, height: 1920 },
+      { url: "https://cc.example/media/b.png", type: "image" as const, alt: "Kit" },
+    ];
+    await notifications().notify({ title: "Video ready: Kit", body: "35s 1080x1920", media });
+    // The test clock stands still, so find notifications by title rather than by order.
+    const byTitle = async (title: string) => (await ctx.api("/api/notifications")).body.items.find((n: any) => n.title === title);
+    const kit = await byTitle("Video ready: Kit");
+    expect(kit.media).toEqual(media);
+    expect((await ctx.api(`/api/notifications/${kit.id}`)).body.media).toEqual(media);
+    expect(transport.sent[0]!.payload).toMatchObject({ image: "https://cc.example/media/b.png" });
+    // Without media, an empty list.
+    await notifications().notify({ title: "Plain", body: "text" });
+    expect((await byTitle("Plain")).media).toEqual([]);
   });
 
   it("serves the inbox: filter, unread count, read, read-all", async () => {
@@ -204,6 +221,21 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     expect(ctx.notifier.sent.at(-1)).toMatchObject({ category: "agent", priority: undefined });
     await ctx.server.actions.propose({ vertical: "personal", actionType: "notify", summary: "x", payload: { title: "Hi", body: "b", category: "alert" } });
     expect(ctx.notifier.sent.at(-1)).toMatchObject({ category: "alert", priority: "high" });
+
+    // Media: only this server's own /media files, stored with the notification.
+    const video = `${"a".repeat(32)}.mp4`;
+    await ctx.server.actions.propose({
+      vertical: "personal",
+      actionType: "notify",
+      summary: "x",
+      payload: { title: "Clip", body: "b", media: [{ url: `/media/${video}`, alt: "Clip" }] },
+    });
+    expect((await ctx.api("/api/notifications")).body.items.find((n: any) => n.title === "Clip")).toMatchObject({
+      media: [{ url: `https://cc.example/media/${video}`, type: "video", alt: "Clip" }],
+    });
+    await expect(
+      ctx.server.actions.propose({ vertical: "personal", actionType: "notify", summary: "x", payload: { title: "Bad", body: "b", media: ["https://evil.example/x.png"] } }),
+    ).rejects.toThrow(/this server's \/media/);
   });
 
   it("manages devices: rename, routing, test pushes, removal", async () => {

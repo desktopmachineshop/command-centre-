@@ -534,7 +534,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     }
     return executorCache.executors;
   };
-  const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier }, executors);
+  const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier, publicBaseUrl: config.publicBaseUrl }, executors);
   actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
   // org: role and policy changes from the Org page, over the code manifests; applied to `verticals` live
   const org = new OrgConfigService(pool, verticals, { skillsDir: config.skillsDir, actionTypes: () => Object.keys(actions.executors) });

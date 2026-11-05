@@ -514,4 +514,12 @@ export const migrations: { id: string; sql: string }[] = [
       where work is null and folder = 'renders' and name ~ '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/';
     `,
   },
+  {
+    // Pictures and videos a notification is about, shown in the notification centre and briefing view.
+    id: "0023_notification_media",
+    sql: `
+      -- [{url, type: "image" | "video", alt?, durationSec?, width?, height?}]
+      alter table notifications add column if not exists media jsonb not null default '[]';
+    `,
+  },
 ];

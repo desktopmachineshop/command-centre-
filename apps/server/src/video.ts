@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Capability, Job, NewProposal } from "@cc/core";
+import type { Capability, Job, NewProposal, NotificationMedia } from "@cc/core";
 import {
   cloudProvider,
   type FetchLike,
@@ -57,7 +57,7 @@ export interface VideoDeps {
   submit(job: { kind: string; requires: Capability[]; payload: Record<string, unknown> }): Promise<Job>;
   /** Proposes an action; `forceDraft` holds it for approval whatever the vertical's policy. */
   propose(proposal: NewProposal, options: { forceDraft: string }): Promise<unknown>;
-  notify(n: { title: string; body: string }): Promise<void>;
+  notify(n: { title: string; body: string; media?: NotificationMedia[] }): Promise<void>;
   /** Whether an action type has an executor (social.campaign is being built alongside). */
   hasAction(actionType: string): boolean;
   media?: VideoMediaStore;
@@ -211,13 +211,17 @@ export class VideoProductions {
     const result = VideoRenderResult.parse(job.result);
     const where = result.url ?? `${result.outputPath} on worker ${job.nodeId ?? "?"}`;
     const length = `${Math.round(result.durationSec)}s ${result.width}x${result.height}`;
+    // With a public URL, the notification carries the video so the app plays it in place.
+    const media: NotificationMedia[] = result.url
+      ? [{ url: result.url, type: "video", alt: spec.title, durationSec: result.durationSec, width: result.width, height: result.height }]
+      : [];
     if (!production.targets.length) {
-      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}` });
+      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}`, media });
       return;
     }
     if (!result.url || !this.deps.hasAction("social.campaign")) {
       const why = !result.url ? "it has no public URL yet (no media store)" : "social.campaign is not available";
-      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}. Not proposed for posting because ${why}.` });
+      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}. Not proposed for posting because ${why}.`, media });
       return;
     }
     await this.deps.propose(

@@ -1241,15 +1241,26 @@ one category for one business, e.g. 3dpandme social off.
   worker has no credentials, and a stray tap on a lock screen shouldn't send an email.) Deciding
   a proposal marks its notification read.
 - Briefings open a briefing view (`#/briefing/<id>`).
+- A notification can carry **media**: pictures and videos it is about (a finished video render,
+  for one). The briefing view plays a video in place and shows an image full width; the
+  notification centre and the recent-briefings list show thumbnails; a push shows the first image
+  as its large picture where the platform supports it (Chrome on Android and Windows). A video
+  can't play inside a push, so tap it to open the briefing.
 - **Rate limit:** at most 3 pushes per category per 10 minutes (configurable). Extras collapse into
   one "and N more" notification per category, which updates in place. Urgent is never limited.
 - **Batched** notifications are added to the next daily-digest push as one line ("Also: 2 social,
   1 orders"). If there is no digest that day they stay in the centre.
 
 Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`normal`/`low`),
-`vertical`, `tag`, `actions` and `data`; `{title, body, url}` alone still works, and the category
+`vertical`, `tag`, `actions`, `media` (`[{url, type: "image"|"video", alt?, durationSec?, width?,
+height?}]`, absolute http(s) URLs, at most 4) and `data`; `{title, body, url}` alone still works, and the category
 is then guessed from the title and URL (else `agent`). The `notify` action takes
-`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`.
+`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`. It
+also takes `payload.media` (up to 4), but only this server's own `/media` files: `/media/<id>` or
+`<PUBLIC_BASE_URL>/media/<id>`, as `POST /api/media` and the storage list return them, either as
+the URL alone or `{url, alt?}`. Anything else (another host, a query string, audio) is refused when
+the agent proposes it, so outside text that reaches an agent can't make the app load someone
+else's URL. Media needs `PUBLIC_BASE_URL`.
 
 ### Quiet hours
 

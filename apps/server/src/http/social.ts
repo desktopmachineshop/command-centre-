@@ -34,6 +34,13 @@ const BY_EXT: Record<string, string> = {
 /** 32 hex characters (128 random bits) plus a known extension; nothing else is ever served. */
 export const MEDIA_FILE = new RegExp(`^[a-f0-9]{32}\\.(${Object.keys(BY_EXT).join("|")})$`);
 
+/** Whether a /media id is an image or a video (null for audio, or anything that isn't a media id). */
+export function mediaKind(id: string): "image" | "video" | null {
+  if (!MEDIA_FILE.test(id)) return null;
+  const ext = id.slice(id.lastIndexOf(".") + 1);
+  return Object.values(MEDIA_TYPES).find((m) => m.ext === ext)?.kind ?? null;
+}
+
 export interface SocialApiDeps {
   store: Store;
   actions: ActionService;

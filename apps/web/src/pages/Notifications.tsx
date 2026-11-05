@@ -1,9 +1,11 @@
-import { CATEGORY_LABELS, NOTIFICATION_CATEGORIES, type StoredNotification } from "@cc/core";
+import { CATEGORY_LABELS, NOTIFICATION_CATEGORIES, type NotificationMedia, type StoredNotification } from "@cc/core";
 import { useState } from "react";
 import type { Api } from "../api";
 import { ago } from "../format";
 import { type LiveFeed, useLoad } from "../live";
 import { go, routeQuery } from "../router";
+import { MediaThumbs } from "../social";
+import { VideoPreview } from "../video";
 
 const STATUS_LABEL: Partial<Record<StoredNotification["status"], string>> = {
   held: "held for quiet hours",
@@ -14,6 +16,26 @@ const STATUS_LABEL: Partial<Record<StoredNotification["status"], string>> = {
   inapp: "in app only",
   muted: "muted",
 };
+
+/** A notification's pictures and videos in full: videos play in place, images show at their own size. */
+export function NotificationMediaView({ media, title }: { media?: NotificationMedia[]; title: string }) {
+  if (!media?.length) return null;
+  return (
+    <div className="notification-media">
+      {media.map((m, i) =>
+        m.type === "video" ? (
+          <VideoPreview key={`${m.url}-${i}`} video={m} title={m.alt ?? title} />
+        ) : (
+          <figure key={`${m.url}-${i}`} className="image-preview">
+            <a href={m.url} target="_blank" rel="noreferrer">
+              <img src={m.url} alt={m.alt ?? ""} loading="lazy" />
+            </a>
+          </figure>
+        ),
+      )}
+    </div>
+  );
+}
 
 /** Opens a notification's link (in-app routes only) after marking it read. */
 export async function openNotification(api: Api, n: StoredNotification) {
@@ -74,6 +96,7 @@ export function Notifications({ api, feed }: { api: Api; feed: LiveFeed }) {
             </div>
             <p className="title">{n.title}</p>
             <p className="prewrap small clip">{n.body}</p>
+            <MediaThumbs media={n.media} />
             {STATUS_LABEL[n.status] && <p className="muted small">{STATUS_LABEL[n.status]}</p>}
           </li>
         ))}
@@ -103,6 +126,7 @@ export function Briefing({ api, feed, id }: { api: Api; feed: LiveFeed; id?: str
                 <li key={i}>{line}</li>
               ))}
           </ul>
+          <NotificationMediaView media={n.media} title={n.title} />
         </article>
       )}
       <h3>Recent briefings</h3>
@@ -117,6 +141,7 @@ export function Briefing({ api, feed, id }: { api: Api; feed: LiveFeed; id?: str
                 <span className="muted">{ago(b.createdAt)}</span>
               </div>
               <p className="small clip prewrap">{b.body}</p>
+              <MediaThumbs media={b.media} />
             </li>
           ))}
       </ul>

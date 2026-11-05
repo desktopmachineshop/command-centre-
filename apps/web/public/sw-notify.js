@@ -52,6 +52,8 @@
       data: Object.assign({}, p.data || {}, { url: p.url || "/", notificationId: (p.data && p.data.notificationId) || p.id, category: p.category }),
       actions: Array.isArray(p.actions) ? p.actions.slice(0, 2) : [],
     };
+    // A large picture where the platform supports it (Chrome on Android and Windows).
+    if (typeof p.image === "string" && /^https?:\/\//i.test(p.image)) options.image = p.image;
     // renotify is only valid with a tag.
     if (p.tag) {
       options.tag = p.tag;
