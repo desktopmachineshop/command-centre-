@@ -5,6 +5,10 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Capability } from "@cc/core";
 import { z } from "zod";
+import { defaultPython } from "./capabilities";
+
+/** Render presets davinci.render may use when worker.json doesn't list any (names as Resolve ships them). */
+export const DEFAULT_DAVINCI_PRESETS = ["YouTube - 1080p", "H.264 Master"];
 
 /** Config file shape. The desktop app writes the same file, so unknown keys are kept on save. */
 const FileConfig = z.looseObject({
@@ -23,6 +27,10 @@ const FileConfig = z.looseObject({
   captureProfiles: z.record(z.string(), z.string()).optional(),
   /** Directories `claude.local` jobs may run in (besides the work dir). */
   claudeDirs: z.array(z.string()).optional(),
+  /** Python 3 for davinci.render (it drives Resolve's scripting API). */
+  pythonBin: z.string().optional(),
+  /** Render presets davinci.render jobs may use (names as in Resolve's Deliver page). */
+  davinciPresets: z.array(z.string()).optional(),
 });
 type FileConfig = z.infer<typeof FileConfig>;
 
@@ -40,6 +48,8 @@ export interface WorkerConfig {
   ffmpegBin: string;
   claudeBin: string;
   claudeDirs: string[];
+  pythonBin: string;
+  davinciPresets: string[];
   chromiumBin: string | null;
   captureProfiles: Record<string, string>;
   /** Print machine-readable `CC_STATUS {...}` lines for the desktop app. */
@@ -123,6 +133,8 @@ export function loadConfig(argv: string[] = process.argv.slice(2), env: NodeJS.P
     ffmpegBin: env.CC_FFMPEG_BIN ?? file.ffmpegBin ?? "ffmpeg",
     claudeBin: env.CC_CLAUDE_BIN ?? file.claudeBin ?? "claude",
     claudeDirs: (file.claudeDirs ?? []).map((d) => resolve(d)),
+    pythonBin: env.CC_PYTHON_BIN ?? file.pythonBin ?? defaultPython(),
+    davinciPresets: file.davinciPresets ?? DEFAULT_DAVINCI_PRESETS,
     chromiumBin: env.CC_CHROMIUM_BIN ?? file.chromiumBin ?? null,
     captureProfiles: Object.fromEntries(Object.entries(file.captureProfiles ?? {}).map(([name, path]) => [name, resolve(path)])),
     statusJson: flags["status-json"] ?? false,

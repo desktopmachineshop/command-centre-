@@ -1,9 +1,10 @@
 import type { Capability } from "@cc/core";
 import { prepareCapture } from "./browser";
-import { detectCapabilities, which } from "./capabilities";
+import { defaultPython, detectCapabilities, resolveEnv, which } from "./capabilities";
 import { WorkerClient, type WorkerStatus } from "./client";
-import type { WorkerConfig } from "./config";
+import { DEFAULT_DAVINCI_PRESETS, type WorkerConfig } from "./config";
 import { claudeHandler } from "./handlers/claude";
+import { davinciRenderHandler } from "./handlers/davinci";
 import { echoHandler } from "./handlers/echo";
 import { ffmpegHandler } from "./handlers/ffmpeg";
 import { HandlerRegistry } from "./handlers/registry";
@@ -17,11 +18,13 @@ export * from "./config";
 export * from "./handlers/registry";
 export * from "./setup";
 export * from "./storage";
-export { claudeHandler, echoHandler, ffmpegHandler, videoCaptureHandler, videoRenderHandler };
+export { claudeHandler, davinciRenderHandler, echoHandler, ffmpegHandler, videoCaptureHandler, videoRenderHandler };
+export { DavinciRenderPayload } from "./handlers/davinci";
 
 /** The built-in job kinds. Add new handlers here. */
 export function defaultRegistry(
-  config: Pick<WorkerConfig, "ffmpegBin" | "claudeBin" | "claudeDirs" | "workDir"> & Partial<Pick<WorkerConfig, "chromiumBin" | "captureProfiles">>,
+  config: Pick<WorkerConfig, "ffmpegBin" | "claudeBin" | "claudeDirs" | "workDir"> &
+    Partial<Pick<WorkerConfig, "chromiumBin" | "captureProfiles" | "pythonBin" | "davinciPresets">>,
   capabilities: Capability[] = [],
 ): HandlerRegistry {
   const ffmpegBin = which(config.ffmpegBin) ?? config.ffmpegBin;
@@ -31,13 +34,25 @@ export function defaultRegistry(
     captureProfiles: config.captureProfiles,
     gpu: capabilities.includes("gpu"),
   };
-  return new HandlerRegistry()
+  const registry = new HandlerRegistry()
     .register(echoHandler)
     .register(ffmpegHandler(ffmpegBin))
     .register(claudeHandler({ bin: which(config.claudeBin) ?? config.claudeBin, allowedDirs: [config.workDir, ...config.claudeDirs] }))
     .register(videoCaptureHandler(video))
     .register(videoRenderHandler(video))
     .register(setupHandler());
+  // Only offered where Resolve and its scripting module were found (or worker.json forces it on).
+  if (capabilities.includes("davinci")) {
+    const pythonBin = config.pythonBin ?? defaultPython();
+    registry.register(
+      davinciRenderHandler({
+        python: which(pythonBin) ?? pythonBin,
+        env: resolveEnv(process.platform, process.env),
+        presets: config.davinciPresets ?? DEFAULT_DAVINCI_PRESETS,
+      }),
+    );
+  }
+  return registry;
 }
 
 /** Detects capabilities and builds a ready-to-start client from resolved config. */
@@ -60,6 +75,7 @@ export async function createWorker(
       (await detectCapabilities({
         ffmpegBin: config.ffmpegBin,
         claudeBin: config.claudeBin,
+        pythonBin: config.pythonBin,
         chromiumBin: capture.ready ? capture.chromiumBin : null,
         overrides: config.capabilityOverrides,
       }));
