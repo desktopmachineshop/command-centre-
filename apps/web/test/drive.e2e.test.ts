@@ -397,6 +397,55 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.close();
   }, 90_000);
 
+  it("Read aloud reads this chat's replies only, and stays quiet while Converse is open", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(MOCK_SPEECH);
+    // A live feed the test can push messages into (window.__feed), and Read aloud switched on.
+    await page.addInitScript(() => {
+      // Every socket opened (in development React builds the feed twice and keeps one).
+      const sockets: { onmessage?: (e: { data: string }) => void }[] = [];
+      const w = window as unknown as Record<string, unknown>;
+      w.WebSocket = class {
+        onmessage?: (e: { data: string }) => void;
+        constructor() {
+          sockets.push(this);
+        }
+        send() {}
+        close() {}
+      };
+      w.__feed = (m: unknown) => sockets.forEach((s) => s.onmessage?.({ data: JSON.stringify(m) }));
+      localStorage.setItem("cc.readAloud", "1");
+    });
+    await mockApi(page, []);
+    const feed = (taskId: string, text: string) =>
+      page.evaluate(([t, x]) => (window as unknown as { __feed: (m: unknown) => void }).__feed({ type: "run.message", taskId: t, message: { type: "text", text: x } }), [taskId, text]);
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.join(" | "));
+
+    await page.goto(`${base}/#/chat`);
+    const box = page.getByRole("textbox", { name: "Message" });
+    await box.waitFor({ timeout: 20_000 });
+    await box.fill("has order 1042 shipped?");
+    await box.press("Enter");
+    await page.locator(".turn").first().waitFor();
+
+    // Another task's message isn't this chat's: not read. The chat's own reply is.
+    await feed("someone-else", "Not this one.");
+    await feed("t1", "It shipped on Monday.");
+    await expect.poll(spoken, { timeout: 5_000 }).toContain("It shipped on Monday."); // after waiting up to 1.5 s for the browser's voices
+    expect(await spoken()).not.toContain("Not this one.");
+
+    // With Converse open, Converse does the talking: Read aloud keeps quiet.
+    await page.locator('a.tool[href="#/converse"]').click();
+    await page.locator(".composer.is-open .drive").waitFor({ timeout: 10_000 });
+    await feed("t1", "A second reply while conversing.");
+    await page.waitForTimeout(2_500);
+    expect(await spoken()).not.toContain("A second reply while conversing.");
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it("on a touch screen, swipe up from the strip on the chat box's right edge opens Converse, and down folds it", async () => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     const page = await context.newPage();

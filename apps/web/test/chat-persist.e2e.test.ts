@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { type Browser, chromium, type Page } from "playwright-core";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CHAT_IDLE_MS, messagesByTurn } from "../src/chat-store";
+import { messagesByTurn } from "../src/chat-store";
 import { joinDictation } from "../src/voice/dictation";
 
 const CHROMIUM = process.env.PW_CHROMIUM ?? "/opt/pw-browsers/chromium";
@@ -138,12 +138,12 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
     await page.locator(".bubble.agent", { hasText: "Order 1042 shipped on Monday." }).waitFor({ timeout: 20_000 });
     expect(await page.locator(".turn").count()).toBe(1);
 
-    // An hour idle: a fresh chat.
-    await page.evaluate((idle) => {
+    // Last used yesterday, and quiet for over two hours since: a fresh chat (see chat-store.test.ts for the rule).
+    await page.evaluate(() => {
       const saved = JSON.parse(localStorage.getItem("cc.chat.thread")!);
-      saved.lastActive -= idle + 1000;
+      saved.lastActive = Date.now() - 26 * 60 * 60_000;
       localStorage.setItem("cc.chat.thread", JSON.stringify(saved));
-    }, CHAT_IDLE_MS);
+    });
     await page.reload();
     await page.getByRole("textbox", { name: "Message" }).waitFor({ timeout: 20_000 });
     expect(await page.locator(".turn").count()).toBe(0);

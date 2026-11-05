@@ -2,12 +2,25 @@ import type { AgentMessage } from "@cc/core";
 
 /**
  * The Chat page's conversation, kept on this device so it survives leaving the page or
- * reloading, like a Claude session. It lasts until "New chat" or an hour without activity.
+ * reloading, like a Claude session. It lasts all day, until "New chat", or until it has gone
+ * unused for two hours after midnight (chatExpired).
  * Only what the server can't give back is stored (what Dave typed, which task each message
  * went to, and when); the replies are fetched again from the tasks themselves.
  */
 export const CHAT_KEY = "cc.chat.thread";
-export const CHAT_IDLE_MS = 60 * 60_000;
+/** How long a chat last used before midnight may sit unused after it before it starts fresh. */
+export const CHAT_RESET_IDLE_MS = 2 * 60 * 60_000;
+
+/**
+ * Whether a chat last active at `lastActive` (ms) should start fresh at `now`: it lasts all day,
+ * and resets once it was last used before today's midnight (this device's) and has gone unused for
+ * two hours. So a chat carried on past midnight survives until two quiet hours. Pure.
+ */
+export function chatExpired(lastActive: number, now = Date.now()): boolean {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  return lastActive < midnight.getTime() && now - lastActive >= CHAT_RESET_IDLE_MS;
+}
 
 export interface SavedTurn {
   text: string;
@@ -25,7 +38,7 @@ export interface SavedChat {
   v: 1;
   threadId: string | null;
   vertical: string;
-  /** Last send or reply (ms); an hour after it the chat starts fresh. */
+  /** Last send or reply (ms); see chatExpired for when the chat starts fresh. */
   lastActive: number;
   turns: SavedTurn[];
 }
@@ -38,14 +51,14 @@ const storage = (): Storage | null => {
   }
 };
 
-/** The saved chat, or null when there is none, it is unreadable, or it has been idle for an hour. */
+/** The saved chat, or null when there is none, it is unreadable, or it has expired (chatExpired). */
 export function loadChat(now = Date.now()): SavedChat | null {
   try {
     const raw = storage()?.getItem(CHAT_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw) as SavedChat;
     if (saved?.v !== 1 || !Array.isArray(saved.turns) || !saved.turns.length) return null;
-    if (now - saved.lastActive > CHAT_IDLE_MS) {
+    if (chatExpired(saved.lastActive, now)) {
       clearChat();
       return null;
     }
