@@ -2779,6 +2779,12 @@ a.stat:hover {
   min-height: 40px;
   font-weight: 650;
 }
+/* On a computer: Space is the orb (Drive.tsx). */
+.drive-hint {
+  margin: -6px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
 .drive-state {
   font-size: clamp(1.25rem, 5vw, 1.8rem);
   font-weight: 800;
