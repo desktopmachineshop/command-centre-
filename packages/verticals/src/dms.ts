@@ -47,10 +47,10 @@ export default defineVertical({
       intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review", "rfq"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
       mcpServers: ["brain", "odoo", "mail", "sendcloud"],
-      actions: ["email.reply", "email.label", "odoo.message.post", "odoo.quote.create", "odoo.quote.send", "social.reply", "social.dm", "brain.write"],
+      actions: ["email.reply", "email.label", "odoo.message.post", "odoo.customer.create", "odoo.quote.create", "odoo.quote.send", "social.reply", "social.dm", "brain.write"],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
       autonomyNotes:
-        "Drafts every customer reply and quotation for approval. Refunds, exchanges outside the returns policy, discounts and warranty decisions always need Dave.",
+        "Drafts every customer reply, new customer contact and quotation for approval. Refunds, exchanges outside the returns policy, discounts and warranty decisions always need Dave.",
     },
     {
       id: "catalogue-pricing",

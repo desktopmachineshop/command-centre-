@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type OdooClient, OdooError, OdooRpcError } from "./client";
+import { type Domain, type OdooClient, OdooError, type OdooRecord, OdooRpcError } from "./client";
 
 /**
  * Structurally the server's `ActionExecutor`, so `createOdooExecutors(client)`
@@ -8,6 +8,8 @@ import { type OdooClient, OdooError, OdooRpcError } from "./client";
  */
 export interface OdooActionExecutor {
   description: string;
+  /** Run when the action is proposed: the payload to store for the approval, and a note for its summary. */
+  prepare?(payload: Record<string, unknown>): Promise<{ payload: Record<string, unknown>; note?: string }>;
   execute(payload: Record<string, unknown>, ctx?: unknown): Promise<unknown>;
 }
 
@@ -114,6 +116,107 @@ const LoyaltyCreate = z
   });
 
 const LoyaltyArchive = z.object({ id: Id });
+
+const CustomerCreate = z
+  .object({
+    name: z.string().trim().min(2),
+    is_company: z.boolean().default(false),
+    company_id: Id.optional().describe("the company contact this person works for"),
+    email: z.string().trim().email().optional(),
+    phone: z.string().trim().min(5).optional(),
+    mobile: z.string().trim().min(5).optional(),
+    street: z.string().trim().min(1).optional(),
+    street2: z.string().trim().min(1).optional(),
+    city: z.string().trim().min(1).optional(),
+    zip: z.string().trim().min(1).optional(),
+    country_code: z.string().regex(/^[A-Za-z]{2}$/, "a two-letter country code, e.g. GB").optional(),
+    vat: z.string().trim().min(2).optional(),
+    ref: z.string().trim().min(1).optional(),
+    note: z.string().trim().min(1).optional(),
+  })
+  .refine((p) => p.email || p.phone || p.mobile, "email, phone or mobile is required, to reach the customer and to check for duplicates")
+  .refine((p) => !(p.is_company && p.company_id), "a company can't belong to another company (company_id)");
+type CustomerCreate = z.infer<typeof CustomerCreate>;
+
+/** Mail providers whose domain says nothing about who the customer is. */
+const FREE_MAIL = new Set([
+  "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk", "outlook.com", "live.com", "live.co.uk", "msn.com", "yahoo.com",
+  "yahoo.co.uk", "icloud.com", "me.com", "mac.com", "aol.com", "btinternet.com", "sky.com", "virginmedia.com", "talktalk.net",
+  "protonmail.com", "proton.me", "gmx.com", "gmx.co.uk", "mail.com", "ymail.com",
+]);
+
+export interface SimilarCustomer {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  city: string | null;
+  company: string | null;
+  archived?: true;
+  matched: string;
+}
+
+/**
+ * Contacts in Odoo that may be the customer about to be created, archived ones included:
+ * same email, same email domain (not a free-mail one), all the words of the name, the same
+ * phone number (last 9 digits), VAT number or reference. Strongest matches first, at most 8.
+ */
+export async function findSimilarCustomers(client: Pick<OdooWriter, "searchRead" | "fields">, p: CustomerCreate): Promise<SimilarCustomer[]> {
+  const fields = await client.fields("res.partner");
+  if (!fields) throw new OdooRpcError("Odoo has no res.partner model", "missing_model", "KeyError");
+  const scope: Domain = fields.has("active") ? [["active", "in", [true, false]]] : [];
+  const checks: { reason: string; weight: number; domain: Domain }[] = [];
+  const email = p.email?.toLowerCase();
+  if (email) {
+    checks.push({ reason: "same email", weight: 10, domain: [["email", "=ilike", email]] });
+    const domain = email.split("@")[1];
+    if (domain && !FREE_MAIL.has(domain)) checks.push({ reason: `email at ${domain}`, weight: 3, domain: [["email", "=ilike", `%@${domain}`]] });
+  }
+  const words = p.name.split(/[\s,.&()-]+/).filter((w) => w.length >= 2 && !/^(ltd|limited|plc|llp|inc|the|and|co|mr|mrs|ms|dr)$/i.test(w)).slice(0, 4);
+  if (words.length) checks.push({ reason: "similar name", weight: 4, domain: words.map((w) => ["name", "ilike", w]) });
+  for (const number of [p.phone, p.mobile]) {
+    const digits = number?.replace(/\D/g, "").slice(-9);
+    if (!digits || digits.length < 7) continue;
+    const phoneFields = ["phone_sanitized", "mobile_sanitized"].filter((f) => fields.has(f));
+    if (phoneFields.length) checks.push({ reason: "same phone", weight: 8, domain: [...Array(phoneFields.length - 1).fill("|"), ...phoneFields.map((f) => [f, "ilike", digits])] });
+  }
+  if (p.vat && fields.has("vat")) checks.push({ reason: "same VAT number", weight: 10, domain: [["vat", "=ilike", p.vat]] });
+  if (p.ref && fields.has("ref")) checks.push({ reason: "same reference", weight: 6, domain: [["ref", "=ilike", p.ref]] });
+
+  const wanted = ["name", "email", "phone", "mobile", "city", "parent_id", "active"].filter((f) => fields.has(f));
+  const found = new Map<number, { record: OdooRecord; reasons: string[]; weight: number }>();
+  const results = await Promise.all(checks.map((c) => client.searchRead("res.partner", [...scope, ...c.domain], wanted, { limit: 10, order: "id" })));
+  results.forEach((rows, i) => {
+    for (const record of rows) {
+      const hit = found.get(record.id) ?? { record, reasons: [], weight: 0 };
+      hit.reasons.push(checks[i]!.reason);
+      hit.weight += checks[i]!.weight;
+      found.set(record.id, hit);
+    }
+  });
+  const text = (v: unknown) => (typeof v === "string" && v ? v : null);
+  return [...found.values()]
+    .sort((a, b) => b.weight - a.weight || a.record.id - b.record.id)
+    .slice(0, 8)
+    .map(({ record: r, reasons }) => ({
+      id: r.id,
+      name: String(r.name),
+      email: text(r.email),
+      phone: text(r.phone) ?? text(r.mobile),
+      city: text(r.city),
+      company: Array.isArray(r.parent_id) ? String(r.parent_id[1]) : null,
+      ...(r.active === false ? { archived: true as const } : {}),
+      matched: (reasons.includes("same email") ? reasons.filter((r) => !r.startsWith("email at ")) : reasons).join(", "),
+    }));
+}
+
+/** One line for the approval: who the possible duplicates are. */
+function similarNote(similar: SimilarCustomer[]): string {
+  if (!similar.length) return "[No similar customers in Odoo.]";
+  const shown = similar.slice(0, 3).map((c) => `${c.name}${c.email ? ` <${c.email}>` : ""} #${c.id}${c.archived ? " (archived)" : ""}: ${c.matched}`);
+  const more = similar.length > 3 ? `; and ${similar.length - 3} more` : "";
+  return `[${similar.length} possible match${similar.length === 1 ? "" : "es"} in Odoo: ${shown.join("; ")}${more}.]`;
+}
 
 /** `[[6, 0, ids]]`: set a many2many to exactly these ids. */
 const setMany = (ids: number[] | undefined) => (ids?.length ? [[6, 0, ids]] : undefined);
@@ -287,6 +390,63 @@ export function createOdooExecutors(client: OdooWriter): Record<string, OdooActi
         }
         const id = await client.create("loyalty.program", values);
         return { id, name: p.name, program_type: p.program_type, code: p.code ?? null, date_from: p.date_from ?? null, date_to: p.date_to ?? null, active: true };
+      },
+    },
+
+    "odoo.customer.create": {
+      description:
+        "Create a customer contact in Odoo. Always waits for Dave: the approval lists any similar or existing contacts the server finds in Odoo (same email, phone, VAT, name or company domain), so search_customers first and don't propose one that already exists. payload: { name, is_company?, company_id? (the company contact a person works for), email?, phone?, mobile? (at least one of the three), street?, street2?, city?, zip?, country_code? (e.g. GB), vat?, ref?, note? (internal) }.",
+      async prepare(payload) {
+        const p = parse(CustomerCreate, payload);
+        // The server's own check, stored with the proposal: whatever the agent sends under this key is replaced.
+        const { similarCustomers: _agent, ...rest } = payload;
+        try {
+          const similar = await findSimilarCustomers(client, p);
+          return { payload: { ...rest, similarCustomers: similar.length ? similar : "None found in Odoo" }, note: similarNote(similar) };
+        } catch (err) {
+          if (!(err instanceof OdooError)) throw err;
+          return { payload: { ...rest, similarCustomers: `Could not check Odoo: ${err.message}` }, note: "[Could not check Odoo for similar customers.]" };
+        }
+      },
+      async execute(payload) {
+        const p = parse(CustomerCreate, payload);
+        const fields = await client.fields("res.partner");
+        if (!fields) throw new OdooRpcError("Odoo has no res.partner model", "missing_model", "KeyError");
+        let countryId: number | undefined;
+        if (p.country_code) {
+          const [country] = await client.searchRead("res.country", [["code", "=ilike", p.country_code]], ["name"], { limit: 1 });
+          if (!country) throw new OdooError(`No country with code ${p.country_code.toUpperCase()}`);
+          countryId = country.id;
+        }
+        if (p.company_id) {
+          const [company] = await client.read("res.partner", [p.company_id], ["name", "is_company"]);
+          if (!company) throw new OdooError(`No contact with id ${p.company_id}`);
+          if (!company.is_company) throw new OdooError(`${company.name} is a person, not a company`);
+        }
+        // Odoo 18 has one phone field: a mobile goes there when no other number is given.
+        const mobileAsPhone = !fields.has("mobile") && p.mobile && !p.phone;
+        const values = defined({
+          name: p.name,
+          is_company: p.is_company,
+          parent_id: p.company_id,
+          email: p.email,
+          phone: mobileAsPhone ? p.mobile : p.phone,
+          mobile: mobileAsPhone ? undefined : p.mobile,
+          street: p.street,
+          street2: p.street2,
+          city: p.city,
+          zip: p.zip,
+          country_id: countryId,
+          vat: p.vat,
+          ref: p.ref,
+          comment: p.note,
+          customer_rank: fields.has("customer_rank") ? 1 : undefined,
+        });
+        for (const key of Object.keys(values)) {
+          if (!fields.has(key)) throw new OdooError(`This Odoo's contacts have no ${key}`);
+        }
+        const id = await client.create("res.partner", values);
+        return { id, name: p.name, email: p.email ?? null };
       },
     },
 

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createOdooExecutors, OdooClient } from "../src";
+import { createOdooExecutors, findSimilarCustomers, OdooClient } from "../src";
 import { demoModels, FakeOdoo } from "../src/testing";
 
 let odoo: FakeOdoo;
@@ -149,6 +149,69 @@ describe("odoo executors", () => {
     expect(odoo.models["loyalty.program"]!.records.find((p) => p.id === 1)!.active).toBe(false);
     expect(await executors["odoo.loyalty.archive"]!.execute({ id: 2 })).toEqual({ id: 2, name: "SUMMER25", archived: true, was_active: false });
     await expect(executors["odoo.loyalty.archive"]!.execute({ id: 999 })).rejects.toThrow(/No discount or loyalty program/);
+  });
+
+  it("lists similar customers in the proposal before creating one", async () => {
+    const prepared = await executors["odoo.customer.create"]!.prepare!({
+      name: "Jane M. Doe",
+      email: "JANE@example.com",
+      phone: "07700 900123",
+      similarCustomers: "agent says none",
+    });
+    expect(prepared.payload.similarCustomers).toEqual([
+      { id: 10, name: "Jane Doe", email: "jane@example.com", phone: "+44 7700 900123", city: "Leeds", company: null, matched: "same email, similar name, same phone" },
+    ]);
+    expect(prepared.note).toBe("[1 possible match in Odoo: Jane Doe <jane@example.com> #10: same email, similar name, same phone.]");
+    expect(prepared.payload).toMatchObject({ name: "Jane M. Doe", email: "JANE@example.com" });
+
+    const none = await executors["odoo.customer.create"]!.prepare!({ name: "Sam Patel", email: "sam@gmail.com" });
+    expect(none).toEqual({ payload: { name: "Sam Patel", email: "sam@gmail.com", similarCustomers: "None found in Odoo" }, note: "[No similar customers in Odoo.]" });
+  });
+
+  it("matches company email domains, VAT numbers and archived contacts", async () => {
+    odoo.add("res.partner", { id: 12, name: "Old Acme buyer", email: "old@acme.example", is_company: false, parent_id: [11, "Acme Robotics"], active: false });
+    try {
+      const similar = await findSimilarCustomers(new OdooClient({ url: odoo.url, db: "testdb", username: "bot@example.com", apiKey: "test-api-key" }), {
+        name: "Acme Robotics Ltd",
+        is_company: true,
+        email: "accounts@acme.example",
+        vat: "gb123456789",
+      });
+      expect(similar.map((c) => [c.id, c.matched, c.archived ?? false])).toEqual([
+        [11, "email at acme.example, similar name, same VAT number", false],
+        [12, "email at acme.example", true],
+      ]);
+    } finally {
+      odoo.models["res.partner"]!.records = odoo.models["res.partner"]!.records.filter((r) => r.id !== 12);
+    }
+  });
+
+  it("creates a customer contact", async () => {
+    const res = (await executors["odoo.customer.create"]!.execute({
+      name: "Sam Patel",
+      company_id: 11,
+      email: "sam@acme.example",
+      mobile: "07700 900456",
+      city: "York",
+      country_code: "gb",
+      note: "Met at the Harrogate show",
+      similarCustomers: [{ id: 11 }],
+    })) as any;
+    expect(res).toEqual({ id: expect.any(Number), name: "Sam Patel", email: "sam@acme.example" });
+    expect(odoo.models["res.partner"]!.records.find((r) => r.id === res.id)).toEqual({
+      id: res.id, name: "Sam Patel", is_company: false, parent_id: 11, email: "sam@acme.example", phone: "07700 900456", city: "York", country_id: 233,
+      comment: "Met at the Harrogate show", customer_rank: 1,
+    });
+  });
+
+  it("validates new customers", async () => {
+    const create = (p: Record<string, unknown>) => executors["odoo.customer.create"]!.execute(p);
+    await expect(create({ name: "No Contact" })).rejects.toThrow(/email, phone or mobile is required/);
+    await expect(create({ name: "Bad", email: "not-an-email" })).rejects.toThrow(/email/);
+    await expect(create({ name: "Bad", email: "a@b.co", country_code: "XX" })).rejects.toThrow(/No country with code XX/);
+    await expect(create({ name: "Bad", email: "a@b.co", company_id: 10 })).rejects.toThrow(/Jane Doe is a person/);
+    await expect(create({ name: "Bad", email: "a@b.co", is_company: true, company_id: 11 })).rejects.toThrow(/can't belong/);
+    await expect(executors["odoo.customer.create"]!.prepare!({ name: "x" })).rejects.toThrow(/name|email/);
   });
 
   it("updates a product price and reports the old one", async () => {

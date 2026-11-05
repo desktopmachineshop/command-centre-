@@ -360,10 +360,17 @@ export function demoModels(): Record<string, FakeModel> {
     },
     "account.tax": { fields: ["name", "amount", "amount_type", "price_include_override"], records: [{ id: 1, name: "20% S", amount: 20, amount_type: "percent", price_include_override: "tax_included" }] },
     "res.partner": {
-      fields: ["name", "email", "phone", "city", "country_id", "is_company", "parent_id", "ref", "customer_rank"],
+      fields: ["name", "email", "phone", "phone_sanitized", "street", "street2", "zip", "city", "country_id", "is_company", "parent_id", "ref", "vat", "comment", "customer_rank", "active"],
       records: [
-        { id: 10, name: "Jane Doe", email: "jane@example.com", phone: "+44 7700 900123", city: "Leeds", country_id: [233, "United Kingdom"], is_company: false, parent_id: false, customer_rank: 2 },
-        { id: 11, name: "Acme Robotics", email: "buy@acme.example", is_company: true, parent_id: false, customer_rank: 1 },
+        { id: 10, name: "Jane Doe", email: "jane@example.com", phone: "+44 7700 900123", phone_sanitized: "+447700900123", city: "Leeds", country_id: [233, "United Kingdom"], is_company: false, parent_id: false, customer_rank: 2, active: true },
+        { id: 11, name: "Acme Robotics", email: "buy@acme.example", is_company: true, parent_id: false, customer_rank: 1, vat: "GB123456789", active: true },
+      ],
+    },
+    "res.country": {
+      fields: ["name", "code"],
+      records: [
+        { id: 233, name: "United Kingdom", code: "GB" },
+        { id: 75, name: "France", code: "FR" },
       ],
     },
     "sale.order": {
@@ -548,8 +555,11 @@ function leaf(raw: unknown, op: string, value: unknown): boolean {
       return raw !== false && label.includes(String(value).toLowerCase());
     case "not ilike":
       return !label.includes(String(value).toLowerCase());
-    case "=ilike":
-      return label === String(value).toLowerCase();
+    case "=ilike": {
+      // No implicit wildcards, but % and _ in the pattern work as in SQL.
+      const pattern = String(value).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".");
+      return raw !== false && new RegExp(`^${pattern}$`, "s").test(label);
+    }
     case "<":
       return (raw as any) < (value as any);
     case "<=":

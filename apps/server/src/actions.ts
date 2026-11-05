@@ -31,6 +31,12 @@ export interface ActionExecutor {
   description: string;
   /** Optional check when the action is proposed: throw to refuse it before it reaches Approvals. */
   validate?(payload: Record<string, unknown>, ctx: { vertical: string; publicBaseUrl?: string }): void | Promise<void>;
+  /**
+   * Optional step when the action is proposed (and again when Dave edits it), after `validate`:
+   * returns the payload to store (e.g. with facts looked up for the approval) and a note added to
+   * the summary, so the approval request and the Approvals page both show it.
+   */
+  prepare?(payload: Record<string, unknown>): Promise<{ payload: Record<string, unknown>; note?: string }>;
   execute(payload: Record<string, unknown>, ctx: ExecutorContext): Promise<unknown>;
 }
 
@@ -160,9 +166,8 @@ export class ActionService {
 
   /** `forceDraft` (a reason) holds this proposal for approval whatever the vertical's policy says. */
   async propose(input: NewProposal, options: { forceDraft?: string } = {}): Promise<Proposal> {
-    const p = NewProposalSchema.parse(input);
+    const p = await this.prepare(NewProposalSchema.parse(input));
     const vertical = this.verticals.require(p.vertical);
-    await this.check(p.actionType, p.payload, vertical.id);
     const decided = await this.decide(p, options.forceDraft);
     const proposal = await this.store.insertProposal({ taskId: p.taskId ?? null, vertical: p.vertical, actionType: p.actionType, summary: p.summary, ...decided });
     this.hub.broadcast({ type: "proposal.updated", proposal });
@@ -191,10 +196,11 @@ export class ActionService {
     if (!input.summary.trim()) throw new Error("A batch needs a summary");
     if (input.items.length < 1 || input.items.length > MAX_BATCH) throw new Error(`A batch has 1 to ${MAX_BATCH} items, got ${input.items.length}`);
     const vertical = this.verticals.require(input.vertical);
-    const items = input.items.map((item) => NewProposalSchema.parse({ ...item, taskId: input.taskId ?? null, vertical: vertical.id }));
-    for (const [i, item] of items.entries()) {
+    const parsed = input.items.map((item) => NewProposalSchema.parse({ ...item, taskId: input.taskId ?? null, vertical: vertical.id }));
+    const items: typeof parsed = [];
+    for (const [i, item] of parsed.entries()) {
       try {
-        await this.check(item.actionType, item.payload, vertical.id);
+        items.push(await this.prepare(item));
       } catch (err) {
         throw new Error(`Item ${i + 1} (${item.actionType}): ${(err as Error).message}. Nothing in the batch was proposed.`);
       }
@@ -225,6 +231,14 @@ export class ActionService {
     const done: Proposal[] = [];
     for (const proposal of stored) done.push(await this.execute(proposal.id, ["pending"]));
     return { batchId, proposals: done };
+  }
+
+  /** Checks a new proposal (`check`), then runs its executor's `prepare`: the payload and summary to store. */
+  private async prepare<P extends { vertical: string; actionType: string; summary: string; payload: Record<string, unknown> }>(p: P): Promise<P> {
+    await this.check(p.actionType, p.payload, p.vertical);
+    const prepared = await this.executors[p.actionType]?.prepare?.(p.payload);
+    if (!prepared) return p;
+    return { ...p, payload: prepared.payload, summary: prepared.note ? `${p.summary.trim()} ${prepared.note}` : p.summary };
   }
 
   /** Refuses an unknown action type, or a payload its executor's `validate` rejects. */
@@ -341,9 +355,12 @@ export class ActionService {
     const current = await this.store.getProposal(id);
     if (!current || current.status !== "pending") throw new ProposalStateError(id);
     const { policyDowngrade: _ignored, ...edited } = payload;
-    const next = current.payload.policyDowngrade === undefined ? edited : { ...edited, policyDowngrade: current.payload.policyDowngrade };
+    let next = current.payload.policyDowngrade === undefined ? edited : { ...edited, policyDowngrade: current.payload.policyDowngrade };
+    const executor = this.executors[current.actionType];
     try {
-      await this.executors[current.actionType]?.validate?.(next, { vertical: current.vertical, publicBaseUrl: this.ctx.publicBaseUrl });
+      await executor?.validate?.(next, { vertical: current.vertical, publicBaseUrl: this.ctx.publicBaseUrl });
+      // Facts looked up for the approval (prepare) follow the edited payload, not the old one.
+      if (executor?.prepare) next = (await executor.prepare(next)).payload;
     } catch (err) {
       throw new ProposalInvalidError((err as Error).message);
     }

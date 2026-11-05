@@ -19,7 +19,7 @@ describe("odoo config", () => {
 
   it("never auto-runs Odoo writes", () => {
     for (const v of verticals) {
-      for (const type of ["odoo.message.post", "odoo.blog.draft", "odoo.product.update_price", "odoo.quote.create", "odoo.quote.send", "odoo.loyalty.create", "odoo.loyalty.archive"]) expect(policyFor(v, type)).toBe("draft");
+      for (const type of ["odoo.message.post", "odoo.blog.draft", "odoo.product.update_price", "odoo.quote.create", "odoo.quote.send", "odoo.loyalty.create", "odoo.loyalty.archive", "odoo.customer.create"]) expect(policyFor(v, type)).toBe("draft");
     }
   });
 });
@@ -86,6 +86,35 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
     const approved = await ctx.api(`/api/proposals/${pending[0].id}/approve`, { method: "POST" });
     expect(approved.body).toMatchObject({ status: "executed", result: { ok: true, result: { model: "sale.order", id: 42, internal: false } } });
     expect(odoo.callsTo("message_post")).toHaveLength(1);
+  });
+
+  it("shows similar Odoo customers on a new-customer approval, and creates it on approve", async () => {
+    calls.push({
+      server: "actions",
+      tool: "propose_action",
+      args: {
+        actionType: "odoo.customer.create",
+        summary: "New customer: Jane Doe (asked for a quote)",
+        payload: { name: "Jane Doe", email: "jane.doe@example.com", phone: "+44 7700 900123", similarCustomers: [] },
+      },
+    });
+    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: add Jane Doe as a customer" } });
+    await ctx.queue.drain();
+
+    const [pending] = (await ctx.api("/api/proposals?status=pending")).body;
+    expect(pending).toMatchObject({ actionType: "odoo.customer.create", policy: "draft" });
+    expect(pending.summary).toBe("New customer: Jane Doe (asked for a quote) [1 possible match in Odoo: Jane Doe <jane@example.com> #10: email at example.com, similar name, same phone.]");
+    expect(pending.payload.similarCustomers).toEqual([expect.objectContaining({ id: 10, matched: "email at example.com, similar name, same phone" })]);
+
+    // Dave's edit re-runs the check on the edited payload.
+    const edited = await ctx.api(`/api/proposals/${pending.id}`, { method: "PATCH", json: { payload: { ...pending.payload, name: "Jo Bloggs", email: "jo@bloggs.example", phone: "01632 960000" } } });
+    expect(edited.status).toBe(200);
+    expect(edited.body.payload.similarCustomers).toBe("None found in Odoo");
+
+    const before = odoo.models["res.partner"]!.records.length;
+    const approved = await ctx.api(`/api/proposals/${pending.id}/approve`, { method: "POST" });
+    expect(approved.body).toMatchObject({ status: "executed", result: { ok: true, result: { name: "Jo Bloggs", email: "jo@bloggs.example" } } });
+    expect(odoo.models["res.partner"]!.records).toHaveLength(before + 1);
   });
 
   it("serves /mcp/odoo only with a valid token", async () => {

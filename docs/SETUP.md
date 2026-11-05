@@ -1351,6 +1351,10 @@ away and shown in the digest:
 - `odoo.message.post`: a chatter message to the customer, or an internal note;
 - `odoo.blog.draft`: an unpublished blog post;
 - `odoo.product.update_price`: a price change;
+- `odoo.customer.create`: a new customer contact. When it is proposed, the server searches Odoo
+  for similar or existing contacts (same email, phone, VAT number or reference, the words of the
+  name, or a company email domain, archived contacts included) and adds them to the approval and
+  its summary;
 - `odoo.quote.create`: a quotation (draft sales order), and with `send: true` emailed to the
   customer with Odoo's quotation template;
 - `odoo.quote.send`: email an existing quotation;
@@ -1360,9 +1364,8 @@ away and shown in the digest:
 Without the Odoo variables, all of this is simply left out.
 
 1. **Use a dedicated user** if your plan allows one, e.g. "Command Centre bot". Give it only the
-   access it needs: Sales (User: All Documents, to create and send quotations; Administrator, to
-   create and archive discount and loyalty programs), Inventory read, Website/Blog editor, and
-   Contacts. Discount and loyalty programs also need **Sales > Settings > Discounts, Loyalty & Gift
+   access it needs: Contacts (create, for new customers), Sales (User: All Documents, to create and send quotations; Administrator, to
+   create and archive discount and loyalty programs), Inventory read, and Website/Blog editor. Discount and loyalty programs also need **Sales > Settings > Discounts, Loyalty & Gift
    Card** turned on. Every action it
    takes is logged in Odoo under that user. Odoo notes that the external API needs a **Custom**
    plan on Odoo Online; it isn't available on One App Free or Standard.
