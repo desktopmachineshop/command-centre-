@@ -1337,17 +1337,29 @@ in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifica
 
 The server talks to Odoo Online through its external API. No custom modules are needed. When
 Odoo is configured, the DMS and 3dpandme agents get the read-only `odoo` MCP server (products,
-stock, orders, customers, chatter, websites and blogs). They also get three actions, all `draft`
-(approve each one):
+stock, orders, customers, chatter, websites, blogs, and discount and loyalty programs). They also
+get these actions, all `draft` (approve each one), except that an internal note is posted straight
+away and shown in the digest:
 
 - `odoo.message.post`: a chatter message to the customer, or an internal note;
 - `odoo.blog.draft`: an unpublished blog post;
-- `odoo.product.update_price`: a price change.
+- `odoo.product.update_price`: a price change;
+- `odoo.customer.create`: a new customer contact. When it is proposed, the server searches Odoo
+  for similar or existing contacts (same email, phone, VAT number or reference, the words of the
+  name, or a company email domain, archived contacts included) and adds them to the approval and
+  its summary;
+- `odoo.quote.create`: a quotation (draft sales order), and with `send: true` emailed to the
+  customer with Odoo's quotation template;
+- `odoo.quote.send`: email an existing quotation;
+- `odoo.loyalty.create`: a live discount, promo code, buy X get Y or loyalty program;
+- `odoo.loyalty.archive`: switch a discount or loyalty program off.
 
 Without the Odoo variables, all of this is simply left out.
 
 1. **Use a dedicated user** if your plan allows one, e.g. "Command Centre bot". Give it only the
-   access it needs: Sales and Inventory read, Website/Blog editor, and Contacts. Every action it
+   access it needs: Contacts (create, for new customers), Sales (User: All Documents, to create and send quotations; Administrator, to
+   create and archive discount and loyalty programs), Inventory read, and Website/Blog editor. Discount and loyalty programs also need **Sales > Settings > Discounts, Loyalty & Gift
+   Card** turned on. Every action it
    takes is logged in Odoo under that user. Odoo notes that the external API needs a **Custom**
    plan on Odoo Online; it isn't available on One App Free or Standard.
 2. **Create an API key** while logged in as that user: click your avatar (top right) → **My

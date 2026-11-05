@@ -31,7 +31,7 @@ describe("odoo MCP server", () => {
     const tools = (await ctx.mcp.listTools()).tools.map((t) => t.name).sort();
     expect(tools).toEqual([
       "get_customer_history", "get_order", "get_product", "get_record_messages", "list_websites", "low_stock",
-      "search_blog_posts", "search_customers", "search_orders", "search_products",
+      "search_blog_posts", "search_customers", "search_loyalty_programs", "search_orders", "search_products",
     ]);
     const methods = new Set(ctx.odoo.calls.map((c) => c.method));
     for (const write of ["create", "write", "unlink", "message_post"]) expect(methods.has(write)).toBe(false);
@@ -106,6 +106,22 @@ describe("odoo MCP server", () => {
     ]);
     expect((await ctx.call("search_blog_posts", { website: 1, published: false })).json.map((p: any) => p.id)).toEqual([2]);
     expect((await ctx.call("search_blog_posts", { query: "milo" })).json.map((p: any) => p.id)).toEqual([2]);
+  });
+
+  it("lists discount and loyalty programs with their rules and rewards", async () => {
+    const active = (await ctx.call("search_loyalty_programs")).json;
+    expect(active).toEqual([
+      {
+        id: 1, name: "Spring 10% off", type: "promotion", trigger: "auto", applies_on: "current", active: true, date_from: "2026-03-01", date_to: null,
+        website: "Desktop Machine Shop",
+        rules: [{ id: 1, code: null, mode: "auto", minimum_amount: 50, minimum_qty: 0, product_ids: [], points: 1, points_mode: "order" }],
+        rewards: [{ id: 1, type: "discount", description: "10% on your order", discount: 10, discount_mode: "percent", applies_to: "order", discount_max_amount: 0, product_qty: 1, required_points: 1 }],
+      },
+    ]);
+    const all = (await ctx.call("search_loyalty_programs", { include_archived: true })).json;
+    expect(all.map((p: any) => [p.name, p.active])).toEqual([["SUMMER25", false], ["Spring 10% off", true]]);
+    expect(all[0]).toMatchObject({ max_usage: 50, rules: [{ code: "SUMMER25", mode: "with_code" }] });
+    expect((await ctx.call("search_loyalty_programs", { include_archived: true, program_type: "promo_code" })).json).toHaveLength(1);
   });
 
   it("reports low stock for storable products only, lowest first", async () => {

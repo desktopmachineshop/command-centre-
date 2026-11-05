@@ -164,7 +164,7 @@ const partner = (r: OdooRecord) =>
 
 /**
  * READ-ONLY MCP server over Odoo: products, stock, orders, customers, chatter,
- * websites and blogs. Results are compact JSON; fields or apps missing from the
+ * websites, blogs and discount/loyalty programs. Results are compact JSON; fields or apps missing from the
  * instance are left out rather than failing. Writes are action executors only.
  */
 export function createOdooMcpServer(client: OdooReader, options: OdooMcpOptions = {}): McpServer {
@@ -438,6 +438,76 @@ export function createOdooMcpServer(client: OdooReader, options: OdooMcpOptions 
           author: (x) => nameOf(x.author_id) ?? undefined,
         }),
       );
+    }),
+  );
+
+  server.registerTool(
+    "search_loyalty_programs",
+    {
+      description:
+        "Discount and loyalty programs (promotions, promo codes, buy X get Y, loyalty cards, coupons, gift cards) with their rules (who qualifies, codes) and rewards. Active only unless include_archived. Use the ids with odoo.loyalty.archive.",
+      inputSchema: {
+        query: z.string().optional().describe("Matches the program name"),
+        program_type: z.string().optional().describe("e.g. promotion, promo_code, buy_x_get_y, loyalty, coupons, gift_card"),
+        include_archived: z.boolean().default(false),
+        limit: limit(20, 100),
+      },
+    },
+    tool(async ({ query, program_type, include_archived, limit }) => {
+      await odoo.require("loyalty.program", "is Sales > Discount & Loyalty enabled?");
+      const domain: Domain = [["active", "in", include_archived ? [true, false] : [true]]];
+      if (query) domain.push(["name", "ilike", query]);
+      if (program_type) domain.push(["program_type", "=", program_type]);
+      const programs = await odoo.find(
+        "loyalty.program",
+        domain,
+        ["name", "program_type", "trigger", "applies_on", "active", "date_from", "date_to", "website_id", "limit_usage", "max_usage", "rule_ids", "reward_ids"],
+        { limit, order: "id desc" },
+      );
+      const ids = (key: string) => programs.flatMap((p) => (Array.isArray(p[key]) ? (p[key] as number[]) : []));
+      const [rules, rewards] = await Promise.all([
+        odoo.read("loyalty.rule", ids("rule_ids"), ["code", "mode", "minimum_amount", "minimum_qty", "product_ids", "product_category_id", "reward_point_amount", "reward_point_mode"]),
+        odoo.read("loyalty.reward", ids("reward_ids"), ["reward_type", "description", "discount", "discount_mode", "discount_applicability", "discount_max_amount", "reward_product_id", "reward_product_qty", "required_points"]),
+      ]);
+      const pick = <T extends OdooRecord>(rows: T[], wanted: unknown) => rows.filter((r) => Array.isArray(wanted) && wanted.includes(r.id));
+      return programs.map((p) => ({
+        ...compact(p, {
+          name: "name",
+          type: "program_type",
+          trigger: first("trigger"),
+          applies_on: first("applies_on"),
+          active: (x) => x.active === true,
+          date_from: first("date_from"),
+          date_to: first("date_to"),
+          website: (x) => nameOf(x.website_id) ?? undefined,
+          max_usage: (x) => (x.limit_usage ? value(x.max_usage) : undefined),
+        }),
+        rules: pick(rules, p.rule_ids).map((r) =>
+          compact(r, {
+            code: first("code"),
+            mode: first("mode"),
+            minimum_amount: first("minimum_amount"),
+            minimum_qty: first("minimum_qty"),
+            product_ids: first("product_ids"),
+            category: (x) => nameOf(x.product_category_id) ?? undefined,
+            points: first("reward_point_amount"),
+            points_mode: first("reward_point_mode"),
+          }),
+        ),
+        rewards: pick(rewards, p.reward_ids).map((r) =>
+          compact(r, {
+            type: "reward_type",
+            description: first("description"),
+            discount: first("discount"),
+            discount_mode: first("discount_mode"),
+            applies_to: first("discount_applicability"),
+            discount_max_amount: first("discount_max_amount"),
+            product: (x) => nameOf(x.reward_product_id) ?? undefined,
+            product_qty: first("reward_product_qty"),
+            required_points: first("required_points"),
+          }),
+        ),
+      }));
     }),
   );
 

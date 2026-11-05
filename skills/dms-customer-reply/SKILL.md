@@ -1,6 +1,6 @@
 ---
 name: dms-customer-reply
-description: Draft replies to Desktop Machine Shop customers (pre-sales questions, product advice, compatibility, stock, returns and warranty) using live Odoo data and the brain, then propose the reply for Dave's approval. Use whenever a DMS customer email, website message or Odoo chatter message needs an answer.
+description: Draft replies and quotations for Desktop Machine Shop customers (pre-sales questions, product advice, compatibility, stock, quote requests, returns and warranty) using live Odoo data and the brain, then propose them for Dave's approval. Use whenever a DMS customer email, website message or Odoo chatter message needs an answer, or a customer wants a quote.
 ---
 
 # DMS customer reply
@@ -65,9 +65,66 @@ Call the `actions` tool `propose_action`. Dave approves it from his phone.
   `internal`, the post is emailed to the record's followers, which means the customer.
 - **Internal note for Dave**, not sent to the customer: `odoo.message.post` with `internal: true`.
 
+- **A quotation** (a customer asks for a quote, a trade or bulk price, or a kit of parts): see
+  Quotations below.
+
 Make `summary` one line Dave can judge from a notification, e.g.
 "Reply to Jane Doe: ER11 collets fit her 300W spindle, in stock". If something needs his decision
 (a goodwill refund, an exception to policy), put it in the summary.
+
+## Quotations
+
+A quote is a draft sales order in Odoo. Odoo emails it to the customer with its own quotation
+template: a PDF and a link where they can accept and pay online.
+
+1. Find the customer with `search_customers` (by email, then name and phone). If they aren't in
+   Odoo, see New customers below: the quote needs the contact's id, so propose the contact first
+   and the quote once Dave has approved it.
+2. Find every product with `search_products` or `get_product`, and check stock. Out-of-stock lines
+   are fine if the lead time is known (from the brain or incoming stock). Mention it in the
+   `note`.
+3. Propose `odoo.quote.create`:
+
+   ```json
+   { "actionType": "odoo.quote.create",
+     "summary": "Quote for Jane Doe: 2 × 300W spindle + ER11 set, £196.00 net (£235.20 inc VAT), send now",
+     "payload": { "partner_id": 10, "send": true, "validity_date": "2026-11-30",
+       "lines": [{ "product_id": 2, "qty": 2 }, { "product_id": 1, "qty": 1 }] } }
+   ```
+
+   - Leave `price_unit` out to use Odoo's price. Only set it, or a line `discount` (percent), when
+     Dave has agreed that price (check the brain, e.g. `dms/decisions/`) or the customer is on an
+     agreed trade price. Otherwise propose the list price and put the question in the summary.
+   - Without `send`, the quote is only created and stays in Odoo for Dave to edit. With
+     `send: true` it is emailed straight after creation, once Dave approves. Use `send: true` when
+     the quote is complete. Leave it out when Dave will want to adjust it first, and say so.
+   - `odoo.quote.send` with `{ id }` emails a quote that already exists (draft or sent). Use it to
+     resend, or to send one Dave created or edited himself.
+   - Give a validity date (normally 30 days) and the customer's own reference
+     (`client_order_ref`) if they gave one.
+4. Don't send a separate email that repeats the quote. If the customer asked questions as well,
+   answer them in your reply proposal and mention that the quote follows from Odoo.
+
+## New customers
+
+Propose `odoo.customer.create` only after `search_customers` found nobody by email, phone or name.
+Odoo makes a second contact for the same person without complaint, and duplicates split a
+customer's history.
+
+```json
+{ "actionType": "odoo.customer.create",
+  "summary": "New customer: Sam Patel, Acme Robotics (asked for a quote on 2 spindles)",
+  "payload": { "name": "Sam Patel", "company_id": 11, "email": "sam@acme.example",
+    "phone": "07700 900456", "city": "York", "country_code": "GB" } }
+```
+
+- Give at least an email or phone number, plus whatever address the customer gave you. Never
+  invent details.
+- A person at a company: create or find the company (`is_company: true`) and set `company_id`.
+- The server adds the possible duplicates it finds in Odoo to the approval and its summary. Don't
+  write that list yourself. If you know a match is a different person, say why in the summary.
+- If a search shows they already exist (an archived contact counts too), use that contact
+  instead. Put any new details in an internal `odoo.message.post` note on it for Dave.
 
 ## 4. Remember
 
