@@ -13,8 +13,10 @@ import {
   type VideoRenderPayloadInput,
   VideoRenderResult,
   VideoSpec,
+  wavDuration,
 } from "@cc/video";
 import { ELEVENLABS_DEFAULT_VOICE, type VoiceProviderConfig } from "@cc/voice";
+import { findVoice, type LocalSpeech, LocalTextToSpeech, VOICES } from "@cc/voice/local";
 import { z } from "zod";
 import type { ActionExecutor } from "./actions";
 
@@ -62,8 +64,13 @@ export interface VideoDeps {
   hasAction(actionType: string): boolean;
   media?: VideoMediaStore;
   tts?: TtsKeys;
+  /** The server's own voices (the ones chat and Drive mode speak with): voice.provider "local". */
+  local?: Pick<LocalSpeech, "synthesize" | "installVoice" | "voice" | "ttsModel"> | null;
   fetch?: FetchLike;
 }
+
+/** Voice provider for the server's own voices, the same ones chat reads replies aloud with. */
+export const SERVER_VOICE_PROVIDER = "local";
 
 export const VideoProducePayload = z.object({
   spec: VideoSpec,
@@ -117,7 +124,10 @@ export class VideoProductions {
           "Produce a product video from a VideoSpec (see the video-reel skill) on a desktop worker, then propose a social.campaign with it. " +
           "payload: { spec, targets?: [{ accountId, text, title? }], publishAt?, encoder? }",
         validate: (payload) => {
-          parseProducePayload(payload);
+          const { spec } = parseProducePayload(payload);
+          // Caught when proposed, so the agent fixes the voice before Dave approves it.
+          const problem = this.voiceProblem(spec);
+          if (problem) throw new Error(problem);
         },
         execute: (payload) => this.start(payload),
       },
@@ -153,21 +163,67 @@ export class VideoProductions {
     return { productionId: id, renderJobId: job.id, warnings };
   }
 
-  /** Cloud voices are made here, where the keys are, and handed to the worker as files. */
+  /** The voices a spec can use on this server, in words, for errors an agent acts on. */
+  voiceOptions(): string {
+    const options = ['"silent" (captions only)'];
+    if (this.deps.local) {
+      const list = VOICES.map((v) => `${v.id} (${v.label}, ${v.description.replace(/ · .*$/, "")})`).join(", ");
+      options.push(`"${SERVER_VOICE_PROVIDER}" with voiceId one of ${list} (default ${this.deps.local.voice})`);
+    }
+    const keys = this.deps.tts ?? {};
+    if (keys.elevenlabs) options.push('"elevenlabs"');
+    if (keys.openai) options.push('"openai" (voiceId e.g. alloy, fable, nova, onyx, shimmer)');
+    return options.join("; ");
+  }
+
+  /** Why the spec's voice can't be used here, or null when it can. */
+  voiceProblem(spec: VideoSpec): string | null {
+    const { provider, voiceId } = spec.voice;
+    if (LOCAL_PROVIDERS.has(provider)) return null;
+    if (provider === SERVER_VOICE_PROVIDER) {
+      if (!this.deps.local) return `The server's own voices are turned off (VOICE_LOCAL=off). Use one of: ${this.voiceOptions()}`;
+      if (voiceId && !findVoice(voiceId)) return `There is no server voice "${voiceId}". Use one of: ${this.voiceOptions()}`;
+    } else if (!cloudProvider(provider, this.deps.tts ?? {}, this.deps.fetch)) {
+      return `Voice provider "${provider}" is not configured on the server (no API key set). Use one of: ${this.voiceOptions()}`;
+    }
+    if (!this.deps.media) return `Voice provider "${provider}" needs a media store to hand the audio to the worker; use "silent" until one is set up`;
+    return null;
+  }
+
+  /** Server voices (local or cloud) are made here and handed to the worker as files. */
   private async voice(spec: VideoSpec, id: string): Promise<Record<string, unknown>> {
     if (LOCAL_PROVIDERS.has(spec.voice.provider)) return {};
-    const tts = cloudProvider(spec.voice.provider, this.deps.tts ?? {}, this.deps.fetch);
-    if (!tts) throw new Error(`Voice provider "${spec.voice.provider}" is not configured on the server (set its API key), or use "silent"/"flite"`);
-    if (!this.deps.media) throw new Error(`Voice provider "${spec.voice.provider}" needs a media store to hand the audio to the worker`);
+    const problem = this.voiceProblem(spec);
+    if (problem) throw new Error(problem);
+    const media = this.deps.media!; // voiceProblem checked it
+    const tts = this.speaker(spec);
     const out: Record<string, unknown> = {};
     for (const scene of spec.scenes) {
       if (!scene.narration) continue;
       const r = await tts.synthesize(scene.narration, { voiceId: spec.voice.voiceId, speed: spec.voice.speed });
       const format = speechExt(r.mime);
-      const url = await this.deps.media.put(`${spec.id}-${id}/voice-${scene.id}.${format}`, r.audio, r.mime, tags(spec, id, true));
+      const url = await media.put(`${spec.id}-${id}/voice-${scene.id}.${format}`, r.audio, r.mime, tags(spec, id, true));
       out[scene.id] = { url, format, durationSec: r.durationSec, words: r.words ?? estimateWordTimings(scene.narration, r.durationSec) };
     }
     return out;
+  }
+
+  /** What voices a spec: a cloud provider, or the server's own voice (downloaded first if needed). */
+  private speaker(spec: VideoSpec): { synthesize(text: string, o: { voiceId?: string; speed?: number }): Promise<{ audio: Uint8Array; mime: string; durationSec: number; words?: { word: string; start: number; end: number }[] }> } {
+    const local = this.deps.local;
+    if (spec.voice.provider !== SERVER_VOICE_PROVIDER || !local) return cloudProvider(spec.voice.provider, this.deps.tts ?? {}, this.deps.fetch)!;
+    const voice = findVoice(spec.voice.voiceId)?.id ?? local.voice;
+    const tts = new LocalTextToSpeech(local as LocalSpeech);
+    let installed: Promise<void> | null = null;
+    return {
+      async synthesize(text, o) {
+        // The exact voice asked for, never a stand-in: wait for its download the first time.
+        installed ??= local.installVoice(voice);
+        await installed;
+        const r = await tts.synthesize(text, { voice, speed: o.speed, fallback: false });
+        return { audio: r.audio, mime: r.mime, durationSec: Math.round(wavDuration(r.audio) * 1000) / 1000 };
+      },
+    };
   }
 
   /** Moves a production on when one of its jobs finishes. Jobs without production meta are ignored. */

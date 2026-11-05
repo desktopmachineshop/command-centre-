@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fieldsOf, labelOf, readable, specFacts, stepText, videoSpecOf } from "../src/payload";
+import { fieldsOf, labelOf, readable, specFacts, stepText, videoSpecOf, voiceText } from "../src/payload";
 
 describe("readable proposal details", () => {
   it("labels keys in plain words", () => {
@@ -37,5 +37,8 @@ describe("readable proposal details", () => {
     expect(stepText({ action: "goto", url: "https://dms.test" })).toBe("Open https://dms.test");
     expect(stepText({ action: "type", selector: "#q", text: "milo" })).toBe("Type “milo” into #q");
     expect(stepText({ action: "wait", ms: 1500 })).toBe("Pause 1.5 s");
+    expect(voiceText("local", "kokoro:bm_george")).toBe("George (server voice, most natural)");
+    expect(voiceText("local", "piper:jenny_dioco")).toBe("Jenny (server voice, fast)");
+    expect(voiceText("local")).toBe("Server default voice");
   });
 });
