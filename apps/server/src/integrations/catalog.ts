@@ -368,7 +368,7 @@ export const CATALOG: readonly KindDef[] = [
     kind: "microsoft-app",
     label: "Microsoft app",
     section: "apps",
-    description: "An app registration in Microsoft Entra (Azure portal → App registrations → New registration, \"Personal Microsoft accounts and work accounts\", platform Web). Used by Outlook / Hotmail sign-in.",
+    description: "An app registration in Microsoft Entra (Azure portal → App registrations → New registration, \"Personal Microsoft accounts and work accounts\", platform Web). Used by Outlook / Hotmail sign-in. A personal Hotmail login can't register apps on its own any more: sign in to the portal with a Microsoft 365 work login, or create a free Azure account first (that gives you a directory).",
     multi: false,
     fields: [
       { key: "clientId", label: "Application (client) ID", type: "text", required: true },
