@@ -36,6 +36,26 @@ describe("drive state machine", () => {
     expect(s.conversation).toBeNull();
   });
 
+  it("conversation with follow-up on: after a streamed answer (the voice front's) it listens again", () => {
+    const answer: DriveAction = { type: "say", text: "", expect: "command", streamed: true };
+    const s = run(initialDriveState("conversational", true), { type: "press" }, { type: "heard", text: "tell me a joke" }, answer, { type: "spoken", text: "Too many turns." });
+    expect(s.phase).toBe("listening");
+  });
+
+  it("a streamed answer that handed work on doesn't listen: it waits for the agent", () => {
+    const answer: DriveAction = { type: "say", text: "", expect: "command", streamed: true };
+    const s = run(
+      initialDriveState("conversational", true),
+      { type: "press" },
+      { type: "heard", text: "where is order 1042?" },
+      answer,
+      { type: "spoken", text: "Sure, I'll check.", expect: "none" },
+      { type: "waiting", taskId: "t1" },
+    );
+    expect(s.phase).toBe("waiting");
+    expect(s.waitingFor).toBe("t1");
+  });
+
   it("push-to-talk: a converse answer is spoken, then waits for the button with the conversation open", () => {
     const s = run(initialDriveState("push"), { type: "press" }, { type: "heard", text: "x" }, { type: "waiting", taskId: "t1" }, converse, { type: "spoken" });
     expect(s.phase).toBe("idle");

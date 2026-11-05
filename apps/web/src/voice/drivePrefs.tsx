@@ -32,7 +32,7 @@ export function readViz(): Viz {
 
 /** Settings → Converse: what used to be Drive mode's Options, set before setting off. */
 export function DriveSettings() {
-  const [followUp, setFollowUp] = useState(() => readPref(DRIVE_PREFS.followUp) === "1");
+  const [followUp, setFollowUp] = useState(() => readPref(DRIVE_PREFS.followUp) !== "0");
   const [viz, setViz] = useState<Viz>(readViz);
   return (
     <div className="drive-settings stack">

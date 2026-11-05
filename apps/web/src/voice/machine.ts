@@ -89,7 +89,8 @@ export type DriveAction =
   /** `background`: an agent answer arriving on its own, rather than the reply to what Dave just said. */
   | ({ type: "say"; background?: boolean } & Say)
   /** Speech finished. `text`: what a streamed reply said in the end (for "repeat"). */
-  | { type: "spoken"; text?: string }
+  /** Done speaking. `expect` overrides what comes next (a reply that handed work on expects nothing). */
+  | { type: "spoken"; text?: string; expect?: Expect }
   | { type: "skip"; proposalId: string }
   | { type: "resetSkips" }
   /** "stop", "cancel", "that's all": end everything. */
@@ -200,6 +201,7 @@ export function driveReducer(state: DriveState, action: DriveAction): DriveState
     case "spoken": {
       if (state.phase !== "speaking") return state;
       if (action.text) state = { ...state, lastSpoken: action.text };
+      if (action.expect) state = { ...state, expect: action.expect };
       if (state.pending) return speak(state, state.pending);
       const listen = state.mode === "conversational" && state.expect !== "none" && (state.expect !== "command" || state.followUp);
       if (listen) return { ...state, phase: "listening", seq: state.seq + 1, utterance: null, streamed: false };
