@@ -38,7 +38,7 @@ export interface VideoHandlerOptions {
 /** Largest file a job will download (recordings, images, music). */
 const MAX_DOWNLOAD_BYTES = 2 * 1024 ** 3;
 
-async function download(url: string, dest: string, signal: AbortSignal, http: typeof fetch): Promise<void> {
+export async function download(url: string, dest: string, signal: AbortSignal, http: typeof fetch): Promise<void> {
   const res = await http(url, { signal, redirect: "follow" });
   if (!res.ok || !res.body) throw new JobError(`Download failed (${res.status}) for ${new URL(url).host}`);
   let bytes = 0;

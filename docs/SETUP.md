@@ -462,7 +462,7 @@ At startup the worker checks what the PC can do, and the server only sends it jo
 | -------------- | ------------------------------------------------------------------------------------- |
 | `ffmpeg`       | `ffmpeg` is on `PATH` (e.g. `winget install Gyan.FFmpeg`)                             |
 | `gpu`          | `nvidia-smi` lists a GPU, or Windows reports an NVIDIA, AMD or Intel Arc adapter      |
-| `davinci`      | DaVinci Resolve or its scripting module is in the default install location            |
+| `davinci`      | DaVinci Resolve is in the default install location and Python 3 can import its scripting module (`DaVinciResolveScript`) |
 | `claude-local` | `claude` is on `PATH` and logged in (use the native installer, which gives `claude.exe`) |
 | `browser`      | Screen capture is ready: Chrome, Edge or Chromium is installed (or `chromiumBin` / `CC_CHROMIUM_BIN` points at one), `playwright-core` is beside the worker (the desktop app ships it), and Playwright's recorder is downloaded (the worker does this once, on start) |
 
@@ -477,7 +477,9 @@ Other `worker.json` keys: `ffmpegBin` and `claudeBin` (full paths, if they're no
 (besides the work dir). For video: `chromiumBin` (the browser `video.capture` drives, if not the
 installed Chrome or Edge it finds by itself) and
 `captureProfiles` (`{ "opend-demo": "C:\\...\\opend-demo.json" }`, Playwright storage states for
-signed-in captures).
+signed-in captures). For DaVinci Resolve: `pythonBin` (Python 3, if it isn't `python` on Windows
+or `python3` elsewhere; or `CC_PYTHON_BIN`) and `davinciPresets`, the render presets jobs may ask
+for (default `["YouTube - 1080p", "H.264 Master"]`, names as on Resolve's Deliver page).
 
 ### Job kinds
 
@@ -491,6 +493,13 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   options or filters (`-filter_script`, `movie=`…) are rejected. The result is `{outputPath, bytes}`.
 - `claude.local` `{prompt, cwd?, maxTurns?}`: runs headless Claude Code on the PC's own login. The
   result is `{result, sessionId, costUsd}`.
+- `davinci.render` `{clips: [{url, name}], preset, outputName, fps?, upload?}` (needs `davinci`):
+  downloads the clips, and DaVinci Resolve puts them end to end on a timeline in a throwaway
+  project (`cc-<job id>`) and renders it with `preset`, which must be on the PC's `davinciPresets`.
+  The project is deleted afterwards and the project that was open before is reopened. Resolve must
+  be running, with **Preferences → System → General → External scripting using** set to **Local**.
+  The worker runs its own fixed Python script; the job only sends data. The result is
+  `{outputPath, bytes, url?}`, and the render is uploaded unless `upload` is `false`.
 - A job no online computer can run stays **queued**: the Devices page says which capability is
   missing on which PC and how to get it, and **Cancel** removes it (`POST /api/jobs/:id/cancel`,
   queued jobs only).

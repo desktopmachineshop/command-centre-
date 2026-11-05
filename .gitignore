@@ -10,3 +10,4 @@ coverage/
 
 # Agent worktrees (temporary)
 .claude/worktrees/
+__pycache__/
