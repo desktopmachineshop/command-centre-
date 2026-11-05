@@ -8,7 +8,7 @@ import { echoHandler } from "./handlers/echo";
 import { ffmpegHandler } from "./handlers/ffmpeg";
 import { HandlerRegistry } from "./handlers/registry";
 import { videoCaptureHandler, videoRenderHandler } from "./handlers/video";
-import { detectSetup, setupHandler } from "./setup";
+import { detectSetup, refreshProcessPath, setupHandler } from "./setup";
 
 export * from "./browser";
 export * from "./capabilities";
@@ -48,6 +48,8 @@ export async function createWorker(
   const log = options.log ?? ((line: string) => console.log(line));
   /** What this computer can do now; run again after a setup.install job installed something. */
   const probe = async () => {
+    // Windows: pick up programs installed since the desktop app started (e.g. ffmpeg by winget).
+    await refreshProcessPath();
     // Screen capture: find a browser and Playwright, and fetch its recorder once. `browser` is
     // only offered when all of it is in place (browser.ts), unless worker.json switches it off.
     const captureOff = config.capabilityOverrides.browser === false || (config.capabilities !== null && !config.capabilities.includes("browser"));

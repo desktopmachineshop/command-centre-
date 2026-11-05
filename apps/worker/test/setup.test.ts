@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Job, SetupComponentId } from "@cc/core";
 import { describe, expect, it } from "vitest";
-import { detectSetup, findWinget, HandlerRegistry, type JobContext, type RunCommand, setupHandler, wingetArgs } from "../src";
+import { afterEach } from "vitest";
+import { detectSetup, findWinget, HandlerRegistry, type JobContext, mergePath, type RunCommand, refreshProcessPath, setupHandler, wingetArgs } from "../src";
 
 const job = (payload: Record<string, unknown>): Job => ({
   id: "j1",
@@ -149,5 +150,46 @@ describe("detectSetup", () => {
   it("has no installer off Windows", async () => {
     const setup = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env: { PATH: "/nonexistent" }, platform: "linux" });
     expect(setup).toMatchObject({ platform: "linux", installer: null });
+  });
+});
+
+describe("PATH after installs (ffmpeg missing again after each app update)", () => {
+  const saved = process.env.PATH;
+  afterEach(() => {
+    process.env.PATH = saved;
+  });
+
+  it("adds the registry's new directories to the PATH this process started with, without duplicates", () => {
+    const links = "C:\\Users\\dave\\AppData\\Local\\Microsoft\\WinGet\\Links";
+    const current = "C:\\Program Files\\Command Centre;C:\\Windows\\system32";
+    const fresh = `c:\\windows\\System32\\;C:\\Windows;${links}`;
+    expect(mergePath(current, fresh, "win32")).toBe(`C:\\Program Files\\Command Centre;C:\\Windows\\system32;C:\\Windows;${links}`);
+    expect(mergePath(undefined, "/usr/bin:/bin", "linux")).toBe("/usr/bin:/bin");
+    expect(mergePath("/usr/bin:/opt/x/", "/opt/x:/bin", "linux")).toBe("/usr/bin:/opt/x/:/bin");
+  });
+
+  it("finds ffmpeg that winget put on the user's PATH after the worker started", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cc-links-"));
+    writeFileSync(join(dir, "ffmpeg.exe"), "");
+    process.env.PATH = "/nonexistent";
+    const env = process.env;
+    const before = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env, platform: "win32", run: async () => ({ code: 1, output: "" }) });
+    expect(before.installed).not.toContain("ffmpeg");
+    // The registry's PATH (machine;user), as `powershell` reads it.
+    const run: RunCommand = async (cmd) => (cmd === "powershell.exe" ? { code: 0, output: `C:\\Windows;${dir}\r\n` } : { code: 1, output: "" });
+    await refreshProcessPath("win32", run);
+    expect(process.env.PATH!.split(";")).toEqual(["/nonexistent", "C:\\Windows", dir]);
+    const after = await detectSetup({ ffmpegBin: "ffmpeg", claudeBin: "claude", capabilities: [], env: { ...process.env, PATH: dir }, platform: "win32", run: async () => ({ code: 1, output: "" }) });
+    expect(after.installed).toContain("ffmpeg");
+  });
+
+  it("leaves PATH alone off Windows, or when the registry can't be read", async () => {
+    process.env.PATH = "/usr/bin";
+    await refreshProcessPath("linux", async () => ({ code: 0, output: "C:\\x" }));
+    await refreshProcessPath("win32", async () => ({ code: 1, output: "" }));
+    await refreshProcessPath("win32", async () => {
+      throw new Error("no powershell");
+    });
+    expect(process.env.PATH).toBe("/usr/bin");
   });
 });

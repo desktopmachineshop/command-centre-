@@ -126,6 +126,35 @@ export async function refreshWindowsPath(run: RunCommand = runCommand, signal = 
   return path ? path : null;
 }
 
+/**
+ * `current` PATH with any directories from `fresh` that it lacks added at the end. On Windows the
+ * comparison ignores case and a trailing backslash, and entries are joined with `;`. Pure.
+ */
+export function mergePath(current: string | undefined, fresh: string, platform: NodeJS.Platform = process.platform): string {
+  const sep = platform === "win32" ? ";" : ":";
+  const key = (dir: string) => (platform === "win32" ? dir.replace(/[\\/]+$/, "").toLowerCase() : dir.replace(/\/+$/, ""));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const dir of [...(current ?? "").split(sep), ...fresh.split(sep)].map((d) => d.trim()).filter(Boolean)) {
+    if (seen.has(key(dir))) continue;
+    seen.add(key(dir));
+    out.push(dir);
+  }
+  return out.join(sep);
+}
+
+/**
+ * Windows: adds to this process's PATH whatever a fresh login would have (from the registry).
+ * The worker inherits PATH from the desktop app, which keeps the one it started with: after
+ * winget installs ffmpeg, an app restart or update started from that app would otherwise still
+ * not find it, so the Devices page showed ffmpeg missing again after each update.
+ */
+export async function refreshProcessPath(platform: NodeJS.Platform = process.platform, run: RunCommand = runCommand): Promise<void> {
+  if (platform !== "win32") return;
+  const fresh = await refreshWindowsPath(run).catch(() => null);
+  if (fresh) process.env.PATH = mergePath(process.env.PATH ?? process.env.Path, fresh, platform);
+}
+
 export interface SetupHandlerOptions {
   platform?: NodeJS.Platform;
   /** winget's path; defaults to findWinget. */
@@ -155,13 +184,7 @@ export interface InstallOutcome {
 export function setupHandler(options: SetupHandlerOptions = {}) {
   const platform = options.platform ?? process.platform;
   const run = options.run ?? runCommand;
-  const refreshPath =
-    options.refreshPath ??
-    (async () => {
-      if (platform !== "win32") return;
-      const path = await refreshWindowsPath(run);
-      if (path) process.env.PATH = path;
-    });
+  const refreshPath = options.refreshPath ?? (() => refreshProcessPath(platform, run));
   return defineHandler({
     kind: "setup.install",
     payload: Payload,
