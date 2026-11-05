@@ -117,10 +117,13 @@ export function socialApiRoutes(deps: SocialApiDeps) {
 
   /**
    * Upload an image or video, as multipart (field "file") or a raw body with its
-   * content type. Returns a public, unguessable URL platforms can fetch.
+   * content type. Returns a public, unguessable URL platforms can fetch. `?vertical=` files it
+   * under that vertical (the composer sends its accounts' vertical).
    */
   app.post("/media", async (c) => {
     const { blobs, maxBytes } = deps.media;
+    const vertical = c.req.query("vertical") || null;
+    if (vertical && !/^[a-z0-9][a-z0-9-]{0,39}$/.test(vertical)) return c.json({ error: "invalid vertical" }, 400);
     const tooLarge = () => c.json({ error: `file is larger than ${Math.round(maxBytes / 1024 / 1024)} MB` }, 413);
     const declared = Number(c.req.header("content-length"));
     // Multipart adds a little framing around the file.
@@ -159,7 +162,7 @@ export function socialApiRoutes(deps: SocialApiDeps) {
     limit.on("error", () => source.destroy());
     let info;
     try {
-      info = await blobs.put(source.pipe(limit), { name: `upload.${media.ext}`, contentType: type, folder: "media" });
+      info = await blobs.put(source.pipe(limit), { name: `upload.${media.ext}`, contentType: type, folder: "media", vertical });
     } catch (err) {
       if (err instanceof TooLarge || limit.errored instanceof TooLarge) return tooLarge();
       throw err;

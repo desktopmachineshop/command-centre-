@@ -84,6 +84,58 @@ export async function prepareCheckout(o: CodeOptions, roleDir: string, repo: str
   return { path: rel, base };
 }
 
+/**
+ * The agent's work in progress once its PR is merged: removes the task checkouts (work/<task id>)
+ * that have `branch` checked out, and the local branch if it is exactly what was merged (`sha`).
+ * A checkout with uncommitted changes is kept (`git worktree remove` refuses it), so nothing
+ * unsaved is lost. Returns the checkouts removed, relative to the role's workspace.
+ */
+export async function clearMergedCheckouts(o: CodeOptions, roleDir: string, branch: string, sha?: string): Promise<string[]> {
+  const clone = join(roleDir, "repo");
+  if (!existsSync(join(clone, ".git")) || !BRANCH.test(branch)) return [];
+  const removed: string[] = [];
+  const list = await git(o, clone, ["worktree", "list", "--porcelain"]);
+  for (const entry of list.split(/\n\n+/)) {
+    const path = /^worktree (.+)$/m.exec(entry)?.[1];
+    if (!path || !entry.includes(`\nbranch refs/heads/${branch}`) || !path.startsWith(join(roleDir, "work"))) continue;
+    try {
+      await git(o, clone, ["worktree", "remove", path]);
+      removed.push(path.slice(roleDir.length + 1));
+    } catch (err) {
+      console.log(`[code] kept ${path} after merging ${branch}: ${(err as Error).message}`);
+    }
+  }
+  const tip = await git(o, clone, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).catch(() => "");
+  const stillOut = (await git(o, clone, ["worktree", "list", "--porcelain"])).includes(`branch refs/heads/${branch}`);
+  if (tip && sha && tip === sha && !stillOut) await git(o, clone, ["branch", "-D", branch]).catch(() => "");
+  return removed;
+}
+
+/**
+ * The nightly sweep for PRs merged on GitHub itself: removes every task checkout whose branch is
+ * already in the default branch (merged), as clearMergedCheckouts does after github.pr.merge.
+ */
+export async function sweepMergedCheckouts(o: CodeOptions, roleDir: string): Promise<string[]> {
+  const clone = join(roleDir, "repo");
+  if (!existsSync(join(clone, ".git"))) return [];
+  if (!o.token && /^https?:/.test(gitBase(o))) return [];
+  await git(o, clone, ["fetch", "--quiet", "--prune", "origin"], true);
+  const base = await defaultBranch(o, clone);
+  const removed: string[] = [];
+  const list = await git(o, clone, ["worktree", "list", "--porcelain"]);
+  for (const entry of list.split(/\n\n+/)) {
+    const branch = /^branch refs\/heads\/(.+)$/m.exec(entry)?.[1];
+    const path = /^worktree (.+)$/m.exec(entry)?.[1];
+    if (!branch || !path?.startsWith(join(roleDir, "work"))) continue;
+    const merged = await git(o, clone, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, `origin/${base}`]).then(
+      () => true,
+      () => false,
+    );
+    if (merged) removed.push(...(await clearMergedCheckouts(o, roleDir, branch, await git(o, clone, ["rev-parse", `refs/heads/${branch}`]))));
+  }
+  return removed;
+}
+
 const BRANCH = /^(?!-)(?!.*\.\.)[A-Za-z0-9._/-]{1,100}$/;
 
 /**
@@ -237,7 +289,7 @@ export function createCodeExecutors(
         const where = ctx.vertical ? o.locate(ctx.vertical) : null;
         if (!where) throw new Error(`${ctx.vertical ?? "This vertical"} has no coding role with a repository`);
         if (!o.token && /^https?:/.test(gitBase(o))) throw new Error("GITHUB_TOKEN is not set");
-        const pr = await api<{ state?: string; merged?: boolean; html_url?: string; title?: string; head?: { sha?: string } }>(`/repos/${where.repo}/pulls/${m.number}`);
+        const pr = await api<{ state?: string; merged?: boolean; html_url?: string; title?: string; head?: { sha?: string; ref?: string } }>(`/repos/${where.repo}/pulls/${m.number}`);
         if (pr.status === 404) throw new Error(`There is no pull request #${m.number} in ${where.repo}`);
         if (pr.json.merged) return { number: m.number, url: pr.json.html_url, merged: true, already: true };
         if (pr.json.state !== "open") throw new Error(`Pull request #${m.number} is ${pr.json.state ?? "not open"}`);
@@ -247,7 +299,9 @@ export function createCodeExecutors(
           body: { merge_method: m.method, ...(pr.json.head?.sha ? { sha: pr.json.head.sha } : {}) },
         });
         if (merged.status >= 300 || !merged.json.merged) throw new Error(`GitHub didn't merge #${m.number}: ${merged.json.message ?? `HTTP ${merged.status}`}`);
-        return { number: m.number, url: pr.json.html_url, merged: true, sha: merged.json.sha };
+        // Released: the task checkout that built it is no longer needed.
+        const cleared = pr.json.head?.ref ? await clearMergedCheckouts(o, where.roleDir, pr.json.head.ref, pr.json.head.sha).catch(() => []) : [];
+        return { number: m.number, url: pr.json.html_url, merged: true, sha: merged.json.sha, ...(cleared.length ? { clearedCheckouts: cleared } : {}) };
       },
     },
   };

@@ -138,6 +138,8 @@ export function apiRoutes(deps: ApiDeps) {
         ...(attached ? { files: attached.files, filesPrompt: attached.prompt } : {}),
       },
     });
+    // storage by vertical: the files belong to the vertical the message was routed to.
+    if (attached && result?.task) await deps.chatFiles!.tag(attached.files.map((f) => f.id), result.task.vertical);
     return c.json(result, 201);
   });
 

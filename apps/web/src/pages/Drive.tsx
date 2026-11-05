@@ -1,9 +1,9 @@
 import { speakable } from "@cc/voice/speakable";
-import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { type MutableRefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { ProgressNarrator } from "../progress";
-import { go } from "../router";
 import { type Aliases, buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole, type RoleBook, type RoleChoice, type VoiceMode } from "../voice/commands";
 import { type Approval, type DriveState, driveReducer, type Expect, initialDriveState, LATCHED_TURN_MS, listenTimeoutMs, type Say } from "../voice/machine";
 import {
@@ -21,30 +21,13 @@ import {
 } from "../voice/speech";
 import { speakerFor, useVoiceChoice } from "../voice/choice";
 import { pickListener } from "../voice/dictation";
-import { VoicePicker } from "../voice/VoicePicker";
 import type { LevelSource } from "../voice/level";
 import { ReplyStream } from "../voice/reply";
 import { OrbTrace, VoiceOrb } from "../voice/Waveform";
-import { takeDriveOrigin } from "../voice/driveOrigin";
+import { DRIVE_PREFS, readPref, readViz, writePref } from "../voice/drivePrefs";
 
-// Per-device preferences. Storage can be missing (private mode), so every access is guarded.
-const PREFS = { mode: "cc.drive.mode", followUp: "cc.drive.followUp", talkTo: "cc.drive.talkTo", viz: "cc.drive.viz" };
-/** What the talk button shows: the orb, the live trace, or both (the default). */
-type Viz = "both" | "orb" | "trace";
-function readPref(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function writePref(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // not persisted; still applies for this session
-  }
-}
+// Per-device preferences, set in Settings → Drive mode (voice/drivePrefs.tsx).
+const PREFS = DRIVE_PREFS;
 
 /** The org root's role id (ROOT_ROLE_ID on the server): Dave's front door, and the default here. */
 const CHIEF = "chief-of-staff";
@@ -90,9 +73,28 @@ const approvalOf = (p: NonNullable<NextApproval["proposal"]>): Approval => ({
  * the headset / steering-wheel play-pause button), local voice commands, and
  * everything else sent to the agent in voice mode with its answer read aloud.
  */
-export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
+/**
+ * Drive mode, called "Converse" in the app, shown inside the chat composer (pages/Chat.tsx),
+ * which grows to hold it; the composer's Fold button leaves it. Unmounting stops any listening and speaking.
+ */
+export function Drive({
+  api,
+  feed,
+  commandRef,
+  toolbar,
+  pickerSlot,
+}: {
+  api: Api;
+  feed: LiveFeed;
+  commandRef?: MutableRefObject<((text: string) => void) | null>;
+  /** Where the Push to talk switch goes: the chat box's own row of buttons (Read aloud, Fold). */
+  toolbar?: HTMLElement | null;
+  /** Where the Talking to picker goes: the chat box's own picker, at the bottom. */
+  pickerSlot?: HTMLElement | null;
+}) {
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
-    initialDriveState(readPref(PREFS.mode) === "conversational" ? "conversational" : "push", readPref(PREFS.followUp) === "1"),
+    // Push to talk is off unless chosen: Converse listens again after each answer.
+    initialDriveState(readPref(PREFS.mode) === "push" ? "push" : "conversational", readPref(PREFS.followUp) === "1"),
   );
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -106,10 +108,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   talkingToRef.current = talkingTo;
   // The voice this device speaks with (voice/choice.ts): the server's default, a chosen server voice, or the device's own.
   const [voiceChoice] = useVoiceChoice();
-  const [viz, setViz] = useState<Viz>(() => {
-    const v = readPref(PREFS.viz);
-    return v === "orb" || v === "trace" ? v : "both";
-  });
+  const [viz] = useState(readViz);
   /** A reply from the voice front being spoken as it streams, and its words so far. */
   const replyRef = useRef<ReplyStream | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -119,10 +118,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const ackedRef = useRef(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [interim, setInterim] = useState("");
-  const [wakeHeld, setWakeHeld] = useState(false);
-  const [headset, setHeadset] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [typed, setTyped] = useState("");
 
   const lang = config?.language ?? "en-GB";
 
@@ -156,7 +152,6 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
 
   useEffect(() => {
     const lock = new ScreenWakeLock();
-    lock.onChange = setWakeHeld;
     void lock.acquire();
     return () => void lock.release();
   }, []);
@@ -470,7 +465,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     if (state.phase !== "listening") return;
     const l = listenerRef.current;
     if (!l) {
-      dispatch({ type: "error", message: "No speech recognition here. Type a command below." });
+      dispatch({ type: "error", message: "No speech recognition here. Type a command in the chat box." });
       return;
     }
     let live = true;
@@ -548,7 +543,7 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     // Unlock Web Audio playback from this tap (iOS requires a gesture).
     if (speakerRef.current instanceof ServerSpeaker) speakerRef.current.unlock();
     // Started from a tap, as autoplay rules require; then the headset button works too.
-    if (!headsetRef.current.active) void headsetRef.current.start().then(() => setHeadset(headsetRef.current?.active ?? false));
+    if (!headsetRef.current.active) void headsetRef.current.start();
     const s = stateRef.current;
     if (s.phase === "listening") {
       listenerRef.current?.stop(); // Send: finish now; what was heard is still used
@@ -563,11 +558,10 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const pressRef = useRef(press);
   pressRef.current = press;
 
-  const submitTyped = async (e: FormEvent) => {
-    e.preventDefault();
-    const text = typed.trim();
-    if (!text || state.phase === "sending") return;
-    setTyped("");
+  /** A command typed in the chat box (Chat passes it here while Drive is open). */
+  const typeCommand = async (raw: string) => {
+    const text = raw.trim();
+    if (!text || stateRef.current.phase === "sending") return;
     speakerRef.current?.cancel();
     dispatch({ type: "press" });
     dispatch({ type: "heard", text });
@@ -585,36 +579,15 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
     if (s.approval) say(readback(action, s.approval), "confirm", { approval: s.approval, confirm: { ...s.approval, action } });
   };
 
-  const toggleFollowUp = (on: boolean) => {
-    writePref(PREFS.followUp, on ? "1" : "0");
-    dispatch({ type: "followUp", on });
-  };
-
-  // Opening: grow out of the chat composer Drive was opened from (if any), then fade the orb in.
-  const sectionRef = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    const from = takeDriveOrigin();
-    const box = el.getBoundingClientRect();
-    if (from && from.bottom > box.top && from.top < box.bottom) {
-      el.style.setProperty("--from-top", `${Math.max(0, from.top - box.top)}px`);
-      el.style.setProperty("--from-bottom", `${Math.max(0, box.bottom - from.bottom)}px`);
-      el.style.setProperty("--from-left", `${Math.max(0, from.left - box.left)}px`);
-      el.style.setProperty("--from-right", `${Math.max(0, box.right - from.right)}px`);
-      el.classList.add("drive-grow");
-    }
-    el.classList.add("drive-enter");
-    const done = () => el.classList.remove("drive-grow", "drive-enter");
-    const timer = setTimeout(done, 1400);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const exit = () => {
-    speakerRef.current?.cancel();
-    listenerRef.current?.stop();
-    go("chat");
-  };
+  const typeRef = useRef(typeCommand);
+  typeRef.current = typeCommand;
+  useEffect(() => {
+    if (!commandRef) return;
+    commandRef.current = (text) => void typeRef.current(text);
+    return () => {
+      commandRef.current = null;
+    };
+  }, [commandRef]);
 
   const caption =
     state.phase === "listening" || state.phase === "sending"
@@ -632,34 +605,35 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
   const busy = state.phase === "sending";
 
   return (
-    <section ref={sectionRef} className={`drive phase-${state.phase} viz-${viz}`} aria-label="Drive mode">
-      <header className="drive-bar">
-        <button type="button" className="drive-exit" onClick={exit}>
-          Exit
-        </button>
-        <div className="drive-modes" role="group" aria-label="Voice mode">
-          <button type="button" aria-pressed={state.mode === "push"} className={state.mode === "push" ? "primary" : ""} onClick={() => setMode("push")}>
-            Push to talk
-          </button>
+    <section className={`drive phase-${state.phase} viz-${viz}`} aria-label="Converse">
+      {/* Push to talk on: tap, speak, tap Send. Off (the default): it listens again after each answer.
+          It sits in the chat box's row of buttons, beside Read aloud and Fold. */}
+      {(() => {
+        const pushSwitch = (
           <button
             type="button"
-            aria-pressed={state.mode === "conversational"}
-            className={state.mode === "conversational" ? "primary" : ""}
-            onClick={() => setMode("conversational")}
+            role="switch"
+            aria-checked={state.mode === "push"}
+            className={`tool drive-push ${state.mode === "push" ? "is-on" : ""}`}
+            onClick={() => setMode(state.mode === "push" ? "conversational" : "push")}
           >
-            Conversation
+            <span className="switch" aria-hidden="true" />
+            Push to talk
           </button>
-        </div>
-      </header>
+        );
+        return toolbar ? createPortal(pushSwitch, toolbar) : <header className="drive-bar">{pushSwitch}</header>;
+      })()}
 
-      {roles.length > 0 && (
-        <label className="drive-talkto">
-          <span>Talking to</span>
+      {/* Who it's talking to: in the chat box's own picker at the bottom (in place of Send to). */}
+      {(() => {
+        const picker = (
           <select
+            aria-label="Talking to"
+            title="Talking to"
             value={talkingTo ? `${talkingTo.vertical}/${talkingTo.role}` : ""}
             onChange={(e) => chooseRole(roles.find((r) => `${r.choice.vertical}/${r.choice.role}` === e.target.value)?.choice ?? null)}
           >
-            <option value="">Chief of Staff (hands it on)</option>
+            <option value="">Chief of Staff</option>
             {groupRoles(roles).map(([business, choices]) =>
               business ? (
                 <optgroup key={business} label={business}>
@@ -678,8 +652,9 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
               ),
             )}
           </select>
-        </label>
-      )}
+        );
+        return pickerSlot ? createPortal(picker, pickerSlot) : <label className="drive-talkto">{picker}</label>;
+      })()}
 
       <p className="drive-state" role="status" aria-live="polite" data-phase={state.phase}>
         {state.phase === "listening" && state.mode === "push" ? "Listening: tap Send when you're done" : PHASE_LABEL[state.phase]}
@@ -736,49 +711,6 @@ export function Drive({ api, feed }: { api: Api; feed: LiveFeed }) {
         </p>
       )}
 
-      <details className="drive-more" data-help-pane="drive.commands">
-        <summary>Options</summary>
-        <form className="row" onSubmit={submitTyped}>
-          <input
-            className="grow"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder="Type a command"
-            aria-label="Type a command"
-          />
-          <button type="submit">Send</button>
-        </form>
-        <label className="row small">
-          <input type="checkbox" checked={state.followUp} onChange={(e) => toggleFollowUp(e.target.checked)} />
-          Listen for a follow-up after each answer (conversation mode)
-        </label>
-        <label className="row small">
-          Show
-          <select
-            value={viz}
-            onChange={(e) => {
-              const v = e.target.value as Viz;
-              writePref(PREFS.viz, v);
-              setViz(v);
-            }}
-          >
-            <option value="both">Orb and live trace</option>
-            <option value="orb">Orb only</option>
-            <option value="trace">Live trace only</option>
-          </select>
-        </label>
-        <VoicePicker api={api} config={config} />
-        <p className="muted small">
-          Listening: {listener ? (listener.kind === "browser" ? "browser" : listener.kind === "live" ? "live, on the server" : `server (${config?.stt?.provider})`) : "unavailable"} · Voice:{" "}
-          {speaker ? (speaker.kind === "browser" ? (browserVoice?.name ?? "browser default") : config?.tts?.provider) : "unavailable"} · Screen:{" "}
-          {wakeHeld ? "kept on" : "may sleep"} · Headset button: {headset ? "on" : "tap once to enable"}
-        </p>
-        <p className="muted small">
-          Say "what's new", "read approvals", "approve", "next", "repeat", "stop", or a request like "shop: has order 1042 shipped?". Say
-          "talk to the shop lead" to talk to one role ("back to chief of staff" for the default, who hands things on and reports back),
-          "who am I talking to?", or ask one role once: "ask customer support whether order 1042 shipped".
-        </p>
-      </details>
     </section>
   );
 }

@@ -1,6 +1,6 @@
 /**
- * Storage page in real Chromium with the server mocked: the volume meter, usage by folder,
- * the file list with a video preview, and delete. Skipped when no Chromium is installed.
+ * Storage page in real Chromium with the server mocked: the volume meter, usage by vertical,
+ * the file list with a video preview, the vertical filter, moving a file and delete. Skipped when no Chromium is installed.
  */
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -53,33 +53,44 @@ describe.skipIf(!existsSync(CHROMIUM))("Storage page (Playwright)", () => {
       localStorage.setItem("cc.connection", JSON.stringify({ baseUrl: "", token: "test-token" }));
     });
     const now = new Date().toISOString();
-    let files = [
-      { id: "a".repeat(32) + ".mp4", name: "spindle-tram/final.mp4", size: 220 * MB, contentType: "video/mp4", folder: "renders", backend: "local", createdAt: now, url: `${base}/media/a.mp4` },
-      { id: "b".repeat(32) + ".webp", name: "er11-collets.webp", size: 300 * 1024, contentType: "image/webp", folder: "media", backend: "local", createdAt: now, url: `${base}/media/b.webp` },
-      { id: "c".repeat(32) + ".pdf", name: "arc-euro-pricelist.pdf", size: 2 * MB, contentType: "application/pdf", folder: "attachments", backend: "local", createdAt: now, url: null },
+    let files: { id: string; name: string; vertical: string | null; [key: string]: unknown }[] = [
+      { id: "a".repeat(32) + ".mp4", name: "spindle-tram/final.mp4", size: 220 * MB, contentType: "video/mp4", folder: "renders", backend: "local", createdAt: now, url: `${base}/media/a.mp4`, vertical: "dms", work: "video:1", wip: false },
+      { id: "b".repeat(32) + ".webp", name: "er11-collets.webp", size: 300 * 1024, contentType: "image/webp", folder: "media", backend: "local", createdAt: now, url: `${base}/media/b.webp`, vertical: "dms", work: null, wip: false },
+      { id: "c".repeat(32) + ".pdf", name: "arc-euro-pricelist.pdf", size: 2 * MB, contentType: "application/pdf", folder: "attachments", backend: "local", createdAt: now, url: null, vertical: null as string | null, work: null, wip: false },
     ];
     const deletes: string[] = [];
+    const moves: { id: string; body: unknown }[] = [];
+    const queries: string[] = [];
     await page.route(`${base}/media/**`, () => {}); // previews stay loading: the player is what's checked
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
       const path = url.pathname.replace(/^\/api/, "");
       const json = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
       if (path === "/stats") return json({ pendingApprovals: 0, costTodayUsd: 0 });
-      if (path === "/verticals") return json([]);
+      if (path === "/verticals") return json([{ id: "dms", name: "Desktop Machine Shop", color: "#c0392b" }, { id: "personal", name: "Personal" }]);
       if (path === "/storage") {
+        const vertical = url.searchParams.get("vertical");
+        queries.push(vertical ?? "");
         return json({
           backend: "local",
           byFolder: [
-            { folder: "renders", backend: "local", files: 1, bytes: 220 * MB },
-            { folder: "media", backend: "local", files: 1, bytes: 300 * 1024 },
-            { folder: "attachments", backend: "local", files: 1, bytes: 2 * MB },
+            { folder: "renders", backend: "local", vertical: "dms", files: 1, bytes: 220 * MB },
+            { folder: "media", backend: "local", vertical: "dms", files: 1, bytes: 300 * 1024 },
+            { folder: "attachments", backend: "local", vertical: null, files: 1, bytes: 2 * MB },
           ],
           totalBytes: 222 * MB,
-          files,
+          files: vertical ? files.filter((f) => (f.vertical ?? "shared") === vertical) : files,
           volume: { free: 0.9 * GB, total: 5 * GB, minFreeBytes: 500 * MB, renderRetentionDays: 30 },
           drive: null,
           cache: null,
         });
+      }
+      if (route.request().method() === "PATCH" && path.startsWith("/storage/")) {
+        const id = decodeURIComponent(path.slice("/storage/".length));
+        const body = route.request().postDataJSON() as { vertical: string | null };
+        moves.push({ id, body });
+        files = files.map((f) => (f.id === id ? { ...f, vertical: body.vertical } : f));
+        return json(files.find((f) => f.id === id));
       }
       if (route.request().method() === "DELETE" && path.startsWith("/storage/")) {
         const id = decodeURIComponent(path.slice("/storage/".length));
@@ -97,7 +108,25 @@ describe.skipIf(!existsSync(CHROMIUM))("Storage page (Playwright)", () => {
     expect(await meter.getAttribute("aria-valuenow")).toBe("82");
     expect(await page.locator(".card", { hasText: "Server disk" }).textContent()).toContain("4.1 GB of 5.0 GB used · 922 MB free · nearly full");
     expect(await page.getByText("Video renders older than 30 days are deleted each night").count()).toBe(1);
-    expect(await page.locator(".storage-folders li").count()).toBe(3);
+    // Usage by vertical: DMS (render and upload), then Shared (the attachment).
+    const usage = page.locator(".storage-folders li");
+    expect(await usage.count()).toBe(2);
+    expect(await usage.nth(0).textContent()).toContain("Desktop Machine Shop");
+    expect(await usage.nth(0).textContent()).toContain("Video renders 220 MB · Uploads and post media 300 KB");
+    expect(await usage.nth(1).textContent()).toContain("Shared");
+
+    // Filtering by a vertical asks the server for that vertical's files.
+    await page.getByLabel("Vertical", { exact: true }).selectOption("dms");
+    await expect.poll(() => page.locator(".storage-files li").count()).toBe(2);
+    expect(queries.at(-1)).toBe("dms");
+    await page.getByLabel("Vertical", { exact: true }).selectOption("");
+    await expect.poll(() => page.locator(".storage-files li").count()).toBe(3);
+
+    // Moving a file to a vertical.
+    const pdfRow = page.locator(".storage-files li", { hasText: "arc-euro-pricelist.pdf" });
+    await pdfRow.getByLabel("Move arc-euro-pricelist.pdf to a vertical").selectOption("personal");
+    await expect.poll(() => moves.length).toBe(1);
+    expect(moves[0]).toEqual({ id: "c".repeat(32) + ".pdf", body: { vertical: "personal" } });
 
     const video = page.locator(".storage-files li", { hasText: "spindle-tram/final.mp4" });
     await video.getByRole("button", { name: "Preview" }).click();

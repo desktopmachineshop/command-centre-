@@ -21,7 +21,7 @@
     { "name": "Approvals", "short_name": "Approvals", "url": "/#/approvals", "icons": [{ "src": "/icons/shortcut-approvals.png", "sizes": "96x96", "type": "image/png" }] },
     { "name": "Chat", "short_name": "Chat", "url": "/#/chat", "icons": [{ "src": "/icons/shortcut-chat.png", "sizes": "96x96", "type": "image/png" }] },
     { "name": "Today", "short_name": "Today", "url": "/#/today", "icons": [{ "src": "/icons/shortcut-today.png", "sizes": "96x96", "type": "image/png" }] },
-    { "name": "Drive mode", "short_name": "Drive", "url": "/#/drive", "icons": [{ "src": "/icons/shortcut-drive.png", "sizes": "96x96", "type": "image/png" }] }
+    { "name": "Converse", "short_name": "Converse", "url": "/#/converse", "icons": [{ "src": "/icons/shortcut-converse.png", "sizes": "96x96", "type": "image/png" }] }
   ],
   "screenshots": [
     { "src": "/screenshots/inbox-phone-light.png", "sizes": "585x1266", "type": "image/png", "form_factor": "narrow", "label": "Inbox with today's summary" },
