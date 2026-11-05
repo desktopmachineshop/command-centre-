@@ -2,7 +2,9 @@ import type { BlobInfo } from "@cc/storage";
 import {
   type Capability,
   DAVINCI_FPS,
+  DavinciMode,
   DavinciOutputName,
+  DavinciProjectName,
   DavinciRenderPayload,
   DavinciRenderResult,
   type Job,
@@ -30,7 +32,7 @@ export const DEFAULT_DAVINCI_PRESET = "YouTube - 1080p";
 const StorageId = z.string().regex(/^[a-f0-9]{32}\.[a-z0-9]{1,8}$/, "a storage file id like 3f2a….mp4");
 
 export const DavinciRenderRequest = z.object({
-  /** In timeline order: storage files (`{fileId}`) or downloads (`{url, name?}`). */
+  /** In timeline order: storage files (`{fileId}`) or downloads (`{url, name?}`). Empty re-renders an existing project. */
   clips: z
     .array(
       z.union([
@@ -38,18 +40,27 @@ export const DavinciRenderRequest = z.object({
         z.object({ url: z.url({ protocol: /^https?$/ }), name: z.string().max(200).optional() }).strict(),
       ]),
     )
-    .min(1)
-    .max(100),
+    .max(100)
+    .default([]),
+  /** `draft` builds the project and timeline in Resolve and stops there, for Dave to edit and render. */
+  mode: DavinciMode.default("render"),
+  /** A Resolve project: opened and added to if it exists, created otherwise. Needed to keep a project. */
+  project: DavinciProjectName.optional(),
+  /** The timeline in that project the clips are added to (default "Main"). */
+  timeline: DavinciProjectName.optional(),
+  /** Keep the project open in Resolve afterwards (drafts and existing projects always are). */
+  keepProject: z.boolean().default(false),
   preset: z.string().min(1).max(100).default(DEFAULT_DAVINCI_PRESET),
-  outputName: DavinciOutputName.default("resolve-render"),
+  /** Defaults to the project name, or "resolve-render". */
+  outputName: DavinciOutputName.optional(),
   fps: z.enum(DAVINCI_FPS).optional(),
-  /** Shown in the notification; defaults to the output name. */
+  /** Shown in the notification; defaults to the project or output name. */
   title: z.string().min(1).max(200).optional(),
 });
 export type DavinciRenderRequest = z.infer<typeof DavinciRenderRequest>;
 
 /** Carried in the job's payload so the notification can name the render. */
-const Meta = z.object({ title: z.string() });
+const Meta = z.object({ title: z.string(), clips: z.number().default(0) });
 
 export interface DavinciDeps {
   submit(job: { kind: string; requires: Capability[]; payload: Record<string, unknown> }): Promise<Job>;
@@ -76,6 +87,11 @@ function extOf(url: string): string {
   return m?.[1]?.toLowerCase() ?? "mp4";
 }
 
+/** An output file name from a project name (output names are stricter). */
+export function outputNameFor(project: string): string {
+  return project.replace(/[^\w -]+/g, "-").replace(/^[^\w]+/, "").slice(0, 100) || "resolve-render";
+}
+
 export class DavinciRenders {
   constructor(private readonly deps: DavinciDeps) {}
 
@@ -83,8 +99,10 @@ export class DavinciRenders {
     return {
       "davinci.render": {
         description:
-          "Render clips in DaVinci Resolve on Dave's PC: they go end to end on one timeline, rendered with a Resolve preset, and the file is uploaded to storage. " +
-          `payload: { clips: [{ fileId } | { url, name? }] (in order), preset? (default "${DEFAULT_DAVINCI_PRESET}"), outputName?, fps?, title? }`,
+          "Edit and render in DaVinci Resolve on Dave's PC: clips go end to end on a timeline, which is rendered with a Resolve preset and uploaded to storage. " +
+          "Name a project to work in it: an existing one is opened and the clips are added to the end of its timeline; otherwise it is created. " +
+          'mode "draft" builds the timeline without rendering, for Dave to finish by hand; keepProject keeps a rendered project. ' +
+          `payload: { clips: [{ fileId } | { url, name? }] (in order; may be empty to re-render an existing project), mode? ("render"|"draft"), project?, timeline? (default "Main"), keepProject?, preset? (default "${DEFAULT_DAVINCI_PRESET}"), outputName?, fps?, title? }`,
         validate: async (payload) => {
           await this.build(payload);
         },
@@ -94,10 +112,16 @@ export class DavinciRenders {
   }
 
   /** Validates a request, resolves its clips and submits the job. */
-  async start(raw: unknown): Promise<{ jobId: string; clips: number; preset: string }> {
+  async start(raw: unknown): Promise<{ jobId: string; clips: number; mode: string; project: string | null; preset: string }> {
     const payload = await this.build(raw);
     const job = await this.deps.submit({ kind: "davinci.render", requires: ["davinci"], payload });
-    return { jobId: job.id, clips: (payload.clips as unknown[]).length, preset: payload.preset as string };
+    return {
+      jobId: job.id,
+      clips: (payload.clips as unknown[]).length,
+      mode: payload.mode as string,
+      project: (payload.project as string | undefined) ?? null,
+      preset: payload.preset as string,
+    };
   }
 
   /** The job payload for a request, checked against the worker's own schema. */
@@ -113,15 +137,22 @@ export class DavinciRenders {
       }
       clips.push(await this.storageClip(i, clip.fileId));
     }
-    const payload = DavinciRenderPayload.parse({
+    const outputName = request.outputName ?? (request.project ? outputNameFor(request.project) : "resolve-render");
+    const checked = DavinciRenderPayload.safeParse({
       clips,
+      mode: request.mode,
+      ...(request.project ? { project: request.project } : {}),
+      ...(request.timeline ? { timeline: request.timeline } : {}),
+      keepProject: request.keepProject,
       preset: request.preset,
-      outputName: request.outputName,
+      outputName,
       ...(request.fps ? { fps: request.fps } : {}),
       upload: true,
       uploadFolder: "renders",
     });
-    return { ...payload, meta: { davinci: { title: request.title ?? request.outputName } } };
+    if (!checked.success) throw new DavinciRequestError(`Invalid davinci.render request:\n${z.prettifyError(checked.error)}`);
+    const title = request.title ?? request.project ?? outputName;
+    return { ...checked.data, meta: { davinci: { title, clips: clips.length } } };
   }
 
   private async storageClip(index: number, id: string): Promise<{ url: string; name: string }> {
@@ -139,22 +170,32 @@ export class DavinciRenders {
   async onJobSettled(job: Job): Promise<void> {
     if (job.kind !== "davinci.render") return;
     const meta = Meta.safeParse((job.payload.meta as { davinci?: unknown } | undefined)?.davinci);
-    const title = meta.success ? meta.data.title : String(job.payload.outputName ?? "render");
+    const title = meta.success ? meta.data.title : String(job.payload.project ?? job.payload.outputName ?? "render");
+    const draft = job.payload.mode === "draft";
+    const pc = job.nodeId ?? "the PC";
     if (job.status === "failed") {
       const error = (job.result as { error?: string } | null)?.error ?? "unknown error";
-      await this.deps.notify({ title: `Resolve render failed: ${title}`, body: error });
+      const project = typeof job.payload.project === "string" ? `\nProject "${job.payload.project}" was left as it was saved.` : "";
+      await this.deps.notify({ title: `Resolve ${draft ? "draft" : "render"} failed: ${title}`, body: `${error}${project}` });
       return;
     }
     if (job.status !== "succeeded") return;
     const result = DavinciRenderResult.safeParse(job.result);
     if (!result.success) {
-      await this.deps.notify({ title: `Resolve render finished: ${title}`, body: "The PC sent back a result Command Centre couldn't read." });
+      await this.deps.notify({ title: `Resolve job finished: ${title}`, body: "The PC sent back a result Command Centre couldn't read." });
       return;
     }
-    const { url, outputPath, bytes } = result.data;
-    const size = `${Math.max(1, Math.round(bytes / 1024 / 1024))} MB`;
-    const where = url ?? `${outputPath} on worker ${job.nodeId ?? "?"}`;
-    const media: NotificationMedia[] = url && MEDIA_FILE.test(url.split("/").pop() ?? "") ? [{ url, type: "video", alt: title }] : [];
-    await this.deps.notify({ title: `Resolve render ready: ${title}`, body: `${size}: ${where}`, media });
+    const r = result.data;
+    const clips = meta.success ? meta.data.clips : 0;
+    const added = clips ? `${clips} clip${clips === 1 ? "" : "s"} ${r.existing ? "added to" : "on"} timeline "${r.timeline ?? "Main"}"` : `timeline "${r.timeline ?? "Main"}"`;
+    const open = r.project ? `Project "${r.project}" (${r.existing ? "existing" : "new"}) is open in Resolve on ${pc}, ${added}.` : "";
+    if (r.mode === "draft" || r.outputPath === null) {
+      await this.deps.notify({ title: `Resolve draft ready: ${title}`, body: `${open} It hasn't been rendered: edit it and render it from Resolve.`.trim() });
+      return;
+    }
+    const size = `${Math.max(1, Math.round(r.bytes / 1024 / 1024))} MB`;
+    const where = r.url ?? `${r.outputPath} on worker ${pc}`;
+    const media: NotificationMedia[] = r.url && MEDIA_FILE.test(r.url.split("/").pop() ?? "") ? [{ url: r.url, type: "video", alt: title }] : [];
+    await this.deps.notify({ title: `Resolve render ready: ${title}`, body: `${size}: ${where}${open ? `. ${open}` : ""}`, media });
   }
 }

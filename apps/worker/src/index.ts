@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { Capability } from "@cc/core";
 import { prepareCapture } from "./browser";
 import { defaultPython, detectCapabilities, resolveEnv, which } from "./capabilities";
@@ -49,6 +50,7 @@ export function defaultRegistry(
         python: which(pythonBin) ?? pythonBin,
         env: resolveEnv(process.platform, process.env),
         presets: config.davinciPresets ?? DEFAULT_DAVINCI_PRESETS,
+        mediaDir: join(config.workDir, "davinci-media"),
       }),
     );
   }

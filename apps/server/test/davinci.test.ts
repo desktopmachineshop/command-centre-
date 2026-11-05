@@ -53,7 +53,7 @@ describe("davinci.render requests", () => {
       fps: "25",
       title: "Shop tour",
     });
-    expect(out).toEqual({ jobId: "job-1", clips: 3, preset: "YouTube - 1080p" });
+    expect(out).toEqual({ jobId: "job-1", clips: 3, mode: "render", project: null, preset: "YouTube - 1080p" });
     expect(jobs).toHaveLength(1);
     expect(jobs[0]).toMatchObject({
       kind: "davinci.render",
@@ -67,16 +67,34 @@ describe("davinci.render requests", () => {
         preset: "YouTube - 1080p",
         outputName: "shop tour",
         fps: "25",
+        mode: "render",
+        timeline: "Main",
+        keepProject: false,
         upload: true,
         uploadFolder: "renders",
-        meta: { davinci: { title: "Shop tour" } },
+        meta: { davinci: { title: "Shop tour", clips: 3 } },
       },
     });
   });
 
+  it("works in a named project: drafts, kept renders and re-renders of an existing one", async () => {
+    const { renders, jobs } = fakes();
+    await renders.start({ clips: [{ fileId: VIDEO }], mode: "draft", project: "Shop tour (v2)" });
+    await renders.start({ clips: [{ fileId: VIDEO }], project: "Shop tour", timeline: "Teaser", keepProject: true });
+    expect(await renders.start({ project: "Shop tour" })).toMatchObject({ clips: 0, mode: "render", project: "Shop tour" });
+    expect(jobs.map((j) => j.payload)).toMatchObject([
+      { mode: "draft", project: "Shop tour (v2)", timeline: "Main", outputName: "Shop tour -v2-", meta: { davinci: { title: "Shop tour (v2)", clips: 1 } } },
+      { mode: "render", project: "Shop tour", timeline: "Teaser", keepProject: true },
+      { mode: "render", project: "Shop tour", clips: [] },
+    ]);
+  });
+
   it("refuses what the PC couldn't render, before anything is queued", async () => {
     const { renders, jobs } = fakes();
-    await expect(renders.start({ clips: [] })).rejects.toThrow(DavinciRequestError);
+    await expect(renders.start({ clips: [] })).rejects.toThrow(/add clips, or name an existing project/);
+    await expect(renders.start({ clips: [{ fileId: VIDEO }], mode: "draft" })).rejects.toThrow(/a draft needs a project name/);
+    await expect(renders.start({ clips: [{ fileId: VIDEO }], keepProject: true })).rejects.toThrow(/keepProject needs a project name/);
+    await expect(renders.start({ clips: [{ fileId: VIDEO }], project: "../Resolve" })).rejects.toThrow(DavinciRequestError);
     await expect(renders.start({ clips: [{ url: "file:///etc/passwd" }] })).rejects.toThrow(/Invalid davinci.render request/);
     await expect(renders.start({ clips: [{ fileId: "0".repeat(32) + ".mp4" }] })).rejects.toThrow(/no storage file/);
     await expect(renders.start({ clips: [{ fileId: PDF }] })).rejects.toThrow(/application\/pdf, not an mp4/);
@@ -107,6 +125,32 @@ describe("davinci.render results", () => {
     expect(notes).toEqual([{ title: "Resolve render ready: Shop tour", body: `50 MB: ${url}`, media: [{ url, type: "video", alt: "Shop tour" }] }]);
   });
 
+  it("tells Dave where a kept project or draft is", async () => {
+    const { renders, notes } = fakes();
+    const url = "https://cc.example/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mp4";
+    const named = { mode: "render", project: "Shop tour", meta: { davinci: { title: "Shop tour", clips: 2 } } };
+    await renders.onJobSettled(settled("succeeded", named, { mode: "render", project: "Shop tour", timeline: "Main", existing: true, outputPath: "/o/Shop tour.mp4", bytes: 2_097_152, url }));
+    await renders.onJobSettled(
+      settled("succeeded", { ...named, mode: "draft" }, { mode: "draft", project: "Shop tour", timeline: "Teaser", existing: false, outputPath: null, bytes: 0 }),
+    );
+    await renders.onJobSettled(settled("failed", named, { error: "DaVinci Resolve: couldn't add the clips to timeline Main" }));
+    expect(notes).toEqual([
+      {
+        title: "Resolve render ready: Shop tour",
+        body: `2 MB: ${url}. Project "Shop tour" (existing) is open in Resolve on studio-pc, 2 clips added to timeline "Main".`,
+        media: [{ url, type: "video", alt: "Shop tour" }],
+      },
+      {
+        title: "Resolve draft ready: Shop tour",
+        body: `Project "Shop tour" (new) is open in Resolve on studio-pc, 2 clips on timeline "Teaser". It hasn't been rendered: edit it and render it from Resolve.`,
+      },
+      {
+        title: "Resolve render failed: Shop tour",
+        body: `DaVinci Resolve: couldn't add the clips to timeline Main\nProject "Shop tour" was left as it was saved.`,
+      },
+    ]);
+  });
+
   it("says where the file is when it wasn't uploaded, and reports failures", async () => {
     const { renders, notes } = fakes();
     await renders.onJobSettled(settled("succeeded", { outputName: "cut" }, { outputPath: "/work/out/cut.mov", bytes: 1000 }));
@@ -130,7 +174,7 @@ describe.skipIf(!DB_URL)("davinci.render in the server", () => {
 
   it("queues a job from POST /api/davinci/render, and answers 400 for bad requests", async () => {
     const res = await ctx.api("/api/davinci/render", { method: "POST", json: { clips: [{ url: "https://cdn.example/a.mp4" }], preset: "H.264 Master" } });
-    expect(res).toMatchObject({ status: 201, body: { jobId: expect.any(String), clips: 1, preset: "H.264 Master" } });
+    expect(res).toMatchObject({ status: 201, body: { jobId: expect.any(String), clips: 1, mode: "render", preset: "H.264 Master" } });
     const jobs = (await ctx.api("/api/jobs")).body as { id: string; kind: string; requires: string[]; status: string }[];
     expect(jobs.find((j) => j.id === res.body.jobId)).toMatchObject({ kind: "davinci.render", requires: ["davinci"], status: "queued" });
 

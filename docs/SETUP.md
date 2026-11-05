@@ -492,21 +492,35 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   options or filters (`-filter_script`, `movie=`…) are rejected. The result is `{outputPath, bytes}`.
 - `claude.local` `{prompt, cwd?, maxTurns?}`: runs headless Claude Code on the PC's own login. The
   result is `{result, sessionId, costUsd}`.
-- `davinci.render` `{clips: [{url, name}], preset, outputName, fps?, upload?}` (needs `davinci`):
-  downloads the clips, and DaVinci Resolve puts them end to end on a timeline in a throwaway
-  project (`cc-<job id>`) and renders it with `preset`, which must be on the PC's `davinciPresets`.
-  The project is deleted afterwards and the project that was open before is reopened. Resolve must
-  be running, with **Preferences → System → General → External scripting using** set to **Local**.
-  The worker runs its own fixed Python script; the job only sends data. The result is
-  `{outputPath, bytes, url?}`, and the render is uploaded unless `upload` is `false`.
+- `davinci.render` (needs `davinci`): DaVinci Resolve adds clips end to end to a timeline and
+  renders it with a preset that must be on the PC's `davinciPresets`. Resolve must be running, with
+  **Preferences → System → General → External scripting using** set to **Local**. The worker runs
+  its own fixed Python script; the job only sends data. Which project it works in:
+  - **No `project`:** a throwaway project (`cc-<job id>`), deleted afterwards. The project that
+    was open before is reopened.
+  - **`project` that doesn't exist yet:** it is created. With `keepProject: true` it is kept,
+    saved and left open in Resolve; otherwise it is deleted like a throwaway.
+  - **`project` that already exists:** it is opened, and the clips are added to the end of
+    `timeline` (default `Main`, created if the project has none by that name). An existing project
+    is always kept and is never deleted. With no clips, the timeline is just rendered again. Resolve
+    looks the name up in the current folder of its Project Manager.
+  - **`mode: "draft"`:** the project and timeline are built but not rendered, and the project is
+    left open for you to edit and render yourself. A draft needs a `project` name.
 
-  To start one, don't build this payload by hand: `POST /api/davinci/render`
-  `{clips: [{fileId} | {url, name?}], preset?, outputName?, fps?, title?}` takes clips in timeline
-  order, either storage files by id (an mp4, mov or webm; the PC downloads them from
-  `/media/<id>`, so this needs `PUBLIC_BASE_URL`) or http(s) URLs, and queues the job. The preset
-  defaults to `YouTube - 1080p`. Agents can do the same through the `davinci.render` action, which
-  waits for your approval like any other. When the render finishes or fails, you get a
-  notification, with the video in it when it was uploaded.
+  If a job fails or is cancelled, Resolve is left as it was: a project the job created is
+  deleted, an existing one is closed without saving, and the project you had open is reopened.
+  Clips for a named project are kept in `<workDir>/davinci-media/<project>/<job id>/`, so a kept
+  project's media pool keeps finding them; throwaway jobs use the job folder. While a job runs,
+  Resolve switches projects, so don't edit on that PC at the same time.
+
+  Start one with `POST /api/davinci/render`:
+  `{clips?: [{fileId} | {url, name?}], mode?, project?, timeline?, keepProject?, preset?,
+  outputName?, fps?, title?}`. Clips are in timeline order: storage files by id (an mp4, mov or
+  webm; the PC downloads them from `/media/<id>`, so this needs `PUBLIC_BASE_URL`) or http(s)
+  URLs. The preset defaults to `YouTube - 1080p`, and `fps` only applies to a project the job
+  creates. Agents can do the same through the `davinci.render` action, which waits for your
+  approval like any other. When the job finishes or fails you get a notification: the video
+  (when it was uploaded), and which project is open in Resolve, on which PC.
 - A job no online computer can run stays **queued**: the Devices page says which capability is
   missing on which PC and how to get it, and **Cancel** removes it (`POST /api/jobs/:id/cancel`,
   queued jobs only).
