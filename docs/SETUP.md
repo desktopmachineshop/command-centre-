@@ -349,6 +349,9 @@ installed:
 the app. It queues a `setup.install` job only that computer takes (it waits if it's offline); the
 worker installs each piece with `winget install --exact --silent`, refreshes its PATH, detects
 again and reports back, so the ticks and its capabilities update without restarting the app.
+Every time it checks what's installed (at start-up too), the worker adds the PATH a fresh login
+would have to its own, because the desktop app passes on the PATH it started with: without this,
+ffmpeg installed by winget looked missing again after each app update.
 Windows may ask on the PC for permission to install, so be at the computer for the first run.
 Screen capture ticks only when it works; when it's off, the page shows why (no browser, Playwright
 missing, or its video recorder couldn't be downloaded), and **Install** adds Chrome only if there's
