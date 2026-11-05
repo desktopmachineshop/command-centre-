@@ -1223,7 +1223,12 @@ Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`nor
 `vertical`, `tag`, `actions`, `media` (`[{url, type: "image"|"video", alt?, durationSec?, width?,
 height?}]`, absolute http(s) URLs, at most 4) and `data`; `{title, body, url}` alone still works, and the category
 is then guessed from the title and URL (else `agent`). The `notify` action takes
-`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`.
+`payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`. It
+also takes `payload.media` (up to 4), but only this server's own `/media` files: `/media/<id>` or
+`<PUBLIC_BASE_URL>/media/<id>`, as `POST /api/media` and the storage list return them, either as
+the URL alone or `{url, alt?}`. Anything else (another host, a query string, audio) is refused when
+the agent proposes it, so outside text that reaches an agent can't make the app load someone
+else's URL. Media needs `PUBLIC_BASE_URL`.
 
 ### Quiet hours
 
