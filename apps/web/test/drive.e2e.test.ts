@@ -417,6 +417,21 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(turn?.body).toMatchObject({ text: "where is order 1042?", talkingTo: "the Chief of Staff" });
     expect(await spoken()).not.toContain("On it.");
     expect(calls.some((c) => c.path === "/chat")).toBe(false);
+
+    // Both exchanges are in the chat's log, as said in Converse: the joke with the front's answer,
+    // and the request it handed on with its line and the agent's task.
+    await page.locator('a.tool[href="#/chat"]').click();
+    await expect.poll(() => page.locator(".drive").count()).toBe(0);
+    const said = page.locator(".turn .bubble.me.is-voice");
+    await expect.poll(() => said.count()).toBe(2);
+    await page.locator(".turn", { hasText: "tell me a joke" }).getByText("Too many turns.").waitFor();
+    const handed = page.locator(".turn", { hasText: "where is order 1042?" });
+    await handed.getByText("Sure, I'll check where order ten forty-two is.").waitFor();
+    await handed.locator('a.status[href="#/task/t1"]').waitFor({ timeout: 10_000 });
+    // ... and they're kept with the chat, like typed ones.
+    await page.reload();
+    await expect.poll(() => page.locator(".turn .bubble.me.is-voice").count(), { timeout: 20_000 }).toBe(2);
+    await page.locator(".turn", { hasText: "tell me a joke" }).getByText("Too many turns.").waitFor();
     expect(errors).toEqual([]);
     await page.close();
   }, 90_000);

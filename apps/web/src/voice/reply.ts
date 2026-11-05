@@ -10,6 +10,8 @@ export class ReplyStream {
   handoff: { taskId: string | null } | null = null;
   error: string | null = null;
   onText: (text: string) => void = () => {};
+  /** Called once when the reply has fully arrived (or failed), whether or not it was spoken to the end. */
+  onEnd: () => void = () => {};
   private readonly assembler = new SentenceAssembler();
   private readonly queue: string[] = [];
   private ended = false;
@@ -48,6 +50,7 @@ export class ReplyStream {
         clearTimeout(timer);
         this.end();
         this.resolveFirst(this.text.trim().length > 0);
+        this.onEnd();
       }
     })();
     return ready;
