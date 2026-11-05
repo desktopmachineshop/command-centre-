@@ -7,7 +7,7 @@ import { Empty, ErrorBanner, PageHead, TaskTag } from "../ui";
 import { ProposalCard } from "./Approvals";
 import { Transcript } from "./Transcript";
 import { AttachedFiles, Composer } from "../composer";
-import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
+import { chatExpired, clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
 import { ReadAloudToggle, useReadAloud } from "../voice/readAloud";
@@ -285,9 +285,11 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   }, [api]);
 
   // ... and save it on every change: what was sent, where, and when there was last activity.
+  const lastActive = useRef(Date.now());
   useEffect(() => {
     if (restoring) return;
-    saveChat({ threadId, vertical, lastActive: Date.now(), turns: turns.map((t) => ({ text: t.text, ...(t.files?.length ? { files: t.files } : {}), taskId: t.task.id, at: t.at })) });
+    lastActive.current = Date.now();
+    saveChat({ threadId, vertical, lastActive: lastActive.current, turns: turns.map((t) => ({ text: t.text, ...(t.files?.length ? { files: t.files } : {}), taskId: t.task.id, at: t.at })) });
   }, [turns, threadId, vertical, restoring]);
 
   /** "New chat": a clean screen and a new thread. */
@@ -299,6 +301,22 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
     setThreadId(null);
     setError(null);
   };
+
+  // Left open overnight: once the chat has expired (two quiet hours after midnight), start fresh,
+  // checked every minute and on coming back to the app. Not in the middle of Converse.
+  const expireRef = useRef(() => {});
+  expireRef.current = () => {
+    if (turns.length && !driving && !restoring && chatExpired(lastActive.current)) newChat();
+  };
+  useEffect(() => {
+    const check = () => expireRef.current();
+    const timer = setInterval(check, 60_000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, []);
 
   // Proposals show inline on the latest turn of each task (follow-ups continue the same task).
   const latestTurnOf = new Map(turns.map((t) => [t.task.id, t.key]));
