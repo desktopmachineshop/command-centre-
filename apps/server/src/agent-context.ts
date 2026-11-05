@@ -13,7 +13,11 @@ export function taskPrompt(event: Event): string {
   // Voice-mode chats (Drive mode) store just Dave's words; the spoken-answer rules are added
   // when the run starts (`runPrompt`), so they never show in the app or travel with a handoff.
   // Files attached in the chat box come after his words (see ./chat-files.ts).
-  if (event.source === "chat" && typeof p.text === "string") return typeof p.filesPrompt === "string" && p.filesPrompt ? `${p.text}\n\n${p.filesPrompt}` : p.text;
+  if (event.source === "chat" && typeof p.text === "string") {
+    // From Drive mode: what Dave had just heard, so "that" and "her" in his words make sense.
+    const heard = typeof p.heard === "string" && p.heard ? `\n\n(Said in Drive mode. To work out what he means, just before this Dave heard ${p.heard})` : "";
+    return `${p.text}${heard}${typeof p.filesPrompt === "string" && p.filesPrompt ? `\n\n${p.filesPrompt}` : ""}`;
+  }
   if (event.source === "cron" && typeof p.prompt === "string") return p.prompt;
   // Email: a readable message plus how to reply (see @cc/email emailPrompt).
   if (event.source === "email" && event.kind === "message") return emailPrompt(p);

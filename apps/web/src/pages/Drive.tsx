@@ -41,6 +41,8 @@ const PROGRESS = [
   { atMs: 75_000, text: "This one's taking a little longer. I'll tell you as soon as it's done." },
 ];
 const POLL_EVERY_MS = 4_000;
+/** How long after the agents answer a follow-up can still go back to that task (a new topic later starts afresh). */
+const FOLLOW_UP_WINDOW_MS = 20 * 60_000;
 
 /** The main button: Interrupt while it talks, Send when it's Dave's turn. */
 const PTT_LABEL: Record<DriveState["phase"], string> = {
@@ -191,6 +193,8 @@ export function Drive({
   const narrator = useRef(new ProgressNarrator());
   /** Requests made in this session: when one runs again (a role reported back on work handed on), its new answer is spoken too. */
   const followed = useRef(new Set<string>());
+  /** The agents' latest answer and its task: the voice front sends a follow-up on it back to that task. */
+  const lastAnswer = useRef<{ taskId: string; text: string; at: number } | null>(null);
 
   const say = useCallback((text: string, expect: Expect = "none", extra: Partial<Say> & { background?: boolean } = {}) => {
     dispatch({ type: "say", text, expect, ...extra });
@@ -216,6 +220,7 @@ export function Drive({
       if (detail.task.status === "awaiting_approval") text += " It needs your approval. Say read approvals.";
       const converse = response?.type === "converse";
       const followUp = stateRef.current.followUp;
+      lastAnswer.current = { taskId, text, at: Date.now() };
       say(text, converse ? "reply" : followUp ? "command" : "none", { taskId, background: true });
     },
     [api, say],
@@ -441,9 +446,19 @@ export function Drive({
               };
               setReplyText("");
               const who = target.role ? (roles.find((r) => r.choice.vertical === target.vertical && r.choice.role === target.role)?.choice ?? null) : null;
+              // A recent answer from the agents: the front can send a follow-up on it back to that task.
+              const recent = lastAnswer.current && Date.now() - lastAnswer.current.at < FOLLOW_UP_WINDOW_MS ? lastAnswer.current : null;
               const ok = await reply.start((signal) =>
                 api.voiceTurn(
-                  { text: cmd.text, vertical: target.vertical, role: target.role, talkingTo: who ? describeRole(who) : "the Chief of Staff", lastSpoken: s.lastSpoken },
+                  {
+                    text: cmd.text,
+                    vertical: target.vertical,
+                    role: target.role,
+                    talkingTo: who ? describeRole(who) : "the Chief of Staff",
+                    lastSpoken: s.lastSpoken,
+                    lastTaskId: recent?.taskId ?? null,
+                    lastAnswer: recent?.text ?? null,
+                  },
                   signal,
                 ),
               );

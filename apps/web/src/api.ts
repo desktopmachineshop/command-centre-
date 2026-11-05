@@ -288,10 +288,20 @@ export type VoiceList = { default: string | null; voices: VoiceOption[] };
 /** One line of POST /api/voice/turn's stream. */
 export type VoiceTurnEvent =
   | { delta: string }
-  | { done: true; text: string; handoff: { taskId: string | null } | null }
+  /** `continued`: Dave's words went to the task that gave the last answer, which resumes. */
+  | { done: true; text: string; handoff: { taskId: string | null; continued?: boolean } | null }
   | { error: string };
 
-export type VoiceTurnRequest = { text: string; vertical?: string; role?: string; talkingTo?: string; lastSpoken?: string | null };
+export type VoiceTurnRequest = {
+  text: string;
+  vertical?: string;
+  role?: string;
+  talkingTo?: string;
+  lastSpoken?: string | null;
+  /** The task whose answer Dave last heard, and that answer: a follow-up on it continues that task. */
+  lastTaskId?: string | null;
+  lastAnswer?: string | null;
+};
 
 export type VoiceBriefing = { text: string; approvals: { count: number }; cost: { todayUsd: number } };
 

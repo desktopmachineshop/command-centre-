@@ -14,8 +14,11 @@ export interface VoiceApiDeps {
   chatFiles?: ChatFiles;
   /** Drive mode's fast voice front (null when off, e.g. with the echo runner). */
   front?: () => VoiceFront | null;
-  /** Creates the agent task for a handed-off request, as POST /api/chat with `voice: true` does. */
-  handOff?: (request: { text: string; vertical?: string; role?: string }) => Promise<{ taskId: string | null }>;
+  /**
+   * Creates the agent task for a handed-off request, as POST /api/chat with `voice: true` does.
+   * `context`: what Dave had just heard in Drive mode, so the agent can tell what "that" means.
+   */
+  handOff?: (request: { text: string; vertical?: string; role?: string; context?: string }) => Promise<{ taskId: string | null }>;
 }
 
 const providerError = (err: unknown) =>
@@ -30,9 +33,18 @@ const providerError = (err: unknown) =>
  * - GET  /voice/approvals/next    the next pending proposal, described for reading aloud
  * - POST /tasks/:id/reply         {text, voice?, files?} continues a task's conversation (files: ids from POST /chat/files)
  * - POST /voice/warm              loads the speech engines and the voice front ahead of use
- * - POST /voice/turn              {text, ...} → NDJSON stream: {delta} chunks, then {done, handoff?: {taskId}}
+ * - POST /voice/turn              {text, ..., lastTaskId?, lastAnswer?} → NDJSON stream: {delta} chunks, then
+ *                                 {done, handoff?: {taskId, continued}}; a follow-up continues lastTaskId
  * Live transcription is a WebSocket at /ws/voice (http/voice-listen.ts).
  */
+/** What Dave had just heard, for a new task handed off from Drive mode. Pure. */
+export function heardContext(lastSpoken?: string | null, lastAnswer?: string | null): string | undefined {
+  const parts = [lastAnswer?.trim() ? `the agents' last answer: "${lastAnswer.trim().slice(0, 1500)}"` : null];
+  if (lastSpoken?.trim() && lastSpoken.trim() !== lastAnswer?.trim()) parts.push(`the last thing he heard: "${lastSpoken.trim().slice(0, 600)}"`);
+  const said = parts.filter(Boolean);
+  return said.length ? said.join("; ") : undefined;
+}
+
 export function voiceApiRoutes(deps: VoiceApiDeps) {
   const { service, conversations } = deps;
   const app = new Hono();
@@ -125,6 +137,9 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
         role: z.string().optional(),
         talkingTo: z.string().max(200).optional(),
         lastSpoken: z.string().max(2000).nullish(),
+        /** The task whose answer Dave last heard in this Drive session, and that answer. */
+        lastTaskId: z.string().max(100).nullish(),
+        lastAnswer: z.string().max(4000).nullish(),
       })
       .parse(await c.req.json());
     const pending = await service.pendingLine().catch(() => undefined);
@@ -139,13 +154,20 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
           }
         };
         try {
+          const lastAnswer = body.lastTaskId ? body.lastAnswer : null;
           const result = await front.turn(
-            { text: body.text, talkingTo: body.talkingTo, lastSpoken: body.lastSpoken, pending },
+            { text: body.text, talkingTo: body.talkingTo, lastSpoken: body.lastSpoken, lastAnswer, pending },
             { onDelta: (delta) => line({ delta }) },
           );
-          let taskId: string | null = null;
-          if (result.handoff) taskId = (await deps.handOff!({ text: body.text, vertical: body.vertical, role: body.role })).taskId;
-          line({ done: true, text: result.text, handoff: result.handoff ? { taskId } : null });
+          let handoff: { taskId: string | null; continued: boolean } | null = null;
+          if (result.handoff) {
+            // A follow-up goes back to the task that gave the answer, which resumes with everything it found.
+            const continued = result.continues && body.lastTaskId ? await continueTask(body.lastTaskId, body.text) : null;
+            handoff = continued
+              ? { taskId: continued, continued: true }
+              : { taskId: (await deps.handOff!({ text: body.text, vertical: body.vertical, role: body.role, context: heardContext(body.lastSpoken, lastAnswer) })).taskId, continued: false };
+          }
+          line({ done: true, text: result.text, handoff });
         } catch (err) {
           console.error("[voice] turn", err instanceof Error ? err.message : err);
           line({ error: (err as Error).message });
@@ -156,6 +178,20 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
     });
     return c.body(stream, 200, { "content-type": "application/x-ndjson", "cache-control": "no-store", "x-accel-buffering": "no" });
   });
+
+  /** Dave's follow-up on a task: answered now if the task is done, or taken after its current run. Null: no such task. */
+  async function continueTask(taskId: string, text: string): Promise<string | null> {
+    try {
+      const task = await conversations.reply(taskId, text, true);
+      return task?.id ?? null;
+    } catch (err) {
+      if (!(err instanceof ReplyStateError)) throw err;
+      // Still queued or running (only an existing task says so): the note waits, and the task
+      // runs again with it once its current run is over.
+      await conversations.report(taskId, "dave", text);
+      return taskId;
+    }
+  }
 
   app.get("/voice/briefing", async (c) => c.json(await service.briefing()));
 

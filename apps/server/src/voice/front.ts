@@ -10,6 +10,9 @@ import { createInterface } from "node:readline";
  */
 
 export const HANDOFF = "[[handoff]]";
+/** Like HANDOFF, but Dave's words follow up the agents' last answer: they go to that task, which resumes. */
+export const CONTINUE = "[[continue]]";
+const MARKERS = [HANDOFF, CONTINUE];
 
 export const FRONT_SYSTEM_PROMPT = `You are the voice of Dave's Command Centre: the friendly, quick front desk he talks to while driving. Everything you write is read aloud by a speech engine.
 
@@ -22,10 +25,13 @@ What you can do yourself (no tools): chat, small talk, general knowledge, maths,
 
 What you cannot do yourself: anything about Dave's businesses, orders, customers, email, calendar, stock, tasks, approvals detail, the web, how the Command Centre app works or is set up (its pages, settings and accounts: the agents have its help docs), or any action (sending, booking, changing, checking, looking up). You have no access to that data and must never guess it. For those, the agents do the work:
 - Reply with one short, natural acknowledgement that shows you understood (e.g. "Sure, I'll check where order ten forty-two is.", "On it, I'll draft that reply to Sarah."). Don't promise a time. Don't say "agent".
-- Then end your message with ${HANDOFF} on its own.
+- Then end your message with ${HANDOFF} on its own: a new request, which the agents start fresh.
+- Or end it with ${CONTINUE} instead when Dave's words follow on from the agents' last answer (shown in the context line): he answers it, confirms or corrects it ("yes, send it", "no, the other one"), or asks for more about the same thing ("and when will it arrive?"). The agents then carry on from where they left off, with everything they already found. When the context line has no last answer from the agents, use ${HANDOFF}.
 When unsure whether you can answer from what you know, hand off.
 
-Each message from Dave starts with a context line in brackets (time, who he's talking to, what's pending). Never read it out.`;
+The agents' answers reach Dave between your turns: the context line gives their latest one, so you can talk about it (repeat a figure, explain a word), but anything that needs checking or acting on goes back to them with ${CONTINUE}.
+
+Each message from Dave starts with a context line in brackets (time, who he's talking to, what's pending, the agents' last answer, what he last heard). Never read it out.`;
 
 export interface FrontTurn {
   /** Dave's words. */
@@ -34,6 +40,8 @@ export interface FrontTurn {
   talkingTo?: string;
   /** The last thing said to Dave (e.g. an agent's answer), so follow-ups make sense. */
   lastSpoken?: string | null;
+  /** The agents' latest answer in this Drive session, so the front can tell a follow-up from a new request. */
+  lastAnswer?: string | null;
   /** e.g. "2 approvals waiting". */
   pending?: string;
 }
@@ -45,6 +53,8 @@ export interface FrontEvents {
 export interface FrontResult {
   text: string;
   handoff: boolean;
+  /** With `handoff`: Dave's words follow up the agents' last answer (CONTINUE), not a new request. */
+  continues?: true;
 }
 
 export interface VoiceFrontOptions {
@@ -72,20 +82,25 @@ export interface VoiceFrontOptions {
 export class FrontStreamSplitter {
   private held = "";
   handoff = false;
+  /** The marker was CONTINUE. */
+  continues = false;
 
   push(delta: string): string {
     if (this.handoff) return "";
     const text = this.held + delta;
-    const at = text.indexOf(HANDOFF);
-    if (at >= 0) {
+    const hits = MARKERS.map((m) => ({ m, at: text.indexOf(m) })).filter((h) => h.at >= 0);
+    if (hits.length) {
+      const first = hits.reduce((a, b) => (b.at < a.at ? b : a));
       this.handoff = true;
+      this.continues = first.m === CONTINUE;
       this.held = "";
-      return text.slice(0, at);
+      return text.slice(0, first.at);
     }
-    // Hold back a tail that could be the start of the marker.
+    // Hold back a tail that could be the start of a marker.
     let keep = 0;
-    for (let n = Math.min(HANDOFF.length - 1, text.length); n > 0; n--) {
-      if (HANDOFF.startsWith(text.slice(-n))) {
+    for (let n = Math.min(Math.max(...MARKERS.map((m) => m.length)) - 1, text.length); n > 0; n--) {
+      const tail = text.slice(-n);
+      if (MARKERS.some((m) => m.startsWith(tail))) {
         keep = n;
         break;
       }
@@ -150,7 +165,9 @@ export class VoiceFront {
     const context = [`It is ${when}`];
     if (input.talkingTo) context.push(`requests go to ${input.talkingTo}`);
     if (input.pending) context.push(input.pending);
-    if (input.lastSpoken) context.push(`last thing Dave heard: "${input.lastSpoken.slice(0, 400)}"`);
+    const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}…` : s);
+    if (input.lastAnswer) context.push(`the agents' last answer to Dave: "${clip(input.lastAnswer.trim(), 1500)}"`);
+    if (input.lastSpoken && input.lastSpoken.trim() !== input.lastAnswer?.trim()) context.push(`last thing Dave heard: "${clip(input.lastSpoken.trim(), 600)}"`);
     return `[${context.join("; ")}]\n${input.text}`;
   }
 
@@ -254,7 +271,7 @@ export class VoiceFront {
         p.reject(new Error(typeof msg.result === "string" ? msg.result : "the voice front failed"));
         return;
       }
-      p.resolve({ text: p.spoken.trim(), handoff: p.splitter.handoff });
+      p.resolve({ text: p.spoken.trim(), handoff: p.splitter.handoff, ...(p.splitter.continues ? { continues: true as const } : {}) });
     }
   }
 

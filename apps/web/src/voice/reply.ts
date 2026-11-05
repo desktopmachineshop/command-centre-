@@ -7,7 +7,7 @@ import type { VoiceTurnEvent } from "../api";
  */
 export class ReplyStream {
   text = "";
-  handoff: { taskId: string | null } | null = null;
+  handoff: { taskId: string | null; continued?: boolean } | null = null;
   error: string | null = null;
   onText: (text: string) => void = () => {};
   /** Called once when the reply has fully arrived (or failed), whether or not it was spoken to the end. */
