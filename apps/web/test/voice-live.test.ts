@@ -40,20 +40,38 @@ describe("audio level", () => {
 });
 
 describe("Downsampler", () => {
-  it("turns 48 kHz float audio into 16 kHz 16-bit PCM, seamlessly across frames", () => {
-    const d = new Downsampler(48000);
-    const a = d.push(new Float32Array(128).fill(0.5));
-    const b = d.push(new Float32Array(128).fill(-0.5));
-    expect(a.length + b.length).toBe(85); // 256 / 3, the remainder carried
-    expect(a[0]).toBe(Math.trunc(0.5 * 0x7fff));
-    expect(b.at(-1)).toBe(-0x4000);
+  const tone = (hz: number, rate: number, seconds: number) => Float32Array.from({ length: Math.round(rate * seconds) }, (_, i) => 0.5 * Math.sin((2 * Math.PI * hz * i) / rate));
+  const rms = (x: Int16Array) => Math.sqrt(x.reduce((s, v) => s + (v / 0x8000) ** 2, 0) / x.length);
+  /** Pushes `x` in 128-sample frames (an AudioWorklet's) and returns everything out, joined. */
+  const run = (rate: number, x: Float32Array) => {
+    const d = new Downsampler(rate);
+    const parts: Int16Array[] = [];
+    for (let i = 0; i < x.length; i += 128) parts.push(d.push(x.subarray(i, i + 128)));
+    const out = new Int16Array(parts.reduce((n, p) => n + p.length, 0));
+    let k = 0;
+    for (const p of parts) out.set(p, (k += p.length) - p.length);
+    return out;
+  };
+
+  it("turns 48 kHz float audio into 16 kHz 16-bit PCM, seamlessly across frames, keeping steady levels", () => {
+    const out = run(48000, new Float32Array(4800).fill(0.5));
+    expect(Math.abs(out.length - 1600)).toBeLessThanOrEqual(10); // a few samples wait for the next frame
+    expect(Math.abs(out[out.length - 1]! / 0x7fff - 0.5)).toBeLessThan(0.01);
+  });
+
+  it("passes speech and stops what is above 8 kHz folding back into it", () => {
+    const speech = run(48000, tone(1000, 48000, 0.5));
+    const hiss = run(48000, tone(11000, 48000, 0.5));
+    const sine = 0.5 / Math.SQRT2;
+    expect(rms(speech.subarray(100)) / sine).toBeGreaterThan(0.95);
+    expect(rms(hiss.subarray(100)) / sine).toBeLessThan(0.02);
   });
 
   it("handles 44.1 kHz without drift", () => {
     const d = new Downsampler(44100);
     let total = 0;
     for (let i = 0; i < 100; i++) total += d.push(new Float32Array(441)).length;
-    expect(total).toBe(16000);
+    expect(Math.abs(total - 16000)).toBeLessThanOrEqual(10);
   });
 });
 

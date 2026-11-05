@@ -20,8 +20,12 @@ import {
  * browser's own recognition; else recording and the server's speech-to-text; else nothing.
  * Shared by Drive mode and the chat's dictation button.
  */
-export function pickListener(api: Pick<Api, "transcribe" | "voiceListenUrl" | "token">, config: VoiceConfig | null): Listener | null {
-  if (config?.stt?.streaming && hasLiveCapture()) return new StreamingListener(api.voiceListenUrl, api.token);
+/**
+ * The best way this device can listen. `warm` (Converse): with the server's live transcription,
+ * keep the microphone open between turns (close the listener when done).
+ */
+export function pickListener(api: Pick<Api, "transcribe" | "voiceListenUrl" | "token">, config: VoiceConfig | null, { warm = false } = {}): Listener | null {
+  if (config?.stt?.streaming && hasLiveCapture()) return new StreamingListener(api.voiceListenUrl, api.token, warm);
   const browser = hasBrowserRecognition();
   const server = Boolean(config?.stt) && hasRecorder();
   const transcribe = async (audio: Blob, seconds: number, language: string) => (await api.transcribe(audio, seconds, language)).text;

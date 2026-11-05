@@ -36,6 +36,8 @@ export interface Listener {
   listen(options: ListenOptions): Promise<string | null>;
   /** Stops listening now; a pending listen() resolves with what was heard so far. */
   stop(): void;
+  /** Releases anything kept open between turns (a warm microphone). */
+  close?(): void;
 }
 
 type Recognition = {
@@ -395,34 +397,67 @@ class MicMeter {
 }
 
 /**
- * Float audio at the device rate → 16 kHz 16-bit PCM, what the server's recognizer takes.
- * Averages over each output sample's window (a cheap low-pass), carrying the remainder between
- * calls so frames join seamlessly. Pure apart from its carry.
+ * Float audio at the device rate → 16 kHz 16-bit PCM, what the server's recognizer takes. A proper
+ * low-pass first (a windowed-sinc FIR just under 8 kHz), then resampling, so sound above 8 kHz
+ * doesn't fold back into the speech band as hiss and distortion (plain averaging let it through,
+ * which costs recognition accuracy). Carries its history between calls so frames join seamlessly;
+ * the last few samples (under 1 ms) wait for the next call. Pure apart from that state.
  */
 export class Downsampler {
   private readonly ratio: number;
-  private carry = new Float32Array(0);
+  private readonly taps: Float32Array;
+  private readonly half: number;
+  private buf: Float32Array;
+  /** Where the next output sample falls in `buf` (fractional, in input samples). */
+  private pos: number;
 
   constructor(inputRate: number, readonly outputRate = 16000) {
     this.ratio = inputRate / outputRate;
+    // Cut-off at 0.45 of the output rate (7.2 kHz at 16 kHz), Blackman-windowed.
+    const cutoff = (0.45 * outputRate) / inputRate;
+    this.half = Math.max(4, Math.ceil(8 * this.ratio));
+    const n = this.half * 2 + 1;
+    const taps = new Float32Array(n);
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const k = i - this.half;
+      const sinc = k === 0 ? 2 * cutoff : Math.sin(2 * Math.PI * cutoff * k) / (Math.PI * k);
+      const w = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (n - 1));
+      taps[i] = sinc * w;
+      sum += taps[i]!;
+    }
+    for (let i = 0; i < n; i++) taps[i]! /= sum; // unity gain for steady levels
+    this.taps = taps;
+    this.buf = new Float32Array(this.half); // silence before the first sample
+    this.pos = this.half;
+  }
+
+  /** The low-passed input at sample `i` of `buf`. */
+  private filtered(i: number): number {
+    let acc = 0;
+    for (let k = 0; k < this.taps.length; k++) acc += this.buf[i - this.half + k]! * this.taps[k]!;
+    return acc;
   }
 
   push(input: Float32Array): Int16Array {
-    const data = new Float32Array(this.carry.length + input.length);
-    data.set(this.carry);
-    data.set(input, this.carry.length);
-    const count = Math.floor(data.length / this.ratio);
-    const out = new Int16Array(count);
-    for (let n = 0; n < count; n++) {
-      const start = Math.floor(n * this.ratio);
-      const end = Math.max(start + 1, Math.floor((n + 1) * this.ratio));
-      let sum = 0;
-      for (let i = start; i < end; i++) sum += data[i]!;
-      const v = Math.max(-1, Math.min(1, sum / (end - start)));
-      out[n] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    const buf = new Float32Array(this.buf.length + input.length);
+    buf.set(this.buf);
+    buf.set(input, this.buf.length);
+    this.buf = buf;
+    const out: number[] = [];
+    for (;;) {
+      const i0 = Math.floor(this.pos);
+      if (i0 + 1 + this.half >= buf.length) break;
+      const frac = this.pos - i0;
+      const a = this.filtered(i0);
+      const v = Math.max(-1, Math.min(1, frac ? a + (this.filtered(i0 + 1) - a) * frac : a));
+      out.push(v < 0 ? v * 0x8000 : v * 0x7fff);
+      this.pos += this.ratio;
     }
-    this.carry = data.slice(Math.floor(count * this.ratio));
-    return out;
+    const drop = Math.max(0, Math.floor(this.pos) - this.half);
+    this.buf = buf.slice(drop);
+    this.pos -= drop;
+    return Int16Array.from(out);
   }
 }
 
@@ -462,23 +497,30 @@ async function captureFrames(ctx: AudioContext, source: AudioNode, onFrame: (sam
   };
 }
 
-/**
- * Live transcription on the server (self-hosted, `/ws/voice`): the microphone is streamed as
- * 16 kHz PCM and the words come back as they're recognised, so the text grows while Dave talks.
- * Unlatched, the server's end-of-phrase detection ends the turn after a short pause.
- */
-export class StreamingListener implements Listener {
-  readonly kind = "live";
-  level: LevelSource = SILENT;
-  private stopNow: (() => void) | null = null;
+/** How much of the moments before a turn starts goes in with it (a word begun on the tone). */
+const PREROLL_SAMPLES = 16000 * 0.4;
 
-  constructor(
-    private readonly url: string,
-    private readonly token: string | null,
+/**
+ * The microphone, running: filtered for rumble, metered for the orb, and turned into 16 kHz PCM,
+ * with the last second kept so a turn can start a little before it was asked to. Opening one
+ * takes a few hundred milliseconds on a real device (more with a Bluetooth headset), and whatever
+ * is said meanwhile is lost: so Converse keeps one open between turns (StreamingListener `warm`).
+ */
+class MicSession {
+  /** Where the PCM goes while a turn is listening; null between turns. */
+  sink: ((pcm: Int16Array) => void) | null = null;
+  private history = new Int16Array(16000);
+  private filled = 0;
+  private closed = false;
+
+  private constructor(
+    private readonly stream: MediaStream,
+    private readonly ctx: AudioContext,
+    readonly analyser: AnalyserNode,
+    private stopCapture: () => void,
   ) {}
 
-  async listen({ timeoutMs, onInterim, maxTurnMs = 60_000, latched = false }: ListenOptions): Promise<string | null> {
-    this.stop();
+  static async open(): Promise<MicSession> {
     const stream = await openMic();
     const ctx = new AudioContext();
     void ctx.resume?.();
@@ -488,10 +530,95 @@ export class StreamingListener implements Listener {
     ctx.createMediaStreamSource(stream).connect(source);
     const analyser = ctx.createAnalyser();
     source.connect(analyser);
-    this.level = new AnalyserLevel(analyser);
+    const down = new Downsampler(ctx.sampleRate);
+    let session: MicSession | null = null;
+    const stopCapture = await captureFrames(ctx, source, (frame) => session?.take(down.push(frame))).catch((err) => {
+      stream.getTracks().forEach((t) => t.stop());
+      void ctx.close().catch(() => {});
+      throw err;
+    });
+    session = new MicSession(stream, ctx, analyser, stopCapture);
+    return session;
+  }
+
+  private take(pcm: Int16Array) {
+    if (!pcm.length) return;
+    // Keep the last second: shift and append (frames are a few dozen samples).
+    const h = this.history;
+    if (pcm.length >= h.length) h.set(pcm.subarray(pcm.length - h.length));
+    else {
+      h.copyWithin(0, pcm.length);
+      h.set(pcm, h.length - pcm.length);
+    }
+    this.filled = Math.min(h.length, this.filled + pcm.length);
+    this.sink?.(pcm);
+  }
+
+  /** The last `samples` of audio (up to a second). */
+  recent(samples: number): Int16Array {
+    const n = Math.min(samples, this.filled);
+    return this.history.slice(this.history.length - n);
+  }
+
+  get live() {
+    return !this.closed && this.stream.getAudioTracks().some((t) => t.readyState === "live");
+  }
+
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.sink = null;
+    this.stopCapture();
+    this.stream.getTracks().forEach((t) => t.stop());
+    void this.ctx.close().catch(() => {});
+  }
+}
+
+/**
+ * Live transcription on the server (self-hosted, `/ws/voice`): the microphone is streamed as
+ * 16 kHz PCM and the words come back as they're recognised, so the text grows while Dave talks.
+ * Unlatched, the server's end-of-phrase detection ends the turn after a short pause.
+ */
+export class StreamingListener implements Listener {
+  readonly kind = "live";
+  level: LevelSource = SILENT;
+  private stopNow: (() => void) | null = null;
+  /** The microphone kept open between turns when `warm` (Converse); opened per turn otherwise. */
+  private session: Promise<MicSession> | null = null;
+
+  constructor(
+    private readonly url: string,
+    private readonly token: string | null,
+    /**
+     * Keep the microphone open between turns (until close()), so each turn starts at once and
+     * with the moment before it: nothing said on the tone, or straight after a reply, is lost.
+     */
+    private readonly warm = false,
+  ) {}
+
+  private async mic(): Promise<MicSession> {
+    if (!this.warm) return MicSession.open();
+    const current = this.session ? await this.session.catch(() => null) : null;
+    if (current?.live) return current;
+    this.session = MicSession.open();
+    this.session.catch(() => (this.session = null));
+    return this.session;
+  }
+
+  /** Releases the microphone (a warm listener keeps it open until this). */
+  close() {
+    this.stop();
+    const s = this.session;
+    this.session = null;
+    void s?.then((m) => m.close()).catch(() => {});
+  }
+
+  async listen({ timeoutMs, onInterim, maxTurnMs = 60_000, latched = false }: ListenOptions): Promise<string | null> {
+    this.stop();
+    const mic = await this.mic();
+    this.level = new AnalyserLevel(mic.analyser);
     const ws = new WebSocket(this.url);
     ws.binaryType = "arraybuffer";
-    const down = new Downsampler(ctx.sampleRate);
     // Audio from before the socket is ready is kept, so the first word isn't lost.
     const early: ArrayBuffer[] = [];
     let ready = false;
@@ -509,10 +636,13 @@ export class StreamingListener implements Listener {
       }
       pending = joined.slice(at);
     };
-    // The socket's handlers are attached right away (below), so its events can't be missed
-    // while the capture worklet loads.
-    let stopCapture = () => {};
-    const capture = captureFrames(ctx, source, (frame) => sendAudio(down.push(frame)));
+    // A warm microphone has been running: the turn starts with the moment before it.
+    if (this.warm) sendAudio(mic.recent(PREROLL_SAMPLES));
+    mic.sink = sendAudio;
+    const stopCapture = () => {
+      if (mic.sink === sendAudio) mic.sink = null;
+      if (!this.warm) mic.close();
+    };
 
     return new Promise<string | null>((resolve, reject) => {
       let text = "";
@@ -524,8 +654,6 @@ export class StreamingListener implements Listener {
         clearTimeout(cap);
         clearTimeout(guard);
         stopCapture();
-        stream.getTracks().forEach((t) => t.stop());
-        void ctx.close().catch(() => {});
         this.level = SILENT;
         this.stopNow = null;
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
@@ -543,7 +671,6 @@ export class StreamingListener implements Listener {
         if (stopping || settled) return;
         stopping = true;
         stopCapture();
-        stream.getTracks().forEach((t) => t.stop());
         if (pending.length) {
           const tail = new Int16Array(FRAME);
           tail.set(pending.slice(0, FRAME));
@@ -558,13 +685,6 @@ export class StreamingListener implements Listener {
         if (!heard) end();
       }, timeoutMs);
       const cap = setTimeout(end, maxTurnMs);
-      capture.then(
-        (stop) => {
-          if (settled || stopping) stop();
-          else stopCapture = stop;
-        },
-        (err) => done(null, err as Error),
-      );
 
       ws.onopen = () => ws.send(JSON.stringify({ type: "hello", token: this.token ?? "", latched }));
       ws.onmessage = (e) => {
