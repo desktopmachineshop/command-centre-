@@ -15,7 +15,7 @@
     </fig>
     <p>Type in <uicontrol>Message</uicontrol> and press Enter (Shift+Enter for a new line). Each answer shows which business handled it and links to its task. Follow-ups continue the same thread, so the agent remembers what you were talking about; <uicontrol>New chat</uicontrol> starts afresh. Wait for one answer before sending the next.</p>
     <p>If the work needs your approval, the proposals appear right under the answer, so you can approve them without leaving Chat.</p>
-    <p><uicontrol>Converse</uicontrol> in the box switches to hands-free voice, and <uicontrol>Fold</uicontrol> switches back; on a touch screen, swipe up on the box and down again. See <xref href="converse.dita">Converse</xref>.</p>
+    <p><uicontrol>Converse</uicontrol> in the box switches to hands-free voice, and <uicontrol>Fold</uicontrol> switches back; on a touch screen, swipe up on the strip down the box's right-hand edge, and down again. See <xref href="converse.dita">Converse</xref>.</p>
   </body>
   <topic id="send-to">
     <title>Choose who you are talking to</title>

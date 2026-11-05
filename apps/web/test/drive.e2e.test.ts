@@ -397,7 +397,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.close();
   }, 90_000);
 
-  it("on a touch screen, swipe up on the chat box opens Converse and swipe down folds it", async () => {
+  it("on a touch screen, swipe up from the strip on the chat box's right edge opens Converse, and down folds it", async () => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -414,19 +414,21 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
       for (let i = 1; i <= 5; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: y + (dy * i) / 5 }] });
       await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     };
-    // Swipe up from the chat box's bottom row (not the text box): Converse opens.
+    const strip = page.locator(".composer-swipe");
+    expect(await strip.isVisible()).toBe(true);
+    // A swipe up elsewhere on the box (here, its bottom row) is left alone: only the strip swipes.
     let r = (await page.locator(".composer button.send").boundingBox())!;
     await swipe(r.x - 60, r.y + r.height / 2, -160);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => location.hash)).toBe("#/chat");
+    // Swipe up from the strip on the right-hand edge: Converse opens.
+    r = (await strip.boundingBox())!;
+    await swipe(r.x + r.width / 2, r.y + r.height / 2, -120);
     await page.locator(".composer.is-open .drive").waitFor({ timeout: 10_000 });
     expect(await page.evaluate(() => location.hash)).toBe("#/converse");
-    // A swipe starting in the text box is left to the text box.
-    r = (await page.locator(".composer textarea").boundingBox())!;
-    await swipe(r.x + 40, r.y + r.height / 2, 160);
-    await page.waitForTimeout(300);
-    expect(await page.evaluate(() => location.hash)).toBe("#/converse");
-    // Swipe down on the grown box: back to chat.
-    r = (await box.boundingBox())!;
-    await swipe(r.x + 30, r.y + r.height / 2, 200);
+    // Swipe down from the strip on the grown box: back to chat.
+    r = (await strip.boundingBox())!;
+    await swipe(r.x + r.width / 2, r.y + r.height / 3, 200);
     await expect.poll(() => page.evaluate(() => location.hash)).toBe("#/chat");
     await expect.poll(() => page.locator(".drive").count()).toBe(0);
     expect(errors).toEqual([]);
