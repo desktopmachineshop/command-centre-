@@ -28,11 +28,30 @@ import { ThemeCycle, ThemeToggle, type VerticalInfo, VerticalsContext } from "./
 // --- auth: cookie session (or a stored admin token), first-run setup, sign-in ---
 type AuthState =
   | { kind: "checking" }
-  | { kind: "signedOut"; setupRequired: boolean; error?: string }
+  | { kind: "signedOut"; setupRequired: boolean; error?: string; dmsid?: boolean; dmsidCode?: boolean }
   | { kind: "signedIn"; conn: Connection };
+
+/** What the server's DMSid callback reports in `/?signin=` (see accounts/http.ts). */
+const SIGNIN_OUTCOMES: Record<string, string> = {
+  "dmsid-failed": "Signing in with DMSid didn't work. Try again.",
+  "dmsid-refused": "That DMSid can't sign in to Command Centre.",
+  "dmsid-locked": "Too many attempts. Try again later.",
+};
+
+/** Reads (once) and removes the `?signin=` outcome the DMSid callback left in the address bar. */
+function takeSigninOutcome(): string | undefined {
+  const params = new URLSearchParams(location.search);
+  const outcome = params.get("signin");
+  if (outcome === null) return undefined;
+  params.delete("signin");
+  const rest = params.toString();
+  history.replaceState(history.state, "", `${location.pathname}${rest ? `?${rest}` : ""}${location.hash}`);
+  return SIGNIN_OUTCOMES[outcome];
+}
 
 /** Asks the server whether this browser has a session, and if not whether first-run setup is needed. */
 async function checkSession(): Promise<AuthState> {
+  const outcome = takeSigninOutcome();
   const api = createApi(COOKIE_SESSION);
   try {
     await api.me();
@@ -41,9 +60,10 @@ async function checkSession(): Promise<AuthState> {
     if (!(err instanceof ApiError) || err.status !== 401) return { kind: "signedOut", setupRequired: false, error: "Can't reach the server. Check your connection." };
   }
   try {
-    return { kind: "signedOut", setupRequired: (await api.authStatus()).setupRequired };
+    const status = await api.authStatus();
+    return { kind: "signedOut", setupRequired: status.setupRequired, dmsid: status.dmsid, dmsidCode: status.dmsidCodeRequired, error: outcome };
   } catch {
-    return { kind: "signedOut", setupRequired: false };
+    return { kind: "signedOut", setupRequired: false, error: outcome };
   }
 }
 
@@ -72,6 +92,8 @@ export function App() {
       <Login
         notice={auth.error}
         setupRequired={auth.setupRequired}
+        dmsid={auth.dmsid}
+        dmsidCode={auth.dmsidCode}
         onSignedIn={(c) => {
           // Only the admin-token flow stores anything; a cookie session keeps no secret in the browser.
           saveConnection(c.token ? c : null);

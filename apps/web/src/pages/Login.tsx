@@ -4,7 +4,7 @@ import { BrandMark } from "../icons";
 import { useTheme } from "../theme";
 import { ErrorBanner, ThemeToggle } from "../ui";
 
-type Mode = "password" | "token";
+type Mode = "password" | "token" | "dmsid-code";
 
 /**
  * Sign-in screen. `setupRequired` (no users yet) shows first-run setup instead.
@@ -12,15 +12,21 @@ type Mode = "password" | "token";
  */
 export function Login({
   setupRequired,
+  dmsid = false,
+  dmsidCode = false,
   notice,
   onSignedIn,
 }: {
   setupRequired: boolean;
+  /** Offer "Sign in with DMSid" (the server has it configured). */
+  dmsid?: boolean;
+  /** Back from DMSid with two-factor on: ask for the authenticator code. */
+  dmsidCode?: boolean;
   /** Shown above the form, e.g. when the server could not be reached. */
   notice?: string;
   onSignedIn: (c: Connection) => void;
 }) {
-  const [mode, setMode] = useState<Mode>("password");
+  const [mode, setMode] = useState<Mode>(dmsidCode ? "dmsid-code" : "password");
   const [theme, setTheme] = useTheme();
 
   return (
@@ -28,12 +34,14 @@ export function Login({
       <div className="login-theme">
         <ThemeToggle value={theme} onChange={setTheme} />
       </div>
-      {mode === "token" ? (
+      {mode === "dmsid-code" ? (
+        <DmsIdCodeForm onSignedIn={onSignedIn} onBack={() => setMode("password")} />
+      ) : mode === "token" ? (
         <TokenForm onSignedIn={onSignedIn} onBack={() => setMode("password")} />
       ) : setupRequired ? (
         <SetupForm onSignedIn={onSignedIn} onUseToken={() => setMode("token")} />
       ) : (
-        <PasswordForm notice={notice} onSignedIn={onSignedIn} onUseToken={() => setMode("token")} />
+        <PasswordForm notice={notice} dmsid={dmsid} onSignedIn={onSignedIn} onUseToken={() => setMode("token")} />
       )}
     </div>
   );
@@ -59,7 +67,17 @@ function useSubmit(initialError: string | null = null) {
   return { error, setError, busy, run };
 }
 
-function PasswordForm({ notice, onSignedIn, onUseToken }: { notice?: string; onSignedIn: (c: Connection) => void; onUseToken: () => void }) {
+function PasswordForm({
+  notice,
+  dmsid,
+  onSignedIn,
+  onUseToken,
+}: {
+  notice?: string;
+  dmsid: boolean;
+  onSignedIn: (c: Connection) => void;
+  onUseToken: () => void;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
@@ -126,10 +144,61 @@ function PasswordForm({ notice, onSignedIn, onUseToken }: { notice?: string; onS
           Back
         </button>
       ) : (
-        <button type="button" className="link" onClick={onUseToken}>
-          Use an admin token instead
-        </button>
+        <>
+          {dmsid && (
+            <>
+              <p className="login-or muted small" aria-hidden="true">
+                or
+              </p>
+              {/* A full-page navigation: the server sends the browser on to DMSid and back. */}
+              <a className="button-link" href="/api/auth/dmsid">
+                Sign in with DMSid
+              </a>
+            </>
+          )}
+          <button type="button" className="link" onClick={onUseToken}>
+            Use an admin token instead
+          </button>
+        </>
       )}
+    </form>
+  );
+}
+
+/** Back from DMSid for an account with two-factor on: the authenticator code completes the sign-in. */
+function DmsIdCodeForm({ onSignedIn, onBack }: { onSignedIn: (c: Connection) => void; onBack: () => void }) {
+  const [code, setCode] = useState("");
+  const { error, busy, run } = useSubmit();
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      try {
+        await api.dmsidCode(code.trim());
+        onSignedIn(COOKIE_SESSION);
+      } catch (err) {
+        setCode("");
+        throw err;
+      }
+    });
+  };
+
+  return (
+    <form className="card" onSubmit={submit}>
+      <BrandMark size={52} />
+      <h1>Command Centre</h1>
+      <p className="muted small">Signed in with DMSid. Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+      <label>
+        Code
+        <input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" inputMode="numeric" autoFocus required />
+      </label>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <button className="primary" disabled={busy}>
+        {busy ? "Signing in…" : "Verify"}
+      </button>
+      <button type="button" className="link" onClick={onBack}>
+        Back
+      </button>
     </form>
   );
 }

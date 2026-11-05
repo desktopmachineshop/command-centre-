@@ -57,7 +57,7 @@ describe.skipIf(!DB_URL)("auth (integration)", () => {
 
   describe("first-run setup", () => {
     it("reports that setup is needed and nothing else", async () => {
-      expect((await req("/api/auth/status")).body).toEqual({ setupRequired: true });
+      expect((await req("/api/auth/status")).body).toEqual({ setupRequired: true, dmsid: false, dmsidCodeRequired: false });
     });
 
     it("refuses setup without the admin token", async () => {

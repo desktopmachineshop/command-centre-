@@ -334,7 +334,7 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      if (res.status === 401 && !path.startsWith("/auth/login") && !path.startsWith("/auth/setup")) onUnauthorized?.();
+      if (res.status === 401 && !path.startsWith("/auth/login") && !path.startsWith("/auth/setup") && !path.startsWith("/auth/dmsid")) onUnauthorized?.();
       throw new ApiError(res.status, body?.error ?? res.statusText, body);
     }
     return body as T;
@@ -536,7 +536,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     },
 
     // --- auth ---
-    authStatus: () => call<{ setupRequired: boolean }>("/auth/status"),
+    authStatus: () => call<{ setupRequired: boolean; dmsid?: boolean; dmsidCodeRequired?: boolean }>("/auth/status"),
+    /** The authenticator-code step after signing in with DMSid (two-factor on). */
+    dmsidCode: (code: string) => post<{ user: User }>("/auth/dmsid/totp", { code }),
     /** First-run setup: the admin token proves this is the server's owner. */
     setup: (adminToken: string, user: { email: string; name: string; password: string }) =>
       post<{ user: User }>("/auth/setup", user, { authorization: `Bearer ${adminToken}` }),

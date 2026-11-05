@@ -416,6 +416,7 @@ export const RAILWAY_ONLY = [
   { name: "WORKER_TOKEN", label: "Worker token (optional: only for workers run by hand)" },
   { name: "WEBHOOK_SECRET", label: "Webhook secret" },
   { name: "PUBLIC_BASE_URL", label: "Public address" },
+  { name: "DMSID_CLIENT_SECRET", label: "Sign in with DMSid (optional)" },
   { name: "VAPID_PUBLIC_KEY", label: "Push notification keys" },
   { name: "BRAIN_REMOTE_URL", label: "Brain git remote" },
   { name: "CREDENTIALS_KEY", label: "Credentials encryption key (optional)" },

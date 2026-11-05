@@ -13,6 +13,9 @@ const bool = z
   .transform((v) => v === "true" || v === "1");
 
 /** Variables that must be set; every other blank one (e.g. `WORKER_TOKEN=` in .env.example) counts as unset. */
+/** An empty variable (as copied from .env.example) counts as unset. */
+const blank = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
 const REQUIRED = new Set(["DATABASE_URL", "ADMIN_TOKEN"]);
 
 function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -114,6 +117,13 @@ const Env = z.object({
   SOCIAL_POLL_DEFAULT_SECONDS: z.coerce.number().int().positive().default(300),
   /** Public origin of this server, for media URLs platforms fetch, e.g. https://command.desktopmachineshop.com */
   PUBLIC_BASE_URL: z.url({ protocol: /^https?$/ }).optional(),
+  // --- DMSid sign-in (see docs/SETUP.md, "Sign in with DMSid") ---
+  /** DMSid, the OpenID Connect provider for DMS products. */
+  DMSID_ISSUER: z.preprocess(blank, z.url({ protocol: /^https?$/ }).default("https://id.desktopmachineshop.com")),
+  /** This app's client id at DMSid. */
+  DMSID_CLIENT_ID: z.preprocess(blank, z.string().min(1).default("command-centre")),
+  /** The client secret DMSid showed when the app was registered. Sign-in with DMSid is offered only when set (and PUBLIC_BASE_URL is). */
+  DMSID_CLIENT_SECRET: z.preprocess(blank, z.string().min(16).optional()),
   /** Largest upload POST /api/media accepts. */
   MEDIA_MAX_MB: z.coerce.number().positive().default(200),
   // --- storage (see docs/SETUP.md, "Storage (Google Drive)") ---
@@ -323,6 +333,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     odooEvents,
     shipping: { accounts: sendcloudAccounts },
     publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
+    // --- DMSid sign-in: needs the secret and a public address to come back to ---
+    dmsid:
+      e.DMSID_CLIENT_SECRET && e.PUBLIC_BASE_URL
+        ? {
+            issuer: e.DMSID_ISSUER.replace(/\/+$/, ""),
+            clientId: e.DMSID_CLIENT_ID,
+            clientSecret: e.DMSID_CLIENT_SECRET,
+            redirectUri: `${e.PUBLIC_BASE_URL.replace(/\/+$/, "")}/api/auth/dmsid/callback`,
+          }
+        : undefined,
     social: { accounts: socialAccounts, defaultPollSeconds: e.SOCIAL_POLL_DEFAULT_SECONDS },
     media: { maxBytes: Math.round(e.MEDIA_MAX_MB * 1024 * 1024) },
     // --- voice ---

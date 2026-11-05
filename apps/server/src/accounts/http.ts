@@ -3,6 +3,7 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import { bearer, tokenMatches } from "../auth";
+import { dmsidAllows, type DmsIdSignIn } from "./dmsid";
 import { AuthError, AuthService, GENERIC_LOGIN_ERROR, LOCKED_ERROR, SESSION_TTL_MS } from "./service";
 import { publicUser, type Role, type UserRecord } from "./store";
 
@@ -19,6 +20,8 @@ export interface AuthHttpOptions {
   adminToken: string;
   /** Reverse proxies in front of the server (Railway: 1). The client IP is that many entries from the right of X-Forwarded-For. */
   trustedProxyHops: number;
+  /** Sign-in with DMSid, when configured (DMSID_CLIENT_SECRET and PUBLIC_BASE_URL). */
+  dmsid?: DmsIdSignIn | null;
 }
 
 /** Roles that may use the dashboard API. A future VA role would get its own, narrower list. */
@@ -72,6 +75,24 @@ export function setSessionCookie(c: Context, token: string): void {
 export function clearSessionCookie(c: Context): void {
   const secure = isSecure(c);
   deleteCookie(c, COOKIE_NAME, { httpOnly: true, secure, sameSite: "Lax", path: "/", ...(secure ? { prefix: "host" as const } : {}) });
+}
+
+// --- DMSid round trip: the flow's state, then (with two-factor on) the ticket for the code step ---
+const DMSID_PATH = "/api/auth/dmsid";
+const FLOW_COOKIE = "cc_dmsid_flow";
+const TICKET_COOKIE = "cc_dmsid_ticket";
+
+/** Short-lived cookies scoped to the DMSid routes: `__Secure-` on https, plain on local http. */
+function setFlowCookie(c: Context, name: string, value: string, maxAgeS: number): void {
+  const secure = isSecure(c);
+  setCookie(c, name, value, { httpOnly: true, secure, sameSite: "Lax", path: DMSID_PATH, maxAge: maxAgeS, ...(secure ? { prefix: "secure" as const } : {}) });
+}
+function readFlowCookie(c: Context, name: string): string | undefined {
+  return isSecure(c) ? getCookie(c, name, "secure") : getCookie(c, name);
+}
+function clearFlowCookie(c: Context, name: string): void {
+  const secure = isSecure(c);
+  deleteCookie(c, name, { httpOnly: true, secure, sameSite: "Lax", path: DMSID_PATH, ...(secure ? { prefix: "secure" as const } : {}) });
 }
 
 /** Origin's host equals the host the request was sent to. */
@@ -172,8 +193,100 @@ export function authRoutes(auth: AuthService, opts: AuthHttpOptions) {
     return c.json({ error: LOCKED_ERROR }, 429);
   };
 
-  /** Public: whether first-run setup is still needed. Says nothing else. */
-  app.get("/status", async (c) => c.json({ setupRequired: await auth.setupRequired() }));
+  /**
+   * Public: whether first-run setup is still needed, whether DMSid sign-in is offered, and whether
+   * this browser is part-way through one (the code step). Says nothing else.
+   */
+  app.get("/status", async (c) =>
+    c.json({
+      setupRequired: await auth.setupRequired(),
+      dmsid: !!opts.dmsid,
+      dmsidCodeRequired: !!opts.dmsid && auth.hasTicket(readFlowCookie(c, TICKET_COOKIE)),
+    }),
+  );
+
+  // --- DMSid: Dave's address only (DMSID_ALLOWED_EMAILS), confirmed, and an existing user ---
+
+  /** Starts a sign-in: off to DMSid, with the state bound to this browser. */
+  app.get("/dmsid", (c) => {
+    if (!opts.dmsid) return c.json({ error: "not found" }, 404);
+    const { url, state } = opts.dmsid.start();
+    setFlowCookie(c, FLOW_COOKIE, state, 600);
+    c.header("cache-control", "no-store");
+    return c.redirect(url, 302);
+  });
+
+  /** DMSid sends the browser back here. Every outcome lands on the app, which explains it. */
+  app.get("/dmsid/callback", async (c) => {
+    const d = opts.dmsid;
+    if (!d) return c.json({ error: "not found" }, 404);
+    c.header("cache-control", "no-store");
+    const back = (outcome: "dmsid-failed" | "dmsid-refused" | "dmsid-code" | "dmsid-locked") => c.redirect(`/?signin=${outcome}`, 302);
+    const state = c.req.query("state");
+    const bound = readFlowCookie(c, FLOW_COOKIE);
+    clearFlowCookie(c, FLOW_COOKIE);
+    // The state must be the one this browser started with, so nobody can sign Dave's browser in as someone else.
+    const flow = state && bound && state === bound ? d.take(state) : null;
+    if (!flow) return back("dmsid-failed");
+    const error = c.req.query("error");
+    if (error) return back(error === "access_denied" ? "dmsid-refused" : "dmsid-failed");
+    const iss = c.req.query("iss");
+    const code = c.req.query("code");
+    if ((iss && iss !== d.config.issuer) || !code) return back("dmsid-failed");
+
+    let person;
+    try {
+      person = await d.redeem(code, flow);
+    } catch (err) {
+      console.warn("[auth] DMSid sign-in failed:", (err as Error).message);
+      return back("dmsid-failed");
+    }
+    if (!person.verified || !dmsidAllows(person.email)) {
+      auth.ipFailed(ip(c));
+      console.warn("[auth] DMSid sign-in refused: address not allowed");
+      return back("dmsid-refused");
+    }
+    const result = await auth.signInVerifiedEmail({ email: person.email, ip: ip(c), userAgent: c.req.header("user-agent") ?? null });
+    if (result.ok) {
+      setSessionCookie(c, result.token);
+      return c.redirect("/", 302);
+    }
+    switch (result.reason) {
+      case "totp_required":
+        setFlowCookie(c, TICKET_COOKIE, result.ticket, 300);
+        return back("dmsid-code");
+      case "locked":
+        return back("dmsid-locked");
+      default:
+        console.warn("[auth] DMSid sign-in refused: no Command Centre user for the address");
+        return back("dmsid-refused");
+    }
+  });
+
+  /** The code step after a DMSid sign-in, for a user with two-factor on. */
+  app.post("/dmsid/totp", async (c) => {
+    const ticket = readFlowCookie(c, TICKET_COOKIE);
+    const { code } = z.object({ code: z.string().max(64) }).parse(await c.req.json());
+    const expired = () => {
+      clearFlowCookie(c, TICKET_COOKIE);
+      return c.json({ error: "That sign-in has expired. Sign in with DMSid again.", expired: true }, 401);
+    };
+    if (!opts.dmsid || !ticket) return expired();
+    const result = await auth.completeSecondFactor({ ticket, code, ip: ip(c), userAgent: c.req.header("user-agent") ?? null });
+    if (result.ok) {
+      clearFlowCookie(c, TICKET_COOKIE);
+      setSessionCookie(c, result.token);
+      return c.json({ user: result.user });
+    }
+    switch (result.reason) {
+      case "locked":
+        return locked(c, result.retryAfterMs);
+      case "totp_invalid":
+        return auth.hasTicket(ticket) ? c.json({ error: "That code is incorrect", totpRequired: true }, 401) : expired();
+      default:
+        return expired();
+    }
+  });
 
   /** First-run: only while no user exists, and only with the ADMIN_TOKEN as Bearer, so a stranger can't claim the server. */
   app.post("/setup", async (c) => {

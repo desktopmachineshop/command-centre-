@@ -21,6 +21,18 @@ export type LoginResult =
   | { ok: false; reason: "totp_required" }
   | { ok: false; reason: "totp_invalid" };
 
+/** A sign-in vouched for by an identity provider (DMSid): the account, or the code step still to do. */
+export type ExternalSignInResult =
+  | { ok: true; token: string; session: Session; user: User }
+  | { ok: false; reason: "invalid" }
+  | { ok: false; reason: "locked"; retryAfterMs: number }
+  | { ok: false; reason: "totp_required"; ticket: string };
+
+/** How long the code step after a provider sign-in may take, and how many guesses it gets. */
+const TICKET_TTL_MS = 5 * 60_000;
+const TICKET_ATTEMPTS = 5;
+const MAX_TICKETS = 100;
+
 export class AuthError extends Error {
   constructor(
     readonly status: 400 | 401 | 403 | 404 | 409 | 429,
@@ -51,6 +63,8 @@ export class AuthService {
   private readonly inflight = new Map<string, number>();
   private dummyHash: Promise<string> | null = null;
   private readonly revokeListeners = new Set<(sessionIds: string[]) => void>();
+  /** Provider sign-ins waiting for the authenticator code, by an unguessable ticket (cookie). */
+  private readonly tickets = new Map<string, { userId: string; expiresAt: number; attempts: number }>();
 
   constructor(pool: Pool, options: AuthOptions = {}) {
     this.store = new AccountStore(pool);
@@ -168,19 +182,99 @@ export class AuthService {
     if (user.totpEnabled && user.totpSecret) {
       const code = input.totp?.trim() ?? "";
       if (!code) return { ok: false, reason: "totp_required" };
-      if (/^\d{6}$/.test(code)) totpStep = verifyTotp(user.totpSecret, code, this.now(), user.totpLastStep);
-      const ok = totpStep !== null || (!/^\d{6}$/.test(code) && (await this.store.consumeRecoveryCode(user.id, hashRecoveryCode(code))));
-      if (!ok) {
+      const second = await this.secondFactor(user, code);
+      if (!second.ok) {
         await this.store.recordFailure(user.id);
         this.ipThrottle.fail(input.ip);
         return { ok: false, reason: "totp_invalid" };
       }
+      totpStep = second.step;
     }
 
     await this.store.recordLogin(user.id, totpStep);
     if (needsRehash(user.passwordHash, this.params)) await this.store.setPasswordHash(user.id, await this.hash(password));
     const { token, session } = await this.createSession(user.id, input.ip, input.userAgent);
     return { ok: true, token, session, user: publicUser({ ...user, lastLoginAt: session.createdAt }) };
+  }
+
+  /** An authenticator code (or a recovery code, used up) for a user with two-factor on. */
+  private async secondFactor(user: UserRecord, code: string): Promise<{ ok: boolean; step: number | null }> {
+    if (!user.totpSecret) return { ok: false, step: null };
+    if (/^\d{6}$/.test(code)) {
+      const step = verifyTotp(user.totpSecret, code, this.now(), user.totpLastStep);
+      return { ok: step !== null, step };
+    }
+    return { ok: await this.store.consumeRecoveryCode(user.id, hashRecoveryCode(code)), step: null };
+  }
+
+  // --- Sign-in through an identity provider (DMSid) ---
+
+  /**
+   * Signs in the existing user with this address, which the provider has vouched for; the
+   * caller has already checked the address may use this app. No account is ever created here.
+   * Two-factor still applies: a user with it on gets a ticket for `completeSecondFactor`.
+   */
+  async signInVerifiedEmail(input: { email: string; ip: string; userAgent: string | null }): Promise<ExternalSignInResult> {
+    const ipWait = this.ipThrottle.retryAfter(input.ip);
+    if (ipWait > 0) return { ok: false, reason: "locked", retryAfterMs: ipWait };
+    const user = await this.store.userByEmail(input.email);
+    if (!user || user.role !== "admin") {
+      this.ipThrottle.fail(input.ip);
+      return { ok: false, reason: "invalid" };
+    }
+    const lockedFor = Math.max(0, (user.lockedUntil ? Date.parse(user.lockedUntil) : 0) - Date.now());
+    if (lockedFor > 0) return { ok: false, reason: "locked", retryAfterMs: lockedFor };
+    if (user.totpEnabled && user.totpSecret) {
+      const t = this.now();
+      for (const [k, v] of this.tickets) if (v.expiresAt <= t) this.tickets.delete(k);
+      while (this.tickets.size >= MAX_TICKETS) this.tickets.delete(this.tickets.keys().next().value!);
+      const ticket = randomBytes(32).toString("base64url");
+      this.tickets.set(ticket, { userId: user.id, expiresAt: t + TICKET_TTL_MS, attempts: 0 });
+      return { ok: false, reason: "totp_required", ticket };
+    }
+    await this.store.recordLogin(user.id, null);
+    const { token, session } = await this.createSession(user.id, input.ip, input.userAgent);
+    return { ok: true, token, session, user: publicUser({ ...user, lastLoginAt: session.createdAt }) };
+  }
+
+  /** Whether a provider sign-in's ticket is still waiting for its code. */
+  hasTicket(ticket: string | undefined): boolean {
+    const t = ticket ? this.tickets.get(ticket) : undefined;
+    return !!t && t.expiresAt > this.now();
+  }
+
+  /** The code step after `signInVerifiedEmail`. Wrong codes count towards the account's lockout. */
+  async completeSecondFactor(input: { ticket: string; code: string; ip: string; userAgent: string | null }): Promise<LoginResult> {
+    const ipWait = this.ipThrottle.retryAfter(input.ip);
+    if (ipWait > 0) return { ok: false, reason: "locked", retryAfterMs: ipWait };
+    const pending = this.tickets.get(input.ticket);
+    if (!pending || pending.expiresAt <= this.now()) {
+      this.tickets.delete(input.ticket);
+      return { ok: false, reason: "invalid" };
+    }
+    const found = await this.store.userById(pending.userId);
+    if (!found) {
+      this.tickets.delete(input.ticket);
+      return { ok: false, reason: "invalid" };
+    }
+    // Same lock as a password sign-in, re-reading the user inside it, so a code can't be used twice in a race.
+    return this.emailMutex.run(found.email, async (): Promise<LoginResult> => {
+      const user = await this.store.userById(pending.userId);
+      if (!user) return { ok: false, reason: "invalid" };
+      const lockedFor = Math.max(0, (user.lockedUntil ? Date.parse(user.lockedUntil) : 0) - Date.now());
+      if (lockedFor > 0) return { ok: false, reason: "locked", retryAfterMs: lockedFor };
+      const second = await this.secondFactor(user, input.code.trim());
+      if (!second.ok) {
+        await this.store.recordFailure(user.id);
+        this.ipThrottle.fail(input.ip);
+        if (++pending.attempts >= TICKET_ATTEMPTS) this.tickets.delete(input.ticket);
+        return { ok: false, reason: "totp_invalid" };
+      }
+      if (!this.tickets.delete(input.ticket)) return { ok: false, reason: "invalid" };
+      await this.store.recordLogin(user.id, second.step);
+      const { token, session } = await this.createSession(user.id, input.ip, input.userAgent);
+      return { ok: true, token, session, user: publicUser({ ...user, lastLoginAt: session.createdAt }) };
+    });
   }
 
   async createSession(userId: string, ip: string | null, userAgent: string | null): Promise<{ token: string; session: Session }> {
