@@ -18,7 +18,7 @@ apps/worker            worker daemon for PCs: runs ffmpeg, GPU and local Claude 
 apps/desktop           Tauri app for Windows: the PWA in a window, the worker as a sidecar, tray icon
 packages/core          shared types and WebSocket protocol
 packages/agent-runtime AgentRunner harness + Claude Code adapter (+ API-key fallback)
-packages/brain         markdown brain in Postgres (history, search, git mirror) + MCP server
+packages/brain         markdown brain in Postgres (history, search) + MCP server
 packages/email         IMAP inbox poller, read-only mail MCP server (/mcp/mail, attachments as text), email.* executors
 packages/odoo          Odoo client (JSON-RPC / JSON-2), read-only MCP server (/mcp/odoo), Odoo actions
 packages/sendcloud     Sendcloud client (read-only): parcel tracking for the daily digest, MCP server (/mcp/sendcloud)

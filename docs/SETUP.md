@@ -29,8 +29,8 @@ first, and the test is skipped when Chromium is missing.
 1. **New project → Deploy from GitHub repo** → `desktopmachineshop/command-centre-`. Railway
    picks up `railway.json` and builds the `Dockerfile`.
 2. **Add a Postgres service.** Reference its `DATABASE_URL` from the server's variables.
-3. **Add a volume** to the server, mounted at `/data`. It holds the brain's git mirror, agent
-   workspaces and Claude Code's config.
+3. **Add a volume** to the server, mounted at `/data`. It holds agent workspaces, media and
+   Claude Code's config.
 4. **Set the variables** (see `.env.example`):
    - `ADMIN_TOKEN`: `openssl rand -hex 32`. You paste it once, at first-run setup; after that
      it is for automation and MCP (see "Authentication").
@@ -38,7 +38,6 @@ first, and the test is skipped when Chromium is missing.
      subscription) and paste the token. This is what lets the server drive Claude Code headless
      on your subscription.
    - `ANTHROPIC_FALLBACK_API_KEY` (optional): used only when the subscription hits its usage limit.
-   - `BRAIN_REMOTE_URL`: see "Brain" below.
    - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: `npx web-push generate-vapid-keys`.
    - `WEBHOOK_SECRET`: `openssl rand -hex 24`, if you'll use webhook ingress.
 5. **Generate a domain** under Settings → Networking. That URL is your command centre.
@@ -229,7 +228,7 @@ straight away; only the changed integration restarts, and nothing redeploys.
   back into the dialog. The token is saved encrypted and agents switch from `echo` to
   `claude-code`. Alternatively run `claude setup-token` on a computer and use **Paste a token**.
 - **Stays in Railway:** `DATABASE_URL`, `ADMIN_TOKEN`, `WORKER_TOKEN`, `WEBHOOK_SECRET`,
-  `PUBLIC_BASE_URL`, the push (`VAPID_*`) keys, `BRAIN_REMOTE_URL` and `CREDENTIALS_KEY`: the server
+  `PUBLIC_BASE_URL`, the push (`VAPID_*`) keys and `CREDENTIALS_KEY`: the server
   needs them before it can read the database. The page lists them read-only.
 - Every change is recorded (who, what, when) in the `integration_audit` table.
 - Switching **file storage** between the volume and Drive takes effect after the next restart
@@ -578,21 +577,6 @@ server's Postgres (tables `brain_notes` and `brain_note_versions`). There is not
 - **Search** is Postgres full-text (English stemming, so "spindles" finds "spindle"), ranking
   title and path over frontmatter over body.
 
-### Git mirror (optional): backup and Obsidian
-
-Set `BRAIN_REMOTE_URL` to a private repo and the server keeps a copy of the brain there:
-
-1. Create an empty private repo, e.g. `desktopmachineshop/brain`.
-2. Create a fine-grained GitHub token with *Contents: read & write* on that repo only.
-3. Set `BRAIN_REMOTE_URL=https://x-access-token:<token>@github.com/desktopmachineshop/brain.git`.
-
-- **One way only.** About a minute after the last change, the server commits the whole brain to
-  the repo and pushes. Open a clone as an **Obsidian** vault to read it, but **edit in the app**:
-  edits made in the repo are replaced by the next mirror (they stay in the repo's git history).
-- **Import:** on the first boot with an empty database brain, the server imports every note from
-  the repo (author `import`). This is how an existing git brain moves into Postgres; it runs once.
-- If the repo can't be reached at boot, the server logs it and runs without the mirror.
-
 ### Use the brain from other agents
 
 The brain is also an MCP server, so Claude Code or Claude Desktop on your PC can share the same
@@ -604,7 +588,7 @@ claude mcp add --transport http brain https://<your-domain>/mcp/brain \
 ```
 
 Or run it locally over stdio: `DATABASE_URL=<postgres url> pnpm --filter @cc/brain mcp` for the live
-brain, or `BRAIN_DIR=~/brain pnpm --filter @cc/brain mcp` against a clone of the git mirror.
+brain, or `BRAIN_DIR=~/brain pnpm --filter @cc/brain mcp` against a local folder of notes.
 
 ## Email
 
@@ -844,7 +828,7 @@ Railway volume. A Hobby volume holds 5 GB, so the server looks after it
 
 - **Free-space reserve:** an upload that would leave less than `STORAGE_MIN_FREE_MB` (default
   500) free gets a `507` with "Storage is full ...". This covers direct uploads, worker uploads
-  and a render's one-shot PUT. The rest of the server (logs, the brain mirror, the desktop
+  and a render's one-shot PUT. The rest of the server (logs, the desktop
   installer) keeps working.
 - **Old renders:** every night at 03:43, rendered videos older than
   `STORAGE_RENDER_RETENTION_DAYS` (default 30; `0` keeps them) are deleted from the volume. A
