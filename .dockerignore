@@ -5,4 +5,8 @@
 data
 .env
 .env.*
-docs
+# docs: only the help topics, map and notes go in the image (agents read them at /mcp/help)
+docs/media
+docs/screenshots
+docs/plans
+docs/theme

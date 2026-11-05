@@ -213,8 +213,9 @@ export function mcpRoutes(deps: {
     if (!caller) return c.json({ error: "unauthorized" }, 401);
     if (caller.kind === "run") {
       const name = c.req.path.split("/").pop() ?? "";
-      // The run's role narrows the vertical's servers (no role: the vertical's).
-      const allowed = name === "actions" || deps.verticals.mcpServersFor(caller.scope.vertical, caller.scope.role).includes(name);
+      // The run's role narrows the vertical's other servers (no role: the vertical's).
+      // actions and help (the app's own docs, read-only) are for every run.
+      const allowed = name === "actions" || name === "help" || deps.verticals.mcpServersFor(caller.scope.vertical, caller.scope.role).includes(name);
       if (!allowed) {
         const who = caller.scope.role ? `role ${caller.scope.role} in ${caller.scope.vertical}` : `vertical ${caller.scope.vertical}`;
         return c.json({ error: `${who} may not use ${name}` }, 403);

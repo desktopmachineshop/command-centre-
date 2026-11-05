@@ -44,12 +44,12 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     const request = runner.requests[0]!;
     expect(request.prompt).toBe("dms: what sold yesterday?");
     expect(request.systemPrompt).toContain("Desktop Machine Shop");
-    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "brain", "pa"]);
+    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "help", "brain", "pa"]);
     // Plus read-only access to files attached in the chat box, read and write in this task's own scratch
     // folder, and read access to the role's own skill folders (their supporting files live in the bank).
     const scratch = realpathSync(join(request.cwd!, "scratch", body.task.id));
     expect(request.allowedTools).toEqual([
-      "Skill", "mcp__actions", "mcp__brain", "mcp__pa", "WebSearch", "WebFetch",
+      "Skill", "mcp__actions", "mcp__help", "mcp__brain", "mcp__pa", "WebSearch", "WebFetch",
       expect.stringMatching(/^Read\(\/\/.*\/chat-files\/\*\*\)$/),
       `Read(/${scratch}/**)`,
       `Write(/${scratch}/**)`,
