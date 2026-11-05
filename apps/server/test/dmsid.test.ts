@@ -105,12 +105,17 @@ describe.skipIf(!DB_URL)("sign in with DMSid (integration)", () => {
   const dmsid = new FakeDmsId();
   let ctx: Awaited<ReturnType<typeof makeServer>>;
 
-  /** A browser: keeps cookies across requests, as the real one does through the round trip. */
+  /**
+   * A browser: keeps cookies across requests, as the real one does through the round trip, and
+   * sends each only to paths under its Path (the code step once broke on exactly that).
+   */
   const browser = () => {
-    const jar = new Map<string, string>();
+    const jar = new Map<string, { value: string; path: string }>();
     const send = async (path: string, init: { method?: string; json?: unknown } = {}): Promise<Res> => {
       const headers = new Headers({ "x-forwarded-for": "198.51.100.7", "x-cc-request": "1" });
-      if (jar.size) headers.set("cookie", [...jar].map(([k, v]) => `${k}=${v}`).join("; "));
+      const pathname = path.split("?")[0]!;
+      const sent = [...jar].filter(([, v]) => pathname === v.path || pathname.startsWith(v.path.endsWith("/") ? v.path : `${v.path}/`));
+      if (sent.length) headers.set("cookie", sent.map(([k, v]) => `${k}=${v.value}`).join("; "));
       if (init.json !== undefined) headers.set("content-type", "application/json");
       const res = await ctx.server.app.request(path, {
         method: init.method ?? (init.json !== undefined ? "POST" : "GET"),
@@ -122,7 +127,7 @@ describe.skipIf(!DB_URL)("sign in with DMSid (integration)", () => {
         const [pair] = c.split(";");
         const name = pair!.slice(0, pair!.indexOf("="));
         if (/Max-Age=0/i.test(c)) jar.delete(name);
-        else jar.set(name, pair!.slice(pair!.indexOf("=") + 1));
+        else jar.set(name, { value: pair!.slice(pair!.indexOf("=") + 1), path: /;\s*Path=([^;]+)/i.exec(c)?.[1] ?? "/" });
       }
       const text = await res.text();
       let body: unknown = null;
@@ -182,7 +187,7 @@ describe.skipIf(!DB_URL)("sign in with DMSid (integration)", () => {
     const flow = start.cookies.find((c) => c.startsWith("cc_dmsid_flow="))!;
     expect(flow).toContain(q.get("state")!);
     expect(flow).toMatch(/HttpOnly/i);
-    expect(flow).toMatch(/Path=\/api\/auth\/dmsid/);
+    expect(flow).toMatch(/Path=\/api\/auth;/);
   });
 
   it("signs Dave in with his confirmed address", async () => {

@@ -78,21 +78,25 @@ export function clearSessionCookie(c: Context): void {
 }
 
 // --- DMSid round trip: the flow's state, then (with two-factor on) the ticket for the code step ---
-const DMSID_PATH = "/api/auth/dmsid";
+/**
+ * Where the round trip's cookies are sent: all of /api/auth, not just /api/auth/dmsid, because
+ * /api/auth/status reads the ticket to tell the sign-in screen to ask for the code.
+ */
+const DMSID_COOKIE_PATH = "/api/auth";
 const FLOW_COOKIE = "cc_dmsid_flow";
 const TICKET_COOKIE = "cc_dmsid_ticket";
 
 /** Short-lived cookies scoped to the DMSid routes: `__Secure-` on https, plain on local http. */
 function setFlowCookie(c: Context, name: string, value: string, maxAgeS: number): void {
   const secure = isSecure(c);
-  setCookie(c, name, value, { httpOnly: true, secure, sameSite: "Lax", path: DMSID_PATH, maxAge: maxAgeS, ...(secure ? { prefix: "secure" as const } : {}) });
+  setCookie(c, name, value, { httpOnly: true, secure, sameSite: "Lax", path: DMSID_COOKIE_PATH, maxAge: maxAgeS, ...(secure ? { prefix: "secure" as const } : {}) });
 }
 function readFlowCookie(c: Context, name: string): string | undefined {
   return isSecure(c) ? getCookie(c, name, "secure") : getCookie(c, name);
 }
 function clearFlowCookie(c: Context, name: string): void {
   const secure = isSecure(c);
-  deleteCookie(c, name, { httpOnly: true, secure, sameSite: "Lax", path: DMSID_PATH, ...(secure ? { prefix: "secure" as const } : {}) });
+  deleteCookie(c, name, { httpOnly: true, secure, sameSite: "Lax", path: DMSID_COOKIE_PATH, ...(secure ? { prefix: "secure" as const } : {}) });
 }
 
 /** Origin's host equals the host the request was sent to. */
@@ -227,12 +231,21 @@ export function authRoutes(auth: AuthService, opts: AuthHttpOptions) {
     clearFlowCookie(c, FLOW_COOKIE);
     // The state must be the one this browser started with, so nobody can sign Dave's browser in as someone else.
     const flow = state && bound && state === bound ? d.take(state) : null;
-    if (!flow) return back("dmsid-failed");
+    if (!flow) {
+      console.warn(`[auth] DMSid sign-in failed: ${!bound ? "no flow cookie" : state !== bound ? "state mismatch" : "flow expired"}`);
+      return back("dmsid-failed");
+    }
     const error = c.req.query("error");
-    if (error) return back(error === "access_denied" ? "dmsid-refused" : "dmsid-failed");
+    if (error) {
+      console.warn(`[auth] DMSid answered ${error.slice(0, 64)}`);
+      return back(error === "access_denied" ? "dmsid-refused" : "dmsid-failed");
+    }
     const iss = c.req.query("iss");
     const code = c.req.query("code");
-    if ((iss && iss !== d.config.issuer) || !code) return back("dmsid-failed");
+    if ((iss && iss !== d.config.issuer) || !code) {
+      console.warn("[auth] DMSid sign-in failed: wrong issuer or no code");
+      return back("dmsid-failed");
+    }
 
     let person;
     try {
@@ -248,11 +261,13 @@ export function authRoutes(auth: AuthService, opts: AuthHttpOptions) {
     }
     const result = await auth.signInVerifiedEmail({ email: person.email, ip: ip(c), userAgent: c.req.header("user-agent") ?? null });
     if (result.ok) {
+      console.log("[auth] DMSid sign-in");
       setSessionCookie(c, result.token);
       return c.redirect("/", 302);
     }
     switch (result.reason) {
       case "totp_required":
+        console.log("[auth] DMSid sign-in: waiting for the authenticator code");
         setFlowCookie(c, TICKET_COOKIE, result.ticket, 300);
         return back("dmsid-code");
       case "locked":
