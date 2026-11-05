@@ -5,12 +5,40 @@ import type { Readable } from "node:stream";
 export type BackendKind = "local" | "gdrive";
 
 /**
- * Logical folders. On Drive they are subfolders of the "Command Centre" folder;
- * locally `media` is `DATA_DIR/media` (as before) and the others `DATA_DIR/storage/<folder>`.
+ * Logical folders. On Drive they sit inside the file's vertical folder:
+ * "Command Centre/<vertical>/<folder>" ("shared" for files with no vertical).
+ * Locally `media` is `DATA_DIR/media` (as before) and the others `DATA_DIR/storage/<folder>`;
+ * the vertical is in the index only, so local paths (and /media URLs) never move.
  */
 export const FOLDERS = ["media", "renders", "footage", "attachments", "assets"] as const;
 export type Folder = (typeof FOLDERS)[number];
 export const isFolder = (f: unknown): f is Folder => typeof f === "string" && (FOLDERS as readonly string[]).includes(f);
+
+/** The Drive folder (and the Storage page's group) for files that belong to no vertical. */
+export const SHARED_VERTICAL = "shared";
+/** A vertical id as stored: lower-case letters, digits and dashes. */
+export const VERTICAL_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/**
+ * Who a file belongs to and whether it is a work-in-progress file. Files of one piece of work
+ * (a video production, say) share `work`; the intermediate ones (captures, narration) are `wip`
+ * and are deleted once that work's final file is published (Storage.releaseWork).
+ */
+export interface BlobTags {
+  /** The vertical the file belongs to; null for shared files. */
+  vertical?: string | null;
+  /** The piece of work it belongs to, e.g. "video:<production id>". */
+  work?: string | null;
+  /** An intermediate file, deleted once the work's final file is published. */
+  wip?: boolean;
+}
+
+/** BlobTags with the defaults filled in, as the index stores them. */
+export function tagsOf(o: BlobTags = {}): { vertical: string | null; work: string | null; wip: boolean } {
+  const vertical = o.vertical && o.vertical !== SHARED_VERTICAL ? o.vertical : null;
+  if (vertical !== null && !VERTICAL_ID.test(vertical)) throw new Error(`invalid vertical "${vertical}"`);
+  return { vertical, work: o.work ?? null, wip: o.wip ?? false };
+}
 
 /** Public blob id: 32 hex characters (128 random bits) plus an optional short extension, e.g. `3f…a9.mp4`. */
 export const BLOB_ID = /^[a-f0-9]{32}(\.[a-z0-9]{1,8})?$/;
@@ -30,6 +58,10 @@ export interface BlobInfo {
   folder: Folder;
   backend: BackendKind;
   createdAt: Date;
+  /** null: shared (no vertical). */
+  vertical: string | null;
+  work: string | null;
+  wip: boolean;
 }
 
 /** Inclusive byte range, as in HTTP: bytes start..end. */
@@ -49,7 +81,7 @@ export interface BlobBody {
 /** Anything put() can read: a buffer, a Node stream or a web stream. */
 export type BlobSource = Buffer | Uint8Array | Readable | ReadableStream<Uint8Array>;
 
-export interface PutOptions {
+export interface PutOptions extends BlobTags {
   name: string;
   contentType: string;
   folder?: Folder;
@@ -74,7 +106,7 @@ export interface UploadSession {
   expiresAt: Date;
 }
 
-export interface UploadSessionOptions {
+export interface UploadSessionOptions extends BlobTags {
   name: string;
   contentType: string;
   size: number;

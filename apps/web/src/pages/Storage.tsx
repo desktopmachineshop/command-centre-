@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import type { Api, StorageOverview, StoredFile } from "../api";
 import { ago } from "../format";
 import { Icon } from "../icons";
-import { Empty, ErrorBanner, PageHead, Skeleton } from "../ui";
+import { Empty, ErrorBanner, PageHead, Skeleton, VerticalsContext, VTag } from "../ui";
 import { VideoPreview } from "../video";
 
 const FOLDER_LABELS: Record<string, string> = {
@@ -22,26 +22,43 @@ export function bytes(n: number): string {
   return `${n} B`;
 }
 
+/** Usage per vertical ("shared" for files with none), largest first, with each one's folders. */
+function byVertical(rows: StorageOverview["byFolder"]) {
+  const map = new Map<string, { vertical: string; files: number; bytes: number; folders: Map<string, number> }>();
+  for (const u of rows) {
+    const v = u.vertical ?? "shared";
+    const e = map.get(v) ?? { vertical: v, files: 0, bytes: 0, folders: new Map<string, number>() };
+    e.files += u.files;
+    e.bytes += u.bytes;
+    e.folders.set(u.folder, (e.folders.get(u.folder) ?? 0) + u.bytes);
+    map.set(v, e);
+  }
+  return [...map.values()].sort((a, b) => b.bytes - a.bytes);
+}
+
 /**
  * What's stored and where: the server volume's space (with the free-space reserve and the
- * render clean-up), usage by folder, and the files themselves, newest first, to preview,
- * open or delete. With Google Drive connected, new files are in Drive and the volume holds
- * only the cache.
+ * render clean-up), usage by vertical, and the files themselves, newest first, to preview,
+ * open, move to another vertical or delete. With Google Drive connected, new files are in
+ * Drive, one folder per vertical, and the volume holds only the cache.
  */
 export function Storage({ api }: { api: Api }) {
   const [data, setData] = useState<StorageOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState("");
+  const [vertical, setVertical] = useState("");
+  const verticals = useContext(VerticalsContext);
+  const name = (v: string) => (v === "shared" ? "Shared" : (verticals[v]?.name ?? v));
 
   const load = () =>
     api
-      .storage()
+      .storage({ vertical: vertical || undefined })
       .then((d) => {
         setData(d);
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
-  useEffect(() => void load(), [api]);
+  useEffect(() => void load(), [api, vertical]);
 
   const remove = async (f: StoredFile) => {
     if (!confirm(`Delete ${f.name} (${bytes(f.size)})? Anything that links to it (a post, an approval) loses the file. This can't be undone.`)) return;
@@ -52,15 +69,31 @@ export function Storage({ api }: { api: Api }) {
       setError((e as Error).message);
     }
   };
+  const move = async (f: StoredFile, to: string) => {
+    try {
+      await api.moveStoredFile(f.id, to);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const folders = data ? [...new Set(data.byFolder.map((u) => u.folder))] : [];
   const files = data?.files.filter((f) => !folder || f.folder === folder) ?? [];
+  const usage = data ? byVertical(data.byFolder) : [];
+  const choices = [...Object.values(verticals).map((v) => v.id), "shared"];
 
   return (
     <section>
       <PageHead
         title="Storage"
-        sub={data ? (data.backend === "gdrive" ? "New files go to Google Drive." : "Files are kept on the server until Google Drive is connected.") : undefined}
+        sub={
+          data
+            ? data.backend === "gdrive"
+              ? "New files go to Google Drive, in a folder per vertical."
+              : "Files are kept on the server until Google Drive is connected."
+            : undefined
+        }
       >
         <button type="button" onClick={() => void load()}>
           Refresh
@@ -71,22 +104,24 @@ export function Storage({ api }: { api: Api }) {
       {data && (
         <>
           <Space data={data} />
-          {data.byFolder.length > 0 && (
+          {usage.length > 0 && (
             <div className="card">
               <div className="card-head">
                 <Icon name="storage" />
-                <h3>By folder</h3>
+                <h3>By vertical</h3>
               </div>
               <ul className="list storage-folders">
-                {data.byFolder.map((u) => (
-                  <li key={`${u.folder}-${u.backend}`} className="item static row between">
-                    <span>
-                      {folderLabel(u.folder)}
-                      {data.drive && <span className="muted small"> · {u.backend === "gdrive" ? "Drive" : "server"}</span>}
-                    </span>
-                    <span className="muted small">
-                      {u.files} file{u.files === 1 ? "" : "s"} · {bytes(u.bytes)}
-                    </span>
+                {usage.map((u) => (
+                  <li key={u.vertical} className="item static">
+                    <button type="button" className="storage-vertical row between" onClick={() => setVertical(vertical === u.vertical ? "" : u.vertical)} aria-pressed={vertical === u.vertical}>
+                      <span>{u.vertical === "shared" ? <span className="tag">Shared</span> : <VTag id={u.vertical}>{name(u.vertical)}</VTag>}</span>
+                      <span className="muted small">
+                        {u.files} file{u.files === 1 ? "" : "s"} · {bytes(u.bytes)}
+                      </span>
+                    </button>
+                    <p className="muted small storage-vertical-folders">
+                      {[...u.folders].map(([f, b]) => `${folderLabel(f)} ${bytes(b)}`).join(" · ")}
+                    </p>
                   </li>
                 ))}
               </ul>
@@ -95,23 +130,33 @@ export function Storage({ api }: { api: Api }) {
 
           <div className="section-title row between wrap">
             <h3>Files</h3>
-            {folders.length > 1 && (
-              <select value={folder} onChange={(e) => setFolder(e.target.value)} aria-label="Folder">
-                <option value="">All folders</option>
-                {folders.map((f) => (
-                  <option key={f} value={f}>
-                    {folderLabel(f)}
+            <span className="row wrap">
+              <select value={vertical} onChange={(e) => setVertical(e.target.value)} aria-label="Vertical">
+                <option value="">All verticals</option>
+                {choices.map((v) => (
+                  <option key={v} value={v}>
+                    {name(v)}
                   </option>
                 ))}
               </select>
-            )}
+              {folders.length > 1 && (
+                <select value={folder} onChange={(e) => setFolder(e.target.value)} aria-label="Folder">
+                  <option value="">All folders</option>
+                  {folders.map((f) => (
+                    <option key={f} value={f}>
+                      {folderLabel(f)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </span>
           </div>
           {files.length === 0 ? (
-            <Empty icon="inbox">Nothing stored yet. Uploads, video renders and attachments show up here.</Empty>
+            <Empty icon="inbox">{vertical ? `Nothing stored for ${name(vertical)}.` : "Nothing stored yet. Uploads, video renders and attachments show up here."}</Empty>
           ) : (
             <ul className="list storage-files">
               {files.map((f) => (
-                <FileRow key={f.id} file={f} onDelete={() => void remove(f)} />
+                <FileRow key={f.id} file={f} choices={choices} name={name} onDelete={() => void remove(f)} onMove={(to) => void move(f, to)} />
               ))}
             </ul>
           )}
@@ -172,7 +217,19 @@ function Space({ data }: { data: StorageOverview }) {
   );
 }
 
-function FileRow({ file, onDelete }: { file: StoredFile; onDelete: () => void }) {
+function FileRow({
+  file,
+  choices,
+  name,
+  onDelete,
+  onMove,
+}: {
+  file: StoredFile;
+  choices: string[];
+  name: (vertical: string) => string;
+  onDelete: () => void;
+  onMove: (vertical: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const kind = file.contentType.split("/")[0];
   const previewable = !!file.url && (kind === "video" || kind === "image" || kind === "audio");
@@ -187,11 +244,26 @@ function FileRow({ file, onDelete }: { file: StoredFile; onDelete: () => void })
         </span>
       </div>
       <div className="row between wrap small">
-        <span className="muted">
-          {folderLabel(file.folder)}
-          {file.backend === "gdrive" ? " · Drive" : ""}
+        <span className="muted row wrap">
+          {file.vertical ? <VTag id={file.vertical}>{name(file.vertical)}</VTag> : <span className="tag">Shared</span>}
+          {file.wip && (
+            <span className="tag" title="Work in progress: deleted once the final file of this work is published">
+              WIP
+            </span>
+          )}
+          <span>
+            {folderLabel(file.folder)}
+            {file.backend === "gdrive" ? " · Drive" : ""}
+          </span>
         </span>
-        <span className="row">
+        <span className="row wrap storage-actions">
+          <select className="small storage-move" value={file.vertical ?? "shared"} onChange={(e) => onMove(e.target.value)} aria-label={`Move ${file.name} to a vertical`}>
+            {choices.map((v) => (
+              <option key={v} value={v}>
+                {v === (file.vertical ?? "shared") ? name(v) : `Move to ${name(v)}`}
+              </option>
+            ))}
+          </select>
           {previewable && (
             <button type="button" className="small" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
               {open ? "Hide" : "Preview"}

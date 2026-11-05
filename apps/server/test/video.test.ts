@@ -44,7 +44,7 @@ function fakeLocal() {
 function fakes(options: { media?: boolean; campaign?: boolean; local?: ReturnType<typeof fakeLocal> | null } = {}) {
   const jobs: { kind: string; requires: Capability[]; payload: Record<string, any> }[] = [];
   const proposals: { proposal: NewProposal; options: { forceDraft: string } }[] = [];
-  const notes: { title: string; body: string }[] = [];
+  const notes: { title: string; body: string; media?: unknown[] }[] = [];
   const uploads: string[] = [];
   const media: VideoMediaStore = {
     async createUpload(name) {
@@ -120,6 +120,8 @@ describe("video.produce chain", () => {
     await f.settle(0, "succeeded", { outputPath: "C:\\w\\openv-trace.mp4", bytes: 1, durationSec: 20, width: 1080, height: 1920, encoder: "libx264", captionsPath: null });
     expect(f.proposals).toEqual([]);
     expect(f.notes[0]!.body).toMatch(/C:\\w\\openv-trace\.mp4 on worker pc\. Not proposed for posting because it has no public URL/);
+    // Nothing to play without a public URL.
+    expect(f.notes[0]!.media).toEqual([]);
     await expect(f.productions.start({ spec: { ...spec, voice: { provider: "elevenlabs" } } })).rejects.toThrow(/needs a media store/);
   });
 
@@ -136,6 +138,10 @@ describe("video.produce chain", () => {
     expect(f.jobs[last]).toMatchObject({ kind: "video.render", requires: ["ffmpeg"], payload: { captureInline: false } });
     await f.settle(last, "succeeded", { outputPath: "x", bytes: 1, durationSec: 9, width: 1080, height: 1920, encoder: "libx264", captionsPath: null, url: "https://media.test/m/v.mp4" });
     expect(f.notes.at(-1)!.body).toMatch(/social\.campaign is not available/);
+    // The notification carries the video, so the briefing view plays it.
+    expect(f.notes.at(-1)!.media).toEqual([
+      { url: "https://media.test/m/v.mp4", type: "video", alt: spec.title, durationSec: 9, width: 1080, height: 1920 },
+    ]);
 
     await expect(f.productions.start({ spec: { ...spec, voice: { provider: "acme" } } })).rejects.toThrow(/not configured on the server/);
     await expect(f.productions.start({ spec: { ...spec, scenes: [] } })).rejects.toThrow();

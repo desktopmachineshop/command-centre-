@@ -406,7 +406,11 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     desktopDevices: () => call<DesktopDevice[]>("/desktop/devices"),
     unlinkDesktop: (id: string) => call<{ revoked: true }>(`/desktop/devices/${id}`, { method: "DELETE" }),
     /** Usage by folder, the server volume and the newest files (Storage page). */
-    storage: (folder?: string) => call<StorageOverview>(`/storage?limit=500${folder ? `&folder=${encodeURIComponent(folder)}` : ""}`),
+    storage: (o: { folder?: string; vertical?: string } = {}) =>
+      call<StorageOverview>(`/storage?limit=500${o.folder ? `&folder=${encodeURIComponent(o.folder)}` : ""}${o.vertical ? `&vertical=${encodeURIComponent(o.vertical)}` : ""}`),
+    /** Moves a file to another vertical ("shared" for none); on Drive it moves folder too. */
+    moveStoredFile: (id: string, vertical: string) =>
+      call<StoredFile>(`/storage/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ vertical: vertical === "shared" ? null : vertical }) }),
     deleteStoredFile: (id: string) => call<{ ok: true }>(`/storage/${encodeURIComponent(id)}`, { method: "DELETE" }),
     desktopLink: (code: string) => call<{ code: string; name: string; createdAt: string; approved: boolean }>(`/desktop/link/${encodeURIComponent(code)}`),
     /** `autoKey`: the key the desktop app put in the page it opened, to approve without the button. */
@@ -520,8 +524,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     installVoice: (id: string) => post<VoiceList>(`/voice/voices/${encodeURIComponent(id)}/install`),
     // --- end voice ---
     /** Uploads an image or video as the raw body; returns its public URL. */
-    uploadMedia: async (file: File) => {
-      const res = await fetch(`${base}/api/media`, {
+    uploadMedia: async (file: File, vertical?: string) => {
+      const res = await fetch(`${base}/api/media${vertical ? `?vertical=${encodeURIComponent(vertical)}` : ""}`, {
         method: "POST",
         ...authed({ "content-type": file.type || "application/octet-stream" }),
         body: file,
@@ -612,11 +616,17 @@ export interface StoredFile {
   backend: "local" | "gdrive";
   createdAt: string;
   url: string | null;
+  /** null: shared (no vertical). */
+  vertical: string | null;
+  /** The piece of work it belongs to, e.g. "video:<production id>". */
+  work: string | null;
+  /** An intermediate file, deleted once its work's final file is published. */
+  wip: boolean;
 }
 
 export interface StorageOverview {
   backend: "local" | "gdrive";
-  byFolder: { folder: string; backend: "local" | "gdrive"; files: number; bytes: number }[];
+  byFolder: { folder: string; backend: "local" | "gdrive"; vertical: string | null; files: number; bytes: number }[];
   totalBytes: number;
   files: StoredFile[];
   /** The server volume (null when it can't be read). */

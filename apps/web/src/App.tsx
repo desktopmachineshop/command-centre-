@@ -12,7 +12,6 @@ import { Brain } from "./pages/Brain";
 import { Chat } from "./pages/Chat";
 import { Connections } from "./pages/Connections";
 import { Devices } from "./pages/Devices";
-import { Drive } from "./pages/Drive";
 import { Inbox } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { Org } from "./pages/Org";
@@ -119,7 +118,7 @@ export const NAV: NavItem[] = [
   { key: "approvals", label: "Approvals", icon: "approvals", group: "Work", mobilePrimary: true },
   { key: "chat", label: "Chat", icon: "chat", group: "Work", mobilePrimary: true },
   { key: "notifications", label: "Notifications", icon: "bell", group: "Work" },
-  { key: "drive", label: "Drive", icon: "drive", group: "Work" },
+  { key: "converse", label: "Converse", icon: "drive", group: "Work" },
   { key: "social", label: "Social", icon: "social", group: "Business" },
   { key: "org", label: "Org", icon: "org", group: "Business" },
   { key: "brain", label: "Brain", icon: "brain", group: "Knowledge" },
@@ -131,10 +130,8 @@ export const NAV: NavItem[] = [
 ];
 
 /** Routes without their own nav entry, and the entry they highlight. */
-const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications" };
+const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications", drive: "converse" };
 
-/** Routes that render their own full-screen layout: no sidebar, top bar or tab bar. */
-const FULL_SCREEN = new Set<string>();
 
 const PHONE = "(max-width: 759.98px)";
 
@@ -197,9 +194,12 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
     case "today":
       body = <Today api={api} feed={feed} />;
       break;
-    // Drive mode fills the space between the top bar and the tab bar (see pages/Drive.tsx).
+    // Converse is the chat with its composer grown to hold it (pages/Chat.tsx, pages/Drive.tsx).
+    // The same element as "chat" below, so going between them keeps the chat and animates the
+    // composer. #/drive is its old name, kept so links and the installed shortcut still work.
+    case "converse":
     case "drive":
-      body = <Drive api={api} feed={feed} />;
+      body = <Chat api={api} feed={feed} drive />;
       break;
     // --- notifications ---
     case "notifications":
@@ -252,8 +252,6 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   const rest = NAV.filter((n) => !primary.includes(n));
   const groups = [...new Set(NAV.map((n) => n.group))];
   const spend = stats.data ? usd(stats.data.costTodayUsd) : null;
-
-  if (FULL_SCREEN.has(page ?? "")) return <VerticalsContext.Provider value={verticals}>{body}</VerticalsContext.Provider>;
 
   return (
     <VerticalsContext.Provider value={verticals}>

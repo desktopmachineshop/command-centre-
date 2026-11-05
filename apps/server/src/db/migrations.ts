@@ -475,4 +475,51 @@ export const migrations: { id: string; sql: string }[] = [
   },
   // A number to call on a reminder (SQL in @cc/pa).
   { id: PA_PHONE_MIGRATION_ID, sql: PA_PHONE_MIGRATION_SQL },
+  {
+    // Storage by vertical, and work-in-progress files cleared once the final file is published (packages/storage).
+    id: "0022_storage_vertical",
+    sql: `
+      -- The vertical a file belongs to (null: shared); on Drive it sits in that vertical's folder.
+      alter table storage_files add column if not exists vertical text;
+      -- The piece of work it belongs to (e.g. "video:<production id>"), and whether it is an intermediate file of it.
+      alter table storage_files add column if not exists work text;
+      alter table storage_files add column if not exists wip boolean not null default false;
+      create index if not exists storage_files_vertical_idx on storage_files (vertical, created_at desc);
+      create index if not exists storage_files_work_idx on storage_files (work) where work is not null;
+
+      -- Existing files: the vertical of whatever names them (a proposal, a chat message, a reply, a video job).
+      update storage_files f set vertical = (
+        select p.vertical from proposals p where p.payload::text like '%' || split_part(f.id, '.', 1) || '%' order by p.created_at limit 1
+      ) where f.vertical is null;
+      update storage_files f set vertical = (
+        select t.vertical from events e join tasks t on t.event_id = e.id
+        where e.payload::text like '%' || split_part(f.id, '.', 1) || '%' order by t.created_at limit 1
+      ) where f.vertical is null;
+      update storage_files f set vertical = (
+        select t.vertical from task_replies r join tasks t on t.id = r.task_id
+        where r.files::text like '%' || split_part(f.id, '.', 1) || '%' order by r.created_at limit 1
+      ) where f.vertical is null;
+      update storage_files f set vertical = (
+        select j.payload->'spec'->>'product' from jobs j
+        where j.kind like 'video.%' and j.payload::text like '%' || split_part(f.id, '.', 1) || '%' order by j.created_at limit 1
+      ) where f.vertical is null;
+      -- A vertical that isn't a plain id (e.g. a free-text product) is left shared.
+      update storage_files set vertical = null where vertical is not null and vertical !~ '^[a-z0-9][a-z0-9-]{0,39}$';
+
+      -- Video files are named "<spec>-<production id>/<file>": captures (.webm) and narration (voice-*) are
+      -- work in progress, the render (<spec>.mp4) is the final file.
+      update storage_files set
+        work = 'video:' || substring(name from '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/'),
+        wip = (name ~ '/voice-' or name ~ '[.]webm$')
+      where work is null and folder = 'renders' and name ~ '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/';
+    `,
+  },
+  {
+    // Pictures and videos a notification is about, shown in the notification centre and briefing view.
+    id: "0023_notification_media",
+    sql: `
+      -- [{url, type: "image" | "video", alt?, durationSec?, width?, height?}]
+      alter table notifications add column if not exists media jsonb not null default '[]';
+    `,
+  },
 ];

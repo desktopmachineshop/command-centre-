@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Capability, Job, NewProposal } from "@cc/core";
+import type { Capability, Job, NewProposal, NotificationMedia } from "@cc/core";
 import {
   cloudProvider,
   type FetchLike,
@@ -34,19 +34,32 @@ import type { ActionExecutor } from "./actions";
  * its state carried in each job's `payload.meta.production`.
  */
 
+/**
+ * Who a production's file belongs to: its vertical (spec.product), the production
+ * ("video:<id>"), and whether it is work in progress (captures, narration), which is
+ * deleted once the final render has been published.
+ */
+export interface MediaTags {
+  vertical: string;
+  work: string;
+  wip: boolean;
+}
+
 /** Where workers upload files and from where social platforms fetch them. */
 export interface VideoMediaStore {
   /** A one-off PUT URL for a worker, plus the public URL the file will have. */
-  createUpload(name: string, contentType: string): Promise<Upload>;
+  createUpload(name: string, contentType: string, tags?: MediaTags): Promise<Upload>;
   /** Stores bytes made on the server (narration) and returns their public URL. */
-  put(name: string, bytes: Uint8Array, contentType: string): Promise<string>;
+  put(name: string, bytes: Uint8Array, contentType: string, tags?: MediaTags): Promise<string>;
 }
+
+const tags = (spec: VideoSpec, productionId: string, wip: boolean): MediaTags => ({ vertical: spec.product, work: `video:${productionId}`, wip });
 
 export interface VideoDeps {
   submit(job: { kind: string; requires: Capability[]; payload: Record<string, unknown> }): Promise<Job>;
   /** Proposes an action; `forceDraft` holds it for approval whatever the vertical's policy. */
   propose(proposal: NewProposal, options: { forceDraft: string }): Promise<unknown>;
-  notify(n: { title: string; body: string }): Promise<void>;
+  notify(n: { title: string; body: string; media?: NotificationMedia[] }): Promise<void>;
   /** Whether an action type has an executor (social.campaign is being built alongside). */
   hasAction(actionType: string): boolean;
   media?: VideoMediaStore;
@@ -134,7 +147,7 @@ export class VideoProductions {
 
     if (media && hasCapture) {
       const uploads: Record<string, Upload> = {};
-      for (const s of spec.scenes) if (s.kind === "capture") uploads[s.id] = await media.createUpload(`${spec.id}-${id}/${s.id}.webm`, "video/webm");
+      for (const s of spec.scenes) if (s.kind === "capture") uploads[s.id] = await media.createUpload(`${spec.id}-${id}/${s.id}.webm`, "video/webm", tags(spec, id, true));
       const job = await this.deps.submit({ kind: "video.capture", requires: ["browser"], payload: { spec, uploads, meta: { production } } });
       return { productionId: id, captureJobId: job.id, warnings };
     }
@@ -143,7 +156,7 @@ export class VideoProductions {
       voice: voice as VideoRenderPayloadInput["voice"],
       captureInline: hasCapture,
       encoder: input.encoder,
-      ...(media ? { upload: await media.createUpload(`${spec.id}-${id}/${spec.id}.mp4`, "video/mp4") } : {}),
+      ...(media ? { upload: await media.createUpload(`${spec.id}-${id}/${spec.id}.mp4`, "video/mp4", tags(spec, id, false)) } : {}),
       meta: { production: { ...production, stage: "render" } },
     };
     const job = await this.deps.submit({ kind: "video.render", requires: hasCapture ? ["ffmpeg", "browser"] : ["ffmpeg"], payload: render as Record<string, unknown> });
@@ -189,7 +202,7 @@ export class VideoProductions {
       if (!scene.narration) continue;
       const r = await tts.synthesize(scene.narration, { voiceId: spec.voice.voiceId, speed: spec.voice.speed });
       const format = speechExt(r.mime);
-      const url = await media.put(`${spec.id}-${id}/voice-${scene.id}.${format}`, r.audio, r.mime);
+      const url = await media.put(`${spec.id}-${id}/voice-${scene.id}.${format}`, r.audio, r.mime, tags(spec, id, true));
       out[scene.id] = { url, format, durationSec: r.durationSec, words: r.words ?? estimateWordTimings(scene.narration, r.durationSec) };
     }
     return out;
@@ -244,7 +257,7 @@ export class VideoProductions {
         assets,
         voice: production.voice as VideoRenderPayloadInput["voice"],
         encoder: production.encoder,
-        ...(this.deps.media ? { upload: await this.deps.media.createUpload(`${spec.id}-${production.id}/${spec.id}.mp4`, "video/mp4") } : {}),
+        ...(this.deps.media ? { upload: await this.deps.media.createUpload(`${spec.id}-${production.id}/${spec.id}.mp4`, "video/mp4", tags(spec, production.id, false)) } : {}),
         meta: { production: { ...production, stage: "render" } },
       };
       await this.deps.submit({ kind: "video.render", requires: ["ffmpeg"], payload: render as Record<string, unknown> });
@@ -254,13 +267,17 @@ export class VideoProductions {
     const result = VideoRenderResult.parse(job.result);
     const where = result.url ?? `${result.outputPath} on worker ${job.nodeId ?? "?"}`;
     const length = `${Math.round(result.durationSec)}s ${result.width}x${result.height}`;
+    // With a public URL, the notification carries the video so the app plays it in place.
+    const media: NotificationMedia[] = result.url
+      ? [{ url: result.url, type: "video", alt: spec.title, durationSec: result.durationSec, width: result.width, height: result.height }]
+      : [];
     if (!production.targets.length) {
-      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}` });
+      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}`, media });
       return;
     }
     if (!result.url || !this.deps.hasAction("social.campaign")) {
       const why = !result.url ? "it has no public URL yet (no media store)" : "social.campaign is not available";
-      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}. Not proposed for posting because ${why}.` });
+      await this.deps.notify({ title: `Video ready: ${spec.title}`, body: `${length}: ${where}. Not proposed for posting because ${why}.`, media });
       return;
     }
     await this.deps.propose(

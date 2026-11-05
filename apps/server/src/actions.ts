@@ -1,9 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { type Brain, isMisplacedIssue } from "@cc/brain";
-import { type EventSource, type NewProposal, type NotificationCategory, type NotificationPriority, NewProposal as NewProposalSchema, type Policy, type Proposal, proposalPolicy } from "@cc/core";
+import {
+  type EventSource,
+  type NewProposal,
+  type NotificationCategory,
+  type NotificationMedia,
+  type NotificationPriority,
+  NewProposal as NewProposalSchema,
+  type Policy,
+  type Proposal,
+  proposalPolicy,
+} from "@cc/core";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { Store } from "./db/store";
 import type { Hub } from "./hub";
+import { mediaKind } from "./http/social";
 import type { Notifier } from "./push";
 
 export interface ExecutorContext {
@@ -11,13 +22,15 @@ export interface ExecutorContext {
   notifier: Notifier;
   /** The proposal's vertical, set when an executor runs. */
   vertical?: string;
+  /** PUBLIC_BASE_URL: this server's own /media files are the only media an agent's notify may show. */
+  publicBaseUrl?: string;
 }
 
 export interface ActionExecutor {
   /** One-line description shown to agents in the propose tool. */
   description: string;
   /** Optional check when the action is proposed: throw to refuse it before it reaches Approvals. */
-  validate?(payload: Record<string, unknown>, ctx: { vertical: string }): void | Promise<void>;
+  validate?(payload: Record<string, unknown>, ctx: { vertical: string; publicBaseUrl?: string }): void | Promise<void>;
   execute(payload: Record<string, unknown>, ctx: ExecutorContext): Promise<unknown>;
 }
 
@@ -52,8 +65,11 @@ export const builtinExecutors: Record<string, ActionExecutor> = {
   },
   notify: {
     description:
-      'Send a notification to Dave\'s devices. payload: { title, body, category?, priority?, url? }. category: "briefing" (morning brief, evening wrap), "reminder", "alert", "orders", "social" or "agent" (default). priority: "high", "normal" or "low".',
-    execute: async (payload, { notifier, vertical }) => {
+      'Send a notification to Dave\'s devices. payload: { title, body, category?, priority?, url?, media? }. category: "briefing" (morning brief, evening wrap), "reminder", "alert", "orders", "social" or "agent" (default). priority: "high", "normal" or "low". media: up to 4 images or videos to show with it, each this server\'s own /media URL (as POST /api/media or the storage list returns it) or { url, alt? }; the app plays a video in place.',
+    validate: (payload, { publicBaseUrl }) => {
+      agentMedia(payload.media, publicBaseUrl);
+    },
+    execute: async (payload, { notifier, vertical, publicBaseUrl }) => {
       // notifications: agents pick a category; never "approval"/"system", and never urgent (which breaks quiet hours).
       const category = AGENT_CATEGORIES.has(payload.category as string) ? (payload.category as NotificationCategory) : "agent";
       const asked = ["high", "normal", "low"].includes(payload.priority as string) ? (payload.priority as NotificationPriority) : undefined;
@@ -64,11 +80,36 @@ export const builtinExecutors: Record<string, ActionExecutor> = {
         priority: asked ?? (category === "alert" ? "high" : undefined),
         vertical,
         url: typeof payload.url === "string" && payload.url.startsWith("/") ? payload.url : undefined,
+        media: agentMedia(payload.media, publicBaseUrl),
       });
       return "sent";
     },
   },
 };
+
+/**
+ * The media an agent's `notify` asked for. Only this server's own /media files are allowed
+ * (`/media/<id>` or `<PUBLIC_BASE_URL>/media/<id>`), so outside input that reaches an agent can't
+ * make the app load someone else's URL. Throws a readable error for anything else.
+ */
+export function agentMedia(raw: unknown, publicBaseUrl: string | undefined): NotificationMedia[] {
+  if (raw == null) return [];
+  const items = Array.isArray(raw) ? raw : [raw];
+  if (!items.length) return [];
+  if (items.length > 4) throw new Error("payload.media: at most 4 items");
+  if (!publicBaseUrl) throw new Error("payload.media needs PUBLIC_BASE_URL set on the server (it is how the app and pushes load /media files)");
+  const base = publicBaseUrl.replace(/\/+$/, "");
+  return items.map((item, i) => {
+    const entry = typeof item === "string" ? { url: item } : item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const url = typeof entry.url === "string" ? entry.url.trim() : "";
+    const path = url.startsWith(`${base}/media/`) ? url.slice(base.length) : url;
+    const id = path.startsWith("/media/") ? path.slice("/media/".length) : "";
+    const type = mediaKind(id);
+    if (!type) throw new Error(`payload.media[${i}]: must be an image or video from this server's /media (${base}/media/<id>), got ${JSON.stringify(url.slice(0, 200))}`);
+    const alt = typeof entry.alt === "string" && entry.alt ? { alt: entry.alt.slice(0, 300) } : {};
+    return { url: `${base}/media/${id}`, type, ...alt };
+  });
+}
 
 /** Categories an agent's `notify` may use. */
 const AGENT_CATEGORIES: ReadonlySet<string> = new Set<NotificationCategory>(["briefing", "reminder", "alert", "orders", "social", "digest", "agent"]);
@@ -192,7 +233,7 @@ export class ActionService {
     if (!executor) {
       throw new Error(`Unknown action type "${actionType}". Known: ${Object.keys(this.executors).join(", ")}`);
     }
-    await executor.validate?.(payload, { vertical });
+    await executor.validate?.(payload, { vertical, publicBaseUrl: this.ctx.publicBaseUrl });
   }
 
   /**
@@ -302,7 +343,7 @@ export class ActionService {
     const { policyDowngrade: _ignored, ...edited } = payload;
     const next = current.payload.policyDowngrade === undefined ? edited : { ...edited, policyDowngrade: current.payload.policyDowngrade };
     try {
-      await this.executors[current.actionType]?.validate?.(next, { vertical: current.vertical });
+      await this.executors[current.actionType]?.validate?.(next, { vertical: current.vertical, publicBaseUrl: this.ctx.publicBaseUrl });
     } catch (err) {
       throw new ProposalInvalidError((err as Error).message);
     }

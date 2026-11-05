@@ -1053,7 +1053,7 @@ export class HeadsetButton {
     this.active = true;
     const ms = navigator.mediaSession;
     try {
-      ms.metadata = new MediaMetadata({ title: "Command Centre", artist: "Drive mode: press to talk" });
+      ms.metadata = new MediaMetadata({ title: "Command Centre", artist: "Converse: press to talk" });
     } catch {
       // MediaMetadata missing
     }

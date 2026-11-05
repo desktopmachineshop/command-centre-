@@ -3,6 +3,7 @@ import type {
   NotificationAction,
   NotificationCategory,
   NotificationDevice,
+  NotificationMedia,
   NotificationPriority,
   NotificationStatus,
   StoredNotification,
@@ -22,6 +23,7 @@ const toNotification = (r: Row): StoredNotification => ({
   url: r.url,
   tag: r.tag,
   actions: r.actions ?? [],
+  media: r.media ?? [],
   data: r.data ?? {},
   status: r.status,
   createdAt: iso(r.created_at)!,
@@ -52,6 +54,7 @@ export interface NewNotification {
   url: string | null;
   tag: string | null;
   actions: NotificationAction[];
+  media: NotificationMedia[];
   data: Record<string, unknown>;
   status: NotificationStatus;
   pushed: boolean;
@@ -67,8 +70,8 @@ export class NotificationStore {
 
   async insert(n: NewNotification): Promise<StoredNotification> {
     const { rows } = await this.pool.query(
-      `insert into notifications (id, user_id, category, priority, vertical, title, body, url, tag, actions, data, status, created_at, pushed_at, read_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, case when $14 then $13::timestamptz end, case when $15 then $13::timestamptz end)
+      `insert into notifications (id, user_id, category, priority, vertical, title, body, url, tag, actions, data, status, created_at, pushed_at, read_at, media)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, case when $14 then $13::timestamptz end, case when $15 then $13::timestamptz end, $16)
        returning *`,
       [
         n.id ?? randomUUID(),
@@ -86,6 +89,7 @@ export class NotificationStore {
         n.createdAt,
         n.pushed,
         n.read,
+        JSON.stringify(n.media),
       ],
     );
     return toNotification(rows[0]);

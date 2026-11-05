@@ -71,6 +71,8 @@ const MOCK_SPEECH = () => {
     close() {}
   };
   localStorage.setItem("cc.connection", JSON.stringify({ baseUrl: "", token: "test-token" }));
+  // These tests start in push to talk (Converse's default is off; the wake-lock test checks that).
+  if (!sessionStorage.getItem("cc.test.freshMode")) localStorage.setItem("cc.drive.mode", "push");
 };
 
 type Calls = { method: string; path: string; body: unknown }[];
@@ -192,7 +194,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls);
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
 
     const talk = page.locator("button.drive-ptt");
     await talk.waitFor({ timeout: 20_000 });
@@ -234,7 +236,8 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     expect(calls.filter((c) => c.path === "/proposals/p1/approve")).toHaveLength(1);
 
     // Conversational chat: the question is answered without a button press, into the same task.
-    await page.getByRole("button", { name: "Conversation" }).click();
+    await page.getByRole("switch", { name: "Push to talk" }).click();
+    expect(await page.getByRole("switch", { name: "Push to talk" }).getAttribute("aria-checked")).toBe("false");
     expect(await page.evaluate(() => localStorage.getItem("cc.drive.mode"))).toBe("conversational");
     await sayNext("shop: has order 1042 shipped?");
     await sayNext("the one for Jane");
@@ -256,7 +259,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls, { batch: true });
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
     const talk = page.locator("button.drive-ptt");
     await talk.waitFor({ timeout: 20_000 });
     const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken);
@@ -294,7 +297,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls);
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
     const talk = page.locator("button.drive-ptt");
     const picker = page.getByLabel("Talking to");
     await picker.waitFor({ timeout: 20_000 });
@@ -360,7 +363,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.addInitScript(MOCK_SPEECH);
     const calls: Calls = [];
     await mockApi(page, calls, { front: true });
-    await page.goto(`${base}/#/drive`);
+    await page.goto(`${base}/#/converse`);
     const talk = page.locator("button.drive-ptt");
     await talk.waitFor({ timeout: 20_000 });
     await expect.poll(() => calls.some((c) => c.path === "/voice/warm"), { timeout: 15_000 }).toBe(true);
@@ -394,10 +397,53 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.close();
   }, 90_000);
 
+  it("on a computer, Space is the orb: hold to talk, or tap; not while typing", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(MOCK_SPEECH);
+    const calls: Calls = [];
+    await mockApi(page, calls);
+    await page.goto(`${base}/#/converse`);
+    await page.locator("button.drive-ptt").waitFor({ timeout: 20_000 });
+    await page.locator(".drive-hint", { hasText: "or hold Space" }).waitFor();
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.join(" | "));
+    const sayNext = (text: string) => page.evaluate((t) => (window as unknown as { __transcripts: string[] }).__transcripts.push(t), text);
+    const idle = () => page.locator(".drive-state").getByText("Tap to talk").waitFor({ timeout: 15_000 });
+
+    // Hold Space: it listens while held, and letting go sends.
+    await sayNext("What's new?");
+    await page.keyboard.down("Space");
+    await page.locator(".drive-caption", { hasText: "What's new?" }).waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(400);
+    await page.keyboard.up("Space");
+    await expect.poll(spoken, { timeout: 15_000 }).toContain("You have 1 approval waiting");
+    await idle();
+
+    // Tap Space like the orb: once to talk, again to send.
+    await sayNext("read approvals");
+    await page.keyboard.press("Space");
+    await page.locator(".drive-caption", { hasText: "read approvals" }).waitFor({ timeout: 15_000 });
+    await page.keyboard.press("Space");
+    await expect.poll(spoken, { timeout: 15_000 }).toContain("Approval 1 of 1");
+    await idle();
+
+    // In the text box, Space is just a space.
+    const box = page.locator(".composer textarea");
+    await box.click();
+    await page.keyboard.type("a b");
+    expect(await box.inputValue()).toBe("a b");
+    expect(await page.locator(".drive-state").textContent()).toContain("Tap to talk");
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it("keeps the screen awake while open inside the app shell, and lets it sleep after leaving", async () => {
     const page = await browser.newPage();
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    // A device that never chose: Converse starts with push to talk off.
+    await page.addInitScript(() => sessionStorage.setItem("cc.test.freshMode", "1"));
     await page.addInitScript(MOCK_SPEECH);
     // A recording Screen Wake Lock: counts requests, and how many are still held.
     await page.addInitScript(() => {
@@ -430,14 +476,21 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await mockApi(page, []);
     const wake = () => page.evaluate(() => (window as unknown as { __wake: { requests: number; held: number } }).__wake);
 
-    // Opened from the chat composer: Drive sits inside the shell (top bar and tab bar still there).
+    // Opened from the chat composer: Drive grows inside the composer, in the shell (top bar and tab bar still there).
     await page.goto(`${base}/#/chat`);
-    await page.locator('a.tool[href="#/drive"]').click();
+    await page.locator('a.tool[href="#/converse"]').click();
     await page.locator("button.drive-ptt").waitFor({ timeout: 20_000 });
     expect(await page.locator(".shell .topbar").count()).toBe(1);
+    expect(await page.locator(".composer .composer-panel .drive").count()).toBe(1);
+    // The text box stays, as another way to give Drive a command; Drive's options are in Settings now.
+    expect(await page.locator(".composer textarea").count()).toBe(1);
+    expect(await page.locator(".drive details").count()).toBe(0);
+    expect(await page.getByRole("switch", { name: "Push to talk" }).getAttribute("aria-checked")).toBe("false");
     await expect.poll(async () => (await wake()).held).toBe(1);
-    await page.locator("details.drive-more > summary").click();
-    await expect.poll(() => page.locator(".drive-more").textContent()).toContain("Screen: kept on");
+    // Typed in the chat box while driving: Drive handles it (here, the briefing) instead of the chat.
+    await page.locator(".composer textarea").fill("what's new");
+    await page.locator(".composer button.send").click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.join(" "))).toContain("1 approval waiting");
 
     // The system takes the lock back (e.g. the screen was switched off), then the page comes back: re-acquired.
     const before = (await wake()).requests;
@@ -449,9 +502,9 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await expect.poll(async () => (await wake()).requests).toBe(before + 1);
     expect((await wake()).held).toBe(1);
 
-    // Leaving Drive lets the screen sleep again.
-    await page.locator(".drive-exit").click();
-    await page.locator('a.tool[href="#/drive"]').waitFor();
+    // Leaving Drive (the composer's Drive button again) shrinks it back to the text box and lets the screen sleep.
+    await page.locator('a.tool[href="#/chat"]').click();
+    await expect.poll(() => page.locator(".drive").count()).toBe(0);
     await expect.poll(async () => (await wake()).held).toBe(0);
     expect(errors).toEqual([]);
     await page.close();

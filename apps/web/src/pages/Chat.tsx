@@ -1,5 +1,5 @@
 import type { AgentMessage, Proposal, Task } from "@cc/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Api, ChatFile } from "../api";
 import { type LiveFeed, useLive } from "../live";
 import { Icon } from "../icons";
@@ -11,7 +11,7 @@ import { clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
 import { ReadAloudToggle, useReadAloud } from "../voice/readAloud";
-import { setDriveOrigin } from "../voice/driveOrigin";
+import { Drive } from "./Drive";
 
 type Turn = { key: number; text: string; files?: { name: string; size: number }[]; task: Task; messages: AgentMessage[]; result?: string; /** Server time it was taken (see chat-store). */ at: string };
 
@@ -78,7 +78,111 @@ function useChainProposals(api: Api, feed: LiveFeed, taskIds: string[]) {
  * Talk to the command agent. The first message becomes a task; follow-ups
  * continue it (the agent resumes its session) until "New chat". Replies stream in live.
  */
-export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
+/** How long the composer takes to grow into Drive mode, or shrink back (matches styles.css). */
+const DRIVE_MS = 450;
+type DriveStage = "off" | "opening" | "open" | "closing";
+
+/**
+ * Drive mode in the chat composer: while `want` is set, the composer comes out of the page flow
+ * (a spacer keeps its place) and grows upwards, its bottom edge where it was, until its top edge
+ * reaches just under the top bar; a panel above the text box (.composer-panel) takes the extra
+ * height and holds Drive. Clearing `want` shrinks it back first. The sizes go to CSS as variables on
+ * the chat section: --drive-left/-width/-bottom (where the box sits), --drive-h (the panel's
+ * height, animated by a transition) and --drive-spacer (the box's height in the page).
+ */
+function useDriveExpand(sectionRef: RefObject<HTMLElement | null>, want: boolean): DriveStage {
+  const [stage, setStage] = useState<DriveStage>("off");
+  const geom = useRef({ startH: 0, restH: 0, bottom: 0, openH: 0 });
+
+  /** The panel's open height: what's left between the top bar and the box's bottom edge. */
+  const fit = (el: HTMLElement) => {
+    const g = geom.current;
+    const box = el.querySelector<HTMLElement>(".composer");
+    const panel = el.querySelector<HTMLElement>(".composer-panel");
+    // The rest of the box (rows, padding) as laid out in Drive mode, without the panel.
+    if (box && panel) g.restH = box.getBoundingClientRect().height - panel.getBoundingClientRect().height;
+    const top = (document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0) + 8;
+    g.openH = Math.max(g.startH, window.innerHeight - g.bottom - top - g.restH);
+  };
+
+  /** Where the box goes for a given horizontal extent: up to just under the top bar. */
+  const place = (el: HTMLElement, left: number, width: number) => {
+    const g = geom.current;
+    el.style.setProperty("--drive-left", `${left}px`);
+    el.style.setProperty("--drive-width", `${width}px`);
+    el.style.setProperty("--drive-bottom", `${g.bottom}px`);
+  };
+
+  useLayoutEffect(() => {
+    const el = sectionRef.current;
+    const box = el?.querySelector<HTMLElement>(".composer");
+    if (!el || !box) return;
+    if (want && stage === "off") {
+      // Measured in place, before it moves; the panel starts empty and takes all the extra height.
+      const r = box.getBoundingClientRect();
+      geom.current = { startH: 0, restH: r.height, bottom: window.innerHeight - r.bottom, openH: 0 };
+      el.style.setProperty("--drive-spacer", `${r.height}px`);
+      el.style.setProperty("--drive-h", "0px");
+      place(el, r.left, r.width);
+      setStage("opening");
+    } else if (want && stage === "closing") {
+      el.style.setProperty("--drive-h", `${geom.current.openH}px`);
+      setStage("opening");
+    } else if (!want && (stage === "opening" || stage === "open")) {
+      el.style.setProperty("--drive-h", `${geom.current.startH}px`);
+      setStage("closing");
+    }
+  }, [want, stage]);
+
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    if (stage === "opening") {
+      // Grow on the next frame, from the box as Drive mode lays it out (the panel still empty).
+      fit(el);
+      const frame = requestAnimationFrame(() => el.style.setProperty("--drive-h", `${geom.current.openH}px`));
+      const timer = setTimeout(() => setStage("open"), DRIVE_MS);
+      return () => {
+        cancelAnimationFrame(frame);
+        clearTimeout(timer);
+      };
+    }
+    if (stage === "closing") {
+      // Back to the text box once the panel has shrunk (straight away if there's no animation).
+      const panel = el.querySelector<HTMLElement>(".composer-panel");
+      const done = () => setStage("off");
+      if (!panel || getComputedStyle(panel).transitionDuration.split(",").every((d) => parseFloat(d) === 0)) {
+        done();
+        return;
+      }
+      const onEnd = (e: TransitionEvent) => {
+        if (e.target === panel && e.propertyName === "height") done();
+      };
+      panel.addEventListener("transitionend", onEnd);
+      const timer = setTimeout(done, DRIVE_MS * 4);
+      return () => {
+        panel.removeEventListener("transitionend", onEnd);
+        clearTimeout(timer);
+      };
+    }
+    if (stage === "open") {
+      // Keep it fitted when the window changes size (a phone turning, the keyboard).
+      const refit = () => {
+        const spacer = el.querySelector<HTMLElement>(".composer-spacer")?.getBoundingClientRect();
+        if (!spacer) return;
+        place(el, spacer.left, spacer.width);
+        fit(el);
+        el.style.setProperty("--drive-h", `${geom.current.openH}px`);
+      };
+      window.addEventListener("resize", refit);
+      return () => window.removeEventListener("resize", refit);
+    }
+  }, [stage]);
+
+  return stage;
+}
+
+export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; drive?: boolean }) {
   const [verticals, setVerticals] = useState<{ id: string; name: string }[]>([]);
   const [vertical, setVertical] = useState("");
   const [text, setText] = useState("");
@@ -87,6 +191,14 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   /** The task follow-ups continue; null starts a new one. */
   const [threadId, setThreadId] = useState<string | null>(null);
   const readAloud = useReadAloud(api);
+  const sectionRef = useRef<HTMLElement>(null);
+  const driveStage = useDriveExpand(sectionRef, drive);
+  const driving = driveStage !== "off";
+  /** Drive's typed-command handler while it's open (Drive sets it). */
+  const driveCommand = useRef<((text: string) => void) | null>(null);
+  /** Where Converse puts its Push to talk switch (the row of buttons) and its Talking to picker (in place of Send to). */
+  const [driveToolbar, setDriveToolbar] = useState<HTMLElement | null>(null);
+  const [drivePicker, setDrivePicker] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     api.verticals().then(setVerticals).catch(() => {});
@@ -175,6 +287,12 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   });
 
   const send = async (message: string, files: ChatFile[]) => {
+    // In Drive mode, typing is another way to give Drive a command.
+    if (driving && driveCommand.current) {
+      driveCommand.current(message);
+      setText("");
+      return true;
+    }
     if (!ready || queue.length) {
       setQueue((q) => [...q, { id: ++queueId, text: message, files }]);
       setText("");
@@ -204,7 +322,7 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
   };
 
   return (
-    <section className="chat">
+    <section ref={sectionRef} className="chat">
       <PageHead
         title="Chat"
         sub="You're talking to the Chief of Staff, who hands work to the right role and tells you the outcome here. Follow-ups continue the chat until you start a new one."
@@ -257,24 +375,38 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
         ))}
       </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      <Composer api={api} value={text} onChange={setText} onSend={send} label="Message" placeholder="What needs doing?">
-        <select
-          value={vertical}
-          onChange={(e) => {
-            setVertical(e.target.value);
-            setThreadId(null);
-            setQueue([]);
-          }}
-          aria-label="Send to"
-          data-help-key="chat.send-to"
-        >
-          <option value="">Chief of Staff</option>
-          {verticals.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-            </option>
-          ))}
-        </select>
+      {driving && <div className="composer-spacer" aria-hidden="true" />}
+      <Composer
+        api={api}
+        value={text}
+        onChange={setText}
+        onSend={send}
+        label="Message"
+        placeholder={driving ? "Or type it here" : "What needs doing?"}
+        className={driving ? `is-driving is-${driveStage}` : ""}
+        panel={driving ? <Drive api={api} feed={feed} commandRef={driveCommand} toolbar={driveToolbar} pickerSlot={drivePicker} /> : undefined}
+      >
+        {driving ? (
+          <span ref={setDrivePicker} className="composer-picker-slot" />
+        ) : (
+          <select
+            value={vertical}
+            onChange={(e) => {
+              setVertical(e.target.value);
+              setThreadId(null);
+              setQueue([]);
+            }}
+            aria-label="Send to"
+            data-help-key="chat.send-to"
+          >
+            <option value="">Chief of Staff</option>
+            {verticals.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+        )}
         <div className="composer-tools" role="group" aria-label="Chat options">
           {threadId && (
             <button type="button" className="tool" onClick={newChat} title="Start a new chat">
@@ -284,15 +416,15 @@ export function Chat({ api, feed }: { api: Api; feed: LiveFeed }) {
           )}
           <ReadAloudToggle readAloud={readAloud} />
           <a
-            className="tool"
-            href="#/drive"
-            aria-label="Drive mode: talk hands-free"
-            title="Drive mode: talk hands-free"
-            onClick={(e) => setDriveOrigin(e.currentTarget.closest(".composer"))}
+            className={`tool ${drive ? "is-on" : ""}`}
+            href={drive ? "#/chat" : "#/converse"}
+            aria-label={drive ? "Fold Converse away, back to typing" : "Converse: talk it through hands-free"}
+            title={drive ? "Fold Converse away, back to typing" : "Converse: talk it through hands-free"}
           >
-            <Icon name="drive" size={16} />
-            <span>Drive</span>
+            <Icon name={drive ? "fold" : "drive"} size={16} />
+            <span>{drive ? "Fold" : "Converse"}</span>
           </a>
+          {driving && <span ref={setDriveToolbar} className="composer-tools-slot" />}
         </div>
       </Composer>
     </section>

@@ -34,6 +34,13 @@ const BY_EXT: Record<string, string> = {
 /** 32 hex characters (128 random bits) plus a known extension; nothing else is ever served. */
 export const MEDIA_FILE = new RegExp(`^[a-f0-9]{32}\\.(${Object.keys(BY_EXT).join("|")})$`);
 
+/** Whether a /media id is an image or a video (null for audio, or anything that isn't a media id). */
+export function mediaKind(id: string): "image" | "video" | null {
+  if (!MEDIA_FILE.test(id)) return null;
+  const ext = id.slice(id.lastIndexOf(".") + 1);
+  return Object.values(MEDIA_TYPES).find((m) => m.ext === ext)?.kind ?? null;
+}
+
 export interface SocialApiDeps {
   store: Store;
   actions: ActionService;
@@ -110,10 +117,13 @@ export function socialApiRoutes(deps: SocialApiDeps) {
 
   /**
    * Upload an image or video, as multipart (field "file") or a raw body with its
-   * content type. Returns a public, unguessable URL platforms can fetch.
+   * content type. Returns a public, unguessable URL platforms can fetch. `?vertical=` files it
+   * under that vertical (the composer sends its accounts' vertical).
    */
   app.post("/media", async (c) => {
     const { blobs, maxBytes } = deps.media;
+    const vertical = c.req.query("vertical") || null;
+    if (vertical && !/^[a-z0-9][a-z0-9-]{0,39}$/.test(vertical)) return c.json({ error: "invalid vertical" }, 400);
     const tooLarge = () => c.json({ error: `file is larger than ${Math.round(maxBytes / 1024 / 1024)} MB` }, 413);
     const declared = Number(c.req.header("content-length"));
     // Multipart adds a little framing around the file.
@@ -152,7 +162,7 @@ export function socialApiRoutes(deps: SocialApiDeps) {
     limit.on("error", () => source.destroy());
     let info;
     try {
-      info = await blobs.put(source.pipe(limit), { name: `upload.${media.ext}`, contentType: type, folder: "media" });
+      info = await blobs.put(source.pipe(limit), { name: `upload.${media.ext}`, contentType: type, folder: "media", vertical });
     } catch (err) {
       if (err instanceof TooLarge || limit.errored instanceof TooLarge) return tooLarge();
       throw err;
