@@ -70,6 +70,7 @@ import { LocalSpeech } from "@cc/voice/local";
 import { voiceListenHandler } from "./http/voice-listen";
 import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
+import { DavinciRenders } from "./davinci";
 import { WorkerService } from "./workers";
 import { type Group, IntegrationService, IntegrationStore, Live, SecretBox } from "./integrations";
 import { ClaudeSetup } from "./integrations/claude-setup";
@@ -502,9 +503,20 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   workers.onJobSettled((job) => video.onJobSettled(job));
   // --- end video ---
 
+  // --- davinci: davinci.render (action or POST /api/davinci/render) → DaVinci Resolve on a PC → notification ---
+  const davinci = new DavinciRenders({
+    submit: (job) => workers.submit(job),
+    notify: (n) => notifier.notify(n),
+    head: (id) => storage.head(id),
+    publicBaseUrl: config.publicBaseUrl,
+  });
+  workers.onJobSettled((job) => davinci.onJobSettled(job));
+  // --- end davinci ---
+
   // Resolved when a proposal is made or approved, so one approved after a reload uses the new credentials.
   const paExecutors = createPaExecutors(paStore, { timeZone: config.timezone });
   const videoExecutors = video.executors();
+  const davinciExecutors = davinci.executors();
   // Coding roles (a role with a repo, e.g. the Software Lead): their checkout and github.pr.create (./code.ts).
   const code: CodeOptions = overrides.code ?? { token: config.githubToken };
   const codeExecutors = createCodeExecutors({
@@ -529,6 +541,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           ...odoo.current.executors,
           ...social.current.executors,
           ...videoExecutors,
+          ...davinciExecutors,
           ...codeExecutors,
         },
       };
@@ -746,7 +759,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles, help: config.help }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci }));
   app.route(
     "/mcp",
     mcpRoutes({

@@ -2,34 +2,12 @@ import { spawn } from "node:child_process";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { z } from "zod";
+import { DavinciRenderPayload } from "@cc/core";
 import { defineHandler, type JobContext, JobError } from "./registry";
 import { RESOLVE_JOB_PY } from "./resolve-script";
 import { download } from "./video";
 
-/** A plain file name: no folders, no `..`. */
-const FileName = z
-  .string()
-  .regex(/^[\w][\w. -]{0,199}$/, "plain file name only")
-  .refine((n) => !n.includes(".."), "plain file name only");
-
-export const DavinciRenderPayload = z
-  .object({
-    /** Clips, downloaded in order and laid end to end on one timeline. */
-    clips: z.array(z.object({ url: z.url({ protocol: /^https?$/ }), name: FileName })).min(1).max(100),
-    /** A render preset that exists in Resolve and is on this worker's `davinciPresets` list. */
-    preset: z.string().min(1).max(100),
-    /** Output name without extension; Resolve adds the one the preset uses. */
-    outputName: z.string().regex(/^[\w][\w -]{0,99}$/, "letters, digits, spaces, - and _ only"),
-    fps: z.enum(["23.976", "24", "25", "29.97", "30", "50", "59.94", "60"]).optional(),
-    /** Upload the render to Command Centre storage and return its URL (the result's `upload`). */
-    upload: z.boolean().default(true),
-    uploadFolder: z.enum(["renders", "media", "footage", "assets"]).default("renders"),
-  })
-  .refine((p) => new Set(p.clips.map((c) => c.name.toLowerCase())).size === p.clips.length, {
-    path: ["clips"],
-    message: "clip names must be unique",
-  });
+export { DavinciRenderPayload };
 
 /** How long Resolve gets to stop a cancelled render before the script is killed. */
 const CANCEL_GRACE_MS = 15_000;

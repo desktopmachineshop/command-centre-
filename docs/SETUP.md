@@ -499,6 +499,14 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   be running, with **Preferences → System → General → External scripting using** set to **Local**.
   The worker runs its own fixed Python script; the job only sends data. The result is
   `{outputPath, bytes, url?}`, and the render is uploaded unless `upload` is `false`.
+
+  To start one, don't build this payload by hand: `POST /api/davinci/render`
+  `{clips: [{fileId} | {url, name?}], preset?, outputName?, fps?, title?}` takes clips in timeline
+  order, either storage files by id (an mp4, mov or webm; the PC downloads them from
+  `/media/<id>`, so this needs `PUBLIC_BASE_URL`) or http(s) URLs, and queues the job. The preset
+  defaults to `YouTube - 1080p`. Agents can do the same through the `davinci.render` action, which
+  waits for your approval like any other. When the render finishes or fails, you get a
+  notification, with the video in it when it was uploaded.
 - A job no online computer can run stays **queued**: the Devices page says which capability is
   missing on which PC and how to get it, and **Cancel** removes it (`POST /api/jobs/:id/cancel`,
   queued jobs only).
