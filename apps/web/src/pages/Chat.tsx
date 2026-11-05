@@ -308,9 +308,20 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   const lastTurn = turns[turns.length - 1];
   useStickToBottom(`${turns.length}:${lastTurn?.messages.length ?? 0}:${lastTurn?.task.status ?? ""}:${Object.values(chains).reduce((n, c) => n + c.proposals.length, 0)}`, !restoring);
 
+  // Read aloud reads this chat's replies only (not every agent's messages), and never while Converse
+  // is open: Converse speaks for itself, and two voices would talk over each other.
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
+  const drivingRef = useRef(driving);
+  drivingRef.current = driving;
+  useEffect(() => {
+    if (driving) readAloud.stop();
+  }, [driving]);
+
   useLive(feed, (m) => {
     if (m.type === "run.message") {
-      if (m.message.type === "text") readAloud.offer(m.message.text);
+      const ours = turnsRef.current.some((t) => t.task.id === m.taskId);
+      if (m.message.type === "text" && ours && !drivingRef.current) readAloud.offer(m.message.text);
       setTurns((ts) => onLatest(ts, m.taskId, (t) => ({ ...t, messages: [...t.messages, m.message] })));
     }
     if (m.type === "task.updated") {
