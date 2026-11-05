@@ -64,6 +64,44 @@ once any user exists, even with the admin token.
 
 You can also create the first user from your PC instead (next section).
 
+### Sign in with DMSid (optional)
+
+DMSid (`https://id.desktopmachineshop.com`) is the one login for the DMS products. Command Centre
+can use it as well as the email and password, **for Dave only**:
+
+- Only `dave@desktopmachineshop.com` may sign in this way (`DMSID_ALLOWED_EMAILS` in
+  `apps/server/src/accounts/dmsid.ts`, deliberately code, not a variable). Any other DMSid is
+  refused, even one with a matching Command Centre user.
+- DMSid must vouch for the address (`email_verified: true`): a DMSid that merely typed Dave's
+  address in, unconfirmed, is refused.
+- It signs in the **existing** Command Centre user with that address; it never creates one.
+- Two-factor still applies: with it on, the app asks for the authenticator code after DMSid.
+- On DMSid's side the app is registered **private** (`allowedEmails`), so DMSid refuses anyone
+  else before they get here, and its pages never show Command Centre to anyone else.
+
+To turn it on:
+
+1. Register the app at DMSid (its operator API, `OPS_TOKEN`):
+
+   ```bash
+   curl -X POST https://id.desktopmachineshop.com/ops/api/clients \
+     -H "Authorization: Bearer $OPS_TOKEN" -H 'content-type: application/json' \
+     -d '{"id":"command-centre","name":"Command Centre",
+          "redirectUris":["https://command.desktopmachineshop.com/api/auth/dmsid/callback"],
+          "allowedEmails":["dave@desktopmachineshop.com"]}'
+   ```
+
+   The redirect address is `<PUBLIC_BASE_URL>/api/auth/dmsid/callback`, exactly. The answer shows
+   the client secret once.
+2. Set `DMSID_CLIENT_SECRET` to it in the server's Railway variables (and `PUBLIC_BASE_URL`, if
+   it isn't set already). `DMSID_ISSUER` and `DMSID_CLIENT_ID` default to DMSid and
+   `command-centre`.
+
+The sign-in screen then shows **Sign in with DMSid**. Without the secret it isn't offered and
+`/api/auth/dmsid*` answers 404. The round trip uses PKCE, `state` (bound to the browser by a
+short-lived cookie) and `nonce`; the ID token's signature, issuer, audience and expiry are checked
+against DMSid's published keys.
+
 ### Users from the command line: create, reset a password
 
 The `user:*` scripts run against the database directly. Each one asks for the password twice

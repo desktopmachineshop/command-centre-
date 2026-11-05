@@ -29,6 +29,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { type Context, Hono } from "hono";
 import { sessionFromUpgrade } from "./accounts/http";
 import type { ScryptParams } from "./accounts/password";
+import { DmsIdSignIn } from "./accounts/dmsid";
 import { AuthService } from "./accounts/service";
 import { type ActionExecutor, ActionService, builtinExecutors } from "./actions";
 import { BudgetService } from "./budget";
@@ -121,6 +122,8 @@ export interface Overrides {
   // --- end integrations oauth ---
   /** Verifies the Desktop workflow's GitHub OIDC token (tests use a fake). */
   githubOidc?: GithubOidcVerifier;
+  /** DMSid's token and key endpoints (tests use a fake provider). */
+  dmsidFetch?: typeof fetch;
 }
 
 /** What the claude child process may see of the server's environment: enough to run, reach the network and find its own settings. */
@@ -699,7 +702,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   // --- auth: email + password sessions (src/accounts); the admin token keeps working alongside ---
   const auth = new AuthService(pool, { scrypt: overrides.scrypt });
-  const authHttp = { adminToken: config.adminToken, trustedProxyHops: config.trustedProxyHops };
+  const dmsid = config.dmsid ? new DmsIdSignIn(config.dmsid, overrides.dmsidFetch ?? fetch) : null;
+  const authHttp = { adminToken: config.adminToken, trustedProxyHops: config.trustedProxyHops, dmsid };
   const wsSessions = { fromUpgrade: (c: Context) => sessionFromUpgrade(c, auth, authHttp), onRevoke: auth.onRevoke.bind(auth) };
   // --- end auth ---
 

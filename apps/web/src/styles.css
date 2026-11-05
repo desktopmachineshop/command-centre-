@@ -2534,6 +2534,24 @@ a.stat:hover {
 .login input {
   width: 100%;
 }
+/* "Sign in with DMSid": a secondary button under the password form, behind an "or" rule. */
+.login form > a.button-link {
+  justify-content: center;
+  min-height: 44px;
+  font-size: var(--fs-base);
+}
+.login-or {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: 0;
+}
+.login-or::before,
+.login-or::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
 .login-loading {
   display: flex;
   flex-direction: column;
