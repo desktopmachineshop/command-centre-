@@ -356,6 +356,30 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.close();
   }, 90_000);
 
+  it("in conversation (push to talk off, the default), it listens again after the voice front's answer", async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => sessionStorage.setItem("cc.test.freshMode", "1"));
+    await page.addInitScript(MOCK_SPEECH);
+    const calls: Calls = [];
+    await mockApi(page, calls, { front: true });
+    await page.goto(`${base}/#/converse`);
+    const talk = page.locator("button.drive-ptt");
+    await talk.waitFor({ timeout: 20_000 });
+    expect(await page.getByRole("switch", { name: "Push to talk" }).getAttribute("aria-checked")).toBe("false");
+    await expect.poll(() => calls.some((c) => c.path === "/voice/warm"), { timeout: 15_000 }).toBe(true);
+    const spoken = () => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.join(" | "));
+    await page.evaluate(() => (window as unknown as { __transcripts: string[] }).__transcripts.push("tell me a joke"));
+    // One tap, then just talk: the turn ends on the pause, no Send.
+    await talk.click();
+    await expect.poll(spoken, { timeout: 15_000 }).toContain("Too many turns.");
+    // ... and it's listening again for the next thing, without a tap.
+    await page.locator(".drive-state", { hasText: "Listening" }).waitFor({ timeout: 10_000 });
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 60_000);
+
   it("speaks the voice front's reply as it streams, and follows a request it hands on", async () => {
     const page = await browser.newPage();
     const errors: string[] = [];

@@ -94,7 +94,8 @@ export function Drive({
 }) {
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
     // Push to talk is off unless chosen: Converse listens again after each answer.
-    initialDriveState(readPref(PREFS.mode) === "push" ? "push" : "conversational", readPref(PREFS.followUp) === "1"),
+    // Listening for a follow-up after each answer is on unless switched off in Settings.
+    initialDriveState(readPref(PREFS.mode) === "push" ? "push" : "conversational", readPref(PREFS.followUp) !== "0"),
   );
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -431,7 +432,8 @@ export function Drive({
               );
               if (ok) {
                 replyRef.current = reply;
-                dispatch({ type: "say", text: "", expect: "none", streamed: true });
+                // Like any answer: in conversation, listen for a follow-up after it (if that's on).
+                dispatch({ type: "say", text: "", expect: stateRef.current.followUp ? "command" : "none", streamed: true });
                 return;
               }
               // The front failed: ask the agent directly, and don't try the front again this visit.
@@ -513,8 +515,9 @@ export function Drive({
     // After a streamed reply: follow the agent it handed on to, if any.
     const after = () => {
       if (!live) return;
-      dispatch({ type: "spoken", text: reply?.text.trim() || undefined });
       const taskId = reply?.handoff?.taskId;
+      // Handed on to an agent: nothing to listen for yet; its answer is spoken when it comes.
+      dispatch({ type: "spoken", text: reply?.text.trim() || undefined, ...(taskId ? { expect: "none" as const } : {}) });
       if (taskId) {
         watched.current.add(taskId);
         followed.current.add(taskId);
