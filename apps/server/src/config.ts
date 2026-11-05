@@ -45,9 +45,6 @@ const Env = z.object({
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
 
   DATA_DIR: z.string().default("./data"),
-  BRAIN_DIR: z.string().optional(),
-  /** Private git remote for the brain, e.g. https://<token>@github.com/you/brain.git */
-  BRAIN_REMOTE_URL: z.string().optional(),
   SKILLS_DIR: z.string().optional(),
   /** The repo's docs folder (in-app help topics and setup notes), searchable by agents at /mcp/help. */
   DOCS_DIR: z.string().optional(),
@@ -294,8 +291,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     githubToken: e.GITHUB_TOKEN || undefined,
     trustedProxyHops: e.TRUSTED_PROXY_HOPS,
     dataDir,
-    brainDir: resolve(e.BRAIN_DIR ?? `${dataDir}/brain`),
-    brainRemoteUrl: e.BRAIN_REMOTE_URL || undefined,
     skillsDir: resolve(e.SKILLS_DIR ?? "../../skills"),
     docsDir: resolve(e.DOCS_DIR ?? "../../docs"),
     webDistDir: e.WEB_DIST_DIR ? resolve(e.WEB_DIST_DIR) : undefined,

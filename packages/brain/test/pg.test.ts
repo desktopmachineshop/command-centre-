@@ -1,10 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import pg from "pg";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { BRAIN_MIGRATION_SQL, BrainConflictError, GitBrain, GitMirror, PgBrain, SEED_NOTES } from "../src";
+import { BRAIN_MIGRATION_SQL, BrainConflictError, PgBrain, SEED_NOTES } from "../src";
 
 const DB_URL = process.env.TEST_DATABASE_URL;
 /** Own schema, so these tests never touch the server tests' `public` schema. */
@@ -122,56 +118,5 @@ describe.skipIf(!DB_URL)("PgBrain", () => {
     await brain.delete(SEED_NOTES[0]!.path);
     await brain.init();
     expect(await brain.read(SEED_NOTES[0]!.path)).toBeNull();
-  });
-});
-
-describe.skipIf(!DB_URL)("GitMirror", () => {
-  const gitBrain = async () => {
-    const git = new GitBrain({ dir: join(mkdtempSync(join(tmpdir(), "brain-mirror-")), "brain"), folders: ["dms"] });
-    await git.init();
-    return git;
-  };
-
-  it("imports a git brain once, then exports the database brain to it", async () => {
-    const git = await gitBrain();
-    await git.write("dms/customers/jane.md", { frontmatter: { type: "customer" }, body: "# Jane\n\nLikes spindles." });
-    const mirror = new GitMirror(brain, git, { log: () => {} });
-
-    expect(await mirror.importIfEmpty()).toBe(2);
-    expect((await brain.read("dms/customers/jane.md"))?.frontmatter.type).toBe("customer");
-    expect((await brain.history("dms/customers/jane.md"))[0]?.author).toBe("import");
-    expect(await mirror.importIfEmpty()).toBe(0);
-
-    await brain.write("dms/new.md", { body: "# New" });
-    await brain.delete("dms/customers/jane.md");
-    expect(await mirror.exportNow()).toBe(true);
-    expect(await git.list()).toEqual(["README.md", "dms/new.md"]);
-    expect(await mirror.exportNow()).toBe(false);
-    const log = execFileSync("git", ["log", "--format=%s", "-1"], { cwd: git.dir }).toString();
-    expect(log).toMatch(/^brain: mirror from command centre/);
-  });
-
-  it("pushes to a remote, replacing edits made there", async () => {
-    const root = mkdtempSync(join(tmpdir(), "brain-remote-"));
-    const remote = join(root, "remote.git");
-    execFileSync("git", ["init", "--quiet", "--bare", "--initial-branch=main", remote]);
-    const git = new GitBrain({ dir: join(root, "server"), remoteUrl: remote });
-    await git.init();
-    const mirror = new GitMirror(brain, git, { log: () => {} });
-    await brain.write("dms/a.md", { body: "# A" });
-    expect(await mirror.exportNow()).toBe(true);
-
-    // Someone edits the mirror directly (e.g. Obsidian) and pushes.
-    const other = join(root, "other");
-    execFileSync("git", ["clone", "--quiet", remote, other]);
-    expect(execFileSync("cat", [join(other, "dms/a.md")]).toString()).toContain("# A");
-    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
-    execFileSync("sh", ["-c", "echo '# edited' > dms/a.md && git commit --quiet -am edit && git push --quiet"], { cwd: other, env });
-
-    await brain.write("dms/b.md", { body: "# B" });
-    expect(await mirror.exportNow()).toBe(true);
-    execFileSync("git", ["pull", "--quiet"], { cwd: other, env });
-    expect(execFileSync("cat", [join(other, "dms/a.md")]).toString()).toContain("# A");
-    expect(execFileSync("cat", [join(other, "dms/b.md")]).toString()).toContain("# B");
   });
 });

@@ -31,8 +31,4 @@ export class Git {
     );
     return stdout;
   }
-
-  static async clone(url: string, dir: string): Promise<void> {
-    await exec("git", ["clone", "--quiet", url, dir]);
-  }
 }

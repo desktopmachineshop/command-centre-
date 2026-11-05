@@ -66,7 +66,7 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
   - `/journal/YYYY-MM-DD.md`
   - `/people`
 
-  Dave edits notes in the PWA's Brain page (history and restore included); saves go live straight away, no git or PRs. With `BRAIN_REMOTE_URL` set, the server mirrors the brain one way into a git repo (a backup and a read-only Obsidian vault) and, on first boot, imports that repo. The MCP tools are `brain.search` (Postgres full-text; vector later), `brain.read`, `brain.write`, `brain.append_journal` and `brain.list`. A nightly "consolidate" agent turns the day's events into durable notes.
+  Dave edits notes in the PWA's Brain page (history and restore included); saves go live straight away, no git or PRs. The MCP tools are `brain.search` (Postgres full-text; vector later), `brain.read`, `brain.write`, `brain.append_journal` and `brain.list`. A nightly "consolidate" agent turns the day's events into durable notes.
 
 ### Autonomy & safety
 - Every outward action (sending email, publishing, changing prices or ads) is an `ActionProposal`. Each action type has a policy level:

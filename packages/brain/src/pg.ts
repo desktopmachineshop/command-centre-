@@ -77,7 +77,7 @@ export interface StoredNote extends Note {
 }
 
 export interface PgBrainOptions {
-  /** Called after every change, e.g. to schedule the git mirror. */
+  /** Called after every change. */
   onChange?: (path: string) => void;
 }
 
@@ -99,24 +99,12 @@ export class PgBrain implements Brain {
     }
   }
 
-  /** True until anything has ever been written (deletes count), so an import runs once. */
-  async isEmpty(): Promise<boolean> {
-    const { rows } = await this.pool.query("select 1 from brain_note_versions limit 1");
-    return rows.length === 0;
-  }
-
   async read(path: string): Promise<StoredNote | null> {
     const { rows } = await this.pool.query(
       "select path, frontmatter, body, version, updated_by, updated_at from brain_notes where path = $1",
       [notePath(path)],
     );
     return rows[0] ? toNote(rows[0]) : null;
-  }
-
-  /** Every note, for the git mirror. */
-  async all(): Promise<StoredNote[]> {
-    const { rows } = await this.pool.query(`select path, frontmatter, body, version, updated_by, updated_at from brain_notes order by path collate "C"`);
-    return rows.map(toNote);
   }
 
   async write(path: string, content: { frontmatter?: Frontmatter; body: string }, options?: string | WriteOptions): Promise<StoredNote> {

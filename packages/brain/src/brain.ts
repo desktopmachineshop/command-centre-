@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, normalize, relative, sep } from "node:path";
 import { Git, type GitIdentity } from "./git";
 import { type Frontmatter, type Note, noteTitle, parseNote, serializeNote } from "./note";
@@ -7,8 +7,6 @@ import { type Frontmatter, type Note, noteTitle, parseNote, serializeNote } from
 export interface BrainOptions {
   /** Local checkout of the brain repo. */
   dir: string;
-  /** Optional remote to clone from and push to (e.g. a private GitHub repo). */
-  remoteUrl?: string;
   /** Top-level folders to create on init (usually one per vertical). */
   folders?: string[];
   identity?: GitIdentity;
@@ -32,8 +30,7 @@ export interface WriteOptions {
 
 /**
  * What agents, the API and the MCP server need from a brain. PgBrain (Postgres)
- * is the live store; GitBrain (a git checkout) backs the stdio MCP server and
- * the git mirror.
+ * is the live store; GitBrain (a local git checkout) can back the stdio MCP server.
  */
 export interface Brain {
   init(): Promise<void>;
@@ -83,32 +80,23 @@ const SKIP_DIRS = new Set([".git", ".obsidian", "node_modules"]);
 
 /**
  * A brain kept in a git repo of Obsidian-compatible markdown notes with YAML frontmatter.
- * Every write is a commit; pushes go to the remote when one is configured.
+ * Every write is a commit.
  */
 export class GitBrain implements Brain {
   readonly dir: string;
   private readonly git: Git;
-  private readonly remoteUrl?: string;
   private readonly folders: string[];
 
   constructor(options: BrainOptions) {
     this.dir = options.dir;
-    this.remoteUrl = options.remoteUrl;
     this.folders = options.folders ?? [];
     this.git = new Git(this.dir, options.identity ?? { name: "Command Centre", email: "command-centre@localhost" });
   }
 
   async init(): Promise<void> {
     if (!existsSync(join(this.dir, ".git"))) {
-      if (this.remoteUrl) {
-        await mkdir(dirname(this.dir), { recursive: true });
-        await Git.clone(this.remoteUrl, this.dir);
-      } else {
-        await mkdir(this.dir, { recursive: true });
-        await this.git.run("init", "--quiet", "--initial-branch=main");
-      }
-    } else if (this.remoteUrl) {
-      await this.git.run("pull", "--quiet", "--rebase", "--autostash").catch(() => {});
+      await mkdir(this.dir, { recursive: true });
+      await this.git.run("init", "--quiet", "--initial-branch=main");
     }
 
     const created: string[] = [];
@@ -180,37 +168,6 @@ export class GitBrain implements Brain {
   }
 
   /**
-   * Make the checkout hold exactly these notes, as one commit, and push it.
-   * Used by the one-way git mirror: the remote is reset first, so edits made
-   * there are replaced (they stay in the repo's history). Returns whether
-   * anything changed.
-   */
-  async replaceAll(notes: Note[], message: string): Promise<boolean> {
-    if (this.remoteUrl) {
-      await this.git.run("fetch", "--quiet", "origin");
-      const branch = (await this.git.run("rev-parse", "--abbrev-ref", "HEAD")).trim();
-      const remote = await this.git.run("ls-remote", "--heads", "origin", branch);
-      if (remote.trim()) await this.git.run("reset", "--quiet", "--hard", `origin/${branch}`);
-    }
-    const keep = new Set<string>();
-    for (const note of notes) {
-      const { rel, abs } = this.resolve(note.path);
-      keep.add(rel);
-      await mkdir(dirname(abs), { recursive: true });
-      await writeFile(abs, serializeNote(note));
-    }
-    for (const path of await this.list()) {
-      if (!keep.has(path)) await rm(join(this.dir, path));
-    }
-    await this.git.run("add", "-A", "--", ".");
-    const staged = await this.git.run("diff", "--cached", "--name-only");
-    if (!staged.trim()) return false;
-    await this.git.run("commit", "--quiet", "-m", message);
-    if (this.remoteUrl) await this.git.run("push", "--quiet", "origin", "HEAD");
-    return true;
-  }
-
-  /**
    * Keyword search over titles, frontmatter and bodies. Phase 0 is a plain
    * term-frequency score; a pgvector index joins it later for semantic hits.
    */
@@ -241,10 +198,6 @@ export class GitBrain implements Brain {
     const staged = await this.git.run("diff", "--cached", "--name-only");
     if (!staged.trim()) return;
     await this.git.run("commit", "--quiet", "-m", message);
-    if (this.remoteUrl) {
-      // Best effort: a failed push is retried by the next write's push.
-      await this.git.run("push", "--quiet").catch(() => {});
-    }
   }
 }
 

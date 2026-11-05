@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Brain MCP server over stdio. Configure with DATABASE_URL (the live Postgres brain),
-// or BRAIN_DIR and optional BRAIN_REMOTE_URL for a git checkout.
+// or BRAIN_DIR for a local git checkout.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import pg from "pg";
 import { type Brain, GitBrain } from "./brain";
@@ -16,6 +16,6 @@ if (!databaseUrl && !dir) {
 
 const brain: Brain = databaseUrl
   ? new PgBrain(new pg.Pool({ connectionString: databaseUrl, max: 2 }))
-  : new GitBrain({ dir: dir!, remoteUrl: process.env.BRAIN_REMOTE_URL || undefined });
+  : new GitBrain({ dir: dir! });
 if (!databaseUrl) await brain.init();
 await createBrainMcpServer(brain).connect(new StdioServerTransport());

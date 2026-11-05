@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
-import { auditIssues, GitBrain, GitMirror, ISSUES_README, PgBrain } from "@cc/brain";
+import { auditIssues, ISSUES_README, PgBrain } from "@cc/brain";
 import { ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
 import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
@@ -174,13 +173,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const store = new Store(pool);
   const hub = new Hub();
   const verticals = overrides.verticals ?? new VerticalRegistry();
-  // --- brain: notes live in Postgres; BRAIN_REMOTE_URL adds a read-only git mirror (and a one-time import from it) ---
-  const brainGit = config.brainRemoteUrl || existsSync(join(config.brainDir, ".git"))
-    ? new GitBrain({ dir: config.brainDir, remoteUrl: config.brainRemoteUrl, folders: verticals.all().map((v) => v.brainFolder) })
-    : null;
-  let brainMirror: GitMirror | null = null;
-  const brain = new PgBrain(pool, { onChange: () => brainMirror?.schedule() });
-  if (brainGit) brainMirror = new GitMirror(brain, brainGit);
+  // --- brain: notes live in Postgres ---
+  const brain = new PgBrain(pool);
   /**
    * The central issue log (issues/, packages/brain/src/issues.ts): writes its README once, then moves
    * any issue note written elsewhere into it and journals what moved. At start-up and nightly.
@@ -883,19 +877,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await auth.warm();
       await org.load(); // org: changes saved on the Org page, before any task runs
       await store.markAllNodesOffline();
-      // brain: import the git brain into an empty database once (only from a good checkout), seed, then mirror back to git.
-      if (brainGit && brainMirror) {
-        try {
-          await brainGit.init();
-          await brainMirror.importIfEmpty();
-        } catch (err) {
-          console.error("[brain] git checkout failed, skipping import and mirror:", (err as Error).message);
-          brainMirror = null;
-        }
-      }
-      await brain.init();
+      await brain.init(); // brain: seed the starter notes
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
-      brainMirror?.schedule();
       await storage.init(); // storage: index media from before the index, load the cache
       void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical
       storageServing = true; // storage: from here a backend switch waits for a restart
@@ -946,7 +929,6 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     async stop() {
       await claudeSetup.cancel();
-      brainMirror?.stop();
       for (const c of crons) c.stop();
       for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();

@@ -25,7 +25,7 @@ RUN pnpm --filter @cc/web build && pnpm --filter @cc/server build
 RUN pnpm --filter @cc/server deploy --prod --legacy /out
 
 FROM node:22-slim
-# git: the brain's optional git mirror. ca-certificates: HTTPS for git and the Claude API.
+# git: agents' code checkouts. ca-certificates: HTTPS for git and the Claude API.
 # bsdutils: `script`, the terminal "Connect Claude" runs `claude setup-token` in.
 # bzip2: unpacks the self-hosted speech models (downloaded once into /data/models/voice).
 RUN apt-get update \
