@@ -47,10 +47,10 @@ export default defineVertical({
       intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review", "rfq"],
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
       mcpServers: ["brain", "odoo", "mail", "sendcloud"],
-      actions: ["email.reply", "email.label", "odoo.message.post", "social.reply", "social.dm", "brain.write"],
+      actions: ["email.reply", "email.label", "odoo.message.post", "odoo.quote.create", "odoo.quote.send", "social.reply", "social.dm", "brain.write"],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
       autonomyNotes:
-        "Drafts every customer reply for approval. Refunds, exchanges outside the returns policy, discounts and warranty decisions always need Dave.",
+        "Drafts every customer reply and quotation for approval. Refunds, exchanges outside the returns policy, discounts and warranty decisions always need Dave.",
     },
     {
       id: "catalogue-pricing",
@@ -58,13 +58,14 @@ export default defineVertical({
       reportsTo: "shop-lead",
       aliases: ["pricing", "catalogue", "catalog"],
       mission:
-        "Keeps the Odoo catalogue accurate and the prices competitive: product facts, descriptions, gaps in the range and price checks against competitors. Proposes price changes with the net and VAT-inclusive figures and the reason.",
+        "Keeps the Odoo catalogue accurate and the prices competitive: product facts, descriptions, gaps in the range and price checks against competitors. Proposes price changes with the net and VAT-inclusive figures and the reason, and sets up and ends discount and loyalty deals.",
       skills: ["brain-notes", "dms-catalogue-pricing"],
       // Supplier costs come from the price lists Ops & Admin files under dms/pricelists/ in the brain.
       mcpServers: ["brain", "odoo"],
-      actions: ["odoo.product.update_price", "brain.write"],
+      actions: ["odoo.product.update_price", "odoo.loyalty.create", "odoo.loyalty.archive", "brain.write"],
       kpis: ["Price review of top sellers each month", "Catalogue facts with no gaps (SKU, weight, HS code)"],
-      autonomyNotes: "Every price change is a draft with before, after and reason. Never edits product records directly.",
+      autonomyNotes:
+        "Every price change, new discount or loyalty deal and archived deal is a draft with what changes, the margin effect and the reason. Never edits product records directly.",
     },
     {
       id: "marketing-social",

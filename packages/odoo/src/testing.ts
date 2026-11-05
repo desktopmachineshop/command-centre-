@@ -210,7 +210,10 @@ export class FakeOdoo {
         const ids = list.map((vals) => {
           checkFields(Object.keys(vals));
           const id = Math.max(0, ...model.records.map((r) => r.id)) + 1;
-          model.records.push({ ...vals, id });
+          const record: Rec = { ...this.commands(modelName, vals), id };
+          if (modelName === "mail.compose.message") record._context = params.context ?? {};
+          if (modelName === "sale.order") this.computeOrder(record);
+          model.records.push(record);
           return id;
         });
         return api === "json2" || Array.isArray(params.vals_list) ? ids : ids[0];
@@ -242,11 +245,98 @@ export class FakeOdoo {
         });
         return id;
       }
+      case "action_quotation_send": {
+        if (modelName !== "sale.order") break;
+        const [order] = byIds(params.ids);
+        if (!order) throw new FakeOdooException("odoo.exceptions.MissingError", "Record does not exist or has been deleted.");
+        return {
+          type: "ir.actions.act_window",
+          res_model: "mail.compose.message",
+          target: "new",
+          context: { default_model: "sale.order", default_res_ids: [order.id], default_template_id: 9, default_composition_mode: "comment", mark_so_as_sent: true, force_email: true },
+        };
+      }
+      case "action_send_mail": {
+        if (modelName !== "mail.compose.message") break;
+        const [wizard] = byIds(params.ids);
+        if (!wizard) throw new FakeOdooException("odoo.exceptions.MissingError", "Record does not exist or has been deleted.");
+        const ctx = (wizard._context ?? {}) as Record<string, unknown>;
+        const target = this.models[ctx.default_model as string];
+        for (const id of (ctx.default_res_ids as number[]) ?? []) {
+          const record = target?.records.find((r) => r.id === id);
+          if (!record) continue;
+          if (ctx.mark_so_as_sent && record.state === "draft") record.state = "sent";
+          const messages = this.models["mail.message"]!;
+          messages.records.push({
+            id: Math.max(0, ...messages.records.map((r) => r.id)) + 1,
+            model: ctx.default_model,
+            res_id: id,
+            body: `<p>Quotation ${String(record.name)} (template ${String(ctx.default_template_id)})</p>`,
+            message_type: "comment",
+            subtype_id: [1, "Discussions"],
+            author_id: [3, "Bot"],
+            date: "2026-10-23 09:00:00",
+          });
+        }
+        return true;
+      }
       default:
-        throw new FakeOdooException("builtins.AttributeError", `The method '${method}' does not exist on the model '${modelName}'`);
+        break;
     }
+    throw new FakeOdooException("builtins.AttributeError", `The method '${method}' does not exist on the model '${modelName}'`);
+  }
+
+  /** x2many commands in create values: `[0, 0, vals]` creates a line record, `[6, 0, ids]` sets ids. */
+  private commands(modelName: string, vals: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...vals };
+    for (const [field, v] of Object.entries(vals)) {
+      if (!Array.isArray(v) || !v.every((c) => Array.isArray(c) && (c[0] === 0 || c[0] === 6))) continue;
+      const lineModel = LINE_MODELS[`${modelName}.${field}`];
+      const ids: number[] = [];
+      for (const [cmd, , data] of v as [number, number, unknown][]) {
+        if (cmd === 6) ids.push(...(data as number[]));
+        else if (lineModel) ids.push(this.dispatch("jsonrpc", lineModel, "create", { vals_list: data }) as number);
+        else throw new FakeOdooException("builtins.ValueError", `FakeOdoo can't create lines for ${modelName}.${field}`);
+      }
+      out[field] = ids;
+    }
+    return out;
+  }
+
+  /** What Odoo computes on a new sales order: its name, draft state, line products and totals (20% tax). */
+  private computeOrder(order: Rec) {
+    const lines = this.models["sale.order.line"]!.records.filter((l) => (order.order_line as number[] | undefined)?.includes(l.id));
+    const products = this.models["product.product"]!.records;
+    let untaxed = 0;
+    for (const line of lines) {
+      const product = products.find((p) => p.id === line.product_id);
+      if (!product) throw new FakeOdooException("odoo.exceptions.MissingError", `Product ${String(line.product_id)} does not exist`);
+      line.product_id = [product.id, product.display_name];
+      line.name ??= product.name;
+      line.price_unit ??= product.lst_price;
+      line.price_subtotal = (line.product_uom_qty as number) * (line.price_unit as number) * (1 - ((line.discount as number) ?? 0) / 100);
+      untaxed += line.price_subtotal as number;
+    }
+    const partner = this.models["res.partner"]!.records.find((p) => p.id === order.partner_id);
+    if (!partner) throw new FakeOdooException("odoo.exceptions.MissingError", `Contact ${String(order.partner_id)} does not exist`);
+    Object.assign(order, {
+      name: `S${String(Math.max(0, ...this.models["sale.order"]!.records.map((r) => r.id)) + 1).padStart(5, "0")}`,
+      partner_id: [partner.id, partner.name],
+      state: "draft",
+      amount_untaxed: untaxed,
+      amount_total: Math.round(untaxed * 120) / 100,
+      picking_ids: [],
+      invoice_ids: [],
+    });
   }
 }
+
+/** One2many fields FakeOdoo can create lines for, and the line model. */
+const LINE_MODELS: Record<string, string> = {
+  "sale.order.order_line": "sale.order.line",
+  "loyalty.program.rule_ids": "loyalty.rule",
+  "loyalty.program.reward_ids": "loyalty.reward",
+};
 
 /**
  * A small DMS-like dataset shaped like Odoo 18: no `res.partner.mobile`, and
@@ -277,7 +367,7 @@ export function demoModels(): Record<string, FakeModel> {
       ],
     },
     "sale.order": {
-      fields: ["name", "partner_id", "date_order", "state", "amount_total", "currency_id", "invoice_status", "delivery_status", "client_order_ref", "commitment_date", "website_id", "order_line", "picking_ids", "invoice_ids", "note"],
+      fields: ["name", "partner_id", "date_order", "state", "amount_total", "amount_untaxed", "currency_id", "invoice_status", "delivery_status", "client_order_ref", "commitment_date", "validity_date", "website_id", "order_line", "picking_ids", "invoice_ids", "note"],
       records: [
         { id: 42, name: "S00042", partner_id: [10, "Jane Doe"], date_order: "2026-10-20 14:03:00", state: "sale", amount_total: 113.5, currency_id: [1, "GBP"], invoice_status: "invoiced", delivery_status: "partial", client_order_ref: false, commitment_date: false, website_id: [1, "Desktop Machine Shop"], order_line: [1, 2], picking_ids: [5], invoice_ids: [8], note: false },
         { id: 41, name: "S00041", partner_id: [11, "Acme Robotics"], date_order: "2026-09-02 10:00:00", state: "draft", amount_total: 1250, currency_id: [1, "GBP"], invoice_status: "no", delivery_status: false, order_line: [], picking_ids: [], invoice_ids: [] },
@@ -304,6 +394,28 @@ export function demoModels(): Record<string, FakeModel> {
         { id: 100, model: "sale.order", res_id: 42, date: "2026-10-21 08:00:00", author_id: [10, "Jane Doe"], email_from: "jane@example.com", message_type: "email", subtype_id: [1, "Discussions"], subject: "Where is my spindle?", body: "<p>Hi, when will the <b>spindle</b> ship?</p>" },
         { id: 101, model: "sale.order", res_id: 42, date: "2026-10-20 14:03:00", author_id: [3, "OdooBot"], message_type: "notification", subtype_id: [3, "Sales Order Confirmed"], body: "<p>Order confirmed</p>" },
         { id: 102, model: "res.partner", res_id: 10, date: "2026-09-01 12:00:00", author_id: [3, "Dave"], message_type: "comment", subtype_id: [2, "Note"], body: "<p>Prefers email. Runs a 300W spindle.</p>" },
+      ],
+    },
+    "mail.compose.message": { fields: ["body", "subject"], records: [] },
+    "loyalty.program": {
+      fields: ["name", "program_type", "trigger", "applies_on", "active", "date_from", "date_to", "website_id", "limit_usage", "max_usage", "rule_ids", "reward_ids"],
+      records: [
+        { id: 1, name: "Spring 10% off", program_type: "promotion", trigger: "auto", applies_on: "current", active: true, date_from: "2026-03-01", date_to: false, website_id: [1, "Desktop Machine Shop"], limit_usage: false, max_usage: 0, rule_ids: [1], reward_ids: [1] },
+        { id: 2, name: "SUMMER25", program_type: "promo_code", trigger: "with_code", applies_on: "current", active: false, date_from: false, date_to: "2026-08-31", website_id: false, limit_usage: true, max_usage: 50, rule_ids: [2], reward_ids: [2] },
+      ],
+    },
+    "loyalty.rule": {
+      fields: ["code", "mode", "minimum_amount", "minimum_qty", "product_ids", "product_category_id", "reward_point_amount", "reward_point_mode"],
+      records: [
+        { id: 1, code: false, mode: "auto", minimum_amount: 50, minimum_qty: 0, product_ids: [], product_category_id: false, reward_point_amount: 1, reward_point_mode: "order" },
+        { id: 2, code: "SUMMER25", mode: "with_code", minimum_amount: 0, minimum_qty: 0, product_ids: [], product_category_id: false, reward_point_amount: 1, reward_point_mode: "order" },
+      ],
+    },
+    "loyalty.reward": {
+      fields: ["reward_type", "description", "discount", "discount_mode", "discount_applicability", "discount_product_ids", "discount_max_amount", "reward_product_id", "reward_product_qty", "required_points"],
+      records: [
+        { id: 1, reward_type: "discount", description: "10% on your order", discount: 10, discount_mode: "percent", discount_applicability: "order", discount_product_ids: [], discount_max_amount: 0, reward_product_id: false, reward_product_qty: 1, required_points: 1 },
+        { id: 2, reward_type: "discount", description: "£25 off", discount: 25, discount_mode: "per_order", discount_applicability: "order", discount_product_ids: [], discount_max_amount: 0, reward_product_id: false, reward_product_qty: 1, required_points: 1 },
       ],
     },
     website: {

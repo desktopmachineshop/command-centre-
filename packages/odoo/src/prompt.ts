@@ -216,7 +216,8 @@ export function odooPrompt(event: { kind: string; title?: string; payload: Recor
           str(p.body) || "(no description)",
         ]),
         "",
-        "A request for a quote came in through Odoo CRM. Dave has been notified and quotes it himself. If he asks, look up the products, prices and stock with the odoo tools and draft the quote or a reply for his approval.",
+        "A request for a quote came in through Odoo CRM. Dave has been notified and quotes it himself. If he asks, look up the customer, products, prices and stock with the odoo tools and propose the quote for his approval (follow the dms-customer-reply skill, Quotations):",
+        `odoo.quote.create ${json({ partner_id: 0, lines: [{ product_id: 0, qty: 1 }], send: true })}`,
       ].join("\n");
     case "purchase.reply":
       return [

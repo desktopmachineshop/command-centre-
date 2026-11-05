@@ -1,6 +1,6 @@
 ---
 name: dms-catalogue-pricing
-description: Review Desktop Machine Shop product data and prices in Odoo (SKU, cost, list price, VAT, stock, weight, category) and propose price changes with odoo.product.update_price, always showing net and VAT-inclusive figures, the margin and the reason. Use for "what should we charge", "are we too expensive", price reviews, catalogue gaps or checking a product's facts.
+description: Review Desktop Machine Shop product data and prices in Odoo (SKU, cost, list price, VAT, stock, weight, category), propose price changes with odoo.product.update_price, and set up or end discounts, promo codes and loyalty deals with odoo.loyalty.create and odoo.loyalty.archive, always showing net and VAT-inclusive figures, the margin and the reason. Use for "what should we charge", "are we too expensive", price reviews, sales and promo codes, loyalty schemes, catalogue gaps or checking a product's facts.
 ---
 
 # DMS catalogue and pricing
@@ -44,6 +44,47 @@ One `propose_action` per product:
 - In the summary, give the before and after (net and gross) and the reason in a few words.
 - Record the reasoning in the brain (`dms/decisions/pricing-<sku>.md`) so the next review can
   see why the price is what it is.
+
+## Discounts and loyalty deals
+
+Odoo runs these from Sales > Discount & Loyalty. You can list them, create one and archive one.
+Every create and archive is a proposal Dave approves.
+
+- `odoo` `search_loyalty_programs` lists the live programs (`include_archived: true` for old
+  ones), with their rules and rewards. Check it first, so you don't stack a new discount on one
+  that's already running.
+- **Create** with `odoo.loyalty.create`. A program has one rule (who qualifies) and one reward
+  (what they get):
+
+  | Deal | `program_type` | Rule | Reward |
+  | --- | --- | --- | --- |
+  | 10% off orders over £50, automatic | `promotion` | `{ "minimum_amount": 50 }` | `{ "type": "discount", "discount": 10 }` |
+  | £5 off with code `WELCOME5` | `promo_code`, `code` | `{}` | `{ "type": "discount", "discount": 5, "discount_mode": "per_order" }` |
+  | 15% off spindles only | `promotion` | `{ "product_ids": [2] }` | `{ "type": "discount", "discount": 15, "applies_to": "specific", "discount_product_ids": [2] }` |
+  | Buy a spindle, get the ER11 set free | `buy_x_get_y` | `{ "product_ids": [2], "points": 1, "points_mode": "unit" }` | `{ "type": "product", "product_id": 1, "required_points": 1 }` |
+  | Free shipping over £100 | `promotion` | `{ "minimum_amount": 100 }` | `{ "type": "shipping" }` |
+  | Loyalty card: 1 point per £1, 100 points = £5 off | `loyalty` | `{ "points": 1, "points_mode": "money" }` | `{ "type": "discount", "discount": 5, "discount_mode": "per_order", "required_points": 100 }` |
+
+  Add `date_from` / `date_to` (YYYY-MM-DD) for a sale with an end, `website_id` (from
+  `list_websites`) to keep it to the DMS shop, and `max_usage` to cap how many orders can use it.
+  `minimum_amount` is in GBP. Program, product and website ids come from the odoo tools: never
+  guess one.
+
+  ```json
+  { "actionType": "odoo.loyalty.create",
+    "summary": "Black Friday: 15% off orders over £40 with BF15, 27–30 Nov, DMS site. Lowest margin after discount: 34% (ER11 set)",
+    "payload": { "name": "Black Friday 15%", "program_type": "promo_code", "code": "BF15",
+      "date_from": "2026-11-27", "date_to": "2026-11-30", "website_id": 1,
+      "rule": { "minimum_amount": 40 }, "reward": { "type": "discount", "discount": 15 } } }
+  ```
+
+  The deal is live as soon as Dave approves it (from `date_from` if you set one). In the summary,
+  give what the customer gets, who qualifies, the dates and the worst-case margin after the
+  discount. Flag anything that takes a product below 30%.
+- **End** a deal with `odoo.loyalty.archive` `{ id }`. Archived programs stop applying at once and
+  can be restored in Odoo. Use it when a sale is over, or a code has leaked or been misused.
+- Note every deal you propose in the brain (`dms/decisions/promo-<name>.md`), with the reason and
+  the dates, so later price reviews know what was running.
 
 ## Catalogue gaps
 

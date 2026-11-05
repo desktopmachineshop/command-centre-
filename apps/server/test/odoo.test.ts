@@ -19,7 +19,7 @@ describe("odoo config", () => {
 
   it("never auto-runs Odoo writes", () => {
     for (const v of verticals) {
-      for (const type of ["odoo.message.post", "odoo.blog.draft", "odoo.product.update_price"]) expect(policyFor(v, type)).toBe("draft");
+      for (const type of ["odoo.message.post", "odoo.blog.draft", "odoo.product.update_price", "odoo.quote.create", "odoo.quote.send", "odoo.loyalty.create", "odoo.loyalty.archive"]) expect(policyFor(v, type)).toBe("draft");
     }
   });
 });
