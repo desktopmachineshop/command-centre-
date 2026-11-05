@@ -166,7 +166,9 @@ export function Drive({
     return () => void lock.release();
   }, []);
 
-  const listener = useMemo<Listener | null>(() => pickListener(api, config), [api, config]);
+  // The microphone stays open while Converse is (each turn starts at once); released on leaving.
+  const listener = useMemo<Listener | null>(() => pickListener(api, config, { warm: true }), [api, config]);
+  useEffect(() => () => listener?.close?.(), [listener]);
 
   const browserVoice = useMemo(() => pickVoice(voices, lang), [voices, lang]);
   const speaker = useMemo<Speaker | null>(() => {

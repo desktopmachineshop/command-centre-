@@ -4,7 +4,9 @@
  * conversational chat that continues the same task. Skipped when no Chromium
  * is installed (set PW_CHROMIUM to point at one).
  */
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { type Browser, chromium, type Page } from "playwright-core";
@@ -354,6 +356,96 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await pushToTalk("who am I talking to?");
     await waitSpoken(/^You're talking to the Chief of Staff, who passes things to the right role/);
     await page.close();
+  }, 90_000);
+
+  it("with live transcription, keeps the microphone open between turns and releases it on Fold", async () => {
+    // A browser with a fake microphone (a steady tone, from a WAV), and a fake /ws/voice that measures the audio.
+    const rate = 48000;
+    const samples = rate * 20;
+    const wav = Buffer.alloc(44 + samples * 2);
+    wav.write("RIFF", 0);
+    wav.writeUInt32LE(36 + samples * 2, 4);
+    wav.write("WAVEfmt ", 8);
+    wav.writeUInt32LE(16, 16);
+    wav.writeUInt16LE(1, 20);
+    wav.writeUInt16LE(1, 22);
+    wav.writeUInt32LE(rate, 24);
+    wav.writeUInt32LE(rate * 2, 28);
+    wav.writeUInt16LE(2, 32);
+    wav.writeUInt16LE(16, 34);
+    wav.write("data", 36);
+    wav.writeUInt32LE(samples * 2, 40);
+    for (let i = 0; i < samples; i++) wav.writeInt16LE(Math.round(0.3 * 32767 * Math.sin((2 * Math.PI * 300 * i) / rate)), 44 + i * 2);
+    const tone = join(mkdtempSync(join(tmpdir(), "cc-mic-")), "tone.wav");
+    writeFileSync(tone, wav);
+    const mic = await chromium.launch({
+      executablePath: CHROMIUM,
+      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${tone}`, "--autoplay-policy=no-user-gesture-required"],
+    });
+    const context = await mic.newContext({ permissions: ["microphone"] });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => sessionStorage.setItem("cc.test.freshMode", "1")); // push to talk off
+    await page.addInitScript(MOCK_SPEECH);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __streams: MediaStream[] };
+      w.__streams = [];
+      const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (c) => {
+        const s = await open(c);
+        w.__streams.push(s);
+        return s;
+      };
+    });
+    await page.routeWebSocket(/\/ws$/, () => {});
+    const listens: { loud: number }[] = [];
+    await page.routeWebSocket(/\/ws\/voice/, (ws) => {
+      const turn = { loud: 0 };
+      listens.push(turn);
+      let answered = false;
+      ws.onMessage((m) => {
+        if (typeof m === "string") {
+          const msg = JSON.parse(m) as { type: string };
+          if (msg.type === "hello") ws.send(JSON.stringify({ type: "ready" }));
+          if (msg.type === "stop") ws.send(JSON.stringify({ type: "final", text: "tell me a joke" }));
+          return;
+        }
+        const bytes = m as unknown as Uint8Array; // a Node Buffer: copy out its own bytes as 16-bit samples
+        const pcm = new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+        let sum = 0;
+        for (const v of pcm) sum += v * v;
+        if (Math.sqrt(sum / pcm.length) / 32768 > 0.01) turn.loud++;
+        // Like the server: words, then the end of the turn once speech has gone on a while.
+        if (!answered && turn.loud > 20) {
+          answered = true;
+          ws.send(JSON.stringify({ type: "partial", text: "tell me a joke" }));
+          ws.send(JSON.stringify({ type: "endOfTurn", text: "tell me a joke" }));
+        }
+      });
+    });
+    await mockApi(page, [], { front: true });
+    await page.route("**/api/voice/config", (route) =>
+      route.fulfill({ contentType: "application/json", body: JSON.stringify({ stt: { provider: "local", model: "x", streaming: true }, tts: null, maxUploadBytes: 0, maxSeconds: 30, language: "en-GB", calendar: false }) }),
+    );
+    await page.goto(`${base}/#/converse`);
+    const talk = page.locator("button.drive-ptt");
+    await talk.waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(500);
+    await talk.click();
+    // One tap, then it goes round by itself: three turns, each hearing the microphone.
+    await expect.poll(() => listens.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
+    await expect.poll(() => listens.slice(0, 3).every((l) => l.loud > 20), { timeout: 15_000 }).toBe(true);
+    const opened = () => page.evaluate(() => (window as unknown as { __streams: MediaStream[] }).__streams.length);
+    expect(await opened()).toBe(1); // opened once, kept open between turns
+    // Folding Converse releases it.
+    await page.locator('a.tool[href="#/chat"]').click();
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __streams: MediaStream[] }).__streams.every((s) => s.getTracks().every((t) => t.readyState === "ended"))))
+      .toBe(true);
+    expect(errors).toEqual([]);
+    await context.close();
+    await mic.close();
   }, 90_000);
 
   it("in conversation (push to talk off, the default), it listens again after the voice front's answer", async () => {
