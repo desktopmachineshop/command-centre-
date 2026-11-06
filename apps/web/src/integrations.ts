@@ -29,8 +29,8 @@ export interface KindDef {
   multi: boolean;
   fields: FieldDef[];
   oauth?: string;
-  /** "claude": Connect runs `claude setup-token` on the server (ClaudeDialog). */
-  connect?: "claude";
+  /** Connect runs a sign-in on the server: "claude" `claude setup-token` (ClaudeDialog), "codex" `codex login --device-auth` (CodexDialog). */
+  connect?: "claude" | "codex";
   needsApp?: string;
   affects: Group[];
   helpUrl?: string;

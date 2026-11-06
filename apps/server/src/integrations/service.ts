@@ -343,7 +343,10 @@ export class IntegrationService {
 /** The new config, except failed groups keep their previous section. */
 function mergeFailed(next: Config, prev: Config, failed: Partial<Record<Group, string>>): Config {
   const out = { ...next };
-  if (failed.runner) out.agent = { ...out.agent, runner: prev.agent.runner, oauthToken: prev.agent.oauthToken, fallbackApiKey: prev.agent.fallbackApiKey };
+  if (failed.runner) {
+    const { runner, oauthToken, fallbackApiKey, route, codexAuth, codexModel } = prev.agent;
+    out.agent = { ...out.agent, runner, oauthToken, fallbackApiKey, route, codexAuth, codexModel };
+  }
   if (failed.triage) out.triage = prev.triage;
   if (failed.voice) out.voice = { ...out.voice, providers: prev.voice.providers };
   if (failed.odoo) Object.assign(out, { odoo: prev.odoo, odooEvents: prev.odooEvents });

@@ -23,6 +23,7 @@ import { SetupError, type WorkerService } from "../workers";
 import { type DavinciRenders, DavinciRequestError } from "../davinci";
 import { type IntegrationService, integrationRoutes } from "../integrations";
 import type { ClaudeSetup } from "../integrations/claude-setup";
+import type { CodexSetup } from "../integrations/codex-setup";
 import { type PaApiDeps, paApiRoutes, paPushRoutes } from "./pa";
 import { type SocialApiDeps, socialApiRoutes } from "./social";
 import { type StorageApiDeps, storageApiRoutes } from "./storage";
@@ -58,6 +59,8 @@ export interface ApiDeps {
   integrations?: IntegrationService;
   /** "Connect Claude" (runs `claude setup-token` on the server). */
   claudeSetup?: ClaudeSetup;
+  /** "Connect ChatGPT" (runs `codex login --device-auth` on the server). */
+  codexSetup?: CodexSetup;
   /** Org page editing: roles and policies over the code manifests (see ../org-config.ts). */
   org?: OrgConfigService;
   /** Desktop app: approving a computer's link, linked computers, installer download (see ./desktop.ts). */
@@ -429,7 +432,7 @@ export function apiRoutes(deps: ApiDeps) {
   }
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
-  if (deps.integrations) app.route("/", integrationRoutes(deps.integrations, deps.claudeSetup));
+  if (deps.integrations) app.route("/", integrationRoutes(deps.integrations, deps.claudeSetup, deps.codexSetup));
   if (deps.help) app.route("/", helpRoutes(deps.help));
 
   return app;

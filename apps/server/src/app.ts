@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type AgentRunner, ClaudeCodeRunner, FallbackRunner, ScriptedRunner } from "@cc/agent-runtime";
+import { type AgentRunner, type AgentRunResult, ClaudeCodeRunner, CodexRunner, FallbackRunner, isUsageLimit, ScriptedRunner } from "@cc/agent-runtime";
 import { auditIssues, ISSUES_README, PgBrain } from "@cc/brain";
 import { ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
@@ -76,6 +76,8 @@ import { DavinciRenders } from "./davinci";
 import { WorkerService } from "./workers";
 import { type Group, IntegrationService, IntegrationStore, Live, SecretBox } from "./integrations";
 import { ClaudeSetup } from "./integrations/claude-setup";
+import { CodexSetup } from "./integrations/codex-setup";
+import { CodexHome } from "./codex-home";
 import { integrationOAuth } from "./integrations/oauth"; // --- integrations oauth ---
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
@@ -117,6 +119,8 @@ export interface Overrides {
   smtpVerify?: (account: EmailAccount) => Promise<void>;
   /** The CLI "Connect Claude" runs `setup-token` with (tests use a fake). */
   claudeSetupBin?: string;
+  /** The CLI "Connect ChatGPT" runs `login --device-auth` with (tests use a fake). */
+  codexSetupBin?: string;
   /** fetch for Google APIs (tests use a fake Drive). */
   googleFetch?: typeof fetch;
   // --- integrations oauth ---
@@ -143,31 +147,61 @@ const SECRET_NAME = /TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL/i;
  * Claude Code's own CLAUDE_* settings pass through (not tokens); the credential comes from
  * config: the subscription token for the subscription run, the API key for the fallback run.
  * Each gets only its own, or Claude Code would bill the key instead of the subscription.
+ * Codex ("codex") gets neither: its ChatGPT sign-in is the auth.json in its CODEX_HOME.
  */
-export function agentEnv(config: Config, kind: "subscription" | "api", source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function agentEnv(config: Config, kind: "subscription" | "api" | "codex", source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(source)) {
     if (value === undefined) continue;
-    if (AGENT_ENV.has(name) || (name.startsWith("CLAUDE_") && !SECRET_NAME.test(name))) env[name] = value;
+    if (AGENT_ENV.has(name) || (kind !== "codex" && name.startsWith("CLAUDE_") && !SECRET_NAME.test(name))) env[name] = value;
   }
   if (kind === "subscription" && config.agent.oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = config.agent.oauthToken;
   if (kind === "api" && config.agent.fallbackApiKey) env.ANTHROPIC_API_KEY = config.agent.fallbackApiKey;
   return env;
 }
 
-export function createRunner(config: Config): AgentRunner {
+/** Moves to the next runner on a usage limit, or when that runner's account isn't connected. */
+const nextOnLimit = (r: AgentRunResult) => isUsageLimit(r) || (r.status === "failed" && /isn't connected/.test(r.error ?? ""));
+
+/**
+ * The agents' runner for the chosen route (Accounts → Agent route, or AGENT_ROUTE):
+ *
+ * - "claude": the Claude subscription, then the Anthropic API key if one is set;
+ * - "codex": the ChatGPT plan through Codex;
+ * - "claude-then-codex": Claude, then ChatGPT when Claude hits its limit, then the API key;
+ * - "codex-then-claude": ChatGPT, then Claude, then the API key.
+ *
+ * The pay-as-you-go key always comes last, so both subscriptions are used up before any credits.
+ */
+export function createRunner(config: Config, codexHome?: CodexHome): AgentRunner {
   if (config.agent.runner === "echo") return new ScriptedRunner("echo");
+  const a = config.agent;
 
-  const subscription = new ClaudeCodeRunner({ bin: config.agent.claudeBin, env: agentEnv(config, "subscription"), timeoutMs: config.agent.timeoutMs });
-  if (!config.agent.fallbackApiKey) return subscription;
-
-  const api = new ClaudeCodeRunner({
-    name: "claude-code-api",
-    bin: config.agent.claudeBin,
-    env: agentEnv(config, "api"),
-    timeoutMs: config.agent.timeoutMs,
+  const subscription = new ClaudeCodeRunner({ bin: a.claudeBin, env: agentEnv(config, "subscription"), timeoutMs: a.timeoutMs });
+  const api = a.fallbackApiKey ? new ClaudeCodeRunner({ name: "claude-code-api", bin: a.claudeBin, env: agentEnv(config, "api"), timeoutMs: a.timeoutMs }) : undefined;
+  const home = codexHome ?? new CodexHome(a.codexHome);
+  const codex = new CodexRunner({
+    name: "codex",
+    bin: a.codexBin,
+    env: agentEnv(config, "codex"),
+    home: home.dir,
+    model: a.codexModel,
+    timeoutMs: a.timeoutMs,
+    prepare: () => home.prepare(a.codexAuth),
+    afterRun: () => home.afterRun(a.codexAuth),
   });
-  return new FallbackRunner("claude-code", subscription, api);
+  const withKey = (name: string, runner: AgentRunner) => (api ? new FallbackRunner(name, runner, api, nextOnLimit) : runner);
+
+  switch (a.route) {
+    case "codex":
+      return codex;
+    case "claude-then-codex":
+      return new FallbackRunner("claude-code", subscription, withKey("codex", codex), nextOnLimit);
+    case "codex-then-claude":
+      return new FallbackRunner("codex", codex, withKey("claude-code", subscription), nextOnLimit);
+    default:
+      return api ? new FallbackRunner("claude-code", subscription, api) : subscription;
+  }
 }
 
 /** Wires every service together. `start()` migrates, boots the queue and schedules. */
@@ -220,6 +254,10 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       return account ? socialProblem(account) : undefined;
     },
   });
+  // Codex's sign-in folder on the volume; tokens Codex refreshes are saved back to the Accounts entry.
+  const codexHome = new CodexHome(config.agent.codexHome, (authJson) => integrations.rotateSecret("codex", "default", "authJson", authJson));
+  // "Connect ChatGPT": `codex login --device-auth` in a throwaway CODEX_HOME, with a bare environment.
+  const codexSetup = new CodexSetup({ bin: overrides.codexSetupBin ?? config.agent.codexBin, env: agentEnv(config, "codex") });
   // "Connect Claude": `claude setup-token` with a bare environment (no server secrets, no tokens).
   const claudeSetup = new ClaudeSetup({
     bin: overrides.claudeSetupBin ?? config.agent.claudeBin,
@@ -677,7 +715,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   // --- end voice ---
   // Runner and triager: delegates to the current instance, so a new token or key applies to the next run.
-  const runner = new Live<AgentRunner>(overrides.runner ?? createRunner(config));
+  const runner = new Live<AgentRunner>(overrides.runner ?? createRunner(config, codexHome));
   const triager = new Live<Triager>(overrides.triager ?? createTriager(config));
   const pipeline = new Pipeline({
     store,
@@ -771,7 +809,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -810,7 +848,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       // The voice front signs in like the agents: a new sign-in restarts its warm session.
       agentConfig = c;
       voiceFront?.stop();
-      return overrides.runner ? undefined : runner.swap(() => createRunner(c));
+      return overrides.runner ? undefined : runner.swap(() => createRunner(c, codexHome));
     },
     triage: (c) => (overrides.triager ? undefined : triager.swap(() => createTriager(c))),
     voice: (c) => voice.swap(() => buildVoice(c)),
@@ -959,6 +997,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     async stop() {
       await claudeSetup.cancel();
+      await codexSetup.cancel();
       for (const c of crons) c.stop();
       for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();

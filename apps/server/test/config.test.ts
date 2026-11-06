@@ -39,6 +39,7 @@ describe("config", () => {
       "PORT", "WORKER_TOKEN", "WEBHOOK_SECRET", "DATA_DIR", "AGENT_RUNNER", "AGENT_MAX_TURNS", "AGENT_DAILY_BUDGET_USD",
       "AGENT_MAX_CONCURRENT_PER_VERTICAL", "AGENT_BUSY_RETRY_SECONDS", "AGENT_DEDUPE_WINDOW_MINUTES", "SCHEDULES_ENABLED",
       "DAY_TIMEZONE", "DIGEST_CRON", "TRIAGE_MIN_CONFIDENCE", "VAPID_SUBJECT", "EMAIL_ACCOUNTS", "EMAIL_POLL_INTERVAL_SECONDS", "ODOO_API",
+      "AGENT_ROUTE", "CODEX_BIN", "CODEX_AUTH_JSON", "CODEX_MODEL",
     ];
     for (const key of optional) expect(loadConfig({ ...base, [key]: "" }), key).toEqual(defaults);
     expect(loadConfig({ ...base, AGENT_DEDUPE_WINDOW_MINUTES: "" }).agent.dedupeWindowMinutes).toBe(10);

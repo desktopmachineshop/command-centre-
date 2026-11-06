@@ -8,6 +8,10 @@ import { parseSocialAccounts, type SocialAccount } from "@cc/social";
 import { Cron } from "croner";
 import { z } from "zod";
 
+/** Which subscription agents run on; "a-then-b" falls back to b when a hits its usage limit. */
+export const AGENT_ROUTES = ["claude", "codex", "claude-then-codex", "codex-then-claude"] as const;
+export type AgentRoute = (typeof AGENT_ROUTES)[number];
+
 const bool = z
   .enum(["true", "false", "1", "0"])
   .transform((v) => v === "true" || v === "1");
@@ -62,6 +66,16 @@ const Env = z.object({
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
   /** Optional API key used only when the subscription hits its usage limit. */
   ANTHROPIC_FALLBACK_API_KEY: z.string().optional(),
+  /**
+   * Which subscription agents run on: "claude", "codex" (ChatGPT plan), or one then the other
+   * when the first hits its usage limit. The Accounts page's "Agent route" setting overrides it.
+   */
+  AGENT_ROUTE: z.enum(AGENT_ROUTES).default("claude"),
+  CODEX_BIN: z.string().default("codex"),
+  /** The ChatGPT sign-in for Codex: the contents of ~/.codex/auth.json after `codex login`. */
+  CODEX_AUTH_JSON: z.string().optional(),
+  /** Codex model; unset = Codex's default for the plan. */
+  CODEX_MODEL: z.string().optional(),
   AGENT_MAX_TURNS: z.coerce.number().int().positive().default(30),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15 * 60_000),
   AGENT_CONCURRENCY: z.coerce.number().int().positive().default(2),
@@ -303,6 +317,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       claudeBin: e.CLAUDE_BIN,
       oauthToken: e.CLAUDE_CODE_OAUTH_TOKEN || undefined,
       fallbackApiKey: e.ANTHROPIC_FALLBACK_API_KEY || undefined,
+      route: e.AGENT_ROUTE,
+      codexBin: e.CODEX_BIN,
+      codexAuth: e.CODEX_AUTH_JSON || undefined,
+      codexModel: e.CODEX_MODEL || undefined,
+      /** Codex's own folder (sign-in and sessions), on the volume so refreshed tokens survive restarts. */
+      codexHome: join(dataDir, "codex"),
       maxTurns: e.AGENT_MAX_TURNS,
       timeoutMs: e.AGENT_TIMEOUT_MS,
       concurrency: e.AGENT_CONCURRENCY,

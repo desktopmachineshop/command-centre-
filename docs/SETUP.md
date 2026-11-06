@@ -38,6 +38,8 @@ first, and the test is skipped when Chromium is missing.
      subscription) and paste the token. This is what lets the server drive Claude Code headless
      on your subscription.
    - `ANTHROPIC_FALLBACK_API_KEY` (optional): used only when the subscription hits its usage limit.
+   - `AGENT_ROUTE` (optional): `claude` (default), `codex` (your ChatGPT plan, through Codex),
+     `claude-then-codex` or `codex-then-claude`. Usually set on the Accounts page instead.
    - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: `npx web-push generate-vapid-keys`.
    - `WEBHOOK_SECRET`: `openssl rand -hex 24`, if you'll use webhook ingress.
 5. **Generate a domain** under Settings → Networking. That URL is your command centre.
@@ -227,6 +229,14 @@ straight away; only the changed integration restarts, and nothing redeploys.
   `claude setup-token`; open the sign-in link, sign in to claude.ai, and paste the code it shows
   back into the dialog. The token is saved encrypted and agents switch from `echo` to
   `claude-code`. Alternatively run `claude setup-token` on a computer and use **Paste a token**.
+- **ChatGPT (Codex):** press **Connect** on the ChatGPT (Codex) card. The server runs
+  `codex login --device-auth`; open the sign-in link, sign in to ChatGPT and enter the one-time
+  code the dialog shows. The dialog closes once you've signed in, and the sign-in file is saved
+  encrypted. Alternatively run `codex login` on a computer and use **Paste auth.json** with the
+  contents of `~/.codex/auth.json` (a ChatGPT sign-in; an API-key one is refused). Then choose
+  the **Agent route**: Claude, ChatGPT, or one then the other when the first hits its usage
+  limit. The Anthropic fallback key is always last. Codex keeps its sign-in in `/data/codex` and
+  refreshes it there; refreshed tokens are saved back to the Accounts entry.
 - **Stays in Railway:** `DATABASE_URL`, `ADMIN_TOKEN`, `WORKER_TOKEN`, `WEBHOOK_SECRET`,
   `PUBLIC_BASE_URL`, the push (`VAPID_*`) keys and `CREDENTIALS_KEY`: the server
   needs them before it can read the database. The page lists them read-only.

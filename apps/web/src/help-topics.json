@@ -1,5 +1,6 @@
 {
   "accounts": "topics/system/accounts.html",
+  "accounts.chatgpt": "topics/system/accounts.html#chatgpt",
   "accounts.claude": "topics/system/accounts.html#claude",
   "accounts.connect": "topics/system/accounts.html#connect",
   "accounts.developer-apps": "topics/system/accounts.html#developer-apps",
