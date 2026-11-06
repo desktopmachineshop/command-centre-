@@ -194,12 +194,29 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
     },
 
     async elevenlabs(entry) {
-      const key = entry.secrets.apiKey;
+      const key = entry.secrets.apiKey?.trim();
       if (!key) return fail("No API key saved");
-      const res = await get(`${urls.elevenlabs}/v1/user`, { "xi-api-key": key });
-      if (!res.ok) return failed(res, "ElevenLabs");
-      const body = await json<{ first_name?: string; subscription?: { tier?: string } }>(res);
-      return ok(`ElevenLabs accepted the key${body.subscription?.tier ? ` (${body.subscription.tier} plan)` : ""}`, body.first_name);
+      const headers = { "xi-api-key": key };
+      // ElevenLabs keys can be restricted to some permissions. A key without "User: Read" gets 401 on /v1/user
+      // even though it works for speech, so a 401 is only "rejected" when ElevenLabs says the key itself is bad.
+      const reason = async (res: Response) => (await json<{ detail?: { status?: string; message?: string } }>(res)).detail;
+      const res = await get(`${urls.elevenlabs}/v1/user`, headers);
+      if (res.ok) {
+        const body = await json<{ first_name?: string; subscription?: { tier?: string } }>(res);
+        return ok(`ElevenLabs accepted the key${body.subscription?.tier ? ` (${body.subscription.tier} plan)` : ""}`, body.first_name);
+      }
+      if (res.status !== 401) return failed(res, "ElevenLabs");
+      const detail = await reason(res);
+      if (detail?.status !== "missing_permissions") {
+        const why = detail?.message ? `: ${redact(detail.message, [key]).slice(0, 200)}` : "";
+        return fail(`ElevenLabs rejected the API key (HTTP 401${why}). Copy it again from elevenlabs.io → Developers → API keys`);
+      }
+      const voices = await get(`${urls.elevenlabs}/v1/voices`, headers);
+      if (voices.ok) return ok("ElevenLabs accepted the key (restricted key, so the plan isn't shown)");
+      if (voices.status === 401 && (await reason(voices))?.status === "missing_permissions") {
+        return ok("ElevenLabs accepted the key, but it is restricted: make sure Text to Speech, Speech to Text and Voices (read) are allowed");
+      }
+      return failed(voices, "ElevenLabs");
     },
 
     async odoo(entry) {
