@@ -1,5 +1,16 @@
 import type { RoleInput } from "@cc/core";
 
+/** Weekdays 11:23: find fresh Reddit threads that invite or ask for the product, and draft replies. */
+const redditScout = (product: string) => `Find fresh Reddit threads where a reply about ${product} is welcome, and draft replies. Follow the reddit-marketing skill end to end (with social-platform-guide's Reddit section).
+
+1. Build the ${product} fact sheet from the brain, the product's own tools and its site. Read the playbook and log note (marketing/reddit.md in your brain folder).
+2. Search for threads from the last 48 hours: share-your-startup and self-promotion threads, people asking for a tool ${product} answers, and comparisons. Skip anything already in the log.
+3. For each candidate, read the post, the subreddit's rules and the top comments. Note what it asks for and in what format, and score the fit from 1 to 5.
+4. For fit 4 or 5 only, propose a social.reply from the account on the log note's Account: line (or one notify holding the drafts if none is listed). Propose at most 3, at most 1 per subreddit, each disclosing that Dave builds ${product}.
+5. Update the log with every thread you looked at, proposed or skipped, with the reason.
+
+Finish with the short report the skill describes.`;
+
 /**
  * The org shared by Dave's SaaS products (OpenV, OpenD): a Product Lead with
  * support, devrel and billing under it, plus a Docs Writer where the product
@@ -51,11 +62,12 @@ export function saasRoles(product: string, options: { docsWriter?: boolean } = {
       title: "DevRel & Content",
       reportsTo: "product-lead",
       aliases: ["devrel"],
-      mission: `Tells people what ${product} does and why it matters: release notes, short demo videos and social posts. Works from what actually shipped, never from the roadmap.`,
-      skills: ["brain-notes", "social-platform-guide", "video-reel"],
-      actions: ["social.post", "social.campaign", "video.produce", "brain.write"],
-      kpis: ["Release note for every release", "One demo video a month"],
-      autonomyNotes: "All posts and campaigns wait for Dave.",
+      mission: `Tells people what ${product} does and why it matters: release notes, short demo videos, social posts, and honest, disclosed replies in Reddit threads that ask for or invite tools like ${product}. Works from what actually shipped, never from the roadmap.`,
+      skills: ["brain-notes", "social-platform-guide", "video-reel", "reddit-marketing"],
+      actions: ["social.post", "social.reply", "social.campaign", "video.produce", "brain.write", "notify"],
+      schedules: [{ id: "reddit-scout", cron: "23 11 * * 1-5", timezone: "Europe/London", prompt: redditScout(product), enabled: true }],
+      kpis: ["Release note for every release", "One demo video a month", "Reddit replies approved without edits"],
+      autonomyNotes: "All posts, replies and campaigns wait for Dave. Reddit replies always disclose that Dave builds the product, at most 3 a day.",
     },
     {
       id: "billing-admin",

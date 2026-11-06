@@ -9,7 +9,7 @@ export default defineVertical({
   brainFolder: "opend",
   color: "#1f9a8a",
   intents: ["support", "bug", "feature-request", "billing"],
-  skills: ["brain-notes", "email-triage-and-reply", "video-reel"],
+  skills: ["brain-notes", "email-triage-and-reply", "video-reel", "social-platform-guide", "reddit-marketing"],
   mcpServers: ["brain", "pa", "mail"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   roles: saasRoles("OpenD", { docsWriter: true }),
