@@ -2,10 +2,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 /**
- * Read-only GitHub tools at /mcp/github for coding roles (the Software Lead): pull requests with
- * their CI checks and reviews, issues, and a check that the server's token works. The server
+ * Read-only GitHub tools at /mcp/github for coding roles (the Software Lead): the code itself (a file
+ * or folder at any branch, code search), pull requests with their CI checks and reviews, issues,
+ * and a check that the server's token works. The server
  * calls GitHub with GITHUB_TOKEN; the agent never sees it. Scoped to the role's own repository.
- * Pushing and merging stay actions (github.pr.create / github.pr.merge, ./code.ts).
+ * Writing stays actions (github.pr.create / github.pr.merge / github.issue.create / github.issue.comment, ./code.ts).
  */
 export interface GithubReadOptions {
   token: string;
@@ -31,14 +32,15 @@ export function explainGithubError(status: number, message: string | undefined, 
 export function createGithubMcpServer(o: GithubReadOptions): McpServer {
   const server = new McpServer({ name: "github", version: "0.1.0" });
   const base = (o.apiBase ?? "https://api.github.com").replace(/\/+$/, "");
-  const get = async <T>(path: string): Promise<T> => {
+  const getWith = async <T>(path: string, accept: string): Promise<T> => {
     const res = await (o.fetch ?? fetch)(`${base}${path}`, {
-      headers: { authorization: `Bearer ${o.token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" },
+      headers: { authorization: `Bearer ${o.token}`, accept, "x-github-api-version": "2022-11-28" },
     });
     const json = (await res.json().catch(() => ({}))) as T & { message?: string };
     if (!res.ok) throw new Error(explainGithubError(res.status, json?.message, o.repo));
     return json;
   };
+  const get = <T>(path: string) => getWith<T>(path, "application/vnd.github+json");
   const repo = `/repos/${o.repo}`;
   /** Runs a tool, turning a GitHub error into a tool error the agent can relay. */
   const safe =
@@ -59,6 +61,38 @@ export function createGithubMcpServer(o: GithubReadOptions): McpServer {
     const r = await get<{ full_name: string; default_branch: string; private: boolean; permissions?: Record<string, boolean> }>(repo);
     return { repo: r.full_name, defaultBranch: r.default_branch, private: r.private, permissions: r.permissions ?? null };
   });
+
+  TOOL("file",
+    `The code in ${o.repo} as it is on GitHub: a file's text, or a folder's entries (path "" is the root). ref: a branch, tag or commit (default: the default branch). Works without a checkout; in a task with a checkout, reading files there is quicker.`,
+    { path: z.string().max(500).default(""), ref: z.string().max(200).optional(), offset: z.number().int().min(0).default(0) },
+    async ({ path, ref, offset }) => {
+      const clean = String(path).replace(/^\/+|\/+$/g, "");
+      if (clean.split("/").includes("..")) throw new Error("path must stay inside the repository");
+      const at = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+      const c = await get<any>(`${repo}/contents/${clean.split("/").map(encodeURIComponent).join("/")}${at}`);
+      if (Array.isArray(c)) return { path: clean, folder: c.map((e) => ({ name: e.name, type: e.type === "dir" ? "folder" : e.type, size: e.type === "file" ? e.size : undefined })) };
+      if (c.type !== "file") return { path: clean, type: c.type };
+      if (c.encoding !== "base64" || typeof c.content !== "string") return { path: clean, size: c.size, note: "Too large to read through GitHub (over 1 MB); use your checkout." };
+      const text = Buffer.from(c.content, "base64").toString("utf8");
+      const PAGE = 60_000;
+      const part = text.slice(offset, offset + PAGE);
+      const more = offset + PAGE < text.length;
+      return { path: clean, size: text.length, text: part, ...(more ? { nextOffset: offset + PAGE } : {}) };
+    },
+  );
+
+  TOOL("search_code",
+    `Searches the code in ${o.repo} on its default branch (GitHub code search: words, "exact phrases", path:apps/server, extension:ts). Returns the files that match, with the matching lines.`,
+    { query: z.string().min(1).max(200), limit: z.number().int().min(1).max(30).default(15) },
+    async ({ query, limit }) => {
+      const q = encodeURIComponent(`${query} repo:${o.repo}`);
+      const res = await getWith<{ total_count: number; items: any[] }>(`/search/code?q=${q}&per_page=${limit}`, "application/vnd.github.text-match+json");
+      return {
+        total: res.total_count,
+        files: res.items.map((i) => ({ path: i.path, matches: (i.text_matches ?? []).map((m: { fragment?: string }) => clip(m.fragment, 400)) })),
+      };
+    },
+  );
 
   TOOL("list_pull_requests",
     `Pull requests in ${o.repo}, newest first.`,

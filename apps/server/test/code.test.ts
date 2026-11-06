@@ -43,10 +43,13 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
   const github = mkdtempSync(join(tmpdir(), "cc-github-"));
   const remote = join(github, `${REPO}.git`);
   const api: { method: string; path: string; body: any }[] = [];
+  let openIssues: { number: number; title: string; html_url: string }[] = [];
   const fakeApi = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input));
     api.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body: init?.body ? JSON.parse(String(init.body)) : null });
     if (init?.method === "POST" && url.pathname === `/repos/${REPO}/issues`) return Response.json({ html_url: `https://github.test/${REPO}/issues/7`, number: 7 }, { status: 201 });
+    if (init?.method === "POST" && url.pathname === `/repos/${REPO}/issues/12/comments`) return Response.json({ id: 99, html_url: `https://github.test/${REPO}/issues/12#c99` }, { status: 201 });
+    if ((init?.method ?? "GET") === "GET" && url.pathname === `/repos/${REPO}/issues` && url.searchParams.get("state") === "open") return Response.json(openIssues);
     if (init?.method === "POST") return Response.json({ html_url: `https://github.test/${REPO}/pull/11`, number: 11 }, { status: 201 });
     if (url.pathname === `/repos/${REPO}/pulls/11`) return Response.json({ state: "open", merged: false, html_url: `https://github.test/${REPO}/pull/11`, head: { sha: "abc123", ref: "cc/latched-ptt" } });
     if (url.pathname === `/repos/${REPO}/pulls/11/merge`) return Response.json({ merged: true, sha: "def456" });
@@ -142,6 +145,29 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     expect(again.result).toMatchObject({ result: { number: 7, already: true } });
     expect(api.length).toBe(before);
     await expect(ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.issue.create", summary: "x", payload: { path: "command-centre/notes.md" } })).rejects.toThrow(/issues\/ folder/);
+  });
+
+  it("opens an issue the agent wrote itself (a suggestion), skips a duplicate title, and comments", async () => {
+    const propose = (payload: Record<string, unknown>) => ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.issue.create", summary: "Suggest", payload });
+    const filed = await propose({ title: "Retry Odoo polls after a timeout", body: "## What\nThe poller gives up.\n## Where\n- `odoo-events.ts`", labels: ["area:integration"] });
+    expect(filed).toMatchObject({ policy: "auto", status: "executed", result: { ok: true, result: { number: 7, already: false } } });
+    const post = api.at(-1)!;
+    expect(post).toMatchObject({ method: "POST", path: `/repos/${REPO}/issues` });
+    expect(post.body).toMatchObject({ title: "Retry Odoo polls after a timeout", labels: ["enhancement", "area:integration", "from-command-centre"] });
+    expect(post.body.body).toContain("The poller gives up.");
+
+    openIssues = [{ number: 12, title: "Retry Odoo polls after a timeout", html_url: `https://github.test/${REPO}/issues/12` }];
+    const before = api.length;
+    expect((await propose({ title: "retry odoo polls after a timeout ", body: "again", kind: "bug" })).result).toMatchObject({ result: { number: 12, already: true } });
+    expect(api.length).toBe(before + 1); // only the lookup
+    openIssues = [];
+    await expect(propose({ title: "No body" })).rejects.toThrow(/body/);
+    await expect(propose({ title: "x", body: "y", kind: "feature" })).rejects.toThrow(/kind/);
+
+    const comment = await ctx.server.actions.propose({ vertical: "command-centre", actionType: "github.issue.comment", summary: "Comment on #12", payload: { number: 12, body: "Also seen today." } });
+    expect(comment).toMatchObject({ policy: "auto", status: "executed", result: { ok: true, result: { number: 12 } } });
+    expect(api.at(-1)).toMatchObject({ method: "POST", path: `/repos/${REPO}/issues/12/comments` });
+    expect(api.at(-1)!.body.body).toContain("Also seen today.");
   });
 
   it("refuses to push the default branch or a branch that doesn't exist", async () => {

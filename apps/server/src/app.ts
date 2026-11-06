@@ -53,6 +53,7 @@ import { tokenMatches } from "./auth";
 import { Hub } from "./hub";
 import { paVoiceCalendar, reminderPushActions } from "./http/pa";
 import { type Caller, mcpRoutes } from "./mcp/endpoints";
+import { createOpsMcpServer, ServerLog } from "./ops";
 import { createGithubMcpServer } from "./github-mcp";
 import { createHelpMcpServer, HelpDocs } from "./help-docs";
 import { Pipeline } from "./pipeline";
@@ -598,6 +599,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           }
         : {}),
       pa: paMcpServer,
+      // How the agents and the server are doing (run stats, recorded warnings and errors), for the Software Lead.
+      ops: () => createOpsMcpServer(pool),
       ...(helpDocs.size ? { help: () => createHelpMcpServer(helpDocs) } : {}),
       // Read-only GitHub for coding roles (pull requests, CI, issues), with the server's token.
       ...(code.token
@@ -611,6 +614,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         : {}),
     };
   };
+  const serverLog = new ServerLog(pool);
   const runTokens = new RunTokens();
   // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
   const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;
@@ -883,6 +887,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     org,
     async start() {
       await migrate(pool);
+      // The server's warnings and errors, recorded for the ops tools (not in tests: they share one console).
+      if (process.env.NODE_ENV !== "test") serverLog.install();
       // Self-hosted speech models download once in the background; until then voice uses browser speech.
       if (localSpeech && process.env.NODE_ENV !== "test") void localSpeech.install();
       secretBox = await SecretBox.load({ key: config.credentialsKey, keyFile: join(config.dataDir, "credentials.key") }); // integrations
@@ -950,6 +956,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await social.stop();
       await odoo.stop();
       await queue.stop();
+      await serverLog.uninstall();
       await pool.end();
     },
   };

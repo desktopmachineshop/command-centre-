@@ -2271,8 +2271,19 @@ checkout is logged as `[code] checkout of … failed: …`.
   is open for that branch, pushes the new commits to it), and you get its link in the report. A PR
   changes nothing until it is merged.
 - It **reads GitHub** through the read-only `github` tools (served at `/mcp/github` with the
-  server's token, scoped to its repository): pull requests with their CI checks, reviews and
+  server's token, scoped to its repository): the code at any branch (`file`, `search_code`, so it
+  can read the code even without a checkout), pull requests with their CI checks, reviews and
   comments, why a check failed, and issues. So it can follow up on CI and review comments itself.
+- **Suggestions and issues:** ask it to review an area or "log an issue about …" and it opens a
+  GitHub issue with **`github.issue.create`** (`{ title, body, kind }`; `kind` is `enhancement`,
+  `bug`, `docs` or `question`, labelled to match plus `from-command-centre`), and comments on
+  issues and PRs with **`github.issue.comment`**. Both run straight away (`auto`).
+- **Daily assessment:** at 07:23 every day its `assess-performance` schedule reads the `ops` tools
+  (served at `/mcp/ops`): `performance` (runs, failures and cost per role, failed runs with their
+  errors, the slowest and costliest runs, failed or rejected actions, stuck tasks) and
+  `server_log` (the server's own warnings and errors, recorded from its console into the
+  `server_log` table and kept 14 days, migration `0024_server_log`). It logs faults in the issue
+  log and opens up to five GitHub issues a day with suggested improvements, and reports to you.
 - **Merging needs your approval:** ask it to merge ("merge PR 11") and it proposes
   **`github.pr.merge`**, which waits under Approvals; approve and the server merges it on GitHub
   (branch protection and required checks still apply). Or merge on GitHub yourself. It never

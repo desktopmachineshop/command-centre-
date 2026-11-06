@@ -18,6 +18,7 @@ import { chiefOfStaff } from "./org";
 import personal from "./personal";
 
 export { chiefOfStaff } from "./org";
+export { mergeOrgEdit } from "./org-merge";
 export { INTERNAL_AUTO_POLICIES } from "./policies";
 export { parseRolePrefix, routeRole, type RoleRoute } from "./routing";
 
