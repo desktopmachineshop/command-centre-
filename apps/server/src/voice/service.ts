@@ -28,7 +28,7 @@ export interface VoiceServiceOptions {
   stt?: SpeechToText;
   tts?: TextToSpeech;
   /** ElevenLabs, for the voices Dave listed on the Accounts page (picked as "elevenlabs:<voice id>"). */
-  elevenlabs?: TextToSpeech;
+  elevenlabs?: TextToSpeech & { voiceName?(id: string, signal?: AbortSignal): Promise<string | null> };
   elevenlabsVoices?: ElevenLabsVoiceChoice[];
   calendar?: VoiceCalendar;
   /** Self-hosted speech (open models): live transcription, and the voice when no TTS key is set. */
@@ -132,21 +132,38 @@ export class VoiceService {
   }
 
   /** Synthesizes `text`, from the cache for short phrases ("Working on it", confirmations). */
-  /** The voices that can be chosen: the self-hosted ones, then the ElevenLabs voices listed on the Accounts page. */
-  voices() {
+  /** ElevenLabs voice names by id, looked up once each (null: couldn't be read, so the id shows). */
+  private readonly elevenNames = new Map<string, Promise<string | null>>();
+
+  /** The name ElevenLabs gives a voice, for one listed without a name of its own; waits at most ~3 s. */
+  private async elevenName(id: string): Promise<string | null> {
+    const lookup = this.options.elevenlabs?.voiceName;
+    if (!lookup) return null;
+    let name = this.elevenNames.get(id);
+    if (!name) {
+      name = lookup.call(this.options.elevenlabs, id, AbortSignal.timeout(3000)).catch(() => null);
+      this.elevenNames.set(id, name);
+      // A failed lookup is tried again next time (a key or permission may have been fixed).
+      void name.then((n) => n === null && this.elevenNames.delete(id));
+    }
+    return name;
+  }
+
+  /** The voices that can be chosen: the self-hosted ones, then the ElevenLabs voices listed on the Accounts page (by their ElevenLabs names). */
+  async voices() {
     const local = this.options.local;
-    const eleven = this.options.elevenlabs
-      ? (this.options.elevenlabsVoices ?? []).map((v) => ({
-          id: `${ELEVENLABS_PREFIX}${v.id}`,
-          label: v.label,
-          description: "ElevenLabs",
-          tier: "elevenlabs" as const,
-          sizeMb: 0,
-          status: "ready" as const,
-          error: null,
-          isDefault: false,
-        }))
-      : [];
+    const listed = this.options.elevenlabs ? (this.options.elevenlabsVoices ?? []) : [];
+    const labels = await Promise.all(listed.map(async (v) => (v.label !== v.id ? v.label : ((await this.elevenName(v.id)) ?? v.id))));
+    const eleven = listed.map((v, i) => ({
+      id: `${ELEVENLABS_PREFIX}${v.id}`,
+      label: labels[i]!,
+      description: "ElevenLabs",
+      tier: "elevenlabs" as const,
+      sizeMb: 0,
+      status: "ready" as const,
+      error: null,
+      isDefault: false,
+    }));
     if (!local) return { default: this.tts?.defaultVoice ?? null, voices: eleven };
     return {
       default: this.options.tts ? null : local.voice,

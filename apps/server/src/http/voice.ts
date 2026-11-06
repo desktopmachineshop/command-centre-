@@ -90,14 +90,14 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
     }
   });
 
-  app.get("/voice/voices", (c) => c.json(service.voices()));
+  app.get("/voice/voices", async (c) => c.json(await service.voices()));
 
-  app.post("/voice/voices/:id/install", (c) => {
+  app.post("/voice/voices/:id/install", async (c) => {
     const id = c.req.param("id");
     // Answers at once: the download runs on, and GET /voice/voices shows its progress.
     const job = service.installVoice(id);
     job.catch((err) => console.error("[voice] install", id, (err as Error).message));
-    return c.json(service.voices(), 202);
+    return c.json(await service.voices(), 202);
   });
 
   app.post("/voice/speak", async (c) => {

@@ -401,7 +401,7 @@ export const CATALOG: readonly KindDef[] = [
         key: "elevenlabsVoices",
         label: "ElevenLabs voices",
         type: "list",
-        help: "One per line, a name and the voice id, e.g. Rachel = 21m00Tcm4TlvDq8ikWAM. They appear in Settings → Voice, where each device picks its own.",
+        help: "One voice id per line (the name is fetched from ElevenLabs), or Name = voice id to call it something else. They appear in Settings → Voice, where each device picks its own.",
       },
       { key: "elevenlabsVoice", label: "Default ElevenLabs voice id", type: "text", help: "Optional. Used when no voice is picked, e.g. video narration." },
     ],

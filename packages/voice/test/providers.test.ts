@@ -110,6 +110,14 @@ describe("ElevenLabs", () => {
     expect(JSON.parse(init.body as string)).toEqual({ text: "Hello", model_id: "eleven_flash_v2_5" });
   });
 
+  it("reads a voice's name, or null when ElevenLabs won't say", async () => {
+    const fetch = mockFetch(({ url }) => (url.endsWith("/v1/voices/good") ? Response.json({ voice_id: "good", name: "Rachel" }) : new Response("{}", { status: 401 })));
+    const tts = new ElevenLabsTextToSpeech({ apiKey: ELEVEN_KEY, fetch });
+    expect(await tts.voiceName("good")).toBe("Rachel");
+    expect((fetch.calls[0]!.init.headers as Record<string, string>)["xi-api-key"]).toBe(ELEVEN_KEY);
+    expect(await tts.voiceName("missing")).toBeNull();
+  });
+
   it("returns word timings from the with-timestamps endpoint", async () => {
     const chars = "Hi Dave".split("");
     const fetch = mockFetch(() =>
