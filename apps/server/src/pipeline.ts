@@ -442,7 +442,7 @@ export class Pipeline {
         notes.push(`## Your checkout\nThe repository ${role.repo} couldn't be checked out: ${(err as Error).message}. Don't edit code this run; tell Dave exactly this reason in your summary (it usually means GITHUB_TOKEN in Railway is missing, wrong, or not granted this repository).`);
       }
       notes.push(
-        `## GitHub\nTo read GitHub (pull requests, their CI checks and reviews, why a check failed, issues) use the "github" tools, which use the server's access to ${role.repo}; "access" checks that access. If they aren't available or report an error, tell Dave that exact reason.`,
+        `## GitHub\nTo read GitHub use the "github" tools, which use the server's access to ${role.repo}: the code at any branch ("file", "search_code"), pull requests with their CI checks and reviews, why a check failed, and issues; "access" checks that access. To open an issue (a suggestion, an improvement, a bug) propose github.issue.create with { title, body, kind }; to comment on an issue or PR, github.issue.comment. Both run straight away. If a tool or action reports an error, tell Dave that exact reason.`,
       );
     }
     return { tools: [...new Set([...web, ...role.tools, ...scratch.rules])], notes };

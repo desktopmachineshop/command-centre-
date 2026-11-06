@@ -522,4 +522,17 @@ export const migrations: { id: string; sql: string }[] = [
       alter table notifications add column if not exists media jsonb not null default '[]';
     `,
   },
+  {
+    // The server's own warnings and errors, for the Software Lead's daily assessment (./ops.ts). Kept 14 days.
+    id: "0024_server_log",
+    sql: `
+      create table if not exists server_log (
+        id bigserial primary key,
+        level text not null,
+        message text not null,
+        at timestamptz not null default now()
+      );
+      create index if not exists server_log_at_idx on server_log (at desc);
+    `,
+  },
 ];

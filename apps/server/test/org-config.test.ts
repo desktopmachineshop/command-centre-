@@ -133,4 +133,39 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
     // The other saved change still runs.
     expect(tree.root.mission).toBe("Keeps Dave focused.");
   });
+
+  it("brings a save from before a code change up to date, and keeps what Dave removed removed", async () => {
+    const ccUnit = async () => (await config()).verticals.find((v) => v.unit === "command-centre")!;
+    const base = (await ccUnit()).base;
+    const lead = base.roles.find((r) => r.id === "software-lead")!;
+    // Saved before the code gave the Software Lead ops, github.issue.comment and the daily assessment (no codeBase).
+    const old: VerticalOrgEdit = {
+      ...base,
+      roles: [{ ...lead, mission: "Dave's words.", mcpServers: ["brain", "github"], actions: lead.actions.filter((a) => a !== "github.issue.comment"), schedules: lead.schedules.filter((x) => x.id === "file-issues"), tools: [] }],
+      policies: Object.fromEntries(Object.entries(base.policies).filter(([k]) => k !== "github.issue.comment")),
+    };
+    await ctx.server.store.pool.query("insert into org_overrides (unit, data, version, updated_by) values ('command-centre', $1, 1, 'dave')", [JSON.stringify(old)]);
+    await ctx.server.store.pool.query("insert into org_override_versions (unit, version, data, author) values ('command-centre', 1, $1, 'dave')", [JSON.stringify(old)]);
+    await ctx.server.org.load();
+    let cc = await ccUnit();
+    let role = cc.current.roles[0]!;
+    expect(cc.problem).toBeNull();
+    expect(role.mission).toBe("Dave's words.");
+    expect(role.mcpServers).toEqual(["brain", "github", "ops"]);
+    expect(role.actions).toContain("github.issue.comment");
+    expect(role.schedules.map((x) => x.id)).toEqual(["file-issues", "assess-performance"]);
+    expect(role.tools).toEqual(lead.tools);
+    expect(cc.current.policies["github.issue.comment"]).toBe("auto");
+
+    // Dave drops ops on the Org page: that removal sticks, now that the save records the code it was made over.
+    const data = { ...cc.current, roles: [{ ...role, mcpServers: ["brain", "github"] }] };
+    expect((await ctx.api("/api/org/config/command-centre", { method: "PUT", json: { data, expectedVersion: 1 } })).status).toBe(200);
+    await ctx.server.org.load();
+    cc = await ccUnit();
+    role = cc.current.roles[0]!;
+    expect(role.mcpServers).toEqual(["brain", "github"]);
+    expect(role.schedules.map((x) => x.id)).toEqual(["file-issues", "assess-performance"]);
+    const v2 = (await ctx.api("/api/org/config/command-centre/versions/2")).body.data;
+    expect(v2).not.toHaveProperty("codeBase");
+  });
 });

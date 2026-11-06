@@ -182,19 +182,51 @@ export function createCodeExecutors(
     return { path, note, issue: issueOf(note) };
   };
 
+  /** A GitHub issue written by the agent itself (not from a brain note): a suggestion, a bug, a question. */
+  const directIssue = (payload: Record<string, unknown>) => {
+    const title = typeof payload.title === "string" ? payload.title.trim() : "";
+    const body = typeof payload.body === "string" ? payload.body.trim() : "";
+    const kind = payload.kind === undefined ? "enhancement" : payload.kind;
+    if (!title || title.length > 250) throw new Error("payload.title must be 1 to 250 characters");
+    if (!body) throw new Error("payload.body must describe the issue (markdown: what, why, suggested change, where in the code)");
+    if (typeof kind !== "string" || !(kind in ISSUE_KINDS)) throw new Error(`payload.kind must be one of ${Object.keys(ISSUE_KINDS).join(", ")}`);
+    const extra = Array.isArray(payload.labels) ? payload.labels.filter((l): l is string => typeof l === "string" && LABEL.test(l)).slice(0, 5) : [];
+    return { title, body: body.slice(0, 60_000), labels: [...new Set([ISSUE_KINDS[kind as keyof typeof ISSUE_KINDS], ...extra, "from-command-centre"])] };
+  };
+  const repoOf = (vertical: string | null | undefined) => {
+    const where = vertical ? o.locate(vertical) : null;
+    if (!where) throw new Error(`${vertical ?? "This vertical"} has no coding role with a repository`);
+    if (!o.token && /^https?:/.test(gitBase(o))) throw new Error("GITHUB_TOKEN is not set");
+    return where;
+  };
+
   return {
     "github.issue.create": {
       description:
-        "File an issue from the brain's issue log as a GitHub issue in your repository. payload: { path (issues/… from list_issues), title? (default: the note's title) }. The server builds the body and labels (bug, area:<category>, agent:<agent>, severity:<severity>, from-brain) from the note and writes the GitHub number back to it. Already filed: returns the existing issue.",
+        "Open a GitHub issue in your repository. Either from the brain's issue log: payload { path (issues/… from list_issues), title? } (the server builds the body and labels from the note and writes the GitHub number back to it; already filed: returns the existing issue). Or written by you, for a suggestion, an improvement, a bug or a question: payload { title, body (markdown: what and why, the suggested change, the files involved), kind? (\"enhancement\" default, \"bug\", \"docs\" or \"question\"), labels? (up to 5 more) }. An open issue with the same title is returned instead of a duplicate.",
       validate: async (payload, ctx) => {
-        await issueNote(payload);
+        if (payload.path !== undefined) await issueNote(payload);
+        else directIssue(payload);
         if (!o.locate(ctx.vertical)) throw new Error(`${ctx.vertical} has no coding role with a repository`);
       },
       execute: async (payload, ctx) => {
+        if (payload.path === undefined) {
+          const d = directIssue(payload);
+          const where = repoOf(ctx.vertical);
+          const open = await api<{ number: number; title: string; html_url: string; pull_request?: unknown }[]>(`/repos/${where.repo}/issues?state=open&per_page=100`);
+          if (open.status === 403 || open.status === 401) throw new Error(githubIssueAccess(open.status, where.repo));
+          const same = Array.isArray(open.json) ? open.json.find((i) => !i.pull_request && i.title.trim().toLowerCase() === d.title.toLowerCase()) : undefined;
+          if (same) return { number: same.number, url: same.html_url, already: true };
+          const created = await api<{ number?: number; html_url?: string; message?: string }>(`/repos/${where.repo}/issues`, {
+            method: "POST",
+            body: { title: d.title, body: `${d.body}\n\n_Opened by the Command Centre Software Lead._`, labels: d.labels },
+          });
+          if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created.status, where.repo));
+          if (created.status >= 300 || !created.json.number) throw new Error(`GitHub refused the issue: ${created.json.message ?? `HTTP ${created.status}`}`);
+          return { number: created.json.number, url: created.json.html_url ?? `https://github.com/${where.repo}/issues/${created.json.number}`, already: false, labels: d.labels };
+        }
         const { path, note, issue } = await issueNote(payload);
-        const where = ctx.vertical ? o.locate(ctx.vertical) : null;
-        if (!where) throw new Error(`${ctx.vertical ?? "This vertical"} has no coding role with a repository`);
-        if (!o.token && /^https?:/.test(gitBase(o))) throw new Error("GITHUB_TOKEN is not set");
+        const where = repoOf(ctx.vertical);
         const url = (n: number) => `https://github.com/${where.repo}/issues/${n}`;
         if (issue.github) return { number: issue.github, url: url(issue.github), already: true };
         // The marker finds an issue filed before a failed write-back, so it is never filed twice.
@@ -235,6 +267,26 @@ export function createCodeExecutors(
         }
         await updateIssue(o.brain!, path, { github: number, by: "software-lead" });
         return { number, url: link, already: !!existing };
+      },
+    },
+    "github.issue.comment": {
+      description:
+        "Comment on an issue or pull request in your repository: a suggestion, findings from the code, a status update. payload: { number, body (markdown) }.",
+      validate: (payload, ctx) => {
+        parseComment(payload);
+        if (!o.locate(ctx.vertical)) throw new Error(`${ctx.vertical} has no coding role with a repository`);
+      },
+      execute: async (payload, ctx) => {
+        const c = parseComment(payload);
+        const where = repoOf(ctx.vertical);
+        const created = await api<{ id?: number; html_url?: string; message?: string }>(`/repos/${where.repo}/issues/${c.number}/comments`, {
+          method: "POST",
+          body: { body: `${c.body}\n\n_From the Command Centre Software Lead._` },
+        });
+        if (created.status === 404) throw new Error(`There is no issue or pull request #${c.number} in ${where.repo}`);
+        if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created.status, where.repo));
+        if (created.status >= 300 || !created.json.id) throw new Error(`GitHub refused the comment: ${created.json.message ?? `HTTP ${created.status}`}`);
+        return { number: c.number, url: created.json.html_url };
       },
     },
     "github.pr.create": {
@@ -305,6 +357,18 @@ export function createCodeExecutors(
       },
     },
   };
+}
+
+/** GitHub label for each kind of issue the agent writes itself. */
+const ISSUE_KINDS = { enhancement: "enhancement", bug: "bug", docs: "documentation", question: "question" } as const;
+const LABEL = /^[A-Za-z0-9][A-Za-z0-9 :._/-]{0,49}$/;
+
+function parseComment(payload: Record<string, unknown>): { number: number; body: string } {
+  const number = typeof payload.number === "number" ? payload.number : Number(payload.number);
+  if (!Number.isInteger(number) || number < 1) throw new Error("payload.number must be the issue or pull request number");
+  const body = typeof payload.body === "string" ? payload.body.trim() : "";
+  if (!body) throw new Error("payload.body must be the comment (markdown)");
+  return { number, body: body.slice(0, 60_000) };
 }
 
 function parseMerge(payload: Record<string, unknown>): { number: number; method: "merge" | "squash" | "rebase" } {

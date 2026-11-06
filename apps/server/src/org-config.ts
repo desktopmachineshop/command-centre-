@@ -11,7 +11,7 @@ import {
   type VerticalManifest,
   VerticalOrgEdit,
 } from "@cc/core";
-import { issueLines, OrgError, type OrgOverrides, type VerticalRegistry } from "@cc/verticals";
+import { issueLines, mergeOrgEdit, OrgError, type OrgOverrides, type VerticalRegistry } from "@cc/verticals";
 import type { Pool } from "./db/pool";
 
 /** A save over a version that is no longer the latest (someone else saved first). */
@@ -26,6 +26,20 @@ type Saved = { data: unknown; version: number; updatedBy: string; updatedAt: str
 
 const verticalEdit = (v: VerticalManifest): VerticalOrgEdit => ({ roles: v.roles, policies: v.policies, defaultPolicy: v.defaultPolicy });
 const rootEdit = ({ id: _id, homeVertical: _home, ...rest }: OrgRoot): RootOrgEdit => rest;
+
+/**
+ * A saved vertical document also records the code's version of the vertical at the time
+ * (`codeBase`), so later code additions can be merged in (mergeOrgEdit). Not part of the edit.
+ */
+const codeBaseOf = (data: unknown): VerticalOrgEdit | null => {
+  const parsed = VerticalOrgEdit.safeParse((data as { codeBase?: unknown } | null)?.codeBase);
+  return parsed.success ? parsed.data : null;
+};
+const withoutCodeBase = (data: unknown): unknown => {
+  if (!data || typeof data !== "object") return data;
+  const { codeBase: _c, ...rest } = data as Record<string, unknown>;
+  return rest;
+};
 
 /**
  * Org changes made on the Org page: roles (hierarchy, missions, autonomy, intents,
@@ -94,7 +108,8 @@ export class OrgConfigService {
       verticals: this.registry.all().map((v) => {
         const base = verticalEdit(this.registry.base(v.id) ?? v);
         const s = this.saved.get(v.id);
-        const unit: OrgConfigUnit<VerticalOrgEdit> = { ...meta(v.id), base, current: s ? VerticalOrgEdit.catch(base).parse(s.data) : base };
+        const current = s ? mergeOrgEdit(VerticalOrgEdit.catch(base).parse(s.data), base, codeBaseOf(s.data)) : base;
+        const unit: OrgConfigUnit<VerticalOrgEdit> = { ...meta(v.id), base, current };
         return { ...unit, name: v.name, color: v.color ?? null, intents: v.intents, mcpServers: v.mcpServers };
       }),
       root: {
@@ -110,9 +125,13 @@ export class OrgConfigService {
   }
 
   /** Saves a unit's change (`data` null resets it to the code), after checking the whole org with it. Throws OrgError or OrgConflictError. */
-  async save(unit: string, data: unknown, options: { author: string; expectedVersion: number }): Promise<void> {
-    const parsed = data === null ? null : this.parse(unit, data);
-    if (parsed) await this.checkSkills(unit, parsed);
+  async save(unit: string, data: unknown, options: { author: string; expectedVersion: number; codeBase?: VerticalOrgEdit | null }): Promise<void> {
+    const edit = data === null ? null : this.parse(unit, data);
+    if (edit) await this.checkSkills(unit, edit);
+    // A vertical's document keeps the code it was saved over (see codeBaseOf); a restore keeps the old version's.
+    const codeNow = unit === ROOT_ROLE_ID ? undefined : this.registry.base(unit);
+    const codeBase = codeNow && (options.codeBase === undefined ? verticalEdit(codeNow) : options.codeBase);
+    const parsed = edit && codeBase ? { ...edit, codeBase } : edit;
     const client = await this.pool.connect();
     try {
       await client.query("begin");
@@ -159,15 +178,20 @@ export class OrgConfigService {
 
   /** A saved version's document, or null for a reset (the code's version then). Undefined when there is no such version. */
   async readVersion(unit: string, version: number): Promise<unknown | null | undefined> {
+    const data = await this.readStored(unit, version);
+    return data === undefined ? undefined : withoutCodeBase(data);
+  }
+
+  private async readStored(unit: string, version: number): Promise<unknown | null | undefined> {
     const { rows } = await this.pool.query("select data from org_override_versions where unit = $1 and version = $2", [unit, version]);
     return rows.length ? rows[0].data : undefined;
   }
 
   /** Saves an earlier version again as the newest one. False when there is no such version. */
   async restore(unit: string, version: number, options: { author: string }): Promise<boolean> {
-    const data = await this.readVersion(unit, version);
+    const data = await this.readStored(unit, version);
     if (data === undefined) return false;
-    await this.save(unit, data, { author: options.author, expectedVersion: this.versions.get(unit) ?? 0 });
+    await this.save(unit, withoutCodeBase(data), { author: options.author, expectedVersion: this.versions.get(unit) ?? 0, codeBase: codeBaseOf(data) });
     return true;
   }
 
@@ -191,7 +215,11 @@ export class OrgConfigService {
       return data ? { ...rest, root: RootOrgEdit.parse(data) } : rest;
     }
     const { [unit]: _old, ...others } = o.verticals ?? {};
-    return { ...o, verticals: data ? { ...others, [unit]: VerticalOrgEdit.parse(data) } : others };
+    if (!data) return { ...o, verticals: others };
+    // What the code added since the save reaches the saved roles (mergeOrgEdit).
+    const code = this.registry.base(unit);
+    const edit = VerticalOrgEdit.parse(data);
+    return { ...o, verticals: { ...others, [unit]: code ? mergeOrgEdit(edit, verticalEdit(code), codeBaseOf(data)) : edit } };
   }
 
   /** Skills added from the app must be in the bank, or the role's workspace would silently lack them. The code's own are checked by its tests. */

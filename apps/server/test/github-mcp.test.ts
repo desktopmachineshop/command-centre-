@@ -57,6 +57,24 @@ describe("github MCP (read-only, the server's token)", () => {
     expect(pr.comments[0]).toMatchObject({ by: "bot", body: "CI failed" });
   });
 
+  it("reads the code: a file, a folder, and code search", async () => {
+    const text = "export const x = 1;\n";
+    const gh = fakeGithub({
+      "/repos/dms/cc/contents/apps/server/src/a.ts?ref=cc%2Ffix": { type: "file", encoding: "base64", size: text.length, content: Buffer.from(text).toString("base64") },
+      "/repos/dms/cc/contents/apps": [
+        { name: "server", type: "dir" },
+        { name: "README.md", type: "file", size: 12 },
+      ],
+      "/search/code": { total_count: 1, items: [{ path: "apps/server/src/a.ts", text_matches: [{ fragment: "export const x" }] }] },
+    });
+    const call = await connect(gh.fetch);
+    expect((await call("file", { path: "/apps/server/src/a.ts", ref: "cc/fix" })).json()).toEqual({ path: "apps/server/src/a.ts", size: text.length, text });
+    expect((await call("file", { path: "apps" })).json().folder).toEqual([{ name: "server", type: "folder" }, { name: "README.md", type: "file", size: 12 }]);
+    expect((await call("file", { path: "../secrets" })).error).toBe(true);
+    expect((await call("search_code", { query: "export const" })).json()).toEqual({ total: 1, files: [{ path: "apps/server/src/a.ts", matches: ["export const x"] }] });
+    expect(gh.calls.at(-1)!.url).toBe(`/search/code?q=${encodeURIComponent("export const repo:dms/cc")}&per_page=15`);
+  });
+
   it("lists issues without pull requests", async () => {
     const gh = fakeGithub({ "/repos/dms/cc/issues": [{ number: 1, title: "Bug", state: "open", labels: [{ name: "bug" }], user: { login: "d" } }, { number: 2, title: "PR", pull_request: {} }] });
     const call = await connect(gh.fetch);

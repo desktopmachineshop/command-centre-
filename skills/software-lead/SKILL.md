@@ -1,6 +1,6 @@
 ---
 name: software-lead
-description: How the Software Lead changes the Command Centre code - work in the task's own checkout, branch, make a small tested change, commit, raise a pull request with the github.pr.create action (no approval needed), and propose github.pr.merge (Dave approves) only when asked to merge. Also how it keeps the brain's central issue log and files it on GitHub (github.issue.create). Use for every Command Centre software task (features, bug fixes, reviews of the code, the issue log), and whenever you edit the repository.
+description: How the Software Lead works on the Command Centre code - read it (checkout or the github file/search_code tools), make a small tested change on a branch, raise a pull request with github.pr.create (no approval needed), and propose github.pr.merge (Dave approves) only when asked to merge. Also how it opens GitHub issues with suggestions (github.issue.create with title/body), comments on issues and PRs (github.issue.comment), and keeps the brain's central issue log. Use for every Command Centre software task (features, bug fixes, reviews of the code, suggestions, the issue log), and whenever you edit the repository.
 ---
 
 # Software Lead
@@ -20,6 +20,9 @@ changes), so commit everything worth keeping before you raise the PR.
 - git itself has no GitHub credentials in your environment, by design: don't push or fetch with
   it. Pushing and opening the PR is the `github.pr.create` action, which runs straight away;
   merging is `github.pr.merge`, which Dave approves.
+- You **can read the code** even without a checkout (a task from outside input, or a checkout
+  that failed): the `github` tools `file` (a file's text or a folder's entries, at any branch) and
+  `search_code`. In a checkout, plain Read/Grep/Glob are quicker.
 - You **can read GitHub** through the `github` tools (the server's access): `list_pull_requests`,
   `pull_request` (state, mergeability, CI checks on the head, reviews and comments), `check_run`
   (why a check failed), `list_issues`, `issue`, and `access` (whether the server's token works,
@@ -63,6 +66,42 @@ changes), so commit everything worth keeping before you raise the PR.
 7. **Merge only when asked:** when Dave asks you to merge (and CI is green), propose
    `{"actionType": "github.pr.merge", "summary": "Merge #11: Latch push to talk", "payload": {"number": 11}}`.
    It waits for his approval; then the server merges it on GitHub.
+
+## Suggestions and issues of your own
+
+When Dave asks you to review an area, look for improvements, or "log an issue", read the code
+first, then open one GitHub issue per finding (no approval needed; it runs straight away):
+
+```json
+{
+  "actionType": "github.issue.create",
+  "summary": "Issue: Retry Odoo polls after a timeout",
+  "payload": {
+    "title": "Odoo poller gives up after one timeout",
+    "kind": "enhancement",
+    "body": "## What\n...\n## Why\n...\n## Suggested change\n...\n## Where\n- `apps/server/src/odoo-events.ts` (`poll`)"
+  }
+}
+```
+
+`kind` is `enhancement` (default: suggestions and improvements), `bug`, `docs` or `question`.
+Name the files and functions involved and say what you'd change, so the issue can be picked up
+without rereading the code. Check `list_issues` first; an open issue with the same title is
+returned instead of a duplicate. To add to an existing issue or PR, propose
+`{"actionType": "github.issue.comment", "summary": "Comment on #12", "payload": {"number": 12, "body": "..."}}`.
+Bugs other agents hit still go through the brain's issue log below.
+
+## Daily assessment
+
+Your daily `assess-performance` schedule looks for poor performance and suggests improvements.
+The `ops` tools show how things went: `performance` (runs, failures and cost per role, the failed
+runs with their errors, the slowest and costliest runs, actions failed or rejected, stuck tasks)
+and `server_log` (the server's own warnings and errors, grouped, kept two weeks). Compare a day
+with the 7-day picture, find causes in the code, then log faults with `report_issue` and open
+improvements as GitHub issues (`kind: "enhancement"`), at most five a day, checking the open ones
+first. Look for patterns worth fixing, not one-offs: the same error every hour, an action that
+keeps failing or being rejected, a role whose runs cost far more than the work needs, a
+schedule that never finishes. Describe customers by pattern, never by name, on GitHub.
 
 ## The issue log
 

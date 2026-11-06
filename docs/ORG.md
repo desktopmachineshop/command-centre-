@@ -88,7 +88,7 @@ manifests and on the Org page. The morning brief ships turned on; every other sc
 | opend | **Docs Writer** (`docs-writer`) | product-lead | Keeps the OpenD documentation clear and current. | – | brain-notes | brain; brain.write | – |
 | openv, opend | **DevRel & Content** (`devrel-content`) | product-lead | Tells people what the product does and why it matters. | – | brain-notes, social-platform-guide, video-reel | brain; social.post, social.campaign, video.produce, brain.write | – |
 | openv, opend | **Billing & Admin** (`billing-admin`) | product-lead | Handles subscriptions, invoices and payment questions. | billing | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
-| command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. Owns the brain's issue log and files it on GitHub. | software | brain-notes, software-lead | brain, github; github.pr.create (auto), github.issue.create (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre-; 200 turns per run | file-issues (18:07 weekdays) |
+| command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. Owns the brain's issue log and files it on GitHub; opens issues with suggestions. | software | brain-notes, software-lead | brain, github, ops; github.pr.create (auto), github.issue.create (auto), github.issue.comment (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre-; 200 turns per run | file-issues (18:07 weekdays), assess-performance (07:23 daily) |
 
 `dms-catalogue-pricing` and `dms-supplier-pricelists` are the skills added for the org. The other roles reuse the existing
 skills bank; their charter travels in the system prompt.
@@ -228,7 +228,12 @@ What runs:
 - If a code change makes a saved change invalid (say an intent the saved roles own is removed), the
   server logs it at boot and runs the code's version of that vertical. The Org page shows the
   problem until the change is saved again or reset.
-- A change in the app shadows later code changes to that vertical's roles until it is reset.
+- A save also records the code's version of the vertical at the time (`codeBase` in the document),
+  so later code changes still reach the saved roles (`mergeOrgEdit`, packages/verticals): skills,
+  actions, MCP servers, schedules (by id) and policies (by action type) the code added since the
+  save join them, while what you removed in the app stays removed. A role's `tools`, `repo` and
+  `maxTurns` always come from the code. A save from before `codeBase` existed takes everything the
+  code has that it lacks. Roles you added or removed, and your edits to existing entries, stand.
 
 The API is `GET /api/org/config`, `PUT /api/org/config/:unit` (`{ data, expectedVersion }`),
 `DELETE /api/org/config/:unit?expectedVersion=` (reset), `GET /api/org/config/:unit/history`,
