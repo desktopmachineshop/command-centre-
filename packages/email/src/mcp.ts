@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { EmailAccount } from "./accounts";
-import { attachmentFormat, attachmentText, MAX_ATTACHMENT_CHARS, mailAttachments } from "./attachments";
+import { attachmentFormat, attachmentReadable, attachmentText, isImageAttachment, MAX_ATTACHMENT_CHARS, MAX_IMAGE_BYTES, mailAttachments, viewableImageType } from "./attachments";
 import { type ImapConnector, type ImapSession, imapflowConnector, type MailSearch } from "./imap";
 import { type EmailPayload, formatAddress, parseEmail } from "./parse";
 
@@ -45,7 +45,7 @@ function summary(accountId: string, uid: number, mail: EmailPayload, snippetChar
     date: mail.date,
     from: mail.from ? formatAddress(mail.from) : null,
     subject: mail.subject,
-    attachments: mail.attachments.map((a, index) => ({ index, ...a, readable: attachmentFormat(a.filename, a.contentType) !== null })),
+    attachments: mail.attachments.map((a, index) => ({ index, ...a, readable: attachmentReadable(a.filename, a.contentType) })),
     snippet: mail.text.replace(/\s+/g, " ").slice(0, snippetChars),
   };
 }
@@ -175,10 +175,10 @@ export function createMailMcpServer(options: MailMcpOptions): McpServer {
     "read_attachment",
     {
       description:
-        "Read an attachment as text: PDFs page by page, spreadsheets (xlsx, xls, ods, csv) sheet by sheet as CSV, HTML and text files. Pick it by index (from search_mail or read_mail) or filename. Scanned PDFs and images have no text.",
+        "Read an attachment: PDFs page by page, spreadsheets (xlsx, xls, ods, csv) sheet by sheet as CSV, HTML and text files as text; JPEG, PNG, GIF and WebP images (photos, screenshots, pasted pictures) come back as the image itself for you to look at. Pick it by index (from search_mail or read_mail) or filename. Scanned PDFs have no text.",
       inputSchema: {
         ...where,
-        index: z.number().int().min(0).optional().describe("Attachment index; default the first readable one"),
+        index: z.number().int().min(0).optional().describe("Attachment index; default the first readable document, else the first image"),
         filename: z.string().optional().describe("Attachment filename, instead of index"),
         maxChars: z.number().int().min(1000).max(200_000).default(MAX_ATTACHMENT_CHARS),
       },
@@ -194,8 +194,22 @@ export function createMailMcpServer(options: MailMcpOptions): McpServer {
             ? all[index]
             : filename
               ? all.find((x) => x.filename.toLowerCase() === filename.toLowerCase())
-              : all.find((x) => attachmentFormat(x.filename, x.contentType) !== null);
+              : (all.find((x) => attachmentFormat(x.filename, x.contentType) !== null) ?? all.find((x) => attachmentReadable(x.filename, x.contentType)));
         if (!pick) return fail(`No such attachment. Attachments: ${all.map((x) => `${x.index}: ${x.filename}`).join(", ")}`);
+        const imageType = attachmentFormat(pick.filename, pick.contentType) === null ? viewableImageType(pick.filename, pick.contentType) : null;
+        if (imageType) {
+          if (pick.size > MAX_IMAGE_BYTES)
+            return fail(`${pick.filename} is ${Math.ceil(pick.size / 1024 / 1024)} MB, over the ${MAX_IMAGE_BYTES / 1024 / 1024} MB an image can be to view. Ask for a smaller copy if it matters.`);
+          await read();
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify({ note: UNTRUSTED, index: pick.index, filename: pick.filename, contentType: imageType, size: pick.size, format: "image" }) },
+              { type: "image" as const, data: pick.content.toString("base64"), mimeType: imageType },
+            ],
+          };
+        }
+        if (isImageAttachment(pick.filename, pick.contentType) && attachmentFormat(pick.filename, pick.contentType) === null)
+          return fail(`${pick.filename} (${pick.contentType}) is an image in a format you can't view; JPEG, PNG, GIF and WebP can be. Ask for a JPEG if it matters.`);
         const text = await attachmentText(pick, maxChars);
         await read();
         return ok({ note: UNTRUSTED, index: pick.index, size: pick.size, ...text });

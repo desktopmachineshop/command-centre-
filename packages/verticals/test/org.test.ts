@@ -66,7 +66,7 @@ describe("the drafted org", () => {
     expect(reg.roleFor("dms", ROOT_ROLE_ID).id).toBe("shop-lead");
     expect(reg.mcpServersFor("dms", "customer-support")).toEqual(["brain", "odoo", "mail", "sendcloud"]);
     expect(reg.mcpServersFor("3dpandme", "community-manager")).toEqual(["brain"]);
-    expect(reg.mcpServersFor("3dpandme", "content-lead")).toEqual(["brain", "odoo", "pa"]);
+    expect(reg.mcpServersFor("3dpandme", "content-lead")).toEqual(["brain", "odoo", "pa", "mail"]);
   });
 });
 

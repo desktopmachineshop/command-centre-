@@ -1,4 +1,5 @@
 import { type AddressObject, simpleParser } from "mailparser";
+import { listedAttachments } from "./attachments";
 
 export const MAX_BODY_CHARS = 20_000;
 
@@ -57,9 +58,7 @@ export async function parseEmail(source: Buffer | string): Promise<EmailPayload>
     text: truncated ? `${stripped.slice(0, MAX_BODY_CHARS)}\n[... truncated]` : stripped,
     quotedHistoryStripped,
     truncated,
-    attachments: mail.attachments
-      .filter((a) => a.contentDisposition !== "inline" || a.filename)
-      .map((a) => ({ filename: a.filename ?? "(unnamed)", contentType: a.contentType, size: a.size })),
+    attachments: listedAttachments(mail.attachments).map((a) => ({ filename: a.filename, contentType: a.contentType, size: a.size })),
     automated: automatedReason(addresses(mail.from)[0]?.address ?? "", mail.headers, stripped),
   };
 }
