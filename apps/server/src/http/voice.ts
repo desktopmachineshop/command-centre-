@@ -106,12 +106,15 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
       .parse(await c.req.json());
     if (!service.tts && !(body.voice && service.options.local)) return c.json({ error: "no text-to-speech provider configured; use the browser's speech synthesis" }, 503);
     try {
-      const { audio, mime, cached, voice } = await service.speak(body.text, body.voice, { fallback: body.fallback });
+      const { audio, mime, cached, voice, fellBack } = await service.speak(body.text, body.voice, { fallback: body.fallback });
       return c.body(audio as Uint8Array<ArrayBuffer>, 200, {
         "content-type": mime,
-        "cache-control": "private, max-age=86400",
+        // A fallback isn't cached by the browser: the provider may work again on the next try.
+        "cache-control": fellBack ? "no-store" : "private, max-age=86400",
         "x-cc-cache": cached ? "hit" : "miss",
         ...(voice ? { "x-cc-voice": voice } : {}),
+        // Headers are ASCII only; the PWA shows this next to the voice picker.
+        ...(fellBack ? { "x-cc-fallback": `${fellBack.provider}: ${fellBack.reason}`.replace(/[^\x20-\x7e]/g, " ").slice(0, 300) } : {}),
       });
     } catch (err) {
       if (err instanceof VoiceNotInstalledError) return c.json({ error: err.message, downloading: true, voice: err.voice.id }, 409);

@@ -66,13 +66,46 @@ export function useReadAloud(api?: Pick<Api, "speak" | "voiceConfig">) {
     return s;
   }, [api]);
 
+  /** Which reply is being replayed on demand (its key), if any. */
+  const [playing, setPlaying] = useState<string | null>(null);
+
   const stop = useCallback(() => {
     epoch.current++;
     queue.current = [];
     speaker.current?.cancel();
     running.current = false;
     setSpeaking(false);
+    setPlaying(null);
   }, []);
+
+  /**
+   * Plays one reply again on demand (a tap on its play button), whether or not "Read aloud" is on;
+   * tapping the one playing stops it. Cuts off anything else being read.
+   */
+  const play = useCallback(
+    async (key: string, text: string) => {
+      const wasThis = playing === key;
+      stop();
+      if (wasThis) return;
+      const say = spokenText(text);
+      if (!say || !availableRef.current) return;
+      const mine = ++epoch.current;
+      setPlaying(key);
+      setSpeaking(true);
+      try {
+        const s = await ensureSpeaker();
+        if (mine === epoch.current) await s.speak(say);
+      } catch {
+        // nothing could speak it: the button just resets
+      } finally {
+        if (mine === epoch.current) {
+          setPlaying(null);
+          setSpeaking(false);
+        }
+      }
+    },
+    [ensureSpeaker, playing, stop],
+  );
 
   const drain = useCallback(async () => {
     if (running.current) return;
@@ -115,7 +148,24 @@ export function useReadAloud(api?: Pick<Api, "speak" | "voiceConfig">) {
 
   useEffect(() => stop, [stop]);
 
-  return { enabled, set, speaking, offer, stop, available };
+  return { enabled, set, speaking, offer, stop, available, play, playing };
+}
+
+/** A small play button that reads one reply again; it becomes Stop while that reply plays. */
+export function PlayReply({ readAloud, id, text }: { readAloud?: ReturnType<typeof useReadAloud>; id: string; text: string }) {
+  if (!readAloud?.available || !spokenText(text)) return null;
+  const on = readAloud.playing === id;
+  return (
+    <button
+      type="button"
+      className={`play-reply ${on ? "is-on" : ""}`}
+      onClick={() => void readAloud.play(id, text)}
+      aria-label={on ? "Stop" : "Play this reply"}
+      title={on ? "Stop" : "Listen to this reply"}
+    >
+      <Icon name={on ? "stop" : "play"} size={14} />
+    </button>
+  );
 }
 
 /** The on/off switch and the Stop button, for a page header. */

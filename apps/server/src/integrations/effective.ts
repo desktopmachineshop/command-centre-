@@ -3,6 +3,7 @@ import { EmailAccount } from "@cc/email";
 import { parseOdooEventsConfig } from "@cc/odoo";
 import { type CalendarAccount, GoogleCalendarAccount } from "@cc/pa";
 import { SendcloudAccount } from "@cc/sendcloud";
+import { parseElevenLabsVoices } from "@cc/voice";
 import type { Platform, SocialAccount } from "@cc/social";
 import type { Config } from "../config";
 import { DEFAULT_ID, type Field, type Group, KINDS, type KindDef } from "./catalog";
@@ -286,6 +287,8 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
     providers.tts = pick(voice.data.tts);
     providers.openaiVoice = str(voice.data.openaiVoice) ?? base.voice.providers.openaiVoice;
     providers.elevenlabsVoice = str(voice.data.elevenlabsVoice) ?? base.voice.providers.elevenlabsVoice;
+    const listed = voice.data.elevenlabsVoices;
+    providers.elevenlabsVoices = Array.isArray(listed) ? parseElevenLabsVoices(listed.map(String)) : base.voice.providers.elevenlabsVoices;
   }
   // A named provider without its key would throw when built: fall back to auto, and say so.
   for (const dir of ["stt", "tts"] as const) {

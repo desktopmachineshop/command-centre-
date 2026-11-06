@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { type Browser, chromium, type Page } from "playwright-core";
+import { type Browser, chromium, type Page, type Route } from "playwright-core";
 import { createServer, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { errorReport } from "../src/copy";
@@ -44,7 +44,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Task page (Playwright)", () => {
   const TASK = "11111111-1111-4111-8111-111111111111";
   const now = new Date().toISOString();
 
-  async function open(page: Page) {
+  async function open(page: Page, extra?: (path: string, route: Route) => Promise<void> | undefined) {
     await page.addInitScript(() => {
       (window as unknown as { WebSocket: unknown }).WebSocket = class {
         send() {}
@@ -61,6 +61,8 @@ describe.skipIf(!existsSync(CHROMIUM))("Task page (Playwright)", () => {
     await page.route("**/api/**", async (route) => {
       const path = new URL(route.request().url()).pathname.replace(/^\/api/, "");
       const json = (data: unknown, code = 200) => route.fulfill({ status: code, contentType: "application/json", body: JSON.stringify(data) });
+      const handled = extra?.(path, route);
+      if (handled) return handled;
       if (path === "/stats") return json({ pendingApprovals: 1, costTodayUsd: 0 });
       if (path === "/verticals") return json([{ id: "dms", name: "Desktop Machine Shop" }]);
       if (path === "/social/accounts") return json([]);
@@ -77,6 +79,29 @@ describe.skipIf(!existsSync(CHROMIUM))("Task page (Playwright)", () => {
     await page.goto(`${base}/#/task/${TASK}`);
     await page.locator(".run-card").first().waitFor({ timeout: 20_000 });
   }
+
+  it("each reply has a play button that reads it again with the server's voice", async () => {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    const spoken: string[] = [];
+    await open(page, (path, route) => {
+      if (path === "/voice/config") {
+        return route.fulfill({ contentType: "application/json", body: JSON.stringify({ stt: null, tts: { provider: "elevenlabs", model: "m", voice: "v" }, local: null, maxUploadBytes: 1, maxSeconds: 1, language: "en-GB", calendar: false }) });
+      }
+      if (path === "/voice/speak") {
+        spoken.push((route.request().postDataJSON() as { text: string }).text);
+        return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "no audio in this test" }) });
+      }
+      return undefined;
+    });
+    const buttons = page.getByRole("button", { name: "Play this reply" });
+    await expect.poll(() => buttons.count()).toBe(2);
+    await buttons.last().click();
+    // The speaker first looks for the device's own voices (up to a second or two in headless Chromium).
+    await expect.poll(() => spoken.join(" "), { timeout: 10_000 }).toContain("Trying again");
+    expect(errors).toEqual([]);
+  }, 60_000);
 
   it("wide: actions in a column on the right that stays in view at the bottom", async () => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

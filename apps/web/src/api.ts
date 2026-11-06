@@ -277,7 +277,8 @@ export type VoiceOption = {
   id: string;
   label: string;
   description: string;
-  tier: "fast" | "natural";
+  /** "elevenlabs": one of the ElevenLabs voices listed on the Accounts page (no download). */
+  tier: "fast" | "natural" | "elevenlabs";
   sizeMb: number;
   status: "missing" | "installing" | "ready" | "failed";
   error: string | null;
@@ -519,15 +520,19 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     },
     /**
      * `voice`: a self-hosted voice id. One still downloading speaks in the default voice, or with
-     * `fallback: false` (a preview) fails with a 409 `{downloading: true}`.
+     * `fallback: false` (a preview) fails with a 409 `{downloading: true}`. `onFallback` hears why,
+     * when the keyed provider failed and the server's own voice spoke instead.
      */
-    speak: async (text: string, voice?: string, opts: { fallback?: boolean } = {}) => {
+    speak: async (text: string, voice?: string, opts: { fallback?: boolean; onFallback?: (reason: string) => void } = {}) => {
       const res = await fetch(`${base}/api/voice/speak`, {
         method: "POST",
         ...authed({ "content-type": "application/json" }),
         body: JSON.stringify({ text, voice, ...(opts.fallback === false ? { fallback: false } : {}) }),
       });
       if (!res.ok) throw await failed(res);
+      // The keyed provider (ElevenLabs, OpenAI) refused, so the server's own voice spoke instead.
+      const fellBack = res.headers.get("x-cc-fallback");
+      if (fellBack) opts.onFallback?.(fellBack);
       return res.blob();
     },
     voices: () => call<VoiceList>("/voice/voices"),

@@ -1,5 +1,5 @@
 import type { Proposal, Task } from "@cc/core";
-import { plural, type SpeechToText, speakable, spokenUsd, type TextToSpeech, truncate } from "@cc/voice";
+import { type ElevenLabsVoiceChoice, plural, type SpeechToText, speakable, spokenUsd, type TextToSpeech, truncate } from "@cc/voice";
 import { findVoice, type LocalSpeech, LocalTextToSpeech } from "@cc/voice/local";
 import type { VerticalRegistry } from "@cc/verticals";
 import type { BudgetService } from "../budget";
@@ -27,6 +27,9 @@ export interface VoiceCalendar {
 export interface VoiceServiceOptions {
   stt?: SpeechToText;
   tts?: TextToSpeech;
+  /** ElevenLabs, for the voices Dave listed on the Accounts page (picked as "elevenlabs:<voice id>"). */
+  elevenlabs?: TextToSpeech;
+  elevenlabsVoices?: ElevenLabsVoiceChoice[];
   calendar?: VoiceCalendar;
   /** Self-hosted speech (open models): live transcription, and the voice when no TTS key is set. */
   local?: LocalSpeech | null;
@@ -55,6 +58,9 @@ export interface NextApproval {
   remaining: number;
   text: string;
 }
+
+/** Voice ids for ElevenLabs voices in the picker: "elevenlabs:<ElevenLabs voice id>". */
+export const ELEVENLABS_PREFIX = "elevenlabs:";
 
 const ORDINALS = ["First", "Second", "Third", "Fourth", "Fifth"];
 /** Approvals the briefing reads out by name; the rest are counted. */
@@ -126,13 +132,28 @@ export class VoiceService {
   }
 
   /** Synthesizes `text`, from the cache for short phrases ("Working on it", confirmations). */
-  /** The self-hosted voices that can be chosen (empty without self-hosted speech). */
+  /** The voices that can be chosen: the self-hosted ones, then the ElevenLabs voices listed on the Accounts page. */
   voices() {
     const local = this.options.local;
-    if (!local) return { default: this.tts?.defaultVoice ?? null, voices: [] };
+    const eleven = this.options.elevenlabs
+      ? (this.options.elevenlabsVoices ?? []).map((v) => ({
+          id: `${ELEVENLABS_PREFIX}${v.id}`,
+          label: v.label,
+          description: "ElevenLabs",
+          tier: "elevenlabs" as const,
+          sizeMb: 0,
+          status: "ready" as const,
+          error: null,
+          isDefault: false,
+        }))
+      : [];
+    if (!local) return { default: this.tts?.defaultVoice ?? null, voices: eleven };
     return {
       default: this.options.tts ? null : local.voice,
-      voices: local.voices().map((v) => ({ id: v.id, label: v.label, description: v.description, tier: v.tier, sizeMb: v.model.mb, status: v.status, error: v.error ?? null, isDefault: v.isDefault })),
+      voices: [
+        ...local.voices().map((v) => ({ id: v.id, label: v.label, description: v.description, tier: v.tier, sizeMb: v.model.mb, status: v.status, error: v.error ?? null, isDefault: v.isDefault })),
+        ...eleven,
+      ],
     };
   }
 
@@ -149,11 +170,35 @@ export class VoiceService {
    * provider is the default; one not downloaded yet starts downloading and the default speaks
    * meanwhile, unless `fallback` is false (VoiceNotInstalledError).
    */
-  async speak(text: string, voice?: string, opts: { fallback?: boolean } = {}): Promise<{ audio: Uint8Array; mime: string; cached: boolean; voice?: string }> {
+  async speak(
+    text: string,
+    voice?: string,
+    opts: { fallback?: boolean } = {},
+  ): Promise<{ audio: Uint8Array; mime: string; cached: boolean; voice?: string; fellBack?: { provider: string; reason: string } }> {
     const local = this.options.local;
     const localVoice = voice && local && findVoice(voice) ? voice : undefined;
-    const tts: TextToSpeech | undefined = localVoice ? this.localTtsFor(local!) : this.tts;
+    // "elevenlabs:<voice id>": a voice from the Accounts page's list, spoken by ElevenLabs whatever the default provider.
+    const elevenVoice = voice?.startsWith(ELEVENLABS_PREFIX) && this.options.elevenlabs ? voice.slice(ELEVENLABS_PREFIX.length) : undefined;
+    if (voice?.startsWith(ELEVENLABS_PREFIX) && !elevenVoice) voice = undefined; // no ElevenLabs key any more: the default speaks
+    const tts: TextToSpeech | undefined = localVoice ? this.localTtsFor(local!) : elevenVoice ? this.options.elevenlabs : this.tts;
+    if (elevenVoice) voice = elevenVoice;
     if (!tts) throw new Error("no TTS provider configured");
+    if (tts.provider !== "local" && local?.ttsReady) {
+      // A keyed provider that refuses (a plan limit, a bad voice id, an outage) shouldn't leave Dave
+      // in silence: the server's own default voice speaks instead, and the reason goes back with it.
+      try {
+        return await this.speakWith(tts, text, voice, opts);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error(`[voice] ${tts.provider} failed, speaking with the server's own voice: ${reason}`);
+        const spoken = await this.speakWith(this.localTtsFor(local), text, undefined, opts);
+        return { ...spoken, fellBack: { provider: tts.provider, reason } };
+      }
+    }
+    return this.speakWith(tts, text, voice, opts);
+  }
+
+  private async speakWith(tts: TextToSpeech, text: string, voice: string | undefined, opts: { fallback?: boolean }): Promise<{ audio: Uint8Array; mime: string; cached: boolean; voice?: string }> {
     const key = `${tts.provider}:${tts.model}:${voice ?? tts.defaultVoice}:${text}`;
     const hit = this.cache.get(key);
     if (hit) {

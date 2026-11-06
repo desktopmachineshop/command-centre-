@@ -5,6 +5,7 @@ import { type OdooEventsConfig, parseOdooEventsConfig } from "@cc/odoo";
 import { type CalendarAccount, parseCalendarAccounts } from "@cc/pa";
 import { type SendcloudAccount, sendcloudAccountFromEnv } from "@cc/sendcloud";
 import { parseSocialAccounts, type SocialAccount } from "@cc/social";
+import type { ElevenLabsVoiceChoice } from "@cc/voice";
 import { Cron } from "croner";
 import { z } from "zod";
 
@@ -356,6 +357,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
         elevenlabsSttModel: e.VOICE_ELEVENLABS_STT_MODEL,
         elevenlabsTtsModel: e.VOICE_ELEVENLABS_TTS_MODEL,
         elevenlabsVoice: e.VOICE_ELEVENLABS_VOICE,
+        /** Set on the Accounts page (Voice settings → ElevenLabs voices). */
+        elevenlabsVoices: undefined as ElevenLabsVoiceChoice[] | undefined,
       },
       maxUploadBytes: e.VOICE_MAX_UPLOAD_KB * 1024,
       maxSeconds: e.VOICE_MAX_SECONDS,

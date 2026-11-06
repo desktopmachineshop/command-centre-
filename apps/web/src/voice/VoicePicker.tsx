@@ -11,6 +11,14 @@ export function voiceLabel(v: VoiceOption): string {
   return `${v.label} · ${v.description}${v.isDefault ? " · default" : ""}${state}`;
 }
 
+/** "ElevenLabs couldn't speak: …" from the server's "elevenlabs: …" fallback header. Pure. */
+export function fallbackNote(header: string): string {
+  const [provider = "", ...rest] = header.split(": ");
+  const name = provider === "elevenlabs" ? "ElevenLabs" : provider === "openai" ? "OpenAI" : provider;
+  const reason = rest.join(": ").trim();
+  return `${name} couldn't speak${reason ? `: ${reason.replace(/[.\s]+$/, "")}` : ""}.`;
+}
+
 /**
  * Picks the voice this device speaks with (Drive mode and reading replies aloud): any of the
  * server's voices, grouped by speed, or the device's own. A voice that isn't downloaded starts
@@ -57,7 +65,12 @@ export function VoicePicker({ api, config }: { api: Pick<Api, "voices" | "instal
         speaker.current = s;
         await s.speak(SAMPLE);
       } else {
-        const s = new ServerSpeaker((text) => api.speak(text, choice || undefined, { fallback: false }));
+        const s = new ServerSpeaker((text) =>
+          api.speak(text, choice || undefined, {
+            fallback: false,
+            onFallback: (reason) => setNote(`${fallbackNote(reason)} You're hearing the server's own voice instead.`),
+          }),
+        );
         speaker.current = s;
         s.unlock();
         await s.speakStream(
@@ -97,6 +110,15 @@ export function VoicePicker({ api, config }: { api: Pick<Api, "voices" | "instal
               {group("natural").map((v) => (
                 <option key={v.id} value={v.id}>
                   {voiceLabel(v)}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {group("elevenlabs").length > 0 && (
+            <optgroup label="ElevenLabs">
+              {group("elevenlabs").map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
                 </option>
               ))}
             </optgroup>

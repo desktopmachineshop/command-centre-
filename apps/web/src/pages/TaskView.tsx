@@ -135,7 +135,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
             <span className="muted">{usd(run.costUsd)}</span>
           </div>
           <div className="run-body">
-            <Transcript messages={run.messages.length ? run.messages : (live[run.id] ?? [])} />
+            <Transcript messages={run.messages.length ? run.messages : (live[run.id] ?? [])} readAloud={readAloud} id={run.id} />
             {run.error && (
               <ErrorReport
                 title="Run failed"
@@ -154,7 +154,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
             </span>
           </div>
           <div className="run-body">
-            <Transcript messages={live[runId]!} />
+            <Transcript messages={live[runId]!} readAloud={readAloud} id={runId} />
           </div>
         </div>
       ))}
