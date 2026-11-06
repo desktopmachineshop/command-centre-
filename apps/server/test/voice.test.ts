@@ -255,8 +255,12 @@ describe("ElevenLabs voices picked by name", () => {
   });
   const service = new VoiceService({} as never, {} as never, {} as never, {
     tts: speaker("openai") as never,
-    elevenlabs: speaker("elevenlabs") as never,
-    elevenlabsVoices: [{ id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel" }],
+    elevenlabs: { ...speaker("elevenlabs"), voiceName: async (id: string) => (id === "JBFqnCBsd6RMkjVDRZzb" ? "George" : null) } as never,
+    elevenlabsVoices: [
+      { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel" },
+      { id: "JBFqnCBsd6RMkjVDRZzb", label: "JBFqnCBsd6RMkjVDRZzb" },
+      { id: "pNInz6obpgDQGcFmaJgB", label: "pNInz6obpgDQGcFmaJgB" },
+    ],
     maxUploadBytes: 1024,
     maxSeconds: 60,
     language: "en-GB",
@@ -264,9 +268,13 @@ describe("ElevenLabs voices picked by name", () => {
   });
 
   it("lists them and speaks each with ElevenLabs, leaving the default provider for the rest", async () => {
-    expect(service.voices().voices).toEqual([
-      { id: "elevenlabs:21m00Tcm4TlvDq8ikWAM", label: "Rachel", description: "ElevenLabs", tier: "elevenlabs", sizeMb: 0, status: "ready", error: null, isDefault: false },
+    // Named as listed, else by the name ElevenLabs gives the voice, else (unreadable) its id.
+    expect((await service.voices()).voices.map((v) => [v.id, v.label])).toEqual([
+      ["elevenlabs:21m00Tcm4TlvDq8ikWAM", "Rachel"],
+      ["elevenlabs:JBFqnCBsd6RMkjVDRZzb", "George"],
+      ["elevenlabs:pNInz6obpgDQGcFmaJgB", "pNInz6obpgDQGcFmaJgB"],
     ]);
+    expect((await service.voices()).voices[0]).toEqual({ id: "elevenlabs:21m00Tcm4TlvDq8ikWAM", label: "Rachel", description: "ElevenLabs", tier: "elevenlabs", sizeMb: 0, status: "ready", error: null, isDefault: false });
     await service.speak("Hello there", "elevenlabs:21m00Tcm4TlvDq8ikWAM");
     await service.speak("Hello there");
     expect(calls).toEqual([

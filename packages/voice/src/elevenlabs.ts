@@ -57,6 +57,18 @@ export class ElevenLabsTextToSpeech implements TextToSpeech {
     this.base = (options.baseUrl ?? BASE).replace(/\/+$/, "");
   }
 
+  /** A voice's name as ElevenLabs shows it ("Rachel"), or null if it can't be read (needs Voices: Read). */
+  async voiceName(id: string, signal?: AbortSignal): Promise<string | null> {
+    try {
+      const res = await this.fetch(`${this.base}/v1/voices/${encodeURIComponent(id)}`, { headers: { "xi-api-key": this.options.apiKey }, signal });
+      if (!res.ok) return null;
+      const name = ((await res.json()) as { name?: unknown }).name;
+      return typeof name === "string" && name.trim() ? name.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
   async synthesize(text: string, opts: SynthesizeOptions = {}): Promise<SynthesisResult> {
     const requested = opts.format ?? "mp3";
     const format: AudioFormat = requested === "aac" ? "mp3" : requested;
