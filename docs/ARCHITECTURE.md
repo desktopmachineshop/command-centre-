@@ -45,6 +45,7 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 - `packages/core`: shared types (Event, TriageResult, Task, ActionProposal, Job), plus a zod schema for the WebSocket protocol.
 - `packages/agent-runtime`: the standard harness. One `AgentRunner` interface with adapters:
   - `claude-code`: spawns `claude -p --output-format stream-json` headless, with `--mcp-config`, `--allowedTools` and the skills/plugin dir. It authenticates with Dave's subscription login on the server. Falls back to an `ANTHROPIC_API_KEY` if usage limits are hit.
+  - `codex`: spawns OpenAI's `codex exec --json` headless, signed in with Dave's ChatGPT plan (never an API key). The run's MCP servers, system prompt and skills (inlined as developer instructions) are passed as `-c` overrides; the shell (in Codex's workspace-write sandbox) and web search are on only when `allowedTools` grants Bash and WebSearch. The **agent route** (Accounts → Agent route, or `AGENT_ROUTE`) picks Claude, Codex, or one falling back to the other at its usage limit, with the Anthropic API key last.
   - `ai-sdk`: Vercel AI SDK for non-Claude models (OpenAI, Gemini, etc.). It loads skills as system context and uses MCP tools through the AI SDK MCP client.
   - `jev`: decision-only adapter on the TypeSafe evaluate endpoint (Choice, Score and Noul primitives).
 - `packages/triage`: Jev decision specs per vertical, confidence thresholds, and a fallback to a Haiku classifier if Jev is unavailable or below threshold.

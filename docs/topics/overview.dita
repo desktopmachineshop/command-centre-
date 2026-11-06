@@ -32,7 +32,7 @@
       <ol>
         <li><xref href="start/sign-in.dita">Sign in, or set up the server</xref>.</li>
         <li><xref href="start/install.dita">Install the app</xref> on your phone and PC.</li>
-        <li><xref href="system/accounts.dita">Connect your accounts</xref>: Claude first, then email, Odoo, Google and social.</li>
+        <li><xref href="system/accounts.dita">Connect your accounts</xref>: Claude (or ChatGPT) first, then email, Odoo, Google and social.</li>
         <li>Read <xref href="concepts/how-it-works.dita">How work flows through Command Centre</xref>.</li>
       </ol>
     </section>

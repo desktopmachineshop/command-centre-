@@ -617,6 +617,12 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     claudeSetupCode: (setupId: string, code: string) =>
       post<SaveResult & { runner: string }>(`/integrations/claude/setup/${encodeURIComponent(setupId)}/code`, { code }),
     claudeSetupCancel: (setupId: string) => call<{ ok: true }>(`/integrations/claude/setup/${encodeURIComponent(setupId)}`, { method: "DELETE" }),
+    /** Connect ChatGPT: the server runs `codex login --device-auth` and returns its link and one-time code. */
+    codexSetupStart: () => post<{ setupId: string; url: string; code: string }>("/integrations/codex/setup"),
+    /** Polled until the code has been entered; once connected the server has saved the sign-in. */
+    codexSetupStatus: (setupId: string) =>
+      call<{ status: "pending" } | { status: "failed"; message: string } | (SaveResult & { status: "connected"; account: string })>(`/integrations/codex/setup/${encodeURIComponent(setupId)}`),
+    codexSetupCancel: (setupId: string) => call<{ ok: true }>(`/integrations/codex/setup/${encodeURIComponent(setupId)}`, { method: "DELETE" }),
     // --- end integrations ---
   };
 }

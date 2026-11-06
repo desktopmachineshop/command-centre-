@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { AgentMessage } from "@cc/core";
+import { CODEX_SESSION } from "./codex";
 import type { AgentRunner, AgentRunRequest, AgentRunResult, OnAgentMessage } from "./runner";
 
 export interface ClaudeCodeRunnerOptions {
@@ -45,6 +46,10 @@ export class ClaudeCodeRunner implements AgentRunner {
   }
 
   run(request: AgentRunRequest, onMessage: OnAgentMessage = () => {}): Promise<AgentRunResult> {
+    // A Codex session (from before the route changed) can't be resumed here: spell the context out instead.
+    if (request.resumeSessionId?.startsWith(CODEX_SESSION)) {
+      request = { ...request, prompt: request.promptWithoutResume ?? request.prompt, resumeSessionId: undefined };
+    }
     return new Promise((resolve) => {
       const child = spawn(this.bin, this.buildArgs(request), {
         cwd: request.cwd,

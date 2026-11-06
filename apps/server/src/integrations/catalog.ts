@@ -34,8 +34,11 @@ export interface KindDef {
   fields: readonly Field[];
   /** A "Connect" button signs in instead of typing the fromOAuth fields. */
   oauth?: OAuthProvider;
-  /** A server-run sign-in other than OAuth ("claude": `claude setup-token` on the server). */
-  connect?: "claude";
+  /**
+   * A server-run sign-in other than OAuth: "claude" runs `claude setup-token` on the server,
+   * "codex" runs `codex login --device-auth`.
+   */
+  connect?: "claude" | "codex";
   /** Developer app kind whose keys the sign-in needs. */
   needsApp?: string;
   /** Config groups to reload when an entry of this kind changes. */
@@ -67,6 +70,45 @@ export const CATALOG: readonly KindDef[] = [
     ],
     affects: ["runner"],
     helpUrl: "https://docs.claude.com/en/docs/claude-code/setup",
+  },
+  {
+    kind: "codex",
+    label: "ChatGPT (Codex)",
+    section: "ai",
+    description:
+      "Runs agents on your ChatGPT plan (Plus, Pro, Business) through OpenAI's Codex, using the plan's usage instead of API credits. Press Connect to sign in with ChatGPT, then choose it under Agent route.",
+    multi: false,
+    connect: "codex",
+    fields: [
+      {
+        key: "authJson",
+        label: "Sign-in file (auth.json)",
+        type: "secret",
+        placeholder: '{"tokens": {…}}',
+        help: "Filled in by Connect. Or run `codex login` on a computer and paste the contents of ~/.codex/auth.json.",
+      },
+      { key: "model", label: "Model", type: "text", placeholder: "Codex's default", help: "Leave blank for Codex's default model for your plan." },
+    ],
+    affects: ["runner"],
+  },
+  {
+    kind: "agents",
+    label: "Agent route",
+    section: "ai",
+    description:
+      "Which subscription the agents run on. \"Then\" moves to the other one when the first hits its usage limit (or isn't connected). The Anthropic API key, if set, is always the last resort.",
+    multi: false,
+    fields: [
+      {
+        key: "route",
+        label: "Run agents on",
+        type: "select",
+        options: ["claude", "codex", "claude-then-codex", "codex-then-claude"],
+        default: "claude",
+        help: "claude = Claude subscription; codex = ChatGPT plan; claude-then-codex = Claude, then ChatGPT at its limit; codex-then-claude = ChatGPT, then Claude.",
+      },
+    ],
+    affects: ["runner"],
   },
   {
     kind: "anthropic",

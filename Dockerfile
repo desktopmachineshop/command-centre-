@@ -34,6 +34,10 @@ RUN apt-get update \
 # Claude Code CLI, the agent driver. Pin with --build-arg CLAUDE_CODE_VERSION=x.y.z.
 ARG CLAUDE_CODE_VERSION=latest
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} && npm cache clean --force
+# OpenAI Codex CLI, for the ChatGPT agent route. Pinned: the runner turns off features by name,
+# and Codex refuses a name it doesn't know (packages/agent-runtime/src/codex.ts).
+ARG CODEX_VERSION=0.167.0
+RUN npm install -g @openai/codex@${CODEX_VERSION} && npm cache clean --force
 
 WORKDIR /app
 COPY --from=build /out ./

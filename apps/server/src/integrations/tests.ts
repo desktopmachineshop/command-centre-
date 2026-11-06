@@ -4,6 +4,7 @@ import { createGoogleTokenProvider } from "@cc/pa";
 import { SENDCLOUD_API, SendcloudClient } from "@cc/sendcloud";
 import { IG_GRAPH_BASE, REDDIT_API, REDDIT_TOKEN_URL, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
 import nodemailer from "nodemailer";
+import { codexAuthInfo, codexAuthProblem } from "../codex-home";
 import { emailAccountOf, type EntryInput } from "./effective";
 import type { CredentialTest } from "./service";
 
@@ -163,6 +164,16 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       if (!token) return fail("No subscription token saved");
       if (!token.startsWith("sk-ant-oat01-")) return fail("That isn't a subscription token (they start sk-ant-oat01-; run `claude setup-token` on your PC)");
       return ok("Looks like a subscription token; it will be checked on the first agent run");
+    },
+
+    async codex(entry) {
+      const authJson = entry.secrets.authJson;
+      if (!authJson) return fail("Not signed in: press Connect");
+      const problem = codexAuthProblem(authJson);
+      if (problem) return fail(`The sign-in file can't be used: ${problem}`);
+      const info = codexAuthInfo(authJson);
+      const who = info.email ? `${info.email}${info.plan ? ` (ChatGPT ${info.plan})` : ""}` : undefined;
+      return ok(`Signed in to ChatGPT${who ? ` as ${who}` : ""}; it will be checked on the first agent run`, who);
     },
 
     async anthropic(entry) {

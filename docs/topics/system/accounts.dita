@@ -37,6 +37,21 @@
       <p>The agents run on a Claude subscription. Choose <uicontrol>Connect</uicontrol> on the Claude card, then <uicontrol>Open Claude sign-in</uicontrol>, sign in with the account whose subscription the agents should use, paste the code the page shows and choose <uicontrol>Finish</uicontrol>. The link works for 10 minutes. If it fails, run <cmdname>claude setup-token</cmdname> on any computer and use <uicontrol>Paste a token</uicontrol>.</p>
     </body>
   </topic>
+  <topic id="chatgpt">
+    <title>Run agents on ChatGPT</title>
+    <prolog><resourceid appname="command-centre" appid="accounts.chatgpt"/></prolog>
+    <body>
+      <p>The agents can also run on a ChatGPT plan (Plus, Pro or Business) through OpenAI's Codex, using the plan's usage instead of API credits. Choose <uicontrol>Connect</uicontrol> on the <wintitle>ChatGPT (Codex)</wintitle> card, then <uicontrol>Open ChatGPT sign-in</uicontrol>, sign in with the account whose plan the agents should use and enter the one-time code the dialog shows. The dialog closes by itself once you have signed in. The code works for 15 minutes. If it fails, run <cmdname>codex login</cmdname> on any computer and use <uicontrol>Paste auth.json</uicontrol> with the contents of <filepath>~/.codex/auth.json</filepath>.</p>
+      <p>Then choose which subscription the agents use on the <wintitle>Agent route</wintitle> card:</p>
+      <dl>
+        <dlentry><dt><option>claude</option></dt><dd>Your Claude subscription (the default).</dd></dlentry>
+        <dlentry><dt><option>codex</option></dt><dd>Your ChatGPT plan.</dd></dlentry>
+        <dlentry><dt><option>claude-then-codex</option></dt><dd>Claude, and ChatGPT once Claude reaches its usage limit.</dd></dlentry>
+        <dlentry><dt><option>codex-then-claude</option></dt><dd>ChatGPT, and Claude once ChatGPT reaches its usage limit.</dd></dlentry>
+      </dl>
+      <p>The Anthropic API key, if you have set one, is used only after the subscriptions in the route. On ChatGPT, agents have the same tools (the brain, actions, Odoo and the others), the same skills and the same limits on outside input. Run costs show as unknown, because a plan's usage has no price per run. Drive mode's quick voice replies still use Claude.</p>
+    </body>
+  </topic>
   <topic id="social">
     <title>Add social accounts</title>
     <prolog><resourceid appname="command-centre" appid="accounts.social"/></prolog>

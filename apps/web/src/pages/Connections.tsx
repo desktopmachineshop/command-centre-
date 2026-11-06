@@ -49,7 +49,8 @@ type DialogState =
   | { type: "needsApp"; def: KindDef; app: KindDef }
   | { type: "remove"; def: KindDef; entry: EntryView }
   | { type: "calendars"; entry: EntryView }
-  | { type: "claude" };
+  | { type: "claude" }
+  | { type: "codex" };
 
 interface Ctx {
   api: Api;
@@ -463,9 +464,14 @@ function EntryCard({ ctx, def, entry, id, highlight, social }: { ctx: Ctx; def: 
             <Icon name="link" /> {entry?.secrets.oauthToken ? "Reconnect" : "Connect"}
           </button>
         )}
+        {def.connect === "codex" && (
+          <button type="button" className={entry?.secrets.authJson ? "" : "primary"} disabled={busy} onClick={() => ctx.open({ type: "codex" })}>
+            <Icon name="link" /> {entry?.secrets.authJson ? "Reconnect" : "Connect"}
+          </button>
+        )}
         {!entry && !def.oauth && (
           <button type="button" className={def.connect ? "" : "primary"} onClick={() => ctx.open({ type: "edit", def })}>
-            <Icon name={def.connect ? "key" : "plus"} /> {def.connect ? "Paste a token" : "Set up"}
+            <Icon name={def.connect ? "key" : "plus"} /> {def.connect === "codex" ? "Paste auth.json" : def.connect ? "Paste a token" : "Set up"}
           </button>
         )}
         {entry && (
@@ -624,6 +630,8 @@ function DialogFor({ ctx, dialog, close, openApps }: { ctx: Ctx; dialog: DialogS
       return <CalendarDialog ctx={ctx} entry={dialog.entry} close={close} />;
     case "claude":
       return <ClaudeDialog ctx={ctx} close={close} />;
+    case "codex":
+      return <CodexDialog ctx={ctx} close={close} />;
   }
 }
 
@@ -718,6 +726,107 @@ function ClaudeDialog({ ctx, close }: { ctx: Ctx; close: () => void }) {
         </ol>
       )}
       <p className="muted small">The sign-in link works for 10 minutes. The token is saved encrypted on the server; it never comes to this page.</p>
+    </Dialog>
+  );
+}
+
+/**
+ * Connect ChatGPT: the server runs `codex login --device-auth`, which shows a link and a one-time
+ * code. Dave opens the link, signs in to ChatGPT and enters the code; this dialog polls until
+ * Codex has finished, by which time the server has saved the sign-in. It never reaches this page.
+ */
+function CodexDialog({ ctx, close }: { ctx: Ctx; close: () => void }) {
+  const [setup, setSetup] = useState<{ setupId: string; url: string; code: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
+  const finished = useRef(false);
+  const setupId = useRef<string | null>(null);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const poll = async (id: string) => {
+      if (stopped) return;
+      try {
+        const s = await ctx.api.codexSetupStatus(id);
+        if (stopped) return;
+        if (s.status === "pending") {
+          timer = setTimeout(() => void poll(id), 2000);
+          return;
+        }
+        finished.current = true;
+        if (s.status === "failed") return setError(s.message);
+        await ctx.run("codex:setup", `ChatGPT connected as ${s.account}. Choose it under Agent route to run agents on it`, async () => s);
+        close();
+      } catch (e) {
+        if (!stopped) setError((e as Error).message);
+      }
+    };
+    ctx.api.codexSetupStart().then(
+      (s) => {
+        setupId.current = s.setupId;
+        setSetup(s);
+        timer = setTimeout(() => void poll(s.setupId), 2000);
+      },
+      (e: Error) => setError(e.message),
+    );
+    // Closing before the sign-in finishes stops the CLI on the server.
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      if (setupId.current && !finished.current) void ctx.api.codexSetupCancel(setupId.current).catch(() => {});
+    };
+  }, []);
+
+  return (
+    <Dialog
+      title="Connect ChatGPT"
+      onClose={close}
+      footer={
+        <button type="button" onClick={close}>
+          Cancel
+        </button>
+      }
+    >
+      {error && (
+        <ErrorBanner>
+          {error} You can also run <code>codex login</code> on a computer and use <strong>Paste auth.json</strong> with the contents of{" "}
+          <code>~/.codex/auth.json</code>.
+        </ErrorBanner>
+      )}
+      {!setup && !error && (
+        <>
+          <p className="muted small">Starting the ChatGPT sign-in on the server…</p>
+          <Skeleton rows={2} />
+        </>
+      )}
+      {setup && !error && (
+        <ol className="acc-steps">
+          <li>
+            <p>Open the ChatGPT sign-in and sign in with the account whose plan the agents should use.</p>
+            <a className={`button-link ${opened ? "" : "primary"}`} href={setup.url} target="_blank" rel="noopener noreferrer" onClick={() => setOpened(true)}>
+              <Icon name="external" /> Open ChatGPT sign-in
+            </a>
+          </li>
+          <li>
+            <p>When it asks for a code, enter this one:</p>
+            <p>
+              <code className="mono" style={{ fontSize: "1.4em", letterSpacing: "0.08em" }}>
+                {setup.code}
+              </code>{" "}
+              <CopyButton text={setup.code} label="one-time code" />
+            </p>
+          </li>
+          <li>
+            <p className="muted small" role="status">
+              Waiting for you to finish signing in…
+            </p>
+          </li>
+        </ol>
+      )}
+      <p className="muted small">
+        The code works for 15 minutes. Use it only because you pressed Connect here. The sign-in is saved encrypted on the server; it never comes to this page.
+      </p>
     </Dialog>
   );
 }
