@@ -58,6 +58,20 @@ describe("connection tests", () => {
     expect(calls[2]!.headers.get("authorization")).toBe("Bot bot-token");
   });
 
+  it("elevenlabs: tells a restricted key from a bad one", async () => {
+    const missing = (perm: string) => json({ detail: { status: "missing_permissions", message: `The API key you used is missing the permission ${perm} to execute this operation.` } }, 401);
+    const routes = (voices: () => Response) =>
+      fake({
+        "GET api.elevenlabs.io/v1/user": (c) => (c.headers.get("xi-api-key") === "el-key" ? missing("user_read") : json({ detail: { status: "invalid_api_key", message: "Invalid API key" } }, 401)),
+        "GET api.elevenlabs.io/v1/voices": voices,
+      });
+    let t = credentialTests({ fetch: routes(() => json({ voices: [] })).fetch }).elevenlabs!;
+    expect(await t(entry("elevenlabs", {}, { apiKey: " el-key\n" }), config, noApps)).toMatchObject({ ok: true, message: expect.stringMatching(/restricted/) });
+    expect(await t(entry("elevenlabs", {}, { apiKey: "wrong-key" }), config, noApps)).toMatchObject({ ok: false, message: expect.stringMatching(/rejected the API key.*Invalid API key/) });
+    t = credentialTests({ fetch: routes(() => missing("voices_read")).fetch }).elevenlabs!;
+    expect(await t(entry("elevenlabs", {}, { apiKey: "el-key" }), config, noApps)).toMatchObject({ ok: true, message: expect.stringMatching(/Text to Speech/) });
+  });
+
   it("odoo: signs in and reads the user's name", async () => {
     const { fetch } = fake({
       "POST dms.odoo.com/jsonrpc": (c) => {

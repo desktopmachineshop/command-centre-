@@ -145,7 +145,8 @@ export class IntegrationService {
         // Secrets moved in from Railway may carry extra keys (e.g. a Reddit password); allow those to be kept, not set.
         if (!def.fields.some((f) => f.key === k && f.type === "secret")) throw new IntegrationError(`${def.label} has no secret ${k}`);
         if (v === null) delete secrets[k];
-        else if (v !== "") secrets[k] = v;
+        // Pasted keys often carry a stray space or newline, which the provider then rejects.
+        else if (v.trim() !== "") secrets[k] = v.trim();
       }
       const problems = validateFields(def, data, secrets);
       const vertical = data.vertical;
