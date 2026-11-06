@@ -110,11 +110,36 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
     const edited = await ctx.api(`/api/proposals/${pending.id}`, { method: "PATCH", json: { payload: { ...pending.payload, name: "Jo Bloggs", email: "jo@bloggs.example", phone: "01632 960000" } } });
     expect(edited.status).toBe(200);
     expect(edited.body.payload.similarCustomers).toBe("None found in Odoo");
+    expect(edited.body.summary).toBe("New customer: Jane Doe (asked for a quote) [No similar customers in Odoo.]");
 
     const before = odoo.models["res.partner"]!.records.length;
     const approved = await ctx.api(`/api/proposals/${pending.id}/approve`, { method: "POST" });
     expect(approved.body).toMatchObject({ status: "executed", result: { ok: true, result: { name: "Jo Bloggs", email: "jo@bloggs.example" } } });
     expect(odoo.models["res.partner"]!.records).toHaveLength(before + 1);
+  });
+
+  it("shows the customer, quote lines and total on a quote approval, and updates them when Dave edits it", async () => {
+    calls.push({
+      server: "actions",
+      tool: "propose_action",
+      args: { actionType: "odoo.quote.create", summary: "Quote Jane two spindles", payload: { partner_id: 10, lines: [{ product_id: 2, qty: 2 }] } },
+    });
+    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: quote Jane two spindles" } });
+    await ctx.queue.drain();
+
+    const [pending] = (await ctx.api("/api/proposals?status=pending")).body;
+    expect(pending.summary).toBe("Quote Jane two spindles [Jane Doe: 1 line, 178.00 total (est.).]");
+    expect(pending.payload.quotePreview).toMatchObject({
+      customer: { name: "Jane Doe" },
+      lines: [{ part_number: "SP-300W", name: "300W spindle", qty: 2, unit_price: 89, subtotal: 148.33 }],
+      total: 178,
+    });
+
+    const edited = await ctx.api(`/api/proposals/${pending.id}`, { method: "PATCH", json: { payload: { partner_id: 10, lines: [{ product_id: 2, qty: 3 }] } } });
+    expect(edited.status).toBe(200);
+    expect(edited.body.summary).toBe("Quote Jane two spindles [Jane Doe: 1 line, 267.00 total (est.).]");
+    expect(edited.body.payload.quotePreview.lines[0]).toMatchObject({ qty: 3, subtotal: 222.5 });
+    await ctx.api(`/api/proposals/${pending.id}/reject`, { method: "POST" });
   });
 
   it("serves /mcp/odoo only with a valid token", async () => {

@@ -537,8 +537,12 @@ export class Store {
   }
 
   /** Replaces a pending proposal's payload (Dave edited it before approving). Null if it is no longer pending. */
-  async updateProposalPayload(id: string, payload: Record<string, unknown>): Promise<Proposal | null> {
-    const { rows } = await this.pool.query("update proposals set payload = $2 where id = $1 and status = 'pending' returning *", [id, JSON.stringify(payload)]);
+  /** Dave's edit of a pending proposal: the payload, and the summary when its looked-up note changed. */
+  async updateProposalPayload(id: string, payload: Record<string, unknown>, summary?: string): Promise<Proposal | null> {
+    const { rows } = await this.pool.query(
+      "update proposals set payload = $2, summary = coalesce($3, summary) where id = $1 and status = 'pending' returning *",
+      [id, JSON.stringify(payload), summary ?? null],
+    );
     return rows[0] ? toProposal(rows[0]) : null;
   }
 

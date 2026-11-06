@@ -357,14 +357,20 @@ export class ActionService {
     const { policyDowngrade: _ignored, ...edited } = payload;
     let next = current.payload.policyDowngrade === undefined ? edited : { ...edited, policyDowngrade: current.payload.policyDowngrade };
     const executor = this.executors[current.actionType];
+    let summary: string | undefined;
     try {
       await executor?.validate?.(next, { vertical: current.vertical, publicBaseUrl: this.ctx.publicBaseUrl });
-      // Facts looked up for the approval (prepare) follow the edited payload, not the old one.
-      if (executor?.prepare) next = (await executor.prepare(next)).payload;
+      // Facts looked up for the approval (prepare) follow the edited payload, not the old one,
+      // and so does their note at the end of the summary (e.g. a quote's new total).
+      if (executor?.prepare) {
+        const prepared = await executor.prepare(next);
+        next = prepared.payload;
+        if (prepared.note) summary = `${current.summary.replace(/\s*\[[^[\]]*\]$/, "").trim()} ${prepared.note}`;
+      }
     } catch (err) {
       throw new ProposalInvalidError((err as Error).message);
     }
-    const proposal = await this.store.updateProposalPayload(id, next);
+    const proposal = await this.store.updateProposalPayload(id, next, summary);
     if (!proposal) throw new ProposalStateError(id);
     this.hub.broadcast({ type: "proposal.updated", proposal });
     return proposal;

@@ -82,6 +82,65 @@ describe("odoo executors", () => {
     await expect(executors["odoo.quote.send"]!.execute({ id: 999 })).rejects.toThrow(/No sales order/);
   });
 
+  it("shows the approval the customer, each quote line and the totals", async () => {
+    const payload = {
+      partner_id: 10,
+      lines: [{ product_id: 2, qty: 2 }, { product_id: 1, qty: 1, price_unit: 20, discount: 10, description: "ER11 collets, trade price" }],
+      quotePreview: "the agent's own",
+    };
+    const quotesCreated = () => odoo.callsTo("create").filter((c) => c.model === "sale.order").length;
+    const before = quotesCreated();
+    const prepared = await executors["odoo.quote.create"]!.prepare!(payload);
+    expect(prepared.payload).toMatchObject({ partner_id: 10, lines: payload.lines });
+    expect(prepared.payload.quotePreview).toEqual({
+      customer: expect.objectContaining({ id: 10, name: "Jane Doe", email: "jane@example.com", phone: "+44 7700 900123", address: "Leeds, United Kingdom", previousOrders: 1 }),
+      lines: [
+        { product_id: 2, part_number: "SP-300W", name: "300W spindle", qty: 2, unit_price: 89, discount: 0, subtotal: 148.33 },
+        { product_id: 1, part_number: "ER11-7", name: "ER11 collets, trade price", qty: 1, unit_price: 20, discount: 10, subtotal: 15 },
+      ],
+      currency: null,
+      // The demo's 20% tax is included in the price: 178 + 18 = 196 in all.
+      untaxed: 163.33,
+      tax: 32.67,
+      total: 196,
+      estimated: true,
+      notes: [],
+    });
+    expect(prepared.note).toBe("[Jane Doe: 2 lines, 196.00 total (est.).]");
+    // No quote is created to work it out.
+    expect(quotesCreated()).toBe(before);
+  });
+
+  it("refuses a quote naming a product that doesn't exist, and leaves the totals to Odoo for a tax it can't apply", async () => {
+    await expect(executors["odoo.quote.create"]!.prepare!({ partner_id: 10, lines: [{ product_id: 999, qty: 1 }] })).rejects.toThrow(/No product with id 999/);
+    odoo.update("account.tax", 1, { amount_type: "fixed" });
+    try {
+      const prepared = await executors["odoo.quote.create"]!.prepare!({ partner_id: 11, lines: [{ product_id: 4, qty: 1 }, { product_id: 3, qty: 1 }] });
+      expect(prepared.payload.quotePreview).toMatchObject({ untaxed: 1255, tax: null, total: null, customer: { name: "Acme Robotics", vat: "GB123456789", previousOrders: 0 } });
+      expect((prepared.payload.quotePreview as any).notes).toEqual([expect.stringMatching(/MILO-V2.*Odoo works out the final tax/)]);
+      expect(prepared.note).toBe("[Acme Robotics: 2 lines, 1,255.00 before tax.]");
+    } finally {
+      odoo.update("account.tax", 1, { amount_type: "percent" });
+    }
+  });
+
+  it("shows an existing quote's lines and totals from Odoo before sending it", async () => {
+    const prepared = await executors["odoo.quote.send"]!.prepare!({ id: 42 });
+    expect(prepared.payload.quotePreview).toMatchObject({
+      quote: "S00042",
+      customer: { name: "Jane Doe" },
+      lines: [
+        { product_id: 1, part_number: "ER11-7", name: "ER11 collet set (7 pcs)", qty: 1, unit_price: 24.5, subtotal: 24.5 },
+        { product_id: 2, part_number: "SP-300W", name: "300W spindle", qty: 1, unit_price: 89, subtotal: 89 },
+      ],
+      currency: "GBP",
+      total: 113.5,
+      estimated: false,
+    });
+    expect(prepared.note).toBe("[S00042 for Jane Doe: 2 lines, £113.50 total.]");
+    await expect(executors["odoo.quote.send"]!.prepare!({ id: 999 })).rejects.toThrow(/No sales order/);
+  });
+
   it("validates quotations", async () => {
     await expect(executors["odoo.quote.create"]!.execute({ partner_id: 10, lines: [] })).rejects.toThrow(/lines/);
     await expect(executors["odoo.quote.create"]!.execute({ partner_id: 10, lines: [{ product_id: 1, qty: 0 }] })).rejects.toThrow(/qty/);

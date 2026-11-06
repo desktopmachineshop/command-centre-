@@ -131,13 +131,18 @@ export function FieldList({ fields }: { fields: Field[] }) {
   );
 }
 
-/** A payload (or result) as readable fields; a video spec as a storyboard. `skip` leaves out fields shown elsewhere. */
+/** Payload keys a quote summary replaces: the preview itself, and the raw ids and lines it spells out. */
+const QUOTE_KEYS = ["quotePreview", "partner_id", "lines", "id"];
+
+/** A payload (or result) as readable fields; a video spec as a storyboard; a quote as its summary. `skip` leaves out fields shown elsewhere. */
 export function PayloadView({ payload, skip = [] }: { payload: Record<string, unknown>; skip?: readonly string[] }) {
   const spec = videoSpecOf(payload.spec);
-  const fields = fieldsOf(payload, spec ? [...skip, "spec"] : skip);
-  if (!spec && !fields.length) return null;
+  const quote = quotePreviewOf(payload.quotePreview);
+  const fields = fieldsOf(payload, [...skip, ...(spec ? ["spec"] : []), ...(quote ? QUOTE_KEYS : [])]);
+  if (!spec && !quote && !fields.length) return null;
   return (
     <div className="readable">
+      {quote && <QuoteSummary quote={quote} />}
       {spec && <Storyboard spec={spec} />}
       {fields.length > 0 && <FieldList fields={fields} />}
     </div>
@@ -146,7 +151,136 @@ export function PayloadView({ payload, skip = [] }: { payload: Record<string, un
 
 /** True when a payload has anything PayloadView would show. */
 export function hasReadable(payload: Record<string, unknown>, skip: readonly string[] = []): boolean {
-  return videoSpecOf(payload.spec) != null || fieldsOf(payload, skip).length > 0;
+  return videoSpecOf(payload.spec) != null || quotePreviewOf(payload.quotePreview) != null || fieldsOf(payload, skip).length > 0;
+}
+
+// ---- Quotes (odoo.quote.create / odoo.quote.send) ----
+
+export interface QuoteLineView {
+  product_id: number | null;
+  part_number: string | null;
+  name: string;
+  qty: number;
+  unit_price: number;
+  discount: number;
+  subtotal: number;
+}
+export interface QuoteView {
+  quote?: string;
+  customer: Obj & { name: string };
+  lines: QuoteLineView[];
+  currency: string | null;
+  untaxed: number;
+  tax: number | null;
+  total: number | null;
+  estimated: boolean;
+  notes: string[];
+}
+
+/** The server's quote preview (packages/odoo quote-preview.ts), or null. */
+export function quotePreviewOf(value: unknown): QuoteView | null {
+  if (!isObj(value) || !isObj(value.customer) || typeof value.customer.name !== "string" || !Array.isArray(value.lines)) return null;
+  if (typeof value.untaxed !== "number") return null;
+  return value as unknown as QuoteView;
+}
+
+/** An amount in the quote's currency: "£1,234.50". */
+export function moneyText(n: number, currency: string | null): string {
+  try {
+    if (currency && /^[A-Z]{3}$/.test(currency)) return n.toLocaleString("en-GB", { style: "currency", currency });
+  } catch {
+    // Unknown currency code: plain number.
+  }
+  return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** The customer's facts worth reading before a quote goes out, as label/value pairs. */
+export function customerFacts(c: QuoteView["customer"]): [string, string][] {
+  const facts: [string, unknown][] = [
+    ["Customer", c.company ? `${c.name} (${String(c.company)})` : c.name],
+    ["Email", c.email],
+    ["Phone", c.phone],
+    ["Address", c.address],
+    ["VAT", c.vat],
+    ["Reference", c.ref],
+    ["Pricelist", c.pricelist],
+    ["Previous orders", typeof c.previousOrders === "number" ? (c.previousOrders === 0 ? "None (new customer)" : String(c.previousOrders)) : null],
+  ];
+  return facts.filter((f): f is [string, string] => typeof f[1] === "string" && f[1].trim() !== "");
+}
+
+const qtyText = (n: number) => n.toLocaleString("en-GB", { maximumFractionDigits: 3 });
+
+export function QuoteSummary({ quote }: { quote: QuoteView }) {
+  const money = (n: number) => moneyText(n, quote.currency);
+  const est = quote.estimated ? " (estimate)" : "";
+  return (
+    <div className="quote-summary">
+      <section>
+        <div className="small muted">{quote.quote ? `Quote ${quote.quote}` : "Customer summary"}</div>
+        <dl className="readable-fields">
+          {customerFacts(quote.customer).map(([k, v]) => (
+            <div key={k} className="readable-field">
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      <div className="quote-lines-wrap">
+        <table className="quote-lines">
+          <thead>
+            <tr>
+              <th>Part no. / product</th>
+              <th className="num">Qty</th>
+              <th className="num">Unit price</th>
+              <th className="num">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {quote.lines.map((l, i) => (
+              <tr key={i}>
+                <td>
+                  <span className="quote-part mono small">
+                    {l.part_number ?? "No part no."}
+                    {l.product_id != null && <span className="muted"> · id {l.product_id}</span>}
+                  </span>
+                  <span className="quote-name">{l.name}</span>
+                </td>
+                <td className="num">{qtyText(l.qty)}</td>
+                <td className="num">
+                  {money(l.unit_price)}
+                  {l.discount ? <span className="quote-disc small muted">−{qtyText(l.discount)}%</span> : null}
+                </td>
+                <td className="num">{money(l.subtotal)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colSpan={3}>Subtotal (before tax)</th>
+              <td className="num">{money(quote.untaxed)}</td>
+            </tr>
+            <tr>
+              <th colSpan={3}>Tax{est}</th>
+              <td className="num">{quote.tax != null ? money(quote.tax) : "Set by Odoo"}</td>
+            </tr>
+            <tr className="quote-total">
+              <th colSpan={3}>Quote total{est}</th>
+              <td className="num">{quote.total != null ? money(quote.total) : `${money(quote.untaxed)} + tax`}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {quote.notes.length > 0 && (
+        <ul className="readable-list small muted">
+          {quote.notes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // ---- Video specs ----
