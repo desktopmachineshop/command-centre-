@@ -72,6 +72,22 @@ describe("connection tests", () => {
     expect(await t(entry("elevenlabs", {}, { apiKey: "el-key" }), config, noApps)).toMatchObject({ ok: true, message: expect.stringMatching(/Text to Speech/) });
   });
 
+  it("elevenlabs: shows ElevenLabs' reason for any other refusal", async () => {
+    const { fetch } = fake({
+      "GET api.elevenlabs.io/v1/user": () => json({ detail: { status: "workspace_key", message: "This endpoint is not available for this key" } }, 400),
+      "GET api.elevenlabs.io/v1/voices": () => json({ detail: [{ loc: ["header"], msg: "Bad header", type: "value_error" }] }, 400),
+    });
+    expect(await credentialTests({ fetch }).elevenlabs!(entry("elevenlabs", {}, { apiKey: "el-key" }), config, noApps)).toEqual({
+      ok: false,
+      message: "ElevenLabs answered HTTP 400 to /v1/user: This endpoint is not available for this key",
+    });
+    const plain = fake({
+      "GET api.elevenlabs.io/v1/user": () => new Response("Bad Request", { status: 400 }),
+      "GET api.elevenlabs.io/v1/voices": () => json({ voices: [] }),
+    });
+    expect(await credentialTests({ fetch: plain.fetch }).elevenlabs!(entry("elevenlabs", {}, { apiKey: "el-key" }), config, noApps)).toMatchObject({ ok: true });
+  });
+
   it("odoo: signs in and reads the user's name", async () => {
     const { fetch } = fake({
       "POST dms.odoo.com/jsonrpc": (c) => {
