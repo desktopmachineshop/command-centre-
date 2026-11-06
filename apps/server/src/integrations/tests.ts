@@ -197,26 +197,43 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       const key = entry.secrets.apiKey?.trim();
       if (!key) return fail("No API key saved");
       const headers = { "xi-api-key": key };
-      // ElevenLabs keys can be restricted to some permissions. A key without "User: Read" gets 401 on /v1/user
-      // even though it works for speech, so a 401 is only "rejected" when ElevenLabs says the key itself is bad.
-      const reason = async (res: Response) => (await json<{ detail?: { status?: string; message?: string } }>(res)).detail;
+      type Detail = { status?: string; message?: string; msg?: string };
+      /** ElevenLabs' own explanation: detail is an object, a string, or a list of validation errors. */
+      const explain = async (res: Response): Promise<{ status?: string; text: string }> => {
+        const raw = await res.text().catch(() => "");
+        let detail: unknown;
+        try {
+          detail = (JSON.parse(raw) as { detail?: unknown }).detail;
+        } catch {
+          detail = undefined;
+        }
+        const d = (Array.isArray(detail) ? detail[0] : detail) as Detail | string | undefined;
+        const text = typeof d === "string" ? d : (d?.message ?? d?.msg ?? (d?.status || raw.trim()));
+        return { status: typeof d === "object" ? d?.status : undefined, text: redact(String(text ?? ""), [key]).slice(0, 200) };
+      };
+      const failure = (res: Response, path: string, why: string) =>
+        fail(`ElevenLabs answered HTTP ${res.status} to ${path}${why ? `: ${why}` : ""}`);
+
+      // ElevenLabs keys can be restricted to some permissions. A key without "User: Read" is refused on /v1/user
+      // even though it works for speech, so only an invalid key counts as "rejected"; anything else falls back to /v1/voices.
       const res = await get(`${urls.elevenlabs}/v1/user`, headers);
       if (res.ok) {
         const body = await json<{ first_name?: string; subscription?: { tier?: string } }>(res);
         return ok(`ElevenLabs accepted the key${body.subscription?.tier ? ` (${body.subscription.tier} plan)` : ""}`, body.first_name);
       }
-      if (res.status !== 401) return failed(res, "ElevenLabs");
-      const detail = await reason(res);
-      if (detail?.status !== "missing_permissions") {
-        const why = detail?.message ? `: ${redact(detail.message, [key]).slice(0, 200)}` : "";
-        return fail(`ElevenLabs rejected the API key (HTTP 401${why}). Copy it again from elevenlabs.io → Developers → API keys`);
+      if (res.status === 429 || res.status >= 500) return failed(res, "ElevenLabs");
+      const user = await explain(res);
+      if (user.status === "invalid_api_key" || (res.status === 401 && user.status !== "missing_permissions")) {
+        return fail(`ElevenLabs rejected the API key (HTTP ${res.status}${user.text ? `: ${user.text}` : ""}). Copy it again from elevenlabs.io → Developers → API keys`);
       }
       const voices = await get(`${urls.elevenlabs}/v1/voices`, headers);
       if (voices.ok) return ok("ElevenLabs accepted the key (restricted key, so the plan isn't shown)");
-      if (voices.status === 401 && (await reason(voices))?.status === "missing_permissions") {
+      const v = await explain(voices);
+      if (v.status === "missing_permissions") {
         return ok("ElevenLabs accepted the key, but it is restricted: make sure Text to Speech, Speech to Text and Voices (read) are allowed");
       }
-      return failed(voices, "ElevenLabs");
+      if (voices.status === 429 || voices.status >= 500) return failed(voices, "ElevenLabs");
+      return user.status === "missing_permissions" ? failure(voices, "/v1/voices", v.text) : failure(res, "/v1/user", user.text);
     },
 
     async odoo(entry) {
