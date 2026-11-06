@@ -164,6 +164,16 @@ export interface QuoteLineView {
   unit_price: number;
   discount: number;
   subtotal: number;
+  cost?: number | null;
+  margin?: number | null;
+  margin_pct?: number | null;
+  stock?: QuoteStockView;
+}
+export interface QuoteStockView {
+  status: "ok" | "incoming" | "order" | "untracked";
+  on_hand: number | null;
+  forecast: number | null;
+  short?: number;
 }
 export interface QuoteView {
   quote?: string;
@@ -173,6 +183,9 @@ export interface QuoteView {
   untaxed: number;
   tax: number | null;
   total: number | null;
+  margin?: number | null;
+  margin_pct?: number | null;
+  needs_ordering?: number;
   estimated: boolean;
   notes: string[];
 }
@@ -211,9 +224,23 @@ export function customerFacts(c: QuoteView["customer"]): [string, string][] {
 
 const qtyText = (n: number) => n.toLocaleString("en-GB", { maximumFractionDigits: 3 });
 
+/** A line's stock in words, and whether that's good (ok), worth watching (warn) or bad (bad); null when not stocked. */
+export function stockText(s: QuoteStockView | undefined): { tone: "ok" | "warn" | "bad"; text: string; detail: string } | null {
+  if (!s || s.status === "untracked") return null;
+  const onHand = qtyText(s.on_hand ?? 0);
+  const detail = `${onHand} on hand, ${qtyText(s.forecast ?? 0)} forecast after incoming and other orders`;
+  if (s.status === "ok") return { tone: "ok", text: `In stock (${onHand})`, detail };
+  if (s.status === "incoming") return { tone: "warn", text: `Incoming (${onHand} now)`, detail: `Short now; incoming stock covers it. ${detail}` };
+  return { tone: "bad", text: `Order ${qtyText(s.short ?? 0)} more`, detail: `Needs ordering. ${detail}` };
+}
+
+/** "44.7%". */
+const pctText = (n: number) => `${n.toLocaleString("en-GB", { maximumFractionDigits: 1 })}%`;
+
 export function QuoteSummary({ quote }: { quote: QuoteView }) {
   const money = (n: number) => moneyText(n, quote.currency);
   const est = quote.estimated ? " (estimate)" : "";
+  const ordering = quote.needs_ordering ?? 0;
   return (
     <div className="quote-summary">
       <section>
@@ -227,6 +254,11 @@ export function QuoteSummary({ quote }: { quote: QuoteView }) {
           ))}
         </dl>
       </section>
+      {ordering > 0 && (
+        <p className="quote-stock-alert" role="status">
+          {ordering === 1 ? "1 line needs" : `${ordering} lines need`} ordering before this quote can be filled.
+        </p>
+      )}
       <div className="quote-lines-wrap">
         <table className="quote-lines">
           <thead>
@@ -234,7 +266,10 @@ export function QuoteSummary({ quote }: { quote: QuoteView }) {
               <th>Part no. / product</th>
               <th className="num">Qty</th>
               <th className="num">Unit price</th>
-              <th className="num">Subtotal</th>
+              <th className="num">
+                Subtotal
+                <span className="quote-margin small">margin</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -246,13 +281,31 @@ export function QuoteSummary({ quote }: { quote: QuoteView }) {
                     {l.product_id != null && <span className="muted"> · id {l.product_id}</span>}
                   </span>
                   <span className="quote-name">{l.name}</span>
+                  {(() => {
+                    const st = stockText(l.stock);
+                    return (
+                      st && (
+                        <span className={`quote-stock small tone-${st.tone}`} title={st.detail}>
+                          {st.text}
+                        </span>
+                      )
+                    );
+                  })()}
                 </td>
                 <td className="num">{qtyText(l.qty)}</td>
                 <td className="num">
                   {money(l.unit_price)}
                   {l.discount ? <span className="quote-disc small muted">−{qtyText(l.discount)}%</span> : null}
                 </td>
-                <td className="num">{money(l.subtotal)}</td>
+                <td className="num">
+                  {money(l.subtotal)}
+                  {l.margin != null && (
+                    <span className={`quote-margin small ${l.margin < 0 ? "tone-bad" : "muted"}`}>
+                      {money(l.margin)}
+                      {l.margin_pct != null && ` · ${pctText(l.margin_pct)}`}
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -269,6 +322,15 @@ export function QuoteSummary({ quote }: { quote: QuoteView }) {
               <th colSpan={3}>Quote total{est}</th>
               <td className="num">{quote.total != null ? money(quote.total) : `${money(quote.untaxed)} + tax`}</td>
             </tr>
+            {quote.margin != null && (
+              <tr className="quote-margin-row">
+                <th colSpan={3}>Margin (before tax)</th>
+                <td className={`num ${quote.margin < 0 ? "tone-bad" : ""}`}>
+                  {money(quote.margin)}
+                  {quote.margin_pct != null && <span className="quote-margin small muted">{pctText(quote.margin_pct)}</span>}
+                </td>
+              </tr>
+            )}
           </tfoot>
         </table>
       </div>

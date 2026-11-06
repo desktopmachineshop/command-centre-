@@ -4399,6 +4399,23 @@ details[open] > summary .brain-tree-chevron {
 .quote-lines tfoot th { text-align: right; font-weight: 500; color: var(--text-2); border-bottom: none; }
 .quote-lines tfoot td { border-bottom: none; }
 .quote-lines .quote-total th, .quote-lines .quote-total td { color: inherit; font-weight: 700; border-top: 2px solid var(--border-strong); }
+.quote-margin, .quote-stock { display: block; font-weight: 400; }
+.quote-stock { margin-top: 2px; }
+.quote-stock::before { content: "● "; }
+.tone-ok { color: var(--success); }
+.tone-warn { color: var(--warn); }
+.tone-bad { color: var(--danger); }
+.quote-margin-row th, .quote-margin-row td { padding-top: var(--sp-2); }
+.quote-stock-alert {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: 8px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
 .storyboard { display: grid; gap: var(--sp-3); }
 .scenes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
 .scene { display: grid; gap: var(--sp-1); }

@@ -128,7 +128,7 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
     await ctx.queue.drain();
 
     const [pending] = (await ctx.api("/api/proposals?status=pending")).body;
-    expect(pending.summary).toBe("Quote Jane two spindles [Jane Doe: 1 line, 178.00 total (est.).]");
+    expect(pending.summary).toBe("Quote Jane two spindles [Jane Doe: 1 line, 178.00 total (est.), margin 66.33 (44.7%), in stock.]");
     expect(pending.payload.quotePreview).toMatchObject({
       customer: { name: "Jane Doe" },
       lines: [{ part_number: "SP-300W", name: "300W spindle", qty: 2, unit_price: 89, subtotal: 148.33 }],
@@ -137,7 +137,7 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
 
     const edited = await ctx.api(`/api/proposals/${pending.id}`, { method: "PATCH", json: { payload: { partner_id: 10, lines: [{ product_id: 2, qty: 3 }] } } });
     expect(edited.status).toBe(200);
-    expect(edited.body.summary).toBe("Quote Jane two spindles [Jane Doe: 1 line, 267.00 total (est.).]");
+    expect(edited.body.summary).toBe("Quote Jane two spindles [Jane Doe: 1 line, 267.00 total (est.), margin 99.50 (44.7%), in stock.]");
     expect(edited.body.payload.quotePreview.lines[0]).toMatchObject({ qty: 3, subtotal: 222.5 });
     await ctx.api(`/api/proposals/${pending.id}/reject`, { method: "POST" });
   });

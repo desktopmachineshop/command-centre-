@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerFacts, fieldsOf, hasReadable, labelOf, moneyText, quotePreviewOf, readable, specFacts, stepText, videoSpecOf, voiceText } from "../src/payload";
+import { customerFacts, fieldsOf, hasReadable, labelOf, moneyText, quotePreviewOf, readable, specFacts, stepText, stockText, videoSpecOf, voiceText } from "../src/payload";
 
 describe("readable proposal details", () => {
   it("labels keys in plain words", () => {
@@ -76,5 +76,19 @@ describe("quote approvals", () => {
     const payload = { partner_id: 10, lines: [{ product_id: 2, qty: 2 }], note: "Thanks", quotePreview: preview };
     expect(hasReadable(payload)).toBe(true);
     expect(fieldsOf(payload, ["quotePreview", "partner_id", "lines", "id"]).map((f) => f.key)).toEqual(["note"]);
+  });
+});
+
+describe("quote stock", () => {
+  it("says whether stock is good, short but incoming, or needs ordering", () => {
+    expect(stockText({ status: "ok", on_hand: 12, forecast: 10 })).toMatchObject({ tone: "ok", text: "In stock (12)" });
+    expect(stockText({ status: "incoming", on_hand: 0, forecast: 4 })).toMatchObject({ tone: "warn", text: "Incoming (0 now)" });
+    expect(stockText({ status: "order", on_hand: 3, forecast: 1, short: 2 })).toEqual({
+      tone: "bad",
+      text: "Order 2 more",
+      detail: "Needs ordering. 3 on hand, 1 forecast after incoming and other orders",
+    });
+    expect(stockText({ status: "untracked", on_hand: null, forecast: null })).toBeNull();
+    expect(stockText(undefined)).toBeNull();
   });
 });

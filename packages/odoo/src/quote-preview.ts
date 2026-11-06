@@ -2,7 +2,7 @@ import { OdooError, type OdooClient, type OdooRecord } from "./client";
 
 /**
  * What a quotation approval shows Dave: who the customer is, every line with its part number,
- * name, price and subtotal, and the quote's totals. Stored in the proposal's payload under
+ * name, price, subtotal, margin and whether stock covers it, and the quote's totals and margin. Stored in the proposal's payload under
  * `quotePreview` (the server's, replacing whatever the agent sends), and looked up again when
  * Dave edits the proposal.
  */
@@ -17,6 +17,12 @@ export interface QuotePreview {
   /** Null when it can't be worked out here (Odoo still computes it on the quote): see `notes`. */
   tax: number | null;
   total: number | null;
+  /** Subtotal minus cost, over the lines whose product has a cost in Odoo; null when none has. */
+  margin: number | null;
+  /** Percent of those lines' subtotal. */
+  margin_pct: number | null;
+  /** Lines whose product needs ordering to fill the quote. */
+  needs_ordering: number;
   /** True when tax and prices are this server's own sums, not Odoo's figures for a saved quote. */
   estimated: boolean;
   /** Anything that may make Odoo's figures differ. */
@@ -47,6 +53,24 @@ export interface QuotePreviewLine {
   discount: number;
   /** Before tax, after discount. */
   subtotal: number;
+  /** Unit cost (the line's cost price, else the product's); null when Odoo has none. */
+  cost: number | null;
+  margin: number | null;
+  margin_pct: number | null;
+  stock: QuoteStock;
+}
+
+/**
+ * Whether stock covers the line, for the whole quantity of that product on the quote:
+ * ok (on hand now), incoming (short now, but the forecast with incoming stock covers it),
+ * order (the forecast doesn't cover it: order `short` more), untracked (a service, a product
+ * that isn't stocked, or no Inventory app).
+ */
+export interface QuoteStock {
+  status: "ok" | "incoming" | "order" | "untracked";
+  on_hand: number | null;
+  forecast: number | null;
+  short?: number;
 }
 
 export interface QuoteLineInput {
@@ -168,7 +192,7 @@ export async function previewNewQuote(client: QuoteReader, partnerId: number, li
 
   let untaxed = 0;
   let tax: number | null = fiscal ? null : 0;
-  const out: QuotePreviewLine[] = [];
+  const out: BaseLine[] = [];
   for (const line of lines) {
     const product = byId.get(line.product_id)!;
     const unit = line.price_unit ?? num(product.lst_price ?? product.list_price);
@@ -200,7 +224,51 @@ export async function previewNewQuote(client: QuoteReader, partnerId: number, li
     });
   }
   untaxed = money(untaxed);
-  return { customer, lines: out, currency, untaxed, tax: tax == null ? null : money(tax), total: tax == null ? null : money(untaxed + tax), estimated: true, notes };
+  const extra = await withMarginAndStock(client, out, notes);
+  return { customer, currency, untaxed, tax: tax == null ? null : money(tax), total: tax == null ? null : money(untaxed + tax), ...extra, estimated: true, notes };
+}
+
+type BaseLine = Omit<QuotePreviewLine, "cost" | "margin" | "margin_pct" | "stock"> & { cost?: number | null };
+
+/** Adds each line's cost, margin and stock, and the quote's margin, from the products in Odoo. */
+async function withMarginAndStock(client: QuoteReader, base: BaseLine[], notes: string[]) {
+  const productIds = [...new Set(base.map((l) => l.product_id).filter((x): x is number => x != null))];
+  const { rows, fields } = await readSome(client, "product.product", productIds, ["display_name", "standard_price", "qty_available", "virtual_available", "is_storable", "type"]);
+  const byId = new Map(rows.map((p) => [p.id, p]));
+  const wanted = new Map<number, number>();
+  for (const l of base) if (l.product_id != null) wanted.set(l.product_id, (wanted.get(l.product_id) ?? 0) + l.qty);
+  const stocked = (p: OdooRecord) => fields.has("qty_available") && (fields.has("is_storable") ? p.is_storable === true : p.type === "product");
+  const noCost: string[] = [];
+  const lines: QuotePreviewLine[] = base.map((l) => {
+    const product = l.product_id != null ? byId.get(l.product_id) : undefined;
+    let stock: QuoteStock = { status: "untracked", on_hand: null, forecast: null };
+    if (product && stocked(product)) {
+      const onHand = num(product.qty_available);
+      const forecast = typeof product.virtual_available === "number" ? product.virtual_available : onHand;
+      const need = wanted.get(product.id)!;
+      stock =
+        onHand >= need && forecast >= need
+          ? { status: "ok", on_hand: onHand, forecast }
+          : forecast >= need
+            ? { status: "incoming", on_hand: onHand, forecast }
+            : { status: "order", on_hand: onHand, forecast, short: Math.round((need - forecast) * 1000) / 1000 };
+    }
+    const unitCost = l.cost != null && l.cost > 0 ? l.cost : product && num(product.standard_price) > 0 ? num(product.standard_price) : null;
+    if (unitCost == null && l.subtotal > 0) noCost.push(l.part_number ?? l.name);
+    const margin = unitCost == null ? null : money(l.subtotal - unitCost * l.qty);
+    const { cost: _c, ...rest } = l;
+    return { ...rest, cost: unitCost, margin, margin_pct: margin != null && l.subtotal > 0 ? Math.round((margin / l.subtotal) * 1000) / 10 : null, stock };
+  });
+  const costed = lines.filter((l) => l.margin != null);
+  const margin = costed.length ? money(costed.reduce((s, l) => s + l.margin!, 0)) : null;
+  const costedSales = costed.reduce((s, l) => s + l.subtotal, 0);
+  if (noCost.length && costed.length) notes.push(`No cost in Odoo for ${noCost.join(", ")}, so the margin leaves ${noCost.length === 1 ? "it" : "them"} out.`);
+  return {
+    lines,
+    margin,
+    margin_pct: margin != null && costedSales > 0 ? Math.round((margin / costedSales) * 1000) / 10 : null,
+    needs_ordering: lines.filter((l) => l.stock.status === "order").length,
+  };
 }
 
 /** The preview of a quotation already in Odoo: its own lines and totals, as Odoo computed them. */
@@ -212,13 +280,13 @@ export async function previewExistingQuote(client: QuoteReader, orderId: number)
   if (!partnerId) throw new QuoteLookupError(`${String(order.name)} has no customer`);
   const { customer } = await customerOf(client, partnerId);
   const { rows: lineRows } = await readSome(client, "sale.order.line", ids(order.order_line), [
-    "product_id", "name", "product_uom_qty", "price_unit", "discount", "price_subtotal", "display_type", "sequence",
+    "product_id", "name", "product_uom_qty", "price_unit", "discount", "price_subtotal", "display_type", "sequence", "purchase_price",
   ]);
   const productLines = lineRows.filter((l) => !l.display_type);
   const productIds = [...new Set(productLines.map((l) => idOf(l.product_id)).filter((x): x is number => x != null))];
   const { rows: products } = await readSome(client, "product.product", productIds, ["default_code"]);
   const codes = new Map(products.map((p) => [p.id, text(p.default_code)]));
-  const lines = productLines
+  const base: BaseLine[] = productLines
     .sort((a, b) => num(a.sequence) - num(b.sequence) || a.id - b.id)
     .map((l) => {
       const productId = idOf(l.product_id);
@@ -230,12 +298,17 @@ export async function previewExistingQuote(client: QuoteReader, orderId: number)
         unit_price: num(l.price_unit),
         discount: num(l.discount),
         subtotal: money(num(l.price_subtotal)),
+        // sale_margin's cost on the line, when installed.
+        cost: typeof l.purchase_price === "number" ? l.purchase_price : null,
       };
     });
+  const notes: string[] = [];
+  const extra = await withMarginAndStock(client, base, notes);
+  const lines = extra.lines;
   const untaxed = typeof order.amount_untaxed === "number" ? order.amount_untaxed : money(lines.reduce((s, l) => s + l.subtotal, 0));
   const total = typeof order.amount_total === "number" ? order.amount_total : null;
   const tax = typeof order.amount_tax === "number" ? order.amount_tax : total != null ? money(total - untaxed) : null;
-  return { quote: String(order.name), customer, lines, currency: nameOf(order.currency_id), untaxed, tax, total, estimated: false, notes: [] };
+  return { quote: String(order.name), customer, currency: nameOf(order.currency_id), untaxed, tax, total, ...extra, estimated: false, notes };
 }
 
 const fmt = (n: number, currency: string | null) => {
@@ -247,9 +320,18 @@ const fmt = (n: number, currency: string | null) => {
   return n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-/** One line for the approval request (summary): customer, lines, total. */
+/** One line for the approval request (summary): customer, lines, total, margin, stock. */
 export function quoteNote(p: QuotePreview): string {
   const count = `${p.lines.length} line${p.lines.length === 1 ? "" : "s"}`;
   const total = p.total != null ? `${fmt(p.total, p.currency)} total${p.estimated ? " (est.)" : ""}` : `${fmt(p.untaxed, p.currency)} before tax`;
-  return `[${p.quote ? `${p.quote} for ` : ""}${p.customer.name}: ${count}, ${total}.]`;
+  const margin = p.margin != null ? `, margin ${fmt(p.margin, p.currency)}${p.margin_pct != null ? ` (${p.margin_pct}%)` : ""}` : "";
+  const waiting = p.lines.filter((l) => l.stock.status === "incoming").length;
+  const stock = p.needs_ordering
+    ? `, ${p.needs_ordering} line${p.needs_ordering === 1 ? " needs" : "s need"} ordering`
+    : waiting
+      ? `, ${waiting} line${waiting === 1 ? "" : "s"} waiting on incoming stock`
+      : p.lines.some((l) => l.stock.status === "ok")
+        ? ", in stock"
+        : "";
+  return `[${p.quote ? `${p.quote} for ` : ""}${p.customer.name}: ${count}, ${total}${margin}${stock}.]`;
 }

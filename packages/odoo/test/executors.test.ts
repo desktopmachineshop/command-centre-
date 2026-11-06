@@ -95,18 +95,27 @@ describe("odoo executors", () => {
     expect(prepared.payload.quotePreview).toEqual({
       customer: expect.objectContaining({ id: 10, name: "Jane Doe", email: "jane@example.com", phone: "+44 7700 900123", address: "Leeds, United Kingdom", previousOrders: 1 }),
       lines: [
-        { product_id: 2, part_number: "SP-300W", name: "300W spindle", qty: 2, unit_price: 89, discount: 0, subtotal: 148.33 },
-        { product_id: 1, part_number: "ER11-7", name: "ER11 collets, trade price", qty: 1, unit_price: 20, discount: 10, subtotal: 15 },
+        {
+          product_id: 2, part_number: "SP-300W", name: "300W spindle", qty: 2, unit_price: 89, discount: 0, subtotal: 148.33,
+          cost: 41, margin: 66.33, margin_pct: 44.7, stock: { status: "ok", on_hand: 12, forecast: 10 },
+        },
+        {
+          product_id: 1, part_number: "ER11-7", name: "ER11 collets, trade price", qty: 1, unit_price: 20, discount: 10, subtotal: 15,
+          cost: 9.1, margin: 5.9, margin_pct: 39.3, stock: { status: "ok", on_hand: 3, forecast: 1 },
+        },
       ],
       currency: null,
       // The demo's 20% tax is included in the price: 178 + 18 = 196 in all.
       untaxed: 163.33,
       tax: 32.67,
       total: 196,
+      margin: 72.23,
+      margin_pct: 44.2,
+      needs_ordering: 0,
       estimated: true,
       notes: [],
     });
-    expect(prepared.note).toBe("[Jane Doe: 2 lines, 196.00 total (est.).]");
+    expect(prepared.note).toBe("[Jane Doe: 2 lines, 196.00 total (est.), margin 72.23 (44.2%), in stock.]");
     // No quote is created to work it out.
     expect(quotesCreated()).toBe(before);
   });
@@ -117,11 +126,31 @@ describe("odoo executors", () => {
     try {
       const prepared = await executors["odoo.quote.create"]!.prepare!({ partner_id: 11, lines: [{ product_id: 4, qty: 1 }, { product_id: 3, qty: 1 }] });
       expect(prepared.payload.quotePreview).toMatchObject({ untaxed: 1255, tax: null, total: null, customer: { name: "Acme Robotics", vat: "GB123456789", previousOrders: 0 } });
-      expect((prepared.payload.quotePreview as any).notes).toEqual([expect.stringMatching(/MILO-V2.*Odoo works out the final tax/)]);
-      expect(prepared.note).toBe("[Acme Robotics: 2 lines, 1,255.00 before tax.]");
+      expect((prepared.payload.quotePreview as any).notes).toEqual([
+        expect.stringMatching(/MILO-V2.*Odoo works out the final tax/),
+        "No cost in Odoo for SHIP, so the margin leaves it out.",
+      ]);
+      expect(prepared.note).toBe("[Acme Robotics: 2 lines, 1,255.00 before tax, margin 610.00 (48.8%), 1 line waiting on incoming stock.]");
     } finally {
       odoo.update("account.tax", 1, { amount_type: "percent" });
     }
+  });
+
+  it("says which lines are in stock, waiting on incoming stock, or need ordering", async () => {
+    const prepared = await executors["odoo.quote.create"]!.prepare!({
+      partner_id: 10,
+      lines: [{ product_id: 3, qty: 1 }, { product_id: 1, qty: 2 }, { product_id: 1, qty: 1, price_unit: 0 }, { product_id: 4, qty: 1 }],
+    });
+    const preview = prepared.payload.quotePreview as any;
+    expect(preview.lines.map((l: any) => l.stock)).toEqual([
+      { status: "incoming", on_hand: 0, forecast: 4 },
+      // Both ER11 lines together want 3: one is forecast, so 2 more to order.
+      { status: "order", on_hand: 3, forecast: 1, short: 2 },
+      { status: "order", on_hand: 3, forecast: 1, short: 2 },
+      { status: "untracked", on_hand: null, forecast: null },
+    ]);
+    expect(preview.needs_ordering).toBe(2);
+    expect(prepared.note).toMatch(/, 2 lines need ordering\.\]$/);
   });
 
   it("shows an existing quote's lines and totals from Odoo before sending it", async () => {
@@ -137,7 +166,7 @@ describe("odoo executors", () => {
       total: 113.5,
       estimated: false,
     });
-    expect(prepared.note).toBe("[S00042 for Jane Doe: 2 lines, £113.50 total.]");
+    expect(prepared.note).toBe("[S00042 for Jane Doe: 2 lines, £113.50 total, margin £63.40 (55.9%), in stock.]");
     await expect(executors["odoo.quote.send"]!.prepare!({ id: 999 })).rejects.toThrow(/No sales order/);
   });
 
