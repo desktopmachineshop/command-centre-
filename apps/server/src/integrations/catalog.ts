@@ -134,12 +134,20 @@ export const CATALOG: readonly KindDef[] = [
     kind: "sendcloud",
     label: "Sendcloud",
     section: "business",
-    description: "Parcel tracking: each day's digest lists what was delivered, what is in transit and anything stuck or failed, and agents can look up where an order is. Read-only.",
+    description:
+      "Parcel tracking: each day's digest lists what was delivered, what is in transit and anything stuck or failed, agents can look up where an order is, and each parcel's tracking updates are logged as internal notes on its Odoo delivery order. Nothing is changed in Sendcloud.",
     multi: true,
     fields: [
       { ...vertical, default: "dms", help: "Which business ships with this Sendcloud account." },
       { key: "publicKey", label: "Public key", type: "text", required: true },
       { key: "secretKey", label: "Secret key", type: "secret", required: true, help: "Sendcloud: Settings → Integrations → Sendcloud API → Connect, then copy both keys." },
+      {
+        key: "odooNotes",
+        label: "Log tracking updates in Odoo",
+        type: "boolean",
+        default: true,
+        help: "Checked at 8am, midday and 5pm. Internal notes on the delivery order's chatter when a parcel is picked up, waiting at a pickup point, delivered, has a problem or stops moving. Only staff see them; customers are never emailed. Needs Odoo connected.",
+      },
     ],
     affects: ["shipping"],
     helpUrl: "https://app.sendcloud.com/v2/settings/integrations/manage",

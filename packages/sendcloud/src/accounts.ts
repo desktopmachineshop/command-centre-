@@ -6,6 +6,8 @@ export const SendcloudAccount = z.object({
   vertical: z.string().min(1),
   publicKey: z.string().min(1, "public key is required"),
   secretKey: z.string().min(1, "secret key is required"),
+  /** Log each parcel's tracking updates as internal notes on its Odoo delivery order. Default on. */
+  odooNotes: z.boolean().optional(),
 });
 export type SendcloudAccount = z.infer<typeof SendcloudAccount>;
 

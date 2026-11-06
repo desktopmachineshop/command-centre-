@@ -263,6 +263,20 @@ function parse<T>(schema: z.ZodType<T>, payload: unknown): T {
   return r.data;
 }
 
+/**
+ * Posts on a record's chatter: an internal note (only staff see it) or a message emailed to the
+ * record's followers. Returns the mail.message id.
+ */
+export async function postMessage(client: Pick<OdooWriter, "call">, model: string, id: number, body: string, internal: boolean): Promise<unknown> {
+  const kwargs = { body, message_type: "comment", subtype_xmlid: internal ? "mail.mt_note" : "mail.mt_comment" };
+  // Odoo 17+ escapes HTML sent over RPC unless body_is_html is set; older versions reject that argument.
+  const html = /<[a-z][^>]*>/i.test(body);
+  return client.call(model, "message_post", [[id]], html ? { ...kwargs, body_is_html: true } : kwargs).catch((err) => {
+    if (html && err instanceof OdooRpcError && err.kind !== "access") return client.call(model, "message_post", [[id]], kwargs);
+    throw err;
+  });
+}
+
 /** Write actions on Odoo. All of them default to `draft` policy: Dave approves each one. */
 export function createOdooExecutors(client: OdooWriter): Record<string, OdooActionExecutor> {
   return {
@@ -271,15 +285,7 @@ export function createOdooExecutors(client: OdooWriter): Record<string, OdooActi
         "Post on an Odoo record's chatter. payload: { model, id, body, internal? }. internal=true logs a note only staff see; otherwise it is a message emailed to the record's followers, i.e. the customer.",
       async execute(payload) {
         const p = parse(MessagePost, payload);
-        const kwargs = { body: p.body, message_type: "comment", subtype_xmlid: p.internal ? "mail.mt_note" : "mail.mt_comment" };
-        // Odoo 17+ escapes HTML sent over RPC unless body_is_html is set; older versions reject that argument.
-        const html = /<[a-z][^>]*>/i.test(p.body);
-        const messageId = await client
-          .call(p.model, "message_post", [[p.id]], html ? { ...kwargs, body_is_html: true } : kwargs)
-          .catch((err) => {
-            if (html && err instanceof OdooRpcError && err.kind !== "access") return client.call(p.model, "message_post", [[p.id]], kwargs);
-            throw err;
-          });
+        const messageId = await postMessage(client, p.model, p.id, p.body, p.internal);
         return { messageId, model: p.model, id: p.id, internal: p.internal };
       },
     },

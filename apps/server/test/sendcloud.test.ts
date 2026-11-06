@@ -50,7 +50,7 @@ describe.skipIf(!DB_URL)("Sendcloud (server)", () => {
       json: { data: { vertical: "dms", publicKey: "pub-key" }, secrets: { secretKey: "sec-key-0123456789" } },
     });
     expect(res.status).toBe(200);
-    expect(ctx.server.integrations.current().shipping.accounts).toEqual([{ id: "dms-sendcloud", vertical: "dms", publicKey: "pub-key", secretKey: "sec-key-0123456789" }]);
+    expect(ctx.server.integrations.current().shipping.accounts).toEqual([{ id: "dms-sendcloud", vertical: "dms", publicKey: "pub-key", secretKey: "sec-key-0123456789", odooNotes: true }]);
     const list = await ctx.api("/api/integrations");
     expect(JSON.stringify(list.body)).not.toContain("sec-key-0123456789");
     const test = await ctx.api("/api/integrations/sendcloud/dms-sendcloud/test", { method: "POST" });

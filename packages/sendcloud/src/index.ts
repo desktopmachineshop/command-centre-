@@ -4,3 +4,4 @@ export * from "./status";
 export * from "./digest";
 export * from "./service";
 export * from "./mcp";
+export * from "./notes";

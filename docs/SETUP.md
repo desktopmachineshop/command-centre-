@@ -266,6 +266,29 @@ Agents in Desktop Machine Shop's Customer Support and Ops & Admin roles also get
 `sendcloud` tools (`find_parcel` by order or tracking number, `recent_parcels`), so "where is my
 order?" replies use the carrier's latest status. Nothing is ever created or changed in Sendcloud.
 
+### Tracking notes on Odoo delivery orders
+
+With Odoo connected too, Command Centre checks Sendcloud at 08:00, 12:00 and 17:00 (`DAY_TIMEZONE`)
+and logs an **internal
+note** on the parcel's delivery order (`stock.picking`) when something worth knowing happens:
+
+- 🚚 on its way (the carrier has picked it up)
+- 📍 waiting at a pickup point
+- ✅ delivered, with when and how many days it took
+- ⚠️ a delivery problem (a failed attempt, delay, exception, return to sender), and again if the
+  problem changes
+- ✖️ label cancelled
+- ⏳ no tracking update for 5 days (once per stall)
+
+Small steps in between, such as "Sorted" or "Being sorted", don't get a note. Notes are staff-only:
+the customer is never emailed. The delivery order is found by tracking number first, then by
+Sendcloud's order number as the picking's name or origin (e.g. `S00042`). A parcel with no match is
+skipped and logged.
+
+The first check only records where parcels are, so nothing old is posted. The same happens after more
+than two days without a check (e.g. the server was down). Turn notes off for an account with **Log
+tracking updates in Odoo** on its Sendcloud card. The daily digest is unaffected either way.
+
 ## Triage
 
 Every event goes through a chain of triagers, cheapest first. The first answer at or above
