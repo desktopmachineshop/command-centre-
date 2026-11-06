@@ -4385,6 +4385,37 @@ details[open] > summary .brain-tree-chevron {
 .readable-image { display: block; max-width: min(100%, 20rem); max-height: 16rem; border-radius: var(--radius, 8px); border: 1px solid var(--border); }
 .readable-colour { display: inline-flex; align-items: center; gap: var(--sp-1); font-family: var(--font-mono, monospace); font-size: var(--fs-sm); }
 .swatch { display: inline-block; width: 1rem; height: 1rem; border-radius: 4px; border: 1px solid var(--border-strong); vertical-align: middle; }
+/* A quote approval (payload.tsx QuoteSummary): customer, lines, totals. */
+.quote-summary { display: grid; gap: var(--sp-3); min-width: 0; }
+.quote-summary section { display: grid; gap: var(--sp-2); }
+.quote-lines-wrap { overflow-x: auto; }
+.quote-lines { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.quote-lines th, .quote-lines td { padding: var(--sp-1) var(--sp-1); text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); }
+.quote-lines thead th { color: var(--text-2); font-weight: 500; }
+.quote-lines thead th.num { white-space: nowrap; }
+.quote-part, .quote-name, .quote-disc { display: block; }
+.quote-part { overflow-wrap: anywhere; }
+.quote-lines .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.quote-lines tfoot th { text-align: right; font-weight: 500; color: var(--text-2); border-bottom: none; }
+.quote-lines tfoot td { border-bottom: none; }
+.quote-lines .quote-total th, .quote-lines .quote-total td { color: inherit; font-weight: 700; border-top: 2px solid var(--border-strong); }
+.quote-margin, .quote-stock { display: block; font-weight: 400; }
+.quote-stock { margin-top: 2px; }
+.quote-stock::before { content: "● "; }
+.tone-ok { color: var(--success); }
+.tone-warn { color: var(--warn); }
+.tone-bad { color: var(--danger); }
+.quote-margin-row th, .quote-margin-row td { padding-top: var(--sp-2); }
+.quote-stock-alert {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: 8px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
 .storyboard { display: grid; gap: var(--sp-3); }
 .scenes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
 .scene { display: grid; gap: var(--sp-1); }

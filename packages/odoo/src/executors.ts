@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type Domain, type OdooClient, OdooError, type OdooRecord, OdooRpcError } from "./client";
+import { previewExistingQuote, previewNewQuote, type QuotePreview, QuoteLookupError, quoteNote } from "./quote-preview";
 
 /**
  * Structurally the server's `ActionExecutor`, so `createOdooExecutors(client)`
@@ -13,7 +14,7 @@ export interface OdooActionExecutor {
   execute(payload: Record<string, unknown>, ctx?: unknown): Promise<unknown>;
 }
 
-export type OdooWriter = Pick<OdooClient, "call" | "create" | "write" | "read" | "searchRead" | "fields">;
+export type OdooWriter = Pick<OdooClient, "call" | "create" | "write" | "read" | "searchRead" | "searchCount" | "fields">;
 
 const MessagePost = z.object({
   model: z.string().regex(/^[a-z0-9_.]+$/, "an Odoo model name, e.g. sale.order"),
@@ -240,6 +241,22 @@ async function sendQuote(client: OdooWriter, id: number) {
   return { id, name: order.name, to: Array.isArray(order.partner_id) ? order.partner_id[1] : null, state: after?.state ?? null };
 }
 
+/**
+ * Stores the server's quote preview with the proposal (replacing any the agent sent) and a
+ * one-line note for its summary. A record that doesn't exist refuses the proposal; Odoo being
+ * unreachable only leaves the preview out.
+ */
+async function withQuotePreview(payload: Record<string, unknown>, look: () => Promise<QuotePreview>) {
+  const { quotePreview: _agent, ...rest } = payload;
+  try {
+    const preview = await look();
+    return { payload: { ...rest, quotePreview: preview }, note: quoteNote(preview) };
+  } catch (err) {
+    if (err instanceof QuoteLookupError || !(err instanceof OdooError)) throw err;
+    return { payload: { ...rest, quotePreview: `Could not look up the quote in Odoo: ${err.message}` }, note: "[Could not look up the quote in Odoo.]" };
+  }
+}
+
 function parse<T>(schema: z.ZodType<T>, payload: unknown): T {
   const r = schema.safeParse(payload);
   if (!r.success) throw new OdooError(`Invalid payload: ${r.error.issues.map((i) => `${i.path.join(".") || "payload"} ${i.message}`).join("; ")}`);
@@ -299,7 +316,11 @@ export function createOdooExecutors(client: OdooWriter): Record<string, OdooActi
 
     "odoo.quote.create": {
       description:
-        "Create a quotation (a draft sales order) for a customer, and optionally email it. payload: { partner_id, lines: [{ product_id, qty, price_unit?, discount? (percent), description? }], validity_date? (YYYY-MM-DD), client_order_ref?, note?, website_id?, send? }. Ids from search_customers and search_products; price_unit is net and defaults to Odoo's price. send=true emails it to the customer with Odoo's quotation template (PDF and portal link) right after creating it.",
+        "Create a quotation (a draft sales order) for a customer, and optionally email it. payload: { partner_id, lines: [{ product_id, qty, price_unit?, discount? (percent), description? }], validity_date? (YYYY-MM-DD), client_order_ref?, note?, website_id?, send? }. Ids from search_customers and search_products; price_unit is net and defaults to Odoo's price. send=true emails it to the customer with Odoo's quotation template (PDF and portal link) right after creating it. The approval shows Dave the customer, each line (part number, name, price, subtotal) and the totals, looked up by the server.",
+      async prepare(payload) {
+        const p = parse(QuoteCreate, payload);
+        return withQuotePreview(payload, () => previewNewQuote(client, p.partner_id, p.lines));
+      },
       async execute(payload) {
         const p = parse(QuoteCreate, payload);
         const [customer] = await client.read("res.partner", [p.partner_id], ["name", "email"]);
@@ -329,7 +350,11 @@ export function createOdooExecutors(client: OdooWriter): Record<string, OdooActi
 
     "odoo.quote.send": {
       description:
-        "Email an existing quotation to its customer with Odoo's quotation template (PDF and portal link), marking it sent. payload: { id } (the sales order id, from search_orders/get_order). Only a quotation in draft or sent state.",
+        "Email an existing quotation to its customer with Odoo's quotation template (PDF and portal link), marking it sent. payload: { id } (the sales order id, from search_orders/get_order). Only a quotation in draft or sent state. The approval shows Dave the quote's customer, lines and totals from Odoo.",
+      async prepare(payload) {
+        const p = parse(QuoteSend, payload);
+        return withQuotePreview(payload, () => previewExistingQuote(client, p.id));
+      },
       async execute(payload) {
         const p = parse(QuoteSend, payload);
         return { ...(await sendQuote(client, p.id)), sent: true };

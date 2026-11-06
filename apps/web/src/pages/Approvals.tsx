@@ -333,7 +333,8 @@ function ProposalResult({ result }: { result: unknown }) {
   );
 }
 
-const HIDDEN_KEYS = new Set(["policyDowngrade"]);
+/** Keys the server owns: why it waits for approval, and facts it looked up for the approval. */
+const HIDDEN_KEYS = new Set(["policyDowngrade", "quotePreview", "similarCustomers"]);
 /** Addressing first, the long text last, the rest in between (stored JSON comes back in no useful order). */
 const FIRST = ["to", "cc", "bcc", "subject", "title", "name"];
 const LAST = ["body", "text", "message", "html", "content"];

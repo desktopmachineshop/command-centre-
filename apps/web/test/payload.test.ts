@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fieldsOf, labelOf, readable, specFacts, stepText, videoSpecOf, voiceText } from "../src/payload";
+import { customerFacts, fieldsOf, hasReadable, labelOf, moneyText, quotePreviewOf, readable, specFacts, stepText, stockText, videoSpecOf, voiceText } from "../src/payload";
 
 describe("readable proposal details", () => {
   it("labels keys in plain words", () => {
@@ -40,5 +40,55 @@ describe("readable proposal details", () => {
     expect(voiceText("local", "kokoro:bm_george")).toBe("George (server voice, most natural)");
     expect(voiceText("local", "piper:jenny_dioco")).toBe("Jenny (server voice, fast)");
     expect(voiceText("local")).toBe("Server default voice");
+  });
+});
+
+describe("quote approvals", () => {
+  const preview = {
+    customer: { id: 10, name: "Jane Doe", company: "Acme", email: "jane@example.com", phone: null, address: "Leeds", previousOrders: 0 },
+    lines: [{ product_id: 2, part_number: "SP-300W", name: "300W spindle", qty: 2, unit_price: 89, discount: 0, subtotal: 148.33 }],
+    currency: "GBP",
+    untaxed: 148.33,
+    tax: 29.67,
+    total: 178,
+    estimated: true,
+    notes: [],
+  };
+
+  it("reads the server's quote preview, and nothing else, as a quote", () => {
+    expect(quotePreviewOf(preview)).toBe(preview);
+    expect(quotePreviewOf("Could not look up the quote in Odoo")).toBeNull();
+    expect(quotePreviewOf({ customer: { name: "x" } })).toBeNull();
+  });
+
+  it("summarises the customer and formats amounts in the quote's currency", () => {
+    expect(customerFacts(preview.customer)).toEqual([
+      ["Customer", "Jane Doe (Acme)"],
+      ["Email", "jane@example.com"],
+      ["Address", "Leeds"],
+      ["Previous orders", "None (new customer)"],
+    ]);
+    expect(moneyText(1234.5, "GBP")).toBe("£1,234.50");
+    expect(moneyText(3, null)).toBe("3.00");
+  });
+
+  it("shows the quote instead of its raw ids and lines", () => {
+    const payload = { partner_id: 10, lines: [{ product_id: 2, qty: 2 }], note: "Thanks", quotePreview: preview };
+    expect(hasReadable(payload)).toBe(true);
+    expect(fieldsOf(payload, ["quotePreview", "partner_id", "lines", "id"]).map((f) => f.key)).toEqual(["note"]);
+  });
+});
+
+describe("quote stock", () => {
+  it("says whether stock is good, short but incoming, or needs ordering", () => {
+    expect(stockText({ status: "ok", on_hand: 12, forecast: 10 })).toMatchObject({ tone: "ok", text: "In stock (12)" });
+    expect(stockText({ status: "incoming", on_hand: 0, forecast: 4 })).toMatchObject({ tone: "warn", text: "Incoming (0 now)" });
+    expect(stockText({ status: "order", on_hand: 3, forecast: 1, short: 2 })).toEqual({
+      tone: "bad",
+      text: "Order 2 more",
+      detail: "Needs ordering. 3 on hand, 1 forecast after incoming and other orders",
+    });
+    expect(stockText({ status: "untracked", on_hand: null, forecast: null })).toBeNull();
+    expect(stockText(undefined)).toBeNull();
   });
 });
