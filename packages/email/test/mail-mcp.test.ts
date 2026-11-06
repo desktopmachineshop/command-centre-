@@ -54,7 +54,7 @@ describe("attachmentText", () => {
     expect(html.text).toBe("A\t1");
     const long = await attachmentText({ filename: "p.txt", contentType: "text/plain", content: Buffer.from("x".repeat(5000)) }, 1000);
     expect(long.truncated).toBe(true);
-    await expect(attachmentText({ filename: "logo.png", contentType: "image/png", content: Buffer.alloc(4) })).rejects.toThrow(/can't be read/);
+    await expect(attachmentText({ filename: "manual.docx", contentType: "application/msword", content: Buffer.alloc(4) })).rejects.toThrow(/can't be read/);
   });
 });
 
@@ -63,6 +63,7 @@ describe("mail MCP server", () => {
   let reads: number;
   let call: (name: string, args?: Record<string, unknown>) => Promise<{ isError: boolean; text: string; json: any }>;
   let tools: string[];
+  let mcp: () => Client;
 
   beforeEach(async () => {
     box = new MemoryMailbox();
@@ -85,11 +86,13 @@ describe("mail MCP server", () => {
     const server = createMailMcpServer({ accounts: [account()], connect: box.connector, onRead: () => void reads++ });
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     await server.connect(serverT);
-    const mcp = new Client({ name: "test", version: "0" });
-    await mcp.connect(clientT);
-    tools = (await mcp.listTools()).tools.map((t) => t.name).sort();
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(clientT);
+    mcp = () => client;
+    const mcp_ = client;
+    tools = (await mcp_.listTools()).tools.map((t) => t.name).sort();
     call = async (name, args = {}) => {
-      const res = (await mcp.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+      const res = (await mcp_.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
       const text = res.content[0]!.text;
       return { isError: !!res.isError, text, json: res.isError ? null : JSON.parse(text) };
     };
@@ -112,7 +115,7 @@ describe("mail MCP server", () => {
       messageId: "<pricelist@arceurotrade.co.uk>",
       from: "Arc Euro Trade <sales@arceurotrade.co.uk>",
       attachments: [
-        { index: 0, filename: "logo.png", readable: false },
+        { index: 0, filename: "logo.png", readable: true },
         { index: 1, filename: "Pricelist Nov 2026.xlsx", readable: true },
         { index: 2, filename: "Terms.pdf", readable: true },
       ],
@@ -134,10 +137,56 @@ describe("mail MCP server", () => {
     const terms = await call("read_attachment", { accountId: "shop", uid: 2, filename: "terms.pdf" });
     expect(terms.json.text).toContain("Carriage free over 100 GBP");
 
-    expect((await call("read_attachment", { accountId: "shop", uid: 2, index: 0 })).text).toMatch(/can't be read/);
     expect((await call("read_attachment", { accountId: "shop", uid: 1 })).text).toBe("That message has no attachments.");
     expect((await call("read_mail", { accountId: "shop", messageId: "<nope@x>" })).isError).toBe(true);
     expect((await call("read_mail", { accountId: "other", uid: 1 })).text).toMatch(/No mailbox "other"/);
+  });
+
+  it("hands images over to look at, including photos pasted into the body", async () => {
+    const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const JPG = Buffer.from("ffd8ffe000104a46494600010100", "hex");
+    const photoMail = await rawEmail({
+        from: "Sam <sam@example.com>",
+        to: "support@desktopmachineshop.com",
+        subject: "Spindle noise",
+        html: '<p>See the photo:</p><img src="cid:pasted1">',
+        messageId: "<photo@example.com>",
+        attachments: [
+          // Pasted into the body: inline, no filename, only a Content-ID.
+          { cid: "pasted1", content: PNG, contentType: "image/png", contentDisposition: "inline" },
+          { filename: "IMG_0042.JPG", content: JPG, contentType: "application/octet-stream" },
+          { filename: "IMG_0043.HEIC", content: Buffer.alloc(16), contentType: "image/heic" },
+        ],
+      });
+    // Nodemailer names every part; phones and Outlook send pasted images with no name at all.
+    const nameless = photoMail.toString().replace(/;\s*(?:file)?name="?attachment-1\.png"?/g, "");
+    expect(nameless).not.toContain("attachment-1.png");
+    box.deliver(Buffer.from(nameless));
+    const mail = await call("read_mail", { accountId: "shop", messageId: "<photo@example.com>" });
+    expect(mail.json.attachments).toMatchObject([
+      { index: 0, filename: "image-1.png", contentType: "image/png", readable: true },
+      { index: 1, filename: "IMG_0042.JPG", readable: true },
+      { index: 2, filename: "IMG_0043.HEIC", readable: false },
+    ]);
+
+    const raw = async (args: Record<string, unknown>) =>
+      (await mcp().callTool({ name: "read_attachment", arguments: { accountId: "shop", messageId: "<photo@example.com>", ...args } })) as {
+        content: { type: string; text?: string; data?: string; mimeType?: string }[];
+        isError?: boolean;
+      };
+    const pasted = await raw({});
+    expect(pasted.isError).toBeFalsy();
+    expect(JSON.parse(pasted.content[0]!.text!)).toMatchObject({ index: 0, filename: "image-1.png", format: "image" });
+    expect(pasted.content[1]).toEqual({ type: "image", data: PNG.toString("base64"), mimeType: "image/png" });
+    expect((await raw({ index: 1 })).content[1]).toEqual({ type: "image", data: JPG.toString("base64"), mimeType: "image/jpeg" });
+    const heic = await raw({ index: 2 });
+    expect(heic.isError).toBe(true);
+    expect(heic.content[0]!.text).toMatch(/can't view.*JPEG/);
+    expect(reads).toBeGreaterThanOrEqual(3);
+
+    const prompt = emailPrompt({ accountId: "shop", ...(await parseEmail(box.messages.at(-1)!.source)) });
+    expect(prompt).toContain("Attachments: image-1.png");
+    expect(prompt).toMatch(/images as the image itself/);
   });
 
   it("tells the agent how to read attachments of the email in its task", async () => {

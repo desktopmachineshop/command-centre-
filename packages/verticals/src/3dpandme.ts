@@ -9,7 +9,7 @@ export default defineVertical({
   color: "#cf4f8f",
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
   skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
-  mcpServers: ["brain", "odoo", "pa"],
+  mcpServers: ["brain", "odoo", "pa", "mail"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   roles: [
     {

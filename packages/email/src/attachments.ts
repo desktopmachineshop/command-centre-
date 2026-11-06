@@ -23,20 +23,61 @@ export interface AttachmentText {
   parts?: number;
 }
 
+type ParsedAttachment = { filename?: string; contentType: string; contentDisposition?: string; size: number; content: Buffer };
+
+/**
+ * The attachments worth listing, named: files, plus images even when they are inline with no
+ * filename (a photo pasted into the body, as phones and Outlook send them). Other unnamed inline
+ * parts are dropped. `parseEmail` and `mailAttachments` both list through this, so indexes agree.
+ */
+export function listedAttachments<T extends ParsedAttachment>(all: T[]): (T & { filename: string })[] {
+  let unnamed = 0;
+  return all
+    .filter((a) => a.filename || a.contentDisposition !== "inline" || a.contentType.toLowerCase().startsWith("image/"))
+    .map((a) => {
+      if (a.filename) return { ...a, filename: a.filename };
+      unnamed++;
+      const sub = /^image\/([a-z0-9.+-]+)/i.exec(a.contentType)?.[1]?.toLowerCase();
+      const name = sub ? `image-${unnamed}.${sub === "jpeg" ? "jpg" : sub.replace(/\+.*$/, "")}` : "(unnamed)";
+      return { ...a, filename: name };
+    });
+}
+
 /** The attachments of a raw message, in the order `parseEmail` lists them. */
 export async function mailAttachments(source: Buffer | string): Promise<MailAttachment[]> {
   const mail = await simpleParser(source, { skipImageLinks: true, skipTextToHtml: true, skipTextLinks: true });
-  return mail.attachments
-    .filter((a) => a.contentDisposition !== "inline" || a.filename)
-    .map((a, index) => ({ index, filename: a.filename ?? "(unnamed)", contentType: a.contentType, size: a.size, content: a.content }));
+  return listedAttachments(mail.attachments).map((a, index) => ({ index, filename: a.filename, contentType: a.contentType, size: a.size, content: a.content }));
 }
+
+/** Image types an agent can look at, by MIME type. */
+const VIEWABLE_IMAGES: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp" };
+/** Largest image handed to an agent (the model's limit is 5 MB per image). */
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** True for any image attachment, viewable or not (HEIC, TIFF, BMP...). */
+export function isImageAttachment(filename: string, contentType: string): boolean {
+  return contentType.toLowerCase().startsWith("image/") || /\.(jpe?g|png|gif|webp|heic|heif|tiff?|bmp|svg)$/i.test(filename);
+}
+
+/** The MIME type an agent can view an image attachment as, or null when it isn't one it can see. */
+export function viewableImageType(filename: string, contentType: string): string | null {
+  const type = contentType.toLowerCase().split(";")[0]!.trim();
+  if (type === "image/jpg") return "image/jpeg";
+  if (Object.values(VIEWABLE_IMAGES).includes(type)) return type;
+  // Some mailers send photos as application/octet-stream: go by the name.
+  return type === "application/octet-stream" || !type ? (VIEWABLE_IMAGES[ext(filename)] ?? null) : null;
+}
+
+/** Whether the mail tools can read an attachment: as text, or as an image to look at. */
+export const attachmentReadable = (filename: string, contentType: string) =>
+  attachmentFormat(filename, contentType) !== null || viewableImageType(filename, contentType) !== null;
 
 const ext = (name: string) => /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? "";
 const SHEET_EXT = new Set(["xlsx", "xlsm", "xlsb", "xls", "ods", "numbers"]);
 const SHEET_TYPES = /spreadsheet|excel|ms-excel|opendocument\.spreadsheet/i;
 const TEXT_EXT = new Set(["csv", "tsv", "txt", "md", "json", "xml"]);
 
-/** Which reader an attachment needs, or null when it can't be read as text (images, archives, Word files...). */
+/** Which text reader an attachment needs, or null when it can't be read as text (images, archives, Word files...). */
 export function attachmentFormat(filename: string, contentType: string): AttachmentText["format"] | null {
   const e = ext(filename);
   const type = contentType.toLowerCase();
@@ -94,5 +135,7 @@ export async function attachmentText(a: Pick<MailAttachment, "filename" | "conte
   }
   if (format === "html") return { ...base, format, ...clip(htmlText(a.content.toString("utf8")), maxChars) };
   if (format === "text") return { ...base, format, ...clip(a.content.toString("utf8").replace(/\r\n/g, "\n"), maxChars) };
-  throw new Error(`${a.filename} (${a.contentType}) can't be read as text; PDFs, spreadsheets (xlsx, xls, ods, csv), HTML and text files can`);
+  throw new Error(
+    `${a.filename} (${a.contentType}) can't be read; PDFs, spreadsheets (xlsx, xls, ods, csv), HTML and text files can, and JPEG, PNG, GIF and WebP images can be viewed`,
+  );
 }
