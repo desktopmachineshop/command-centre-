@@ -319,7 +319,13 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
   const sendcloudAccounts = mergeById(
     base.shipping.accounts,
     sendcloudEntries.flatMap(
-      (e) => attempt(e, () => SendcloudAccount.parse({ id: e.id, vertical: e.data.vertical ?? "dms", publicKey: str(e.data.publicKey), secretKey: str(e.secrets.secretKey) })) ?? [],
+      (e) => attempt(e, () => SendcloudAccount.parse({
+            id: e.id,
+            vertical: e.data.vertical ?? "dms",
+            publicKey: str(e.data.publicKey),
+            secretKey: str(e.secrets.secretKey),
+            ...(typeof e.data.odooNotes === "boolean" ? { odooNotes: e.data.odooNotes } : {}),
+          })) ?? [],
     ),
   );
 
@@ -447,7 +453,7 @@ export function railwayEntries(base: Config): EntryInput[] {
   if (p.openaiApiKey) add("openai", DEFAULT_ID, {}, { apiKey: p.openaiApiKey });
   if (p.elevenlabsApiKey) add("elevenlabs", DEFAULT_ID, {}, { apiKey: p.elevenlabsApiKey });
   if (base.odoo) add("odoo", DEFAULT_ID, { url: base.odoo.url, db: base.odoo.db, username: base.odoo.username, api: base.odoo.api }, { apiKey: base.odoo.apiKey });
-  for (const a of base.shipping.accounts) add("sendcloud", a.id, { vertical: a.vertical, publicKey: a.publicKey }, { secretKey: a.secretKey });
+  for (const a of base.shipping.accounts) add("sendcloud", a.id, { vertical: a.vertical, publicKey: a.publicKey, odooNotes: a.odooNotes }, { secretKey: a.secretKey });
   for (const m of base.email.accounts) {
     if (m.oauth?.provider === "google") {
       add("gmail", m.id, { vertical: m.vertical, address: m.address, displayName: m.displayName, mailbox: m.mailbox, ignoreFrom: m.ignoreFrom }, { refreshToken: m.oauth.refreshToken });

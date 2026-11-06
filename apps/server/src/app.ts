@@ -39,6 +39,7 @@ import { Store } from "./db/store";
 import { type CodeOptions, createCodeExecutors, sweepMergedCheckouts } from "./code";
 import { DigestService } from "./digest";
 import type { OdooLateNow, OdooStockNow } from "./odoo-digest";
+import { ShippingNotes } from "./shipping-notes";
 import { createSendcloudMcpServer, ShippingService } from "@cc/sendcloud";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
@@ -426,6 +427,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     return c.shipping.accounts.length ? new ShippingService(c.shipping.accounts, { fetch: overrides.sendcloudFetch, baseUrl: overrides.sendcloudBaseUrl }) : null;
   };
   const shipping = new Live(buildShipping(config));
+  // Sendcloud tracking updates as internal notes on Odoo delivery orders, while both are connected.
+  const shippingNotes = new ShippingNotes({
+    shipping: () => shipping.current,
+    odoo: () => odoo.current.client,
+    store,
+    timeZone: config.timezone,
+  });
 
   // --- PA: reminders and lists (always), Google Calendar when CALENDAR_ACCOUNTS is set; /mcp/pa below ---
   const paStore = new PgPaStore(pool);
@@ -869,6 +877,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     rollover,
     publishScheduledPosts,
     auth,
+    /** Sendcloud tracking → internal notes on Odoo delivery orders. */
+    shippingNotes,
     /** The current Odoo event poller (none unless Odoo and its events are set up). */
     get odooEvents() {
       return odoo.current.events;
@@ -945,6 +955,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await email.start();
       await social.start();
       await odoo.start();
+      shippingNotes.start();
     },
     async stop() {
       await claudeSetup.cancel();
@@ -955,6 +966,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       voiceFront?.stop();
       await social.stop();
       await odoo.stop();
+      await shippingNotes.stop();
       await queue.stop();
       await serverLog.uninstall();
       await pool.end();
