@@ -11,7 +11,7 @@ import { AttachedFiles, Composer } from "../composer";
 import { chatExpired, clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
-import { ReadAloudToggle, useReadAloud } from "../voice/readAloud";
+import { PlayReply, ReadAloudToggle, useReadAloud } from "../voice/readAloud";
 import { Drive, type Exchange } from "./Drive";
 import { go } from "../router";
 
@@ -485,8 +485,13 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
               ) : (
                 <div className="row small muted">Converse</div>
               )}
-              {t.reply && <Markdown className="msg text" text={t.reply} />}
-              <Transcript messages={t.messages} />
+              {t.reply && (
+                <div className="msg-with-play">
+                  <Markdown className="msg text" text={t.reply} />
+                  <PlayReply readAloud={readAloud} id={`turn-${t.key}:reply`} text={t.reply} />
+                </div>
+              )}
+              <Transcript messages={t.messages} readAloud={readAloud} id={`turn-${t.key}`} />
               {t.task?.status === "failed" && latestTurnOf.get(t.task.id) === t.key && (
                 <ErrorReport
                   title="This didn't finish"

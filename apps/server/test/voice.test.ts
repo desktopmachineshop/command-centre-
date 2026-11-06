@@ -207,6 +207,75 @@ describe.skipIf(!DB_URL)("voice API (integration)", () => {
   });
 });
 
+describe("voice API when the keyed provider refuses", () => {
+  const refusing = {
+    provider: "elevenlabs",
+    model: "eleven_flash_v2_5",
+    defaultVoice: "JBFqnCBsd6RMkjVDRZzb",
+    synthesize: async () => {
+      throw new Error("elevenlabs 402: Free users cannot use library voices via the API. Please upgrade your subscription to use this voice.");
+    },
+  };
+  const local = {
+    ttsReady: true,
+    voice: "piper:cori",
+    ttsModel: { dir: "piper" },
+    synthesize: async () => ({ samples: new Float32Array(8), sampleRate: 16000, voice: "piper:cori" }),
+  };
+  const service = new VoiceService({} as never, {} as never, {} as never, {
+    tts: refusing as never,
+    local: local as never,
+    maxUploadBytes: 1024,
+    maxSeconds: 60,
+    language: "en-GB",
+    timezone: "Europe/London",
+  });
+  const app = voiceApiRoutes({ service, conversations: {} as never });
+
+  it("speaks with the server's own voice and says why", async () => {
+    const res = await app.request("/voice/speak", { method: "POST", body: JSON.stringify({ text: "hi" }), headers: { "content-type": "application/json" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/wav/);
+    expect(res.headers.get("x-cc-voice")).toBe("piper:cori");
+    expect(res.headers.get("x-cc-fallback")).toMatch(/^elevenlabs: elevenlabs 402: Free users cannot use library voices/);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+describe("ElevenLabs voices picked by name", () => {
+  const calls: { provider: string; voice?: string }[] = [];
+  const speaker = (provider: string) => ({
+    provider,
+    model: "m",
+    defaultVoice: "default-voice",
+    synthesize: async (_text: string, o: { voice?: string } = {}) => {
+      calls.push({ provider, voice: o.voice });
+      return { audio: new Uint8Array([1, 2, 3]), mime: "audio/mpeg" };
+    },
+  });
+  const service = new VoiceService({} as never, {} as never, {} as never, {
+    tts: speaker("openai") as never,
+    elevenlabs: speaker("elevenlabs") as never,
+    elevenlabsVoices: [{ id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel" }],
+    maxUploadBytes: 1024,
+    maxSeconds: 60,
+    language: "en-GB",
+    timezone: "Europe/London",
+  });
+
+  it("lists them and speaks each with ElevenLabs, leaving the default provider for the rest", async () => {
+    expect(service.voices().voices).toEqual([
+      { id: "elevenlabs:21m00Tcm4TlvDq8ikWAM", label: "Rachel", description: "ElevenLabs", tier: "elevenlabs", sizeMb: 0, status: "ready", error: null, isDefault: false },
+    ]);
+    await service.speak("Hello there", "elevenlabs:21m00Tcm4TlvDq8ikWAM");
+    await service.speak("Hello there");
+    expect(calls).toEqual([
+      { provider: "elevenlabs", voice: "21m00Tcm4TlvDq8ikWAM" },
+      { provider: "openai", voice: undefined },
+    ]);
+  });
+});
+
 describe("voice API without server providers", () => {
   const service = new VoiceService({} as never, {} as never, {} as never, { maxUploadBytes: 1024, maxSeconds: 60, language: "en-GB", timezone: "Europe/London" });
   const app = voiceApiRoutes({ service, conversations: {} as never });

@@ -10,7 +10,7 @@ export {
   wordsFromAlignment,
 } from "./elevenlabs";
 export { FakeSpeechToText, FakeTextToSpeech } from "./fake";
-export { createVoiceProviders, type SttProviderName, type TtsProviderName, type VoiceProviderConfig } from "./providers";
+export { createVoiceProviders, type ElevenLabsVoiceChoice, parseElevenLabsVoices, type SttProviderName, type TtsProviderName, type VoiceProviderConfig } from "./providers";
 export { plural, speakable, spokenNumbers, spokenUsd, truncate, type SpeakableOptions } from "./speakable";
 export {
   parseVoiceResponse,

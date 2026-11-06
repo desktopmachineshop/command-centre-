@@ -7,6 +7,7 @@ import {
   FakeTextToSpeech,
   OpenAISpeechToText,
   OpenAITextToSpeech,
+  parseElevenLabsVoices,
   redact,
   VoiceProviderError,
   wordsFromAlignment,
@@ -176,6 +177,24 @@ describe("createVoiceProviders", () => {
     expect(createVoiceProviders({ stt: "off", tts: "off", openaiApiKey: OPENAI_KEY })).toEqual({ stt: undefined, tts: undefined });
     expect(() => createVoiceProviders({ stt: "openai", tts: "off" })).toThrow(/OPENAI_API_KEY/);
     expect(() => createVoiceProviders({ stt: "off", tts: "elevenlabs" })).toThrow(/ELEVENLABS_API_KEY/);
+  });
+
+  it("keeps ElevenLabs for picked voices when another provider is the default", () => {
+    const p = createVoiceProviders({ stt: "auto", tts: "openai", openaiApiKey: OPENAI_KEY, elevenlabsApiKey: ELEVEN_KEY });
+    expect([p.tts?.provider, p.elevenlabs?.provider]).toEqual(["openai", "elevenlabs"]);
+    const same = createVoiceProviders({ stt: "auto", tts: "auto", elevenlabsApiKey: ELEVEN_KEY });
+    expect(same.elevenlabs).toBe(same.tts);
+    expect(createVoiceProviders({ stt: "off", tts: "off", elevenlabsApiKey: ELEVEN_KEY }).elevenlabs).toBeUndefined();
+  });
+});
+
+describe("parseElevenLabsVoices", () => {
+  it("reads 'Name = id', 'Name: id' and bare ids, skipping blanks, junk and repeats", () => {
+    expect(parseElevenLabsVoices(["Rachel = 21m00Tcm4TlvDq8ikWAM", "  ", "George: JBFqnCBsd6RMkjVDRZzb", "pNInz6obpgDQGcFmaJgB", "21m00Tcm4TlvDq8ikWAM", "not a voice"])).toEqual([
+      { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel" },
+      { id: "JBFqnCBsd6RMkjVDRZzb", label: "George" },
+      { id: "pNInz6obpgDQGcFmaJgB", label: "pNInz6obpgDQGcFmaJgB" },
+    ]);
   });
 });
 

@@ -95,7 +95,7 @@ export interface Overrides {
   /** Cheaper password hashing for tests. */
   scrypt?: ScryptParams;
   /** Server speech providers (tests use fakes); default from VOICE_* config. */
-  voiceProviders?: { stt?: SpeechToText; tts?: TextToSpeech };
+  voiceProviders?: { stt?: SpeechToText; tts?: TextToSpeech; elevenlabs?: TextToSpeech };
   /** Calendar for the spoken briefing (the personal-assistant calendar plugs in here). */
   voiceCalendar?: VoiceCalendar;
   /** Self-hosted speech; null turns it off (tests). */
@@ -491,6 +491,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const buildVoice = (c: Config) => ({
     ...(overrides.voiceProviders ?? createVoiceProviders(c.voice.providers)),
     videoTts: videoTtsFromConfig(c.voice.providers),
+    elevenlabsVoices: c.voice.providers.elevenlabsVoices ?? [],
   });
   const voice = new Live(buildVoice(config));
   // --- end voice keys ---
@@ -664,6 +665,12 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     get tts() {
       return voice.current.tts;
+    },
+    get elevenlabs() {
+      return voice.current.elevenlabs;
+    },
+    get elevenlabsVoices() {
+      return voice.current.elevenlabsVoices;
     },
     get calendar() {
       const service = calendar.current.service;

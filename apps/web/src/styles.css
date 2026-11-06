@@ -1526,6 +1526,33 @@ a.status:hover {
   line-height: 1.6;
 }
 
+/* A reply with its play button (listen again on demand) in the top right corner. */
+.msg-with-play {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.msg-with-play > .msg {
+  flex: 1;
+  min-width: 0;
+}
+.play-reply {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  opacity: 0.55;
+}
+.play-reply:hover,
+.play-reply:focus-visible,
+.play-reply.is-on {
+  opacity: 1;
+}
+
 /* Markdown (agent replies) */
 .md > :first-child {
   margin-top: 0;

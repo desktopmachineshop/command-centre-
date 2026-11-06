@@ -17,6 +17,31 @@ export interface VoiceProviderConfig {
   elevenlabsSttModel?: string;
   elevenlabsTtsModel?: string;
   elevenlabsVoice?: string;
+  /** ElevenLabs voices offered in the voice picker, beside the server's own. */
+  elevenlabsVoices?: ElevenLabsVoiceChoice[];
+}
+
+/** An ElevenLabs voice Dave added on the Accounts page. */
+export interface ElevenLabsVoiceChoice {
+  id: string;
+  label: string;
+}
+
+/**
+ * Parses the Accounts page's "ElevenLabs voices" lines: "Name = voice id", "Name: voice id" or a
+ * bare voice id. Blank lines and duplicate ids are dropped. Pure.
+ */
+export function parseElevenLabsVoices(lines: readonly string[]): ElevenLabsVoiceChoice[] {
+  const out: ElevenLabsVoiceChoice[] = [];
+  for (const raw of lines.flatMap((l) => l.split(/[\n,]/))) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = /^(.*?)\s*[=:]\s*([A-Za-z0-9]{10,40})$/.exec(line);
+    const id = m ? m[2]! : line.split(/\s+/).pop()!;
+    if (!/^[A-Za-z0-9]{10,40}$/.test(id) || out.some((v) => v.id === id)) continue;
+    out.push({ id, label: m?.[1]?.trim() || id });
+  }
+  return out;
 }
 
 /**
@@ -25,7 +50,7 @@ export interface VoiceProviderConfig {
  * good accuracy) and ElevenLabs for TTS (most natural, lowest latency), falling
  * back to whichever key exists. Naming a provider without its key is an error.
  */
-export function createVoiceProviders(config: VoiceProviderConfig, fetch?: Fetch): { stt?: SpeechToText; tts?: TextToSpeech } {
+export function createVoiceProviders(config: VoiceProviderConfig, fetch?: Fetch): { stt?: SpeechToText; tts?: TextToSpeech; elevenlabs?: TextToSpeech } {
   const { openaiApiKey: openai, elevenlabsApiKey: eleven } = config;
   const need = (name: string, key: string | undefined, variable: string) => {
     if (!key) throw new Error(`${name} needs ${variable}`);
@@ -64,5 +89,12 @@ export function createVoiceProviders(config: VoiceProviderConfig, fetch?: Fetch)
             fetch,
           })
         : undefined;
-  return { stt, tts };
+  // ElevenLabs for the voices picked by name, whichever provider is the default (none with TTS off).
+  const elevenlabs =
+    tts?.provider === "elevenlabs"
+      ? tts
+      : eleven && config.tts !== "off"
+        ? new ElevenLabsTextToSpeech({ apiKey: eleven, model: config.elevenlabsTtsModel, voice: config.elevenlabsVoice, fetch })
+        : undefined;
+  return { stt, tts, elevenlabs };
 }

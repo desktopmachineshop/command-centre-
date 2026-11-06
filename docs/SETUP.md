@@ -2230,7 +2230,7 @@ server voice anyway, tick **Options → Use the server voice**.
 | `VOICE_TTS_PROVIDER` | `auto` | `openai`, `elevenlabs`, `off`; `auto` = ElevenLabs, else OpenAI |
 | `VOICE_OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` | or `gpt-4o-transcribe`, `whisper-1` |
 | `VOICE_OPENAI_TTS_MODEL` / `VOICE_OPENAI_VOICE` | `gpt-4o-mini-tts` / `fable` | |
-| `VOICE_ELEVENLABS_TTS_MODEL` / `VOICE_ELEVENLABS_VOICE` | `eleven_flash_v2_5` / George (British) | voice id from the ElevenLabs voice library |
+| `VOICE_ELEVENLABS_TTS_MODEL` / `VOICE_ELEVENLABS_VOICE` | `eleven_flash_v2_5` / George (British) | default voice id (when no voice is picked). More ElevenLabs voices for the voice picker: Accounts → Voice settings → ElevenLabs voices. If ElevenLabs refuses (e.g. a free plan and a library voice), the server speaks with its own voice instead |
 | `VOICE_ELEVENLABS_STT_MODEL` | `scribe_v2` | |
 | `VOICE_MAX_UPLOAD_KB` / `VOICE_MAX_SECONDS` | `2048` / `60` | limits for `POST /api/voice/transcribe` |
 | `VOICE_LANGUAGE` | `en-GB` | |

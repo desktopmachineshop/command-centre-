@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { VoiceConfig } from "../src/api";
 import { readVoiceChoice, speakerFor, writeVoiceChoice } from "../src/voice/choice";
 import { BrowserSpeaker, ServerSpeaker } from "../src/voice/speech";
-import { voiceLabel } from "../src/voice/VoicePicker";
+import { fallbackNote, voiceLabel } from "../src/voice/VoicePicker";
 
 function fakeStorage() {
   const m = new Map<string, string>();
@@ -49,5 +49,12 @@ describe("voice choice (per device)", () => {
     expect(voiceLabel({ ...v, status: "ready" })).toBe("Alba · Scottish female · fast");
     expect(voiceLabel({ ...v, status: "missing" })).toBe("Alba · Scottish female · fast (downloads 64 MB)");
     expect(voiceLabel({ ...v, status: "installing", isDefault: true })).toBe("Alba · Scottish female · fast · default (downloading…)");
+  });
+
+  it("says why the keyed provider didn't speak", () => {
+    expect(fallbackNote("elevenlabs: elevenlabs 402: Free users cannot use library voices via the API.")).toBe(
+      "ElevenLabs couldn't speak: elevenlabs 402: Free users cannot use library voices via the API.",
+    );
+    expect(fallbackNote("openai")).toBe("OpenAI couldn't speak.");
   });
 });
