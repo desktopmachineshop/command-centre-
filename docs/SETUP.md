@@ -310,8 +310,10 @@ Tuesday?", "how's my waist doing?"). Nothing is ever logged or changed in openGy
    a workout or a weigh-in so there is a profile to read.
 2. In openGym: **Settings → Pair the mobile app**. It shows an 8-character code that lasts 5 minutes.
 3. In the app: **Accounts → openGym**, enter the address (e.g. `https://gym.example.com`) and paste
-   the code, then **Save**. Command Centre swaps the code for a token the first time it reads
-   openGym and saves the token in place of the code. openGym renews the token while it is in use
+   the code, then **Save** within the 5 minutes. Command Centre swaps the code for a token at once,
+   saves the token in place of the code, and the card shows "Paired with openGym as ..." or why it
+   failed. openGym keeps unused codes in memory only, so a code made before openGym restarts is gone:
+   make a new one. openGym renews the token while it is in use
    (it lasts `SESSION_DAYS`, 90 by default), and the renewed one is saved too.
 
 **Sign out everywhere** in openGym revokes the token: pair again and paste the new code. With

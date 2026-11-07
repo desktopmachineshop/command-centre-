@@ -70,6 +70,8 @@ export class GymService {
   private cached: { rev: number; state: GymState | null } | null = null;
   private lastRenewCheck = 0;
   readonly names: ExerciseNames;
+  /** The eager pairing started when the service was built with a pairing code (tests await it). */
+  paired?: Promise<unknown>;
 
   constructor(
     account: OpenGymAccount,
