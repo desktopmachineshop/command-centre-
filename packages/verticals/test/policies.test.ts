@@ -40,14 +40,18 @@ describe("action policies", () => {
     expect(Object.keys(INTERNAL_AUTO_POLICIES).filter((k) => OUTWARD.includes(k))).toEqual([]);
   });
 
-  it("makes every Odoo write wait for Dave, internal notes included, whatever the policy says", () => {
+  it("runs an internal Odoo note without approval, and makes every other Odoo write wait, whatever the policy says", () => {
     const dms = verticals.find((v) => v.id === "dms")!;
-    for (const internal of [true, false, undefined]) {
+    expect(proposalPolicy(dms, "odoo.message.post", { model: "sale.order", id: 1, body: "x", internal: true })).toBe("auto-with-digest");
+    // A message to the record's followers (the customer) still waits, however `internal` is spelled.
+    for (const internal of [false, undefined, "true", 1]) {
       expect(proposalPolicy(dms, "odoo.message.post", { model: "sale.order", id: 1, body: "x", internal }), String(internal)).toBe("draft");
     }
-    const loose = { ...dms, defaultPolicy: "auto" as const, policies: { "odoo.invoice.post": "auto" as const, "odoo.message.post.internal": "auto-with-digest" as const } };
+    // Without its own policy, an internal note waits like any other Odoo write.
+    expect(proposalPolicy({ ...dms, policies: {} }, "odoo.message.post", { internal: true })).toBe("draft");
+    const loose = { ...dms, defaultPolicy: "auto" as const, policies: { "odoo.invoice.post": "auto" as const, "odoo.message.post": "auto" as const } };
     for (const type of ["odoo.invoice.post", "odoo.message.post", "odoo.order.confirm", "odoo.anything"]) {
-      expect(proposalPolicy(loose, type, { internal: true }), type).toBe("draft");
+      expect(proposalPolicy(loose, type, {}), type).toBe("draft");
     }
     // Other actions keep the business's policy.
     expect(proposalPolicy(loose, "pa.reminder.add", {})).toBe("auto");

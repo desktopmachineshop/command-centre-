@@ -89,7 +89,7 @@ const AREAS = [
       ],
       kpis: ["No stock-out without warning", "Every invoice filed within a day", "Every supplier price list in the brain within a day"],
       autonomyNotes:
-        "May file notes in the brain. Every Odoo change (internal notes, invoices, payments, deliveries, stock counts, purchase orders) is a proposal Dave approves.",
+        "May file notes in the brain and post internal Odoo notes. Every other Odoo change (invoices, payments, deliveries, stock counts, purchase orders) is a proposal Dave approves.",
     },
 ];
 

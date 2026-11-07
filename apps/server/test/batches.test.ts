@@ -5,8 +5,8 @@ import { DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./
 /**
  * Batches (propose_batch): related proposals, say a message to each open delivery order, that
  * Dave sees in full and approves or rejects once. Customer-facing batches still wait for him,
- * outside input still makes drafts, internal chasers (reminders, notify) run without approval,
- * and Odoo writes, internal notes included, always wait for him.
+ * outside input still makes drafts, and internal chasers (reminders, notify, internal Odoo notes)
+ * run without approval.
  */
 describe.skipIf(!DB_URL)("proposal batches", () => {
   let ctx: Awaited<ReturnType<typeof makeServer>>;
@@ -110,7 +110,7 @@ describe.skipIf(!DB_URL)("proposal batches", () => {
     expect(run).toContain("Nothing in the batch was proposed");
   });
 
-  it("runs internal chasers straight away (notify, reminders) but holds internal Odoo notes for approval", async () => {
+  it("runs internal chasers straight away: internal Odoo notes, notify and reminders", async () => {
     calls.push(batch([post(81, "Hal", true), post(82, "Ivy", true)], "Internal chaser notes on two late deliveries"));
     calls.push({ server: "actions", tool: "propose_action", args: { actionType: "notify", summary: "Chase Hal", payload: { title: "Chase", body: "S00081 is late", category: "reminder" } } });
     calls.push({ server: "actions", tool: "propose_action", args: { actionType: "pa.reminder.add", summary: "Chase S00082", payload: { text: "Chase S00082", due: "2030-01-07T09:00" } } });
@@ -118,13 +118,13 @@ describe.skipIf(!DB_URL)("proposal batches", () => {
     const proposals = await proposalsOf(taskId);
     const notes = proposals.filter((p) => p.actionType === "odoo.message.post");
     expect(notes.map((p) => [p.policy, p.status])).toEqual([
-      ["draft", "pending"],
-      ["draft", "pending"],
+      ["auto-with-digest", "executed"],
+      ["auto-with-digest", "executed"],
     ]);
     expect(proposals.find((p) => p.actionType === "notify")).toMatchObject({ policy: "auto-with-digest", status: "executed" });
     expect(proposals.find((p) => p.actionType === "pa.reminder.add")).toMatchObject({ policy: "auto", status: "executed" });
-    expect(odoo.callsTo("message_post").filter((c) => c.params.ids && [81, 82].includes((c.params.ids as number[])[0]!))).toEqual([]);
-    await ctx.api(`/api/batches/${notes[0].batchId}/reject`, { method: "POST" });
+    // No approval request for any of them.
+    expect(ctx.notifier.sent.filter((n) => n.title.startsWith("Approve"))).toEqual([]);
   });
 
   it("holds the whole batch when one item is customer-facing", async () => {
@@ -133,7 +133,7 @@ describe.skipIf(!DB_URL)("proposal batches", () => {
     const proposals = await proposalsOf(taskId);
     expect(proposals.map((p) => p.status)).toEqual(["pending", "pending"]);
     const note = proposals.find((p) => p.payload.internal === true);
-    expect(note).toMatchObject({ policy: "draft", status: "pending" });
+    expect(note.payload.policyDowngrade).toEqual({ from: "auto-with-digest", reason: "part of a batch that waits for Dave's approval as a whole" });
     expect(ctx.notifier.sent.filter((n) => n.title.startsWith("Approve"))).toHaveLength(1);
     await ctx.api(`/api/batches/${proposals[0].batchId}/reject`, { method: "POST" });
   });

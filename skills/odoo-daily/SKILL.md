@@ -5,11 +5,13 @@ description: The everyday Odoo work for Desktop Machine Shop - looking things up
 
 # Odoo, day to day
 
-**Reading is free; every change waits for Dave.** The `odoo` MCP tools only read, and you can call
+**Reading is free; changes wait for Dave.** The `odoo` MCP tools only read, and you can call
 them as often as you need without asking. Every change to Odoo is a `propose_action` (or one
 `propose_batch` for several of the same kind) with an `odoo.*` action type, and every one of them
-waits for Dave's approval: internal notes too, whatever a business's policy says. So look things
-up first, then propose exactly one clear change with a summary Dave can approve from his phone.
+waits for Dave's approval, whatever a business's policy says. The one exception is an internal
+note (`odoo.message.post` with `internal: true`), which only staff see: it is posted straight away
+and listed in the digest. So look things up first, then propose exactly one clear change with a
+summary Dave can approve from his phone.
 
 Never guess an id: find it with a search tool first. Never invent a figure: quote what Odoo says.
 

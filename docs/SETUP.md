@@ -1133,12 +1133,14 @@ that reads outside mail makes its proposals drafts, which would hold the brief f
 
 **Internal actions run without approval** in every vertical (`INTERNAL_AUTO_POLICIES` in
 `packages/verticals/src/policies.ts`): reminders and to-dos (`pa.reminder.add`, `.update`,
-`.complete`, `.cancel`, `pa.items.add`, `pa.item.complete`) are `auto`; `notify` is
+`.complete`, `.cancel`, `pa.items.add`, `pa.item.complete`) are `auto`; `notify` and an internal
+Odoo note (`odoo.message.post` with `internal: true`, policy key `odoo.message.post.internal`) are
 `auto-with-digest`. These are what a "chaser" is: there is no `chaser` action. Anything that
 reaches someone else (`email.*`, `social.*`) or changes prices or publishes still waits for
-approval, and so does **every change to Odoo** (any `odoo.*` action, internal notes included):
-that is fixed in code (`ODOO_WRITE_POLICY` in `packages/core/src/vertical.ts`), whatever a
-business's policies say, and the Businesses page shows those action types as always waiting.
+approval, and so does **every other change to Odoo** (any other `odoo.*` action, including an
+`odoo.message.post` to the record's followers): that is fixed in code (`ODOO_WRITE_POLICY` in
+`packages/core/src/vertical.ts`), whatever a business's policies say, and the Businesses page shows
+those action types as always waiting.
 
 **Batches.** Several related actions (a message to each open delivery order) go through the
 `propose_batch` tool as one batch: Approvals shows one card with every item (recipient and text),
@@ -1393,7 +1395,8 @@ in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifica
 
 The server talks to Odoo Online through its external API. No custom modules are needed. When
 Odoo is configured, the DMS and 3dpandme agents get the read-only `odoo` MCP server. **Reading
-never needs approval; every change to Odoo does.**
+never needs approval; every change to Odoo does, except an internal note**, which is posted
+straight away and shown in the digest.
 
 Read tools (no approval): products (`search_products`, `get_product`, `stock_by_location`,
 `product_suppliers`, `low_stock`), customers (`search_customers`, `get_customer_history`), sales
@@ -1405,7 +1408,7 @@ discount programs (`list_websites`, `search_blog_posts`, `search_loyalty_program
 `search_records` to read any other model. A tool whose Odoo app isn't installed answers with a
 short error; fields an Odoo version doesn't have are left out.
 
-Write actions, every one waiting for Dave's approval (many approvals also show what Odoo says
+Write actions, each waiting for Dave's approval apart from internal notes (many approvals also show what Odoo says
 now: a quote's lines and totals, what an invoice still owes, stock on hand, current details,
 possible duplicates):
 
