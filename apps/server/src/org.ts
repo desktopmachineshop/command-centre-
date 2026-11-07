@@ -1,4 +1,4 @@
-import { leadOf, type OrgRoleNode, type OrgTree, type OrgVerticalNode, ROOT_ROLE_ID, type RoleStats } from "@cc/core";
+import { type OrgRoleNode, type OrgTree, type OrgVerticalNode, ROOT_ROLE_ID, type RoleStats } from "@cc/core";
 import type { OrgRole, VerticalRegistry } from "@cc/verticals";
 
 export type RoleStatsRow = { vertical: string; role: string | null; open: number; done: number; costUsd: number; pending: number };
@@ -12,64 +12,62 @@ const add = (a: RoleStats, b: RoleStats): RoleStats => ({
   pendingApprovals: a.pendingApprovals + b.pendingApprovals,
 });
 
+const schedulesOf = (list: { id: string; cron: string; timezone: string; enabled: boolean }[]) =>
+  list.map(({ id, cron, timezone, enabled }) => ({ id, cron, timezone, enabled }));
+
 /**
- * The org chart for GET /api/org: Chief of Staff → verticals → leads → roles,
- * each role with its live numbers. Tasks without a role (from before roles)
- * and tasks naming a role that no longer exists count towards the vertical's lead.
+ * The Businesses page (GET /api/org): the assistant, then each business with its context, policies,
+ * schedules, budget and specialists, each with live numbers. A task counts towards its specialist
+ * when it names one, otherwise towards the assistant (tasks of roles that no longer exist included).
  */
 export function buildOrgTree(registry: VerticalRegistry, rows: RoleStatsRow[], windowDays: number, now = new Date()): OrgTree {
   const stats = new Map<string, RoleStats>();
-  const keyOf = (vertical: string, role: string | null): string | null => {
-    const v = registry.get(vertical);
-    if (!v) return null;
-    if (role === ROOT_ROLE_ID && vertical === registry.rootVertical) return `${vertical}/${ROOT_ROLE_ID}`;
-    const known = registry.roles(vertical).some((r) => r.id === role && r.id !== ROOT_ROLE_ID);
-    return `${vertical}/${known ? role : leadOf(v).id}`;
-  };
   for (const row of rows) {
-    const key = keyOf(row.vertical, row.role);
-    if (!key) continue;
-    stats.set(key, add(stats.get(key) ?? zero(), { openTasks: row.open, doneTasks: row.done, costUsd: row.costUsd, pendingApprovals: row.pending }));
+    if (!registry.get(row.vertical)) continue;
+    const specialist = registry.roles(row.vertical).some((r) => r.id === row.role && r.id !== ROOT_ROLE_ID);
+    const value = { openTasks: row.open, doneTasks: row.done, costUsd: row.costUsd, pendingApprovals: row.pending };
+    const key = `${row.vertical}/${specialist ? row.role : ROOT_ROLE_ID}`;
+    stats.set(key, add(stats.get(key) ?? zero(), value));
   }
 
-  const node = (r: OrgRole, vertical: string, implicit: boolean): OrgRoleNode => ({
+  const node = (r: OrgRole, vertical: string, s: RoleStats): OrgRoleNode => ({
     id: r.id,
     title: r.title,
     mission: r.mission,
     vertical,
-    reportsTo: r.reportsTo,
-    implicit,
     aliases: r.aliases,
-    intents: r.intents,
     skills: r.skills,
     mcpServers: r.mcpServers ?? registry.get(vertical)?.mcpServers ?? [],
     actions: r.actions,
-    schedules: r.schedules.map(({ id, cron, timezone, enabled }) => ({ id, cron, timezone, enabled })),
+    schedules: schedulesOf(r.schedules),
     kpis: r.kpis,
     autonomyNotes: r.autonomyNotes,
-    stats: stats.get(`${vertical}/${r.id}`) ?? zero(),
-    children: [],
+    stats: s,
   });
 
+  let assistant = zero();
   const verticals: OrgVerticalNode[] = registry.all().map((v) => {
-    const roles = registry.roles(v.id).filter((r) => r.id !== ROOT_ROLE_ID);
-    const nodes = new Map(roles.map((r) => [r.id, node(r, v.id, v.roles.length === 0)]));
-    let lead: OrgRoleNode | undefined;
-    for (const r of roles) {
-      const n = nodes.get(r.id)!;
-      if (r.reportsTo === ROOT_ROLE_ID) lead = n;
-      else nodes.get(r.reportsTo!)?.children.push(n);
-    }
+    const own = stats.get(`${v.id}/${ROOT_ROLE_ID}`) ?? zero();
+    assistant = add(assistant, own);
+    const specialists = registry
+      .roles(v.id)
+      .filter((r) => r.id !== ROOT_ROLE_ID)
+      .map((r) => node(r, v.id, stats.get(`${v.id}/${r.id}`) ?? zero()));
     return {
       id: v.id,
       name: v.name,
       description: v.description,
       color: v.color ?? null,
-      stats: [...nodes.values()].reduce((sum, n) => add(sum, n.stats), zero()),
-      lead: lead!,
+      brainFolder: v.brainFolder,
+      policies: v.policies,
+      defaultPolicy: v.defaultPolicy,
+      dailyBudgetUsd: v.dailyBudgetUsd ?? null,
+      schedules: schedulesOf(v.schedules),
+      stats: specialists.reduce((sum, n) => add(sum, n.stats), own),
+      specialists,
     };
   });
 
-  const root = node(registry.root, registry.rootVertical, false);
+  const root = node(registry.root, registry.rootVertical, assistant);
   return { windowDays, generatedAt: now.toISOString(), root: { ...root, verticals } };
 }

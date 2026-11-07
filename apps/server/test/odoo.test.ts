@@ -48,12 +48,12 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
     runner.requests.length = 0;
   });
 
-  it("gives odoo tools to DMS runs only", async () => {
+  it("gives the assistant odoo tools on Dave's chats, whatever the business", async () => {
     calls.push({ server: "odoo", tool: "get_order", args: { name: "S00042" } });
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "dms: where is order S00042?" } });
     await ctx.queue.drain();
     const request = runner.requests[0]!;
-    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "help", "brain", "odoo", "pa"]);
+    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "help", "brain", "pa", "odoo", "ops"]);
     expect(request.allowedTools).toContain("mcp__odoo");
     expect(request.systemPrompt).toContain("odoo.message.post");
     const run = (await ctx.api(`/api/tasks/${body.task.id}`)).body.runs[0];
@@ -62,7 +62,7 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
     calls.length = 0;
     await ctx.api("/api/chat", { method: "POST", json: { text: "remind me to book the dentist" } });
     await ctx.queue.drain();
-    expect(Object.keys(runner.requests[1]!.mcpServers!)).toEqual(["actions", "help", "brain", "pa"]);
+    expect(Object.keys(runner.requests[1]!.mcpServers!)).toEqual(["actions", "help", "brain", "pa", "odoo", "ops"]);
   });
 
   it("holds odoo.message.post for approval, then posts on approve", async () => {

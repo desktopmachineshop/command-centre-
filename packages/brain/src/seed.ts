@@ -22,7 +22,7 @@ It is running in **echo mode** (no Claude runs, no cost) until you add your Clau
 | Area | What you get |
 |---|---|
 | **Login** | Email + password, optional 2FA (authenticator app + recovery codes), sign out other devices, lockout on repeated failures. The admin token still works for automation. |
-| **Agent org chart** | Chief of Staff, then a lead per business, then specialist roles (e.g. DMS Customer Support, Ops & Admin, Catalogue & Pricing). Work routes to the right role; roles can hand off to each other (max 3 hops). **Org** page with live stats. See \`docs/ORG.md\`. |
+| **Assistant and specialists** | One assistant takes every task, in every business, with that business's how-we-work note in the brain; it hands specialist work to the Software Lead, Video Producer or Blog Writer, which report back (max 3 hops). **Businesses** page with live stats, policies and schedules. See \`docs/ORG.md\`. |
 | **Personal assistant** | Google Calendar (read; create, move and delete events need your approval), reminders (recurring, pushed to your phone with Done/Snooze buttons), to-do and shopping lists. **Today** page. Morning brief and evening wrap are written but **off**. |
 | **Voice / Drive mode** | Hands-free in the car. **Push-to-talk** or **Conversational** (the agent can ask you something and listens for your answer). Spoken briefing, approvals read aloud with "yes, approve" confirmation, headset/steering-wheel button support. Free browser speech by default; optional OpenAI/ElevenLabs voices. |
 | **Notifications** | Types (approval, briefing, reminder, alert, digest, social, orders, system, agent), each with push / batch-to-digest / in-app-only, sound on/off, quiet hours 22:00–07:00 (urgent still comes through), per-device routing, a bell with unread count, test buttons. |
@@ -65,7 +65,7 @@ It is running in **echo mode** (no Claude runs, no cost) until you add your Clau
 
 ## Decisions waiting for you
 
-- Which roles to rely on first (suggested: DMS Customer Support, Ops & Admin, and the morning brief).
+- Which action types to let the assistant run without asking (Businesses → Edit → Policies), and whether the morning brief suits you.
 - Autonomy: everything outward-facing is "draft" (needs approval). Promote action types once you trust them. Personal \`notify\` is currently auto-with-digest.
 - Video: brand kits (logos, colours, fonts), voice choice, demo logins, which PC renders, and how often. Full list in \`docs/VIDEO.md\`.
 - Low-stock threshold (default 3) and big-order threshold for Odoo events.

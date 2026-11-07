@@ -1,7 +1,7 @@
 import type { AgentRunRequest } from "@cc/agent-runtime";
 import { demoModels, FakeOdoo } from "@cc/odoo/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ADMIN, DB_URL, makeServer, McpCallingRunner, resetDatabase } from "./helpers";
+import { ADMIN, DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./helpers";
 
 const initialize = JSON.stringify({
   jsonrpc: "2.0",
@@ -59,18 +59,33 @@ describe.skipIf(!DB_URL)("MCP run-token scope", () => {
     await odoo.stop();
   });
 
-  it("refuses /mcp/odoo to a personal run but not to a DMS run", async () => {
-    await ctx.api("/api/chat", { method: "POST", json: { text: "remind me to book the dentist" } });
+  /** Outside input for the personal business: the assistant runs it with personal's servers only. */
+  const webhook = (key: string) =>
+    ctx.server.app.request("/api/ingress/webhook/personal?kind=note", {
+      method: "POST",
+      headers: { "x-cc-webhook-secret": WEBHOOK, "x-cc-dedupe-key": key, "content-type": "application/json" },
+      body: JSON.stringify({ title: "A note from outside" }),
+    });
+
+  it("gives the assistant every business's servers on Dave's chats, and outside input only its own business's", async () => {
+    await ctx.api("/api/chat", { method: "POST", json: { text: "remind me to book the dentist", vertical: "personal" } });
+    await ctx.queue.drain();
+    expect(probes.personal).toEqual({ actions: 200, brain: 200, odoo: 200 });
+
+    // personal has no odoo: a token from an outside-input run can't reach it.
+    expect((await webhook("w1")).status).toBe(201);
     await ctx.queue.drain();
     expect(probes.personal).toEqual({ actions: 200, brain: 200, odoo: 403 });
-
-    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: where is order S00042?" } });
-    await ctx.queue.drain();
-    expect(probes.dms).toEqual({ actions: 200, brain: 200, odoo: 200 });
   });
 
-  it("limits list_pending to the run's own vertical", async () => {
+  it("shows the assistant every business's approvals on Dave's work, and outside input only its own business's", async () => {
+    // The probe asks for dms's approvals: Dave's work may look at any business's.
     await ctx.api("/api/chat", { method: "POST", json: { text: "what's waiting for me?", vertical: "personal" } });
+    await ctx.queue.drain();
+    expect(listPending).toContain("[dms] brain.journal: dms note");
+
+    // Outside input sees its own business's whatever it asks for.
+    await webhook("w2");
     await ctx.queue.drain();
     expect(listPending).toContain("[personal] brain.journal: personal note");
     expect(listPending).not.toContain("[dms]");

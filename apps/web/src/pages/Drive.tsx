@@ -114,7 +114,7 @@ export function Drive({
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [aliases, setAliases] = useState<Aliases>(() => buildAliases([]));
   const [roles, setRoles] = useState<RoleBook>([]);
-  /** Who new requests go to; null is the Chief of Staff, the default, who hands them on. Kept per device. */
+  /** Who new requests go to; null is the assistant, the default. Kept per device. */
   const [talkingTo, setTalkingTo] = useState<RoleChoice | null>(null);
   const talkingToRef = useRef(talkingTo);
   talkingToRef.current = talkingTo;
@@ -408,7 +408,7 @@ export function Drive({
         case "whoami": {
           const current = talkingToRef.current;
           say(
-            current ? `You're talking to ${describeRole(current)}.` : "You're talking to the Chief of Staff, who passes things to the right role and tells you the outcome.",
+            current ? `You're talking to ${describeRole(current)}.` : "You're talking to your assistant, which works across all your businesses.",
             s.followUp ? "command" : "none",
           );
           return;
@@ -417,7 +417,7 @@ export function Drive({
           const found = resolveRole(cmd.target, roles);
           if (found.kind === "auto" || (found.kind === "role" && found.choice.role === CHIEF)) {
             chooseRole(null);
-            say("You're talking to the Chief of Staff. Go ahead.", "command");
+            say("You're talking to your assistant. Go ahead.", "command");
           } else if (found.kind === "role") {
             chooseRole(found.choice);
             say(`You're talking to ${describeRole(found.choice)}. Go ahead.`, "command");
@@ -425,7 +425,7 @@ export function Drive({
             const options = found.options.map((o) => (o.business ? `${o.business} ${o.title}` : o.title));
             say(`Which one: ${options.slice(0, -1).join(", ")} or ${options.at(-1)}?`, "command");
           } else {
-            say(`I don't know who ${cmd.target} is. Say chief of staff, or a business and a role, like shop customer support.`, "command");
+            say(`I don't know who ${cmd.target} is. Say assistant, or a specialist, like video producer.`, "command");
           }
           return;
         }
@@ -454,7 +454,7 @@ export function Drive({
                     text: cmd.text,
                     vertical: target.vertical,
                     role: target.role,
-                    talkingTo: who ? describeRole(who) : "the Chief of Staff",
+                    talkingTo: who ? describeRole(who) : "the assistant",
                     lastSpoken: s.lastSpoken,
                     lastTaskId: recent?.taskId ?? null,
                     lastAnswer: recent?.text ?? null,
@@ -705,7 +705,7 @@ export function Drive({
             value={talkingTo ? `${talkingTo.vertical}/${talkingTo.role}` : ""}
             onChange={(e) => chooseRole(roles.find((r) => `${r.choice.vertical}/${r.choice.role}` === e.target.value)?.choice ?? null)}
           >
-            <option value="">Chief of Staff</option>
+            <option value="">Assistant</option>
             {groupRoles(roles).map(([business, choices]) =>
               business ? (
                 <optgroup key={business} label={business}>
@@ -788,7 +788,7 @@ export function Drive({
   );
 }
 
-/** Each business's roles in org-chart order (the Chief of Staff is the default option, not listed). */
+/** Each business's specialists (the assistant is the default option, not listed). */
 function groupRoles(book: RoleBook): [string, RoleChoice[]][] {
   const groups = new Map<string, RoleChoice[]>();
   for (const { choice } of book) if (choice.role !== CHIEF) groups.set(choice.business, [...(groups.get(choice.business) ?? []), choice]);

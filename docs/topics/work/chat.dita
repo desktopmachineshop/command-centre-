@@ -2,7 +2,7 @@
 <!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
 <topic id="chat">
   <title>Chat</title>
-  <shortdesc>Ask for anything in plain words. The Chief of Staff answers, or hands it to the right role and reports back in the same chat.</shortdesc>
+  <shortdesc>Ask for anything in plain words, about any business. Your assistant looks it up and answers, or brings in a specialist and reports back in the same chat.</shortdesc>
   <prolog>
     <resourceid appname="command-centre" appid="chat"/>
   </prolog>
@@ -21,18 +21,18 @@
     <title>Choose who you are talking to</title>
     <prolog><resourceid appname="command-centre" appid="chat.send-to"/></prolog>
     <body>
-      <p><uicontrol>Send to</uicontrol> is the <uicontrol>Chief of Staff</uicontrol> by default. Pick a business to send straight to its lead instead; changing it starts a new thread.</p>
-      <p>You can also name the business or role at the start of the message:</p>
+      <p><uicontrol>Send to</uicontrol> is the <uicontrol>Assistant</uicontrol> by default: it works across all your businesses, with every business's tools. Pick a business to file the chat under it instead; changing it starts a new thread.</p>
+      <p>You can also name the business or a specialist at the start of the message:</p>
       <ul>
-        <li><userinput>dms: what sold yesterday?</userinput> goes to Desktop Machine Shop.</li>
-        <li><userinput>support: where is S00042?</userinput> goes to Customer Support.</li>
-        <li><userinput>dms/pricing: check ER11 collets</userinput> names the business and the role.</li>
-        <li><userinput>cos: what matters today?</userinput> is the Chief of Staff.</li>
+        <li><userinput>dms: what sold yesterday?</userinput> is a Desktop Machine Shop task for the assistant.</li>
+        <li><userinput>video: plan next week's spindle video</userinput> goes to the Video Producer.</li>
+        <li><userinput>blog: write up the collet rack build</userinput> goes to the Blog Writer.</li>
+        <li><userinput>software: make the digest arrive at 8am</userinput> goes to the Software Lead.</li>
       </ul>
-      <p>A role's id, title or any name in its <uicontrol>Address as</uicontrol> list on the <xref href="../business/org.dita">Org</xref> page works.</p>
+      <p>A specialist's id, title or any name in its <uicontrol>Address as</uicontrol> list on the <xref href="../business/org.dita">Businesses</xref> page works. Other names, such as <userinput>support:</userinput> or <userinput>pricing:</userinput>, are not special: the message goes to the assistant.</p>
       <p>Tick <uicontrol>Read replies aloud</uicontrol> at the top to hear each reply as it arrives (the same switch is on a task's page). It is off by default and remembered per device. <uicontrol>Stop</uicontrol> appears while it is speaking and cuts it off mid-reply.</p>
       <p>You can keep writing while the agent is still working: each message you send waits, shown dimmed as queued, and goes out by itself, in order, once the agent has answered. <uicontrol>Cancel</uicontrol> removes a queued message; starting a new chat clears the queue. Queued messages are kept only while the page is open.</p>
-      <p>While the agent is working on a message, <uicontrol>Stop</uicontrol> on its reply stops it, along with any work it handed on to other roles; the reply then says <term>stopped</term>, and your next message carries on from there. <uicontrol>Stop &amp; edit</uicontrol> on your message stops the agent and puts the message, with its files, back in the box: change it and press <uicontrol>Send</uicontrol>, and the agent works on the corrected version instead. <uicontrol>Cancel edit</uicontrol> leaves it stopped. Queued messages wait until the edit is sent.</p>
+      <p>While the agent is working on a message, <uicontrol>Stop</uicontrol> on its reply stops it, along with any work it handed on to a specialist; the reply then says <term>stopped</term>, and your next message carries on from there. <uicontrol>Stop &amp; edit</uicontrol> on your message stops the agent and puts the message, with its files, back in the box: change it and press <uicontrol>Send</uicontrol>, and the agent works on the corrected version instead. <uicontrol>Cancel edit</uicontrol> leaves it stopped. Queued messages wait until the edit is sent.</p>
       <p>While any agent is working, <uicontrol>Stop all</uicontrol> appears in the top bar. After you confirm, it stops every task that is running, queued or waiting for the budget. Each stopped task can be retried or replied to later.</p>
     </body>
   </topic>

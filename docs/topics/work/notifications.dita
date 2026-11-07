@@ -14,7 +14,7 @@
     <title>Briefings</title>
     <prolog><resourceid appname="command-centre" appid="notifications.briefing"/></prolog>
     <body>
-      <p>The morning brief from the Chief of Staff and other summaries open as a briefing: one point per line, with the last ten under <uicontrol>Recent briefings</uicontrol>. In Converse, say <q>what's new</q> to hear it.</p>
+      <p>The morning brief from your assistant and other summaries open as a briefing: one point per line, with the last ten under <uicontrol>Recent briefings</uicontrol>. In Converse, say <q>what's new</q> to hear it.</p>
     </body>
   </topic>
 </topic>

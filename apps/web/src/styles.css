@@ -4566,3 +4566,17 @@ a.button-link.call-button {
 .handover summary {
   cursor: pointer;
 }
+
+/* Businesses page: each business's context, budget, schedules and policies. */
+.org-business {
+  margin: var(--sp-2) 0;
+  display: grid;
+  gap: var(--sp-2);
+}
+.org-business p {
+  margin: 0;
+}
+.org-policies {
+  margin: var(--sp-2) 0 0;
+  padding-left: 1.2em;
+}

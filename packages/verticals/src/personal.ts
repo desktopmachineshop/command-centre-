@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { howWeWork } from "./how-we-work";
 import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 /** Sun–Thu 21:00 wrap: tomorrow's calendar, open items and what is waiting for approval. */
@@ -11,28 +12,15 @@ const EVENING_WRAP = `Write Dave's evening wrap. Follow the personal-assistant s
 
 Do not propose any other action and do not change any reminder or list.`;
 
-export default defineVertical({
-  id: "personal",
-  name: "Personal",
-  description: "Day-to-day life, planning, family, reminders and personal admin.",
-  brainFolder: "personal",
-  color: "#7c5cd6",
-  intents: ["plan", "reminder", "question", "admin"],
-  skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
-  // mail: read-only lookups in this business's mailboxes (and, for the Chief of Staff, every one).
-  mcpServers: ["brain", "pa", "mail"],
-  // The morning brief moved to the Chief of Staff (src/org.ts), whose tasks run in this vertical.
-  // notify only reaches Dave's own devices, so the brief is sent without an approval step and reported in the digest
-  // (INTERNAL_AUTO_POLICIES, shared by every vertical, with reminders and to-dos).
-  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
-  roles: [
+/** The areas of personal admin (the old org chart's roles), for the how-we-work note. */
+const AREAS = [
     {
       id: "pa",
       title: "Personal Assistant",
       reportsTo: "chief-of-staff",
       aliases: ["assistant"],
       mission:
-        "Dave's first stop for anything personal: answers questions, does the small bits of research and keeps track of loose ends. Passes calendar, household and money matters to the specialist who owns them, and keeps the personal notes in the brain tidy.",
+        "Anything personal: answering questions, the small bits of research and keeping track of loose ends, with the personal notes in the brain kept tidy.",
       intents: ["question"],
       skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
       mcpServers: ["brain", "pa", "mail"],
@@ -51,10 +39,6 @@ export default defineVertical({
       skills: ["brain-notes", "personal-assistant"],
       mcpServers: ["brain", "pa"],
       actions: ["notify", "calendar.create", "calendar.update", "calendar.delete", "brain.journal", "brain.write"],
-      schedules: [
-        // To turn the evening wrap on, set enabled: true.
-        { id: "evening-wrap", cron: "0 21 * * 0-4", timezone: "Europe/London", prompt: EVENING_WRAP, enabled: false },
-      ],
       kpis: ["No missed renewal or appointment", "Reminders land at least a day ahead"],
       autonomyNotes:
         "Sets reminders and keeps to-do lists itself (pa tools). Calendar bookings, moves and cancellations are calendar.* proposals for Dave to approve; it never accepts invitations.",
@@ -88,5 +72,24 @@ export default defineVertical({
       autonomyNotes:
         "Never pays, transfers, cancels or signs up for anything. May file notes and remind Dave; replies to providers are drafts.",
     },
+];
+
+export default defineVertical({
+  id: "personal",
+  name: "Personal",
+  description: "Day-to-day life, planning, family, reminders and personal admin.",
+  brainFolder: "personal",
+  color: "#7c5cd6",
+  intents: ["plan", "reminder", "question", "admin"],
+  skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
+  // mail: read-only lookups in this business's mailboxes (and, for the Chief of Staff, every one).
+  mcpServers: ["brain", "pa", "mail"],
+  // The morning brief moved to the Chief of Staff (src/org.ts), whose tasks run in this vertical.
+  // notify only reaches Dave's own devices, so the brief is sent without an approval step and reported in the digest
+  // (INTERNAL_AUTO_POLICIES, shared by every vertical, with reminders and to-dos).
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
+  schedules: [
+    { id: "evening-wrap", cron: "0 21 * * 0-4", timezone: "Europe/London", prompt: EVENING_WRAP, enabled: false },
   ],
+  guidance: howWeWork("Personal", AREAS),
 });

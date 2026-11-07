@@ -142,7 +142,7 @@ export const NAV: NavItem[] = [
   { key: "notifications", label: "Notifications", icon: "bell", group: "Work" },
   { key: "converse", label: "Converse", icon: "drive", group: "Work" },
   { key: "social", label: "Social", icon: "social", group: "Business" },
-  { key: "org", label: "Org", icon: "org", group: "Business" },
+  { key: "org", label: "Businesses", icon: "org", group: "Business" },
   { key: "brain", label: "Brain", icon: "brain", group: "Knowledge" },
   { key: "accounts", label: "Accounts", icon: "link", group: "System" },
   { key: "devices", label: "Devices", icon: "devices", group: "System" },

@@ -57,6 +57,7 @@ import { type Caller, mcpRoutes } from "./mcp/endpoints";
 import { createOpsMcpServer, ServerLog } from "./ops";
 import { createGithubMcpServer } from "./github-mcp";
 import { createHelpMcpServer, HelpDocs } from "./help-docs";
+import { seedHowWeWork } from "./how-we-work";
 import { Pipeline } from "./pipeline";
 import { NotificationService, startNotificationJobs, teeNotifier } from "./notifications/service";
 import { NotificationStore } from "./notifications/store";
@@ -618,13 +619,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
             },
       propose: (p) => actions.propose(p),
     });
-  // mail: read-only search and attachments. A run reads its own business's mailboxes (the Chief of
-  // Staff every one), and once it has read mail its proposals are drafts, as for an emailed task.
+  // mail: read-only search and attachments. A run reads its own business's mailboxes (the assistant,
+  // on work Dave started, every one), and once it has read mail its proposals are drafts, as for an emailed task.
   const mailMcpServer = (caller: Caller) => {
     const all = email.current.accounts;
     const scope = caller.kind === "run" ? caller.scope : null;
     return createMailMcpServer({
-      accounts: !scope || scope.role === ROOT_ROLE_ID ? all : all.filter((a) => a.vertical === scope.vertical),
+      accounts: !scope || scope.anyVertical ? all : all.filter((a) => a.vertical === scope.vertical),
       connect: overrides.imap,
       onRead: scope ? () => actions.markReadMail(scope.taskId) : undefined,
     });
@@ -640,9 +641,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       ...(email.current.accounts.length ? { mail: mailMcpServer } : {}),
       ...(shipping.current
         ? {
-            // A run sees its own business's parcels (the Chief of Staff every one's).
+            // A run sees its own business's parcels (the assistant, on work Dave started, every one's).
             sendcloud: (caller: Caller) =>
-              createSendcloudMcpServer(shipping.current!, caller.kind === "run" && caller.scope.role !== ROOT_ROLE_ID ? caller.scope.vertical : null),
+              createSendcloudMcpServer(shipping.current!, caller.kind === "run" && !caller.scope.anyVertical ? caller.scope.vertical : null),
           }
         : {}),
       pa: paMcpServer,
@@ -763,7 +764,6 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     voice: voiceConversations,
     chatFilesReadRule: chatFiles.readRule(),
     chatFileImages: (files) => chatFiles.images(files),
-    mode: () => agentConfig.agent.mode, // Accounts → Agents → Agent mode (./assistant.ts)
   });
 
   const app = new Hono();
@@ -956,6 +956,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await org.load(); // org: changes saved on the Org page, before any task runs
       await store.markAllNodesOffline();
       await brain.init(); // brain: seed the starter notes
+      await seedHowWeWork(brain, pool, verticals); // each business's how-we-work note, from the old org chart (./how-we-work.ts)
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       await storage.init(); // storage: index media from before the index, load the cache
       void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical

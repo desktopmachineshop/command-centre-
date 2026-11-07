@@ -9,7 +9,7 @@ import { type BudgetService, bypassesBudget } from "./budget";
 import type { ChatFile } from "./chat-files";
 import type { Store } from "./db/store";
 import { type CodeOptions, prepareCheckout } from "./code";
-import { assistantCharter, assistantRole, assistantServers, isSpecialist, SPECIALISTS } from "./assistant";
+import { assistantCharter, assistantRole, assistantServers } from "./assistant";
 import { autoHandover, handoverSection } from "./handover";
 import type { Hub } from "./hub";
 import { startProgressUpdates } from "./progress";
@@ -53,8 +53,6 @@ export interface PipelineDeps {
   chatFilesReadRule?: string;
   /** The disk copies of the images among a message's files (ChatFiles.images), passed to the runner with the prompt. */
   chatFileImages?: (files: ChatFile[]) => Promise<string[]>;
-  /** Agent mode: "org" (default) or "assistant", read per task (./assistant.ts). */
-  mode?: () => "org" | "assistant";
 }
 
 /** Default limit on handoffs in one chain, so roles can't pass work around forever. */
@@ -105,10 +103,6 @@ export class Pipeline {
 
   constructor(private readonly deps: PipelineDeps) {}
 
-  private get assistantMode(): boolean {
-    return this.deps.mode?.() === "assistant";
-  }
-
   get maxHandoffDepth(): number {
     return this.deps.maxHandoffDepth ?? MAX_HANDOFF_DEPTH;
   }
@@ -156,15 +150,14 @@ export class Pipeline {
       }
       to = { vertical: vertical.id, role: role.id, title: role.title };
     }
-    // Agent mode "assistant": the assistant does the work itself and hands on only to the specialists.
-    if (this.assistantMode && isRoot && to.role !== ROOT_ROLE_ID && !isSpecialist(to.vertical, to.role)) {
-      throw new HandoffError(`Do this yourself: you have every business's tools. Only the specialists take handoffs: ${SPECIALISTS.join(", ")}.`);
-    }
-    if (to.vertical === from.vertical && to.role === fromRole.id) throw new HandoffError("That is your own role: do the work yourself.");
+    // The assistant is one role whichever business its task is in.
+    if (to.role === fromRole.id && (to.role === ROOT_ROLE_ID || to.vertical === from.vertical)) throw new HandoffError("That is your own role: do the work yourself.");
 
     const payload = fromEvent?.payload ?? {};
-    const chain = [...(Array.isArray(payload.chain) ? (payload.chain as string[]) : []), `${from.vertical}/${fromRole.id}`];
-    const target_ = `${to.vertical}/${to.role}`;
+    // A chain names the assistant once, whichever business its task was in.
+    const link = (vertical: string, role: string) => (role === ROOT_ROLE_ID ? `${verticals.rootVertical}/${ROOT_ROLE_ID}` : `${vertical}/${role}`);
+    const chain = [...(Array.isArray(payload.chain) ? (payload.chain as string[]) : []), link(from.vertical, fromRole.id)];
+    const target_ = link(to.vertical, to.role);
     if (chain.includes(target_)) {
       throw new HandoffError(`The ${to.title} already worked on this chain (${chain.join(" -> ")}). Finish it yourself, or escalate to "${ROOT_ROLE_ID}".`);
     }
@@ -307,11 +300,8 @@ export class Pipeline {
     };
     if (!verticals.get(triage.vertical)) triage = { ...triage, vertical: DEFAULT_VERTICAL };
     // The org role that runs it (docs/ORG.md); naming a role in chat may move it to that role's vertical.
-    let route = routeRole(verticals, event, triage);
-    // Agent mode "assistant": Dave's chats go to the assistant, unless he names a specialist.
-    if (this.assistantMode && event.source === "chat" && route.role !== ROOT_ROLE_ID && !isSpecialist(route.vertical, route.role)) {
-      route = { vertical: verticals.rootVertical, role: ROOT_ROLE_ID, reason: "front-door" };
-    }
+    // The assistant takes it, unless it names a specialist (docs/ORG.md); a specialist may move it to its business.
+    const route = routeRole(verticals, event, triage);
     if (route.vertical !== triage.vertical) triage = { ...triage, vertical: route.vertical };
 
     const status: TaskStatus = triage.route === "agent" || triage.route === "cheap-agent" ? "queued" : "done";
@@ -380,15 +370,17 @@ export class Pipeline {
       const run = await store.insertRun(taskId, runner.name);
       runId = run.id;
       const role = verticals.roleFor(vertical.id, task.role);
-      // Agent mode "assistant": the root role runs as the assistant, with every business's servers and skills.
-      const assistant = this.assistantMode && role.id === ROOT_ROLE_ID;
-      const servers = assistant ? assistantServers(verticals) : (role.mcpServers ?? vertical.mcpServers);
+      // The assistant (./assistant.ts): every skill, and for work Dave started every business's servers
+      // and proposals in any business. Work from outside input keeps to its own business's servers and policy.
+      const assistant = role.id === ROOT_ROLE_ID;
+      const trusted = !(await this.deps.actions.untrustedSource(taskId));
+      const servers = assistant ? (trusted ? assistantServers(verticals) : vertical.mcpServers) : (role.mcpServers ?? vertical.mcpServers);
       const skills = assistant ? assistantRole(verticals) : role;
-      token = runTokens.issue({ taskId, runId: run.id, vertical: vertical.id, role: role.id, ...(assistant ? { servers, anyVertical: true } : {}) });
+      token = runTokens.issue({ taskId, runId: run.id, vertical: vertical.id, role: role.id, servers, ...(assistant && trusted ? { anyVertical: true } : {}) });
       const cwd = await prepareWorkspace(this.deps.dataDir, this.deps.skillsDir, vertical, skills);
       const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token, typeof this.deps.mcpServers === "function" ? this.deps.mcpServers() : this.deps.mcpServers, servers);
       const handoffsLeft = this.maxHandoffDepth - handoffDepth(event);
-      const brief = { ...roleBrief(verticals, vertical.id, role.id, handoffsLeft), ...(assistant ? { assistant: assistantCharter(verticals, handoffsLeft) } : {}) };
+      const brief = { ...roleBrief(verticals, vertical.id, role.id, handoffsLeft), ...(assistant ? { assistant: assistantCharter(verticals, vertical, handoffsLeft, trusted) } : {}) };
       // The task's handover note goes into every run, so any runner can carry on from it (./handover.ts).
       const handover = await store.getHandover(taskId);
       const workbench = await this.workbench(task, role, cwd);

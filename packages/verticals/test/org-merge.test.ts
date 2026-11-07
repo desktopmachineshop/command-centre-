@@ -54,9 +54,14 @@ describe("mergeOrgEdit: an Org-page save brought up to date with the code", () =
     expect(merged.policies).toEqual({ notify: "auto", "github.issue.create": "auto" });
   });
 
-  it("leaves roles Dave added alone, and a role on all servers on all of them", () => {
+  it("keeps specialists Dave added (reporting to the assistant), and a role on all servers on all of them", () => {
     const merged = mergeOrgEdit(edit([role({ id: "lead" }), role({ id: "helper", reportsTo: "lead", actions: ["notify"] })]), now, then);
     expect(merged.roles[0]!.mcpServers).toBeUndefined();
-    expect(merged.roles[1]).toEqual(role({ id: "helper", reportsTo: "lead", actions: ["notify"] }));
+    expect(merged.roles[1]).toEqual(role({ id: "helper", actions: ["notify"] }));
+  });
+
+  it("drops the old org chart's roles from a saved edit", () => {
+    const merged = mergeOrgEdit(edit([role({ id: "shop-lead" }), role({ id: "customer-support", reportsTo: "shop-lead" }), role({ id: "lead" })]), now, then);
+    expect(merged.roles.map((r) => r.id)).toEqual(["lead"]);
   });
 });

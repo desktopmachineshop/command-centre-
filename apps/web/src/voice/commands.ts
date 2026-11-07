@@ -169,26 +169,23 @@ interface OrgRole {
   title: string;
   vertical: string;
   aliases: string[];
-  children: OrgRole[];
 }
 
 /** The roles of the org chart (`GET /api/org`), with spoken names: title, aliases, id, and each with its business in front. */
-export function buildRoleBook(org: { root: OrgRole & { verticals: { id: string; name: string; lead: OrgRole }[] } }, aliases: Aliases): RoleBook {
+export function buildRoleBook(org: { root: OrgRole & { verticals: { id: string; name: string; specialists: OrgRole[] }[] } }, aliases: Aliases): RoleBook {
   const book: RoleBook = [];
   // "Catalogue & Pricing" is said "catalogue and pricing" (or without the "and").
   const nameSet = (r: OrgRole) =>
     [...new Set([r.title, r.title.replace(/&/g, " and "), r.id.replace(/[-_]+/g, " "), ...r.aliases].map(normalise).filter(Boolean))];
   const root = org.root;
-  book.push({ choice: { vertical: root.vertical, role: root.id, title: root.title, business: "" }, names: [...new Set([...nameSet(root), "chief", "cos"])] });
+  book.push({ choice: { vertical: root.vertical, role: root.id, title: root.title, business: "" }, names: [...new Set([...nameSet(root), "chief", "cos", "chief of staff"])] });
   for (const v of root.verticals) {
-    const walk = (r: OrgRole) => {
+    for (const r of v.specialists) {
       const own = nameSet(r);
       const businesses = aliases.filter((a) => a.vertical === v.id).map((a) => a.alias);
       const combined = businesses.flatMap((b) => own.map((n) => `${b} ${n}`));
       book.push({ choice: { vertical: v.id, role: r.id, title: r.title, business: v.name }, names: [...new Set([...own, ...combined])] });
-      r.children.forEach(walk);
-    };
-    walk(v.lead);
+    }
   }
   return book;
 }

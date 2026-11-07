@@ -272,9 +272,9 @@ nothing is polled during the day. It lists:
   number, recipient, carrier and a tracking link.
 
 If Sendcloud can't be reached the digest still goes out, with the error in its Shipping section.
-Agents in Desktop Machine Shop's Customer Support and Ops & Admin roles also get read-only
-`sendcloud` tools (`find_parcel` by order or tracking number, `recent_parcels`), so "where is my
-order?" replies use the carrier's latest status. Nothing is ever created or changed in Sendcloud.
+The assistant also gets read-only `sendcloud` tools (`find_parcel` by order or tracking number,
+`recent_parcels`) on DMS work, and on any work Dave started, so "where is my order?" replies use
+the carrier's latest status. Nothing is ever created or changed in Sendcloud.
 
 ### Tracking notes on Odoo delivery orders
 
@@ -695,10 +695,9 @@ Gmail, Google Workspace, Microsoft 365 / Outlook.com, or Odoo's own mail server.
   `read_mail` and `read_attachment`, which returns PDFs page by page, spreadsheets (xlsx, xls,
   ods, csv) sheet by sheet as CSV, and HTML or text files as text (scanned PDFs, images and Word
   files have no text it can read). An email task's prompt lists its attachments with the call
-  that reads them. A run sees only its own business's mailboxes, while the Chief of Staff sees
-  every one. Roles get it through `mcpServers: [..., "mail"]` (Ops & Admin, Customer Support, the
-  Shop Lead, the Personal Assistant, Finance Admin and the Chief of Staff in the shipped org). It
-  is mounted only while at least one inbox is configured. Mail is outside input: once a run has
+  that reads them. A run sees only its own business's mailboxes, while the assistant, on work
+  Dave started, sees every one. A business gets it through `mcpServers: [..., "mail"]` (personal,
+  DMS, 3dpandme, OpenV and OpenD in the shipped manifests). It is mounted only while at least one inbox is configured. Mail is outside input: once a run has
   read mail, its proposals are drafts (brain notes still save) and its handoffs carry that, just
   as for a task started by an email.
 - A mailbox that fails to connect is retried with backoff (5 s doubling to 5 min) and logged as
@@ -1113,8 +1112,8 @@ whole day. The Inbox's **Today** card shows the same numbers live. Any day's dig
 
 ## Morning brief
 
-The Chief of Staff (the org root, `packages/verticals/src/org.ts`, running in the personal vertical) has a
-weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
+The assistant (the org root, `packages/verticals/src/org.ts`, whose own schedules run in the personal
+vertical) has a weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
 
 1. reads today's calendar, the reminders due today (and overdue ones) and the top to-dos, through
    the `pa` tools (see "Personal assistant" below);
@@ -1123,8 +1122,8 @@ weekday 07:00 (Europe/London) `morning-brief` schedule. The agent:
 4. works out today's priorities;
 5. sends you a short `briefing` push through a `notify` action (see "Notifications").
 
-There is also a Sunday-to-Thursday 21:00 `evening-wrap` on the personal vertical's Calendar &
-Reminders role (`packages/verticals/src/personal.ts`): tomorrow's calendar, open reminders and
+There is also a Sunday-to-Thursday 21:00 `evening-wrap` schedule of the personal vertical
+(`packages/verticals/src/personal.ts`), which the assistant runs: tomorrow's calendar, open reminders and
 to-dos, and what's waiting for approval, in one push.
 
 `notify` is `auto-with-digest` (in every vertical, see "Internal actions" below), so the brief
@@ -1161,7 +1160,8 @@ Proposals made with the admin token (no task) keep their policy too. (`ActionSer
 The brief is **on by default**; to turn it off, set `enabled: false` on the `morning-brief` line in
 `packages/verticals/src/org.ts` and redeploy. The `evening-wrap` (`packages/verticals/src/personal.ts`)
 is off by default; set `enabled: true` there to turn it on. Each is an agent run, so it counts
-towards the budgets. A Chief of Staff edit saved on the Org page overrides the code's schedules.
+towards the budgets. An edit to the assistant saved on the Businesses page overrides the code's
+`morning-brief`.
 
 ## Personal assistant
 
@@ -2091,16 +2091,16 @@ the phone in the car, so it shows almost nothing to read.
    - "conversation mode" or "push to talk" switches modes;
    - start with a business to send a request there: "shop: has order 1042 shipped?",
      "dms, …", "3dpandme: …", "open v: …".
-   - **who you're talking to**: by default the **Chief of Staff**, who hands each request to the
-     right role and tells you the outcome when they report back (docs/ORG.md, "Reporting back").
-     To talk to one role directly: "talk to the shop lead", "put me through to customer support",
-     "talk to OpenD support" (a role shared by several businesses needs its business; you'll be
-     asked which). Every request after that goes to that role until "back to chief of staff". The
-     **Talking to** picker at the top does the same, and the choice is remembered on the phone.
+   - **who you're talking to**: by default the **assistant**, which does the work itself with
+     every business's tools, hands specialist work to a specialist and tells you the outcome when
+     it reports back (docs/ORG.md, "Reporting back"). To talk to a specialist directly: "talk to
+     the video producer", "put me through to the software lead". Every request after that goes to
+     it until "back to the assistant". The **Talking to** picker at the top does the same (it lists
+     only the specialists besides the assistant), and the choice is remembered on the phone.
      "Who am I talking to?" says who it is.
-   - ask one role once, without switching: "ask customer support whether Jane's refund went
-     through", "chief of staff: what's on today?". Naming a business on its own ("shop: …") still
-     sends that request to the business, whoever you're talking to.
+   - ask a specialist once, without switching: "ask the blog writer to draft the build log",
+     "video: plan next week's video". Naming a business on its own ("shop: …") still files that
+     request under the business, whoever you're talking to.
 
    Anything else goes to the **voice front** first (see "Fast replies" below): it answers
    straight away, speaking each sentence as it's written, and hands real work to the agents with
@@ -2278,9 +2278,9 @@ Endpoints, all behind the dashboard auth:
 
 ## Command Centre: the Software Lead
 
-The **Command Centre** business has one role, the **Software Lead**, which works on this app's
-own code (`desktopmachineshop/command-centre-`). Ask it in Chat or Drive mode ("software: make the
-digest arrive at 8am", "talk to the software lead"), or let the Chief of Staff hand it the work.
+The **Command Centre** business has one specialist, the **Software Lead**, which works on this
+app's own code (`desktopmachineshop/command-centre-`). Ask it in Chat or Drive mode ("software: make
+the digest arrive at 8am", "talk to the software lead"), or let the assistant hand it the work.
 
 **Set up:** create a fine-grained GitHub token on that repository only, with **Contents**,
 **Pull requests** and **Issues** (read and write; Issues so it can file the brain's issue log),

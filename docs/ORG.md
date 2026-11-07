@@ -1,187 +1,156 @@
-# Org chart
+# The assistant and the specialists
 
-Every agent run works as a **role**: the Chief of Staff at the top, one lead per vertical, and
-specialists under each lead. A role decides:
+Every agent run works as one of two kinds of role:
 
-- **which tasks it gets**: the triage intents it owns, schedules it owns, or Dave naming it;
-- **what it sees**: only its own skills are linked into its workspace, and it can reach only its
-  own MCP servers;
-- **how it behaves**: its title, mission, reporting line and autonomy notes go into the system
-  prompt, with a short list of the other roles so it can hand work on.
+- **The assistant**: Dave's one assistant, the org root. It takes every task, in every business:
+  Dave's chats and voice requests, schedules, and incoming email, Odoo, social and webhooks. It
+  does the work itself.
+- **A specialist**: an agent with tools the assistant doesn't have, which the assistant hands
+  specialist work to. There are three: the **Software Lead** (Command Centre: code changes in its
+  own checkout, pull requests), the **Video Producer** and the **Blog Writer** (both 3dpandme).
 
-Roles never change policy. Whether an action runs straight away or waits for Dave is still decided
-by the vertical's `policies` (and untrusted input always makes it a draft). The `actions` and
-`autonomyNotes` of a role tell the agent what it is expected to propose, and they are shown in the
-app.
+A role decides what the run sees (skills and MCP servers) and how it behaves (its mission and
+autonomy notes go into the system prompt). Roles never change policy: whether an action runs
+straight away or waits for Dave is decided by the business's `policies`, and outside input always
+makes it a draft. A role's `actions` and `autonomyNotes` only tell the agent what it is expected
+to propose, and are shown in the app.
 
-The org starts in code and can be changed from the app:
+Where it lives:
 
-- the roles of each vertical are in `packages/verticals/src/<vertical>.ts`, under `roles`
-  (OpenV and OpenD share `saas-org.ts`);
-- the Chief of Staff, the org root, is in `packages/verticals/src/org.ts`;
-- the schema and its checks are in `packages/core/src/vertical.ts` (`Role`, `orgIssues`);
-- changes made on the Org page are stored in Postgres and run over the code (see
+- the assistant is `chiefOfStaff` in `packages/verticals/src/org.ts`. Its id is still
+  `chief-of-staff`, which existing tasks carry; its title is **Assistant** and it answers to
+  `assistant`, `cos` and `chief` in chat. Its home business is `personal`, where its own schedules
+  (the morning brief) run;
+- the specialists are each business's `roles`, in `packages/verticals/src/<vertical>.ts`
+  (`command-centre.ts` and `3dpandme.ts`; the other businesses have none);
+- what the assistant gets and its charter are in `apps/server/src/assistant.ts`;
+- the schema and its checks are in `packages/core/src/vertical.ts` (`Role`, `orgIssues`) and
+  `packages/core/src/org.ts`;
+- changes made on the Businesses page are stored in Postgres and run over the code (see
   [Editing from the app](#editing-from-the-app)).
 
-The **Org** page in the app shows the chart with live numbers per role (open tasks, tasks done in
-the last 7 days, cost over 7 days and approvals waiting). Choose a role to see its tasks in the
-Inbox. The same tree is served at `GET /api/org`.
-
-## The draft org
-
-```mermaid
-flowchart TD
-  cos["Chief of Staff"]
-
-  cos --> pa["Personal Assistant"]
-  pa --> cal["Calendar & Reminders"]
-  pa --> home["Home & Family"]
-  pa --> fin["Finance Admin"]
-
-  cos --> shop["DMS: Shop Lead"]
-  shop --> cs["Customer Support"]
-  shop --> cat["Catalogue & Pricing"]
-  shop --> mkt["Marketing & Social"]
-  shop --> ops["Ops & Admin"]
-
-  cos --> content["3dpandme: Content Lead"]
-  content --> video["Video Producer"]
-  content --> blog["Blog Writer"]
-  content --> community["Community Manager"]
-
-  cos --> vlead["OpenV: Product Lead"]
-  vlead --> vsup["Support Engineer"]
-  vlead --> vdev["DevRel & Content"]
-  vlead --> vbill["Billing & Admin"]
-
-  cos --> dlead["OpenD: Product Lead"]
-  dlead --> dsup["Support Engineer"]
-  dlead --> ddocs["Docs Writer"]
-  dlead --> ddev["DevRel & Content"]
-  dlead --> dbill["Billing & Admin"]
-```
-
-## Roles
-
-Tools are the MCP servers a role can reach (every run also gets `actions`) and the action types
-it normally proposes. Missions are shortened to their first sentence; the full text is in the
-manifests and on the Org page. The morning brief ships turned on; every other schedule ships turned off.
-
-| Vertical | Role (id) | Reports to | Mission | Intents | Skills | Tools | Schedules |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| all | **Chief of Staff** (`chief-of-staff`) | Dave | Keeps Dave's whole portfolio pointed at what matters today. | – | brain-notes | brain, mail (every mailbox); notify, brain.journal, brain.write; sees approvals in every vertical | morning-brief (07:00 weekdays) |
-| personal | **Personal Assistant** (`pa`) | chief-of-staff | Dave's first stop for anything personal. | question | brain-notes, email-triage-and-reply | brain, mail; brain.journal, brain.write, notify, email.reply | – |
-| personal | **Calendar & Reminders** (`calendar-reminders`) | pa | Makes sure nothing with a date slips. | reminder | brain-notes | brain; notify, brain.journal, brain.write | – |
-| personal | **Home & Family** (`home-family`) | pa | Plans the family side of life: trips, outings, events, gifts and household purchases. | plan | brain-notes, email-triage-and-reply | brain; brain.write, notify, email.send | – |
-| personal | **Finance Admin** (`finance-admin`) | pa | Keeps personal paperwork in order. | admin | brain-notes, email-triage-and-reply | brain, mail; brain.write, notify, email.reply | – |
-| dms | **Shop Lead** (`shop-lead`) | chief-of-staff | Runs Desktop Machine Shop day to day on Dave's behalf. | (unowned: spam, other) | brain-notes, email-triage-and-reply, dms-customer-reply, dms-order-status | brain, odoo, mail; brain.write, notify, email.reply | – |
-| dms | **Customer Support** (`customer-support`) | shop-lead | Answers customers the way Dave would. | presales-question, order-status, return-warranty | brain-notes, email-triage-and-reply, dms-customer-reply, dms-order-status, social-platform-guide, social-voice-dms | brain, odoo, mail; email.reply, odoo.message.post, odoo.customer.create, odoo.quote.create, odoo.quote.send, social.reply, social.dm, brain.write | – |
-| dms | **Catalogue & Pricing** (`catalogue-pricing`) | shop-lead | Keeps the Odoo catalogue accurate and the prices competitive. | – | brain-notes, dms-catalogue-pricing | brain, odoo; odoo.product.update_price, odoo.loyalty.create, odoo.loyalty.archive, brain.write | – |
-| dms | **Marketing & Social** (`marketing-social`) | shop-lead | Gets the shop in front of hobbyist machinists. | – | brain-notes, social-voice-dms, social-platform-guide, video-reel | brain, odoo; social.post, social.campaign, video.produce, odoo.blog.draft | – |
-| dms | **Ops & Admin** (`ops-admin`) | shop-lead | Handles the back office: suppliers, stock, price lists, invoices and bills. | supplier, invoice-admin | brain-notes, email-triage-and-reply, dms-supplier-pricelists | brain, odoo, mail; email.reply, odoo.message.post, notify, brain.write | low-stock-check (08:15 weekdays) |
-| 3dpandme | **Content Lead** (`content-lead`) | chief-of-staff | Owns the 3dpandme content plan. | content-idea, collab | brain-notes, social-voice-3dpandme, social-platform-guide, email-triage-and-reply | brain, odoo; brain.write, notify, email.reply | – |
-| 3dpandme | **Video Producer** (`video-producer`) | content-lead | Takes a video from plan to published. | publishing | brain-notes, social-voice-3dpandme, social-platform-guide, video-reel | brain, odoo; social.campaign, video.produce, brain.write | – |
-| 3dpandme | **Blog Writer** (`blog-writer`) | content-lead | Writes 3dpandme blog posts in Dave's maker voice. | – | brain-notes, social-voice-3dpandme | brain, odoo; odoo.blog.draft, brain.write | – |
-| 3dpandme | **Community Manager** (`community-manager`) | content-lead | Looks after the 3dpandme community. | comment-reply | brain-notes, social-voice-3dpandme, social-platform-guide | brain; social.reply, social.dm, notify, brain.write | – |
-| openv, opend | **Product Lead** (`product-lead`) | chief-of-staff | Owns the product's direction on Dave's behalf. | feature-request | brain-notes, email-triage-and-reply | brain; brain.write, notify, email.reply | – |
-| openv, opend | **Support Engineer** (`support-engineer`) | product-lead | Helps users get unstuck. | support, bug | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
-| opend | **Docs Writer** (`docs-writer`) | product-lead | Keeps the OpenD documentation clear and current. | – | brain-notes | brain; brain.write | – |
-| openv, opend | **DevRel & Content** (`devrel-content`) | product-lead | Tells people what the product does and why it matters. | – | brain-notes, social-platform-guide, video-reel | brain; social.post, social.campaign, video.produce, brain.write | – |
-| openv, opend | **Billing & Admin** (`billing-admin`) | product-lead | Handles subscriptions, invoices and payment questions. | billing | brain-notes, email-triage-and-reply | brain; email.reply, brain.write, notify | – |
-| command-centre | **Software Lead** (`software-lead`, lead) | chief-of-staff | Builds and fixes this app: changes code in its own checkout and raises PRs for Dave. Owns the brain's issue log and files it on GitHub; opens issues with suggestions. | software | brain-notes, software-lead | brain, github, ops; github.pr.create (auto), github.issue.create (auto), github.issue.comment (auto), github.pr.merge (approval), brain.write, notify; tools Bash, Read, Edit, Write, Glob, Grep, WebFetch; repo desktopmachineshop/command-centre-; 200 turns per run | file-issues (18:07 weekdays), assess-performance (07:23 daily) |
-
-`dms-catalogue-pricing` and `dms-supplier-pricelists` are the skills added for the org. The other roles reuse the existing
-skills bank; their charter travels in the system prompt.
-
-## Agent mode: single assistant
-
-Accounts → Agents → **Agent mode** (or `AGENT_MODE`) switches Dave's chats from the org chart to
-one assistant (`apps/server/src/assistant.ts`). In `assistant` mode:
-
-- every chat goes to the root role, unless it names one of the specialists in `SPECIALISTS`
-  (Software Lead, Video Producer, Blog Writer), which still take it directly;
-- the root role's runs get every vertical's MCP servers and every skill, and a charter listing the
-  businesses as context instead of the org's roles (the run token carries the servers, so the MCP
-  endpoints allow them);
-- its proposals name their business (`vertical` on propose_action / propose_batch), whose policy
-  and budget apply;
-- it may hand off only to the specialists; the handoff carries the task's handover note.
-
-Events from outside input (email, Odoo, social, webhooks) and schedules still go to the org's roles
-in this mode.
+The **Businesses** page in the app (route `#/org`) shows the assistant's card, with live numbers
+over every business (open tasks, tasks done in the last 7 days, cost over 7 days and approvals
+waiting), then each business: its description, a link to its how-we-work note, its budget, its
+schedules, its approval policies and its specialists' cards. Choose a card's title to see its tasks
+in the Inbox. The same tree is served at `GET /api/org`. A task counts towards the specialist it
+names, otherwise towards the assistant (including tasks of roles that no longer exist).
 
 ## How a task gets its role
 
-When a task is created, after triage (`routeRole` in `packages/verticals/src/routing.ts`):
+When a task is created, after triage (`routeRole` in `packages/verticals/src/routing.ts`), it goes
+to the **assistant**, in the business triage picked, unless:
 
-1. **Assigned.** A schedule owned by a role, a handoff, or the chat API's `role` field names it
-   (`payload.role`). Only chat, cron and the server's own events may set this; an email can't
-   choose its role.
-2. **Named in chat.** A chat that starts with a role name and a colon goes to that role:
-   `support: where is S00042?`, `dms/pricing: check ER11 collets`, `opend support: login loop`,
-   `cos: what matters today?`. The id, an alias or the title all work
-   (`Customer Support: ...`). A name only one vertical has moves the chat there (`pricing: ...`
-   goes to DMS). A name several verticals share (`support`) goes to the triaged vertical's role,
-   or else to the Chief of Staff (below).
-3. **Front door.** Any other chat (the Chat page, Drive mode) that names no business, neither
-   picked in the app nor written first (`dms: …`), goes to the **Chief of Staff**. It answers the
-   quick and personal things itself and hands the rest to the role that owns it, without being
-   told to. A business mentioned in passing ("how did dms do?") is its call to route.
-4. **Intent owner.** The role that lists the triage intent.
-5. **The lead.** Anything else, including `spam`, `other`, a chat to a chosen business and
-   `scheduled`.
+1. **A specialist is assigned.** A specialist's schedule, a handoff, or the chat API's `role` field
+   names it (`payload.role`). Only chat, cron and the server's own events may set this; an email
+   can't choose its role.
+2. **A specialist is named in chat.** A chat that starts with a specialist's name and a colon goes
+   to it: `video: …`, `blog: …`, `software: …`, `3dpandme/blog: …`. The id, an alias or the title
+   all work (`Video Producer: …`). Either may move the task to the specialist's business. A name
+   several businesses share goes to the triaged business's specialist, and is otherwise ignored.
+
+Any other prefix (`support:`, `pricing:`, `ops:`) is no longer special: the chat goes to the
+assistant. The assistant's own names (`assistant:`, `cos:`, `chief:`) go to it too. A business
+named first (`dms: …`, or the business picked in the app) still steers triage, so a `dms: …` chat
+or a DMS email is a DMS task of the assistant's.
 
 The role is stored on the task (`tasks.role`, migration `0005_roles`) and shown in the Inbox.
-Tasks from before roles have no role and count as the vertical lead's.
-`GET /api/tasks?vertical=dms&role=customer-support` lists one role's tasks.
+`GET /api/tasks?vertical=3dpandme&role=video-producer` lists one role's tasks.
 
 ## What a run gets
 
+The assistant's runs depend on where the work came from (`apps/server/src/pipeline.ts`, using
+`untrustedSource`):
+
+- **Work Dave started** (chat, schedules, and handoffs from those): every business's MCP servers
+  (`assistantServers`: Odoo, mail for every mailbox, Sendcloud parcels, `pa` for calendar and
+  reminders, the brain, `ops`, read-only `github`) and every skill (`assistantSkills`). The run
+  token carries the servers and `anyVertical`, so the MCP endpoints allow them, and mail, parcels,
+  `list_pending` and `search_transcripts` cover every business. Each proposal names its business
+  (`vertical` on `propose_action` / `propose_batch`); that business's policy and budget apply. A
+  proposal without one is the task's business.
+- **Work from outside input** (an email, a webhook, Odoo, social, or a chat run that has read mail
+  or such a transcript): only that business's MCP servers, and every proposal is that business's
+  and waits for Dave.
+
+A specialist's runs get its own `mcpServers` (or the business's when it lists none) and its own
+skills. The run token carries the role, and `/mcp/<server>` refuses servers it doesn't have.
+
+For every run:
+
 - **Workspace:** `workspaces/<vertical>/<role>`, with only the role's skills linked into
-  `.claude/skills`. Runs of one role can overlap, so the links are updated in place, never wiped.
-  The old vertical-level `workspaces/<vertical>/.claude` is removed, so its skills can't leak into
-  role folders.
-- **MCP servers:** the role's `mcpServers`, or the vertical's when the role doesn't list any. The
-  run token carries the role, and `/mcp/<server>` refuses servers the role doesn't have.
-- **System prompt:** the role charter (title, mission, who it reports to, intents, usual actions,
-  autonomy notes) and the other roles it can hand work to, each with one line and its intents; then
-  how the Command Centre works and a one-line guide to each page of the app (`agent-context.ts`).
-- **Help:** every run, whatever its role lists, gets the read-only `help` MCP server: it searches and
-  reads the in-app help and the setup notes in `docs/`, so "how do I…" questions are answered from
-  the docs, not guessed (see SETUP.md, In-app help).
-- **The web:** every run can search the web (`WebSearch`) and, for work Dave started (chat,
-  schedules and handoffs from those), read pages (`WebFetch`). A task from outside input (an
-  email, a webhook, Odoo, social) gets search only: a page fetch could carry data out to a URL
-  that the input planted. This needs no setting on the role; a role's `tools` add more
-  (Bash, Edit, ...) on top.
+  `.claude/skills` (for the assistant, every skill). Runs of one role can overlap, so the links are
+  updated in place, never wiped.
+- **System prompt:** for the assistant, its charter (`assistantCharter`): its mission, the
+  businesses with their brain folders and how-we-work notes, which business this task is filed
+  under, what it may use (trusted or outside input), its autonomy notes and the specialists it can
+  hand work to. For a specialist: its title, mission, usual actions and autonomy notes, and the
+  roles it can hand work to. Then how the Command Centre works and a one-line guide to each page
+  of the app (`agent-context.ts`), and the task's handover note.
+- **Help:** every run gets the read-only `help` MCP server: it searches and reads the in-app help
+  and the setup notes in `docs/`, so "how do I…" questions are answered from the docs, not guessed
+  (see SETUP.md, In-app help).
+- **The web:** every run can search the web (`WebSearch`) and, for work Dave started, read pages
+  (`WebFetch`). A task from outside input gets search only: a page fetch could carry data out to a
+  URL that the input planted. A role's `tools` add more (Bash, Edit, ...) on top.
 - **Scratch folder:** for work Dave started, `scratch/<task id>` in the workspace, which the run may
-  read, write and edit (and nothing else outside the brain). One per task, so a file written there
-  (say, a CLAUDE.md) never reaches another task; folders older than two weeks are removed. A task
-  from outside input gets none.
+  read, write and edit (and nothing else outside the brain). One per task; folders older than two
+  weeks are removed. A task from outside input gets none.
 - **Transcripts:** the `actions` tool `search_transcripts` searches earlier runs' messages,
-  read-only (the Chief of Staff across every vertical, other roles their own). Reading the
-  transcript of a task from outside input counts as reading that input: later proposals are drafts.
-  There is no shell for the Chief of Staff on purpose: it reads outside mail and the web, and a shell on
-  the server can read the process environment, which holds every secret.
+  read-only (every business for the assistant on work Dave started, otherwise the run's own).
+  Reading the transcript of a task from outside input counts as reading that input: later
+  proposals are drafts. The assistant has no shell, on purpose: it reads outside mail and the web,
+  and a shell on the server can read the process environment, which holds every secret.
 - **Turns:** each run stops after `AGENT_MAX_TURNS` agent turns (default 30), or the role's own
   `maxTurns` (the Software Lead has 200, since a code change takes many reads, edits and checks). A
   run that hits the limit fails with `error_max_turns`; its report back says it stopped part-way,
-  with its last summary, so the Chief of Staff offers a retry or a split instead of guessing.
-- **Mail:** a role with the `mail` server can search its business's mailboxes and read attachments
-  itself, so work that didn't start from an email (a chat, a handoff) doesn't have to be passed
-  on to find the mail. Mail it reads is outside input: its later proposals are drafts and its
-  handoffs carry that (see SETUP.md, Email).
-- **Concurrency and budgets** stay per vertical. The Chief of Staff runs in its home vertical,
-  `personal`.
+  with its last summary, so the assistant offers a retry or a split instead of guessing.
+- **Mail:** a run with the `mail` server can search mailboxes and read attachments itself. Mail it
+  reads is outside input: its later proposals are drafts and its handoffs carry that (see
+  SETUP.md, Email).
+- **Concurrency and budgets** stay per business: a task counts against the business it is filed
+  under.
+
+## How we work: each business's notes
+
+The old org chart had about twenty roles (a lead per business, Customer Support, Ops & Admin,
+Catalogue & Pricing and so on). Their missions and autonomy notes, what good looks like and what
+always needs Dave (refunds always need Dave, for example), are kept as each business's `guidance`:
+
+- `packages/verticals/src/how-we-work.ts` (`howWeWork`) turns a business's areas of work (the old
+  roles' titles, missions, autonomy notes and KPIs) into markdown. The areas are in each manifest
+  (`AREAS` in `dms.ts`, `personal.ts` and `3dpandme.ts`; `saasAreas` in `saas-org.ts` for OpenV and
+  OpenD).
+- At startup, `seedHowWeWork` (`apps/server/src/how-we-work.ts`) writes it to the brain as
+  `<brainFolder>/how-we-work.md` (e.g. `dms/how-we-work.md`), once: only where that path has never
+  existed, so Dave's edits, and a note he deleted, stand. If Dave had edited a business's roles on
+  the old Org page, the roles he saved (other than today's specialists) are appended under "As you
+  last saved them on the Org page", so nothing he wrote is lost.
+- From then on the note is Dave's to edit on the Brain page. The assistant's charter names each
+  business's note and tells it to read it before working on that business.
+
+## Schedules
+
+- The assistant's own: `morning-brief` (07:00 weekdays, on), in its home business `personal`.
+- A business's `schedules` run as the assistant in that business: `dms` `low-stock-check` (off),
+  `personal` `evening-wrap` (off), `openv` and `opend` `reddit-scout` (on).
+- A specialist's `schedules` run as that specialist: the Software Lead's `file-issues` and
+  `assess-performance`.
+
+The scheduler is `apps/server/src/scheduler.ts`. Schedule ids are unique across a business, its
+specialists and, for the home business, the assistant.
 
 ## Handoffs
 
 Every run has the `actions` tool `handoff_to_role(roleId, note)`. It creates a new task for
-another role with the note and the original request, and the agent then stops.
+another role with the note, the original request and the handing-off task's handover note, and the
+agent then stops.
 
-- `roleId` is a role in the same vertical (id, alias or title), or `chief-of-staff` to escalate.
-- Only the Chief of Staff hands work across verticals, as `<vertical>/<role>`
-  (`dms/customer-support`).
+- The assistant hands work to a specialist as `<vertical>/<role>` (`3dpandme/video-producer`). Its
+  charter tells it to hand off only specialist work (code changes, a video, a blog post) and do
+  everything else itself.
+- A specialist may hand work to another specialist in its business, or escalate to
+  `chief-of-staff`. Only the assistant hands work across businesses.
 - **Loop protection:**
   - at most 3 handoffs in one chain (`MAX_HANDOFF_DEPTH`, `maxHandoffDepth` on the pipeline);
   - never back to a role already in the chain, and never to yourself;
@@ -190,9 +159,6 @@ another role with the note and the original request, and the agent then stops.
     otherwise), and the task reports back again. The same note twice sends nothing, there are at
     most 3 follow-ups per task (`MAX_FOLLOW_UPS`), and work from outside input can't send a
     follow-up into a task that has none.
-- **Split, don't chain:** a request that spans several roles goes out as one handoff per role from
-  the same task. Each is one step deep, so the limit of 3 applies to each branch, not to the number
-  of roles, and each role reports back separately. The Chief of Staff's prompt tells it to do this.
 
   The system prompt tells the agent how many handoffs are left. At the limit, the tool refuses
   and the agent finishes the work or notifies Dave.
@@ -204,94 +170,93 @@ another role with the note and the original request, and the agent then stops.
 ## Reporting back
 
 When a handed-off task finishes (done, waiting for approval, or failed), its result goes back to
-the task that handed it off, as a report (`task_replies.author`, migration `0016`). That task
-runs again, resuming its agent's session, and gives the outcome: the Chief of Staff tells Dave in
-the same chat thread or Drive session ("The Shop Lead checked: order 1042 shipped Monday; a
-journal note waits for your approval").
+the task that handed it off, as a report (`task_replies.author`, migration `0016`). That task runs
+again, resuming its agent's session, and gives the outcome: the assistant tells Dave in the same
+chat thread or Converse session ("The Video Producer has the outline ready; the announcement waits
+for your approval").
 
 - A report carries the role's final summary, anything waiting for Dave's approval, and its task
   id. The handoff prompt tells the role its summary goes back, so it writes a report.
-- **Each step reports once, with the final result:** a task that handed work on waits until all
-  of its handoffs have finished and reported before reporting up itself
-  (`Store.openHandoffs`). A report that arrives while its task is running waits, and the task
-  runs again for it afterwards.
+- **Each step reports once, with the final result:** a task that handed work on waits until all of
+  its handoffs have finished and reported before reporting up itself (`Store.openHandoffs`). A
+  report that arrives while its task is running waits, and the task runs again for it afterwards.
 - Reports are internal, like handoffs; each one costs one more run of the receiving task.
 
 ## Editing from the app
 
-On the **Org** page, press **Edit**:
+On the **Businesses** page, press **Edit**:
 
-- the pencil on a role card edits that role: title, who it reports to, mission, autonomy notes,
-  the intents it owns, skills, MCP servers, the actions it usually proposes, chat aliases, KPIs and
-  schedules. **Add role** adds one under a vertical, and **Remove** takes one out (move the roles
-  reporting to it first; the lead can't be removed).
-- Picking an intent another role owns moves it. Making a role report to the Chief of Staff makes it
-  the lead, and the old lead then reports to it.
+- the pencil on a card edits the assistant or that specialist: title, mission, autonomy notes,
+  skills, MCP servers, the actions it usually proposes, chat aliases, KPIs and schedules. (The
+  assistant's runs get every skill and, for work Dave started, every business's servers whatever
+  its card lists.) **Add specialist** adds one to a business, and **Remove** takes one out; its
+  tasks then count as the assistant's.
 - **Policies** sets, per action type, whether it waits for approval, runs and is listed in the
-  digest, or runs straight away. Untrusted input still always makes a draft.
+  digest, or runs straight away. Outside input still always makes a draft.
 - **History** lists every save, with **Restore**, and **Reset to code** goes back to the manifest.
+
+A business's description, `guidance`, own schedules, intents, skills, servers and budget stay in
+code; its how-we-work note is edited on the Brain page.
 
 What runs:
 
-- Each vertical (its whole `roles` list, `policies` and `defaultPolicy`) and the Chief of Staff
-  (everything but its id and home vertical) is saved as one document in `org_overrides`, with every
-  save and reset in `org_override_versions` (migration `0015_org_overrides`).
-- A save is checked as a whole org first, with the same checks as the manifests plus "every skill is
-  in the bank", and refused with the list of problems. A save over a stale version gets a 409.
+- Each business (its `roles`, `policies` and `defaultPolicy`) and the assistant (everything but its
+  id and home business) is saved as one document in `org_overrides`, with every save and reset in
+  `org_override_versions` (migration `0015_org_overrides`).
+- A save is checked as a whole first, with the same checks as the manifests plus "every skill is in
+  the bank", and refused with the list of problems. A save over a stale version gets a 409.
 - An accepted save applies at once: the next task, handoff and chat prefix use it, and schedules
   are restarted. Running tasks keep the prompt they started with.
-- A vertical's intents, skills, servers and budget stay in code. So does a new intent: add it to
-  the manifest first.
-- If a code change makes a saved change invalid (say an intent the saved roles own is removed), the
-  server logs it at boot and runs the code's version of that vertical. The Org page shows the
-  problem until the change is saved again or reset.
-- A save also records the code's version of the vertical at the time (`codeBase` in the document),
-  so later code changes still reach the saved roles (`mergeOrgEdit`, packages/verticals): skills,
-  actions, MCP servers, schedules (by id) and policies (by action type) the code added since the
-  save join them, while what you removed in the app stays removed. A role's `tools`, `repo` and
-  `maxTurns` always come from the code. A save from before `codeBase` existed takes everything the
-  code has that it lacks. Roles you added or removed, and your edits to existing entries, stand.
+- If a code change makes a saved change invalid, the server logs it at boot and runs the code's
+  version of that business. The page shows the problem until the change is saved again or reset.
+- A save also records the code's version of the business at the time (`codeBase` in the
+  document), so later code changes still reach the saved roles (`mergeOrgEdit`,
+  `packages/verticals/src/org-merge.ts`): skills, actions, MCP servers, schedules (by id) and
+  policies (by action type) the code added since the save join them, while what was removed in the
+  app stays removed. A role's `tools`, `repo` and `maxTurns` always come from the code. A save from
+  before `codeBase` existed takes everything the code has that it lacks.
+- **Retired roles:** the old org chart's roles are listed in `RETIRED_ROLES` (`org-merge.ts`). A
+  saved edit that still has one drops it (their text lives on in the how-we-work notes), and every
+  role kept reports to the assistant. Specialists Dave added stand.
 
 The API is `GET /api/org/config`, `PUT /api/org/config/:unit` (`{ data, expectedVersion }`),
 `DELETE /api/org/config/:unit?expectedVersion=` (reset), `GET /api/org/config/:unit/history`,
 `GET /api/org/config/:unit/versions/:version` and `POST /api/org/config/:unit/restore`. `:unit` is
-a vertical id or `chief-of-staff`. Code: `apps/server/src/org-config.ts`,
-`apps/web/src/pages/OrgEdit.tsx`.
+a business id or `chief-of-staff`. Code: `apps/server/src/org-config.ts`,
+`apps/web/src/pages/Org.tsx`, `apps/web/src/pages/OrgEdit.tsx`.
 
-## Adding or changing a role in code
+## Adding a specialist in code
 
-1. Edit the vertical's manifest in `packages/verticals/src/`. Add an entry to `roles`:
+Add a specialist only for work the assistant can't do with its own tools: a shell, a code
+checkout, a heavy production pipeline. Everything else belongs in the business's how-we-work note
+or a skill.
+
+1. Edit the business's manifest in `packages/verticals/src/`. Add an entry to `roles`:
 
    ```ts
    {
-     id: "wholesale",                 // unique in the vertical, lower-case-with-dashes
-     title: "Wholesale",
-     reportsTo: "shop-lead",          // a role id, or "chief-of-staff" for the lead
-     aliases: ["trade"],              // optional extra chat names
+     id: "podcast-producer",          // unique in the business, lower-case-with-dashes
+     title: "Podcast Producer",
+     reportsTo: "chief-of-staff",     // always the assistant
+     aliases: ["podcast"],            // extra chat names: "podcast: …"
      mission: "Two or three sentences on what it does and what good looks like.",
-     intents: ["wholesale-enquiry"],  // must be in the vertical's intents; one owner each
-     skills: ["brain-notes", "email-triage-and-reply"],
-     mcpServers: ["brain", "odoo"],   // optional subset of the vertical's
-     actions: ["email.reply"],        // what it usually proposes (display and prompt only)
-     schedules: [],                   // optional; ids unique across the vertical
-     kpis: ["Quotes out within a day"],
-     autonomyNotes: "Drafts every quote; discounts always need Dave.",
+     skills: ["brain-notes", "podcast-episode"],
+     mcpServers: ["brain", "odoo"],   // optional subset of the business's
+     tools: [],                       // optional Claude Code tools (Bash, Edit, ...)
+     actions: ["brain.write"],        // what it usually proposes (display and prompt only)
+     schedules: [],                   // optional; ids unique across the business
+     kpis: ["One episode a month"],
+     autonomyNotes: "Drafts everything; publishing always needs Dave.",
    }
    ```
 
-2. A new intent also goes in the vertical's `intents`, and a line in `INTENT_HINTS`
-   (`packages/triage/src/shared.ts`) helps model triagers pick it.
-3. A new skill goes in `skills/<name>/SKILL.md` (the tests check every role's skills exist).
-4. Run `pnpm test`. The manifest is checked when it loads:
-   - role ids and aliases are unique;
-   - there is exactly one lead;
-   - every `reportsTo` exists, with no cycles;
-   - role intents are declared by the vertical, with at most one owner each;
-   - role MCP servers belong to the vertical;
-   - schedule ids are unique.
+   The assistant's charter lists every specialist with the first sentence of its mission, so say
+   what it is for first.
+2. A new skill goes in `skills/<name>/SKILL.md` (the tests check every role's skills exist).
+3. Run `pnpm test`. The manifest is checked when it loads (`orgIssues`):
+   - role ids and aliases are unique, and none is named like the assistant (`chief-of-staff`);
+   - role MCP servers belong to the business;
+   - schedule ids are unique across the business.
 
-A vertical with no `roles` still works: it gets one implicit lead (`lead`) with the vertical's
-skills and servers, as before roles existed.
-
-Removing or renaming a role is safe. Its old tasks keep the id and count as the lead's on the
-Org page.
+A business with no `roles` has no specialists: all its work is the assistant's. Removing or
+renaming a specialist is safe: its old tasks keep the id and count as the assistant's.

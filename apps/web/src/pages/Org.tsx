@@ -15,7 +15,11 @@ const wide = () => typeof matchMedia === "function" && matchMedia("(min-width: 6
 
 const inboxLink = (vertical: string, role: string) => `#/inbox?${new URLSearchParams({ vertical, role })}`;
 
-/** The org chart: Chief of Staff → verticals → leads → roles, with live numbers per role. */
+/**
+ * Businesses: the assistant (which takes every task), then each business with what it is, how it
+ * works (its how-we-work note in the brain), its approval policies, schedules, budget and
+ * specialists, with live numbers. Edit opens the same editors as before: policies, specialists, history.
+ */
 export function Org({ api, feed }: { api: Api; feed: LiveFeed }) {
   const { data, error, reload } = useLoad(api.org, feed, (m) => m.type === "task.updated" || m.type === "proposal.updated" || m.type === "org.updated");
   const open = wide();
@@ -41,11 +45,11 @@ export function Org({ api, feed }: { api: Api; feed: LiveFeed }) {
   return (
     <section className="org">
       <PageHead
-        title="Org"
+        title="Businesses"
         sub={
           editing
-            ? "Editing: changes apply to the next task. Each vertical keeps a history you can restore or reset to the code."
-            : `Live numbers over the last ${data?.windowDays ?? 7} days. Choose a role to see its tasks in the Inbox.`
+            ? "Editing: changes apply to the next task. Each business keeps a history you can restore or reset to the code."
+            : `Your assistant takes every task and works across these businesses, handing specialist work to the specialists. Live numbers over the last ${data?.windowDays ?? 7} days.`
         }
       >
         <button type="button" className={editing ? "primary" : ""} aria-pressed={editing} onClick={() => setEditing(!editing)}>
@@ -57,16 +61,12 @@ export function Org({ api, feed }: { api: Api; feed: LiveFeed }) {
       {!data && !error && <Skeleton rows={2} />}
       {data && (
         <EditContext.Provider value={edit}>
-          <ol className="org-tree">
-            <li>
-              <RoleCard node={data.root} />
-              <UnitTools unit={ROOT} />
-              <ol className="org-verticals">
-                {data.root.verticals.map((v) => (
-                  <VerticalBranch key={v.id} vertical={v} open={open} />
-                ))}
-              </ol>
-            </li>
+          <RoleCard node={data.root} root />
+          <UnitTools unit={ROOT} />
+          <ol className="org-verticals">
+            {data.root.verticals.map((v) => (
+              <VerticalBranch key={v.id} vertical={v} open={open} />
+            ))}
           </ol>
         </EditContext.Provider>
       )}
@@ -75,7 +75,7 @@ export function Org({ api, feed }: { api: Api; feed: LiveFeed }) {
   );
 }
 
-/** Add role, policies and history for a vertical (or history for the Chief of Staff), plus a saved change that isn't running. */
+/** Add specialist, policies and history for a business (or history for the assistant), plus a saved change that isn't running. */
 function UnitTools({ unit }: { unit: string }) {
   const edit = useContext(EditContext);
   if (!edit) return null;
@@ -85,14 +85,14 @@ function UnitTools({ unit }: { unit: string }) {
     <div className="org-tools" data-help-pane="org.edit">
       {info.problem && (
         <ErrorBanner>
-          The change saved for this part of the org no longer fits the code, so the code's version runs: {info.problem}. Fix it by saving again, or reset it from History.
+          The change saved for this no longer fits the code, so the code's version runs: {info.problem}. Fix it by saving again, or reset it from History.
         </ErrorBanner>
       )}
       <div className="row wrap small">
         {unit !== ROOT && (
           <>
             <button type="button" className="ghost" onClick={() => edit.open({ type: "role", unit, roleId: null })}>
-              <Icon name="plus" /> Add role
+              <Icon name="plus" /> Add specialist
             </button>
             <button type="button" className="ghost" onClick={() => edit.open({ type: "policies", unit })}>
               <Icon name="sliders" /> Policies
@@ -108,8 +108,11 @@ function UnitTools({ unit }: { unit: string }) {
   );
 }
 
+const POLICY_LABEL: Record<string, string> = { auto: "runs straight away", "auto-with-digest": "runs, listed in the digest", draft: "waits for you" };
+
 function VerticalBranch({ vertical, open }: { vertical: OrgVerticalNode; open: boolean }) {
   const style = vertical.color ? ({ "--vertical": vertical.color } as CSSProperties) : undefined;
+  const policies = Object.entries(vertical.policies).sort(([a], [b]) => a.localeCompare(b));
   return (
     <li className="org-vertical" style={style}>
       <details open={open}>
@@ -117,49 +120,59 @@ function VerticalBranch({ vertical, open }: { vertical: OrgVerticalNode; open: b
           <strong>{vertical.name}</strong> <Stats stats={vertical.stats} />
         </summary>
         <UnitTools unit={vertical.id} />
-        <ol className="org-branch">
-          <RoleBranch node={vertical.lead} />
-        </ol>
+        <div className="card org-business">
+          <p className="small">{vertical.description}</p>
+          <p className="small">
+            <a href={`#/brain/${encodeURIComponent(`${vertical.brainFolder}/how-we-work.md`)}`}>How {vertical.name} works</a>
+            <span className="muted"> · notes in the brain under {vertical.brainFolder}/</span>
+          </p>
+          <div className="row small wrap">
+            <span className="muted">Budget</span>
+            <span className="tag">{vertical.dailyBudgetUsd ? `${usd(vertical.dailyBudgetUsd)} a day` : "no daily cap"}</span>
+          </div>
+          <Chips label="Schedules" items={vertical.schedules.map((s) => `${s.id} (${s.cron}${s.enabled ? "" : ", off"})`)} />
+          <details>
+            <summary className="small muted">Approval policies: anything not listed {POLICY_LABEL[vertical.defaultPolicy] ?? vertical.defaultPolicy}</summary>
+            <ul className="small org-policies">
+              {policies.map(([type, policy]) => (
+                <li key={type}>
+                  <code>{type}</code> {POLICY_LABEL[policy] ?? policy}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+        {vertical.specialists.length > 0 && (
+          <ol className="org-branch">
+            {vertical.specialists.map((r) => (
+              <li key={r.id}>
+                <RoleCard node={r} />
+              </li>
+            ))}
+          </ol>
+        )}
       </details>
     </li>
   );
 }
 
-function RoleBranch({ node }: { node: OrgRoleNode }) {
-  return (
-    <li>
-      <RoleCard node={node} />
-      {node.children.length > 0 && (
-        <ol className="org-branch">
-          {node.children.map((c) => (
-            <RoleBranch key={c.id} node={c} />
-          ))}
-        </ol>
-      )}
-    </li>
-  );
-}
-
-function RoleCard({ node }: { node: OrgRoleNode }) {
+function RoleCard({ node, root = false }: { node: OrgRoleNode; root?: boolean }) {
   const edit = useContext(EditContext);
-  const isRoot = node.reportsTo === null;
-  // A vertical without an org chart runs an implicit lead, which has nothing to edit until roles are added.
-  const editable = edit && !node.implicit;
   return (
     <article className="card org-card" aria-label={node.title}>
       <header className="row between">
-        <a className="title" href={inboxLink(node.vertical, node.id)} title="Show this role's tasks">
+        <a className="title" href={inboxLink(node.vertical, node.id)} title={root ? "Show the assistant's tasks" : "Show this specialist's tasks"}>
           {node.title}
         </a>
         <span className="row">
-          {isRoot ? <span className="tag">all verticals</span> : <VTag id={node.vertical} />}
-          {editable && (
+          {root ? <span className="tag">every business</span> : <><span className="tag">specialist</span> <VTag id={node.vertical} /></>}
+          {edit && (
             <button
               type="button"
               className="ghost icon-btn"
               aria-label={`Edit ${node.title}`}
               title="Edit"
-              onClick={() => edit.open({ type: "role", unit: isRoot ? ROOT : node.vertical, roleId: isRoot ? ROOT : node.id })}
+              onClick={() => edit.open({ type: "role", unit: root ? ROOT : node.vertical, roleId: root ? ROOT : node.id })}
             >
               <Icon name="edit" />
             </button>
@@ -175,11 +188,10 @@ function RoleCard({ node }: { node: OrgRoleNode }) {
             <strong>Autonomy:</strong> {node.autonomyNotes}
           </p>
         )}
-        <Chips label="Intents" items={node.intents} />
         <Chips label="Skills" items={node.skills} />
-        <Chips label="Tools" items={[...node.mcpServers.map((s) => `mcp:${s}`), ...node.actions]} />
+        {!root && <Chips label="Tools" items={[...node.mcpServers.map((s) => `mcp:${s}`), ...node.actions]} />}
         <Chips label="Schedules" items={node.schedules.map((s) => `${s.id} (${s.cron}${s.enabled ? "" : ", off"})`)} />
-        <Chips label="Address as" items={[node.id, ...node.aliases].map((a) => `${a}:`)} />
+        {!root && <Chips label="Address as" items={[node.id, ...node.aliases].map((a) => `${a}:`)} />}
         {node.kpis.length > 0 && (
           <ul className="small org-kpis">
             {node.kpis.map((k) => (

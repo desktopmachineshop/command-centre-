@@ -109,14 +109,21 @@ async function mockApi(page: Page, calls: Calls, options: { front?: boolean; bat
       return route.fulfill({ status: 200, contentType: "application/x-ndjson", body: lines.map((l) => JSON.stringify(l)).join("\n") });
     }
     if (path === "/voice/config") return json({ stt: null, tts: null, maxUploadBytes: 0, maxSeconds: 60, language: "en-GB", calendar: false });
-    if (path === "/verticals") return json([{ id: "dms", name: "Desktop Machine Shop" }, { id: "personal", name: "Personal" }]);
+    if (path === "/verticals") return json([{ id: "dms", name: "Desktop Machine Shop" }, { id: "3dpandme", name: "3dpandme" }, { id: "personal", name: "Personal" }]);
     if (path === "/stats") return json({ pendingApprovals: 1, costTodayUsd: 0 });
     if (path === "/org") {
-      const role = (id: string, title: string, vertical: string, aliases: string[], children: unknown[] = []) => ({ id, title, vertical, aliases, children });
+      const role = (id: string, title: string, vertical: string, aliases: string[]) => ({ id, title, vertical, aliases });
       return json({
         root: {
-          ...role("chief-of-staff", "Chief of Staff", "personal", ["cos", "chief"]),
-          verticals: [{ id: "dms", name: "Desktop Machine Shop", lead: role("shop-lead", "Shop Lead", "dms", ["shop"], [role("customer-support", "Customer Support", "dms", ["support"])]) }],
+          ...role("chief-of-staff", "Assistant", "personal", ["assistant", "cos", "chief", "chief-of-staff"]),
+          verticals: [
+            { id: "dms", name: "Desktop Machine Shop", specialists: [] },
+            {
+              id: "3dpandme",
+              name: "3dpandme",
+              specialists: [role("video-producer", "Video Producer", "3dpandme", ["video", "youtube"]), role("blog-writer", "Blog Writer", "3dpandme", ["blog"])],
+            },
+          ],
         },
       });
     }
@@ -319,15 +326,15 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     const idle = () => page.locator(".drive-state").getByText("Tap to talk").waitFor();
     const chats = () => calls.filter((c) => c.path === "/chat").map((c) => c.body);
 
-    await pushToTalk("talk to the shop lead");
-    await waitSpoken(/^You're talking to the Shop Lead at Desktop Machine Shop\. Go ahead\./);
-    expect(await picker.inputValue()).toBe("dms/shop-lead");
-    expect(await page.evaluate(() => localStorage.getItem("cc.drive.talkTo"))).toBe(JSON.stringify({ vertical: "dms", role: "shop-lead" }));
+    await pushToTalk("talk to the video producer");
+    await waitSpoken(/^You're talking to the Video Producer at 3dpandme\. Go ahead\./);
+    expect(await picker.inputValue()).toBe("3dpandme/video-producer");
+    expect(await page.evaluate(() => localStorage.getItem("cc.drive.talkTo"))).toBe(JSON.stringify({ vertical: "3dpandme", role: "video-producer" }));
     await idle();
 
-    await pushToTalk("what sold yesterday?");
+    await pushToTalk("what is the next video about?");
     await expect.poll(() => chats().length, { timeout: 15_000 }).toBe(1);
-    expect(chats()[0]).toEqual({ text: "what sold yesterday?", vertical: "dms", role: "shop-lead", voice: true });
+    expect(chats()[0]).toEqual({ text: "what is the next video about?", vertical: "3dpandme", role: "video-producer", voice: true });
     await waitSpoken(/^Which order/);
     // That answer was a question: end the conversation, so the next request isn't taken as the reply.
     await idle();
@@ -336,27 +343,40 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await idle();
 
     // Once to another role, without changing who you're talking to.
-    await pushToTalk("Ask customer support whether Jane's refund went through");
+    await pushToTalk("Ask the blog writer whether the printer review is drafted");
     await expect.poll(() => chats().length, { timeout: 15_000 }).toBe(2);
-    expect(chats()[1]).toEqual({ text: "Jane's refund went through", vertical: "dms", role: "customer-support", voice: true });
-    expect(await picker.inputValue()).toBe("dms/shop-lead");
+    expect(chats()[1]).toEqual({ text: "The printer review is drafted", vertical: "3dpandme", role: "blog-writer", voice: true });
+    expect(await picker.inputValue()).toBe("3dpandme/video-producer");
 
     // The picker, and "who am I talking to?"; a reload keeps the choice.
     await page.reload();
     await picker.waitFor({ timeout: 20_000 });
-    await expect.poll(() => picker.inputValue(), { timeout: 15_000 }).toBe("dms/shop-lead");
+    await expect.poll(() => picker.inputValue(), { timeout: 15_000 }).toBe("3dpandme/video-producer");
     await pushToTalk("who am I talking to?");
-    await waitSpoken(/^You're talking to the Shop Lead at Desktop Machine Shop\./);
+    await waitSpoken(/^You're talking to the Video Producer at 3dpandme\./);
     await idle();
-    // Back to the default: the Chief of Staff, by voice or the picker.
-    await pushToTalk("back to chief of staff");
-    await waitSpoken(/^You're talking to the Chief of Staff\. Go ahead\./);
+    // Back to the default: the assistant, by voice or the picker.
+    await pushToTalk("back to the assistant");
+    await waitSpoken(/^You're talking to your assistant\. Go ahead\./);
     expect(await picker.inputValue()).toBe("");
     await idle();
-    await picker.selectOption("dms/customer-support");
+    await pushToTalk("talk to the blog writer");
+    await waitSpoken(/^You're talking to the Blog Writer at 3dpandme\. Go ahead\./);
+    expect(await picker.inputValue()).toBe("3dpandme/blog-writer");
+    await idle();
+    // The old name still means the assistant.
+    await pushToTalk("back to chief of staff");
+    await expect.poll(() => picker.inputValue(), { timeout: 15_000 }).toBe("");
+    await idle();
+    // Someone it doesn't know.
+    await pushToTalk("talk to the shop lead");
+    await waitSpoken(/^I don't know who shop lead is\. Say assistant, or a specialist, like video producer\./);
+    await idle();
+    expect(await picker.locator("option").first().textContent()).toBe("Assistant");
+    await picker.selectOption("3dpandme/blog-writer");
     await picker.selectOption("");
     await pushToTalk("who am I talking to?");
-    await waitSpoken(/^You're talking to the Chief of Staff, who passes things to the right role/);
+    await waitSpoken(/^You're talking to your assistant, which works across all your businesses\./);
     await page.close();
   }, 90_000);
 
@@ -535,7 +555,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await waitSpoken(/^Sure, I'll check where order ten forty-two is\.$/);
     await waitSpoken(/^Which order, 1042 or 1043\?/);
     const turn = calls.find((c) => c.path === "/voice/turn" && (c.body as { text: string }).text === "where is order 1042?");
-    expect(turn?.body).toMatchObject({ text: "where is order 1042?", talkingTo: "the Chief of Staff" });
+    expect(turn?.body).toMatchObject({ text: "where is order 1042?", talkingTo: "the assistant" });
     expect(await spoken()).not.toContain("On it.");
     expect(calls.some((c) => c.path === "/chat")).toBe(false);
 

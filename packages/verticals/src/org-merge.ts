@@ -1,4 +1,15 @@
-import type { Role, VerticalOrgEdit } from "@cc/core";
+import { ROOT_ROLE_ID, type Role, type VerticalOrgEdit } from "@cc/core";
+
+/**
+ * The old org chart's roles, retired when the Command Centre moved to one assistant (their guidance
+ * lives on in each business's how-we-work note). A saved edit that still has one drops it.
+ */
+export const RETIRED_ROLES = new Set([
+  "shop-lead", "customer-support", "catalogue-pricing", "marketing-social", "ops-admin",
+  "content-lead", "community-manager",
+  "pa", "calendar-reminders", "home-family", "finance-admin",
+  "product-lead", "support-engineer", "docs-writer", "devrel-content", "billing-admin",
+]);
 
 /**
  * A vertical's Org-page edit, brought up to date with the code.
@@ -15,7 +26,8 @@ import type { Role, VerticalOrgEdit } from "@cc/core";
  * - Policies the code added (by action type) join the vertical's.
  *
  * Without `codeAtSave` (a save from before it was recorded) everything in the code that the save
- * lacks counts as new. Roles Dave added or removed are left as he saved them. Pure.
+ * lacks counts as new. Specialists Dave added are kept; the old org chart's roles (`RETIRED_ROLES`)
+ * are dropped, and every specialist reports to the assistant. Pure.
  */
 export function mergeOrgEdit(saved: VerticalOrgEdit, code: VerticalOrgEdit, codeAtSave: VerticalOrgEdit | null): VerticalOrgEdit {
   const then = new Map((codeAtSave?.roles ?? []).map((r) => [r.id, r]));
@@ -24,9 +36,9 @@ export function mergeOrgEdit(saved: VerticalOrgEdit, code: VerticalOrgEdit, code
     current.filter((x) => !(before ?? []).includes(x) && !has.includes(x));
   // Schedule ids are unique across the vertical: never add one any saved role already has.
   const scheduleIds = new Set(saved.roles.flatMap((r) => r.schedules.map((s) => s.id)));
-  const roles = saved.roles.map((role): Role => {
+  const roles = saved.roles.filter((role) => !RETIRED_ROLES.has(role.id) || now.has(role.id)).map((role): Role => {
     const c = now.get(role.id);
-    if (!c) return role;
+    if (!c) return { ...role, reportsTo: ROOT_ROLE_ID };
     const t = then.get(role.id);
     const schedules = [...role.schedules];
     for (const s of c.schedules) {
@@ -44,6 +56,7 @@ export function mergeOrgEdit(saved: VerticalOrgEdit, code: VerticalOrgEdit, code
       actions: [...role.actions, ...added(c.actions, t?.actions, role.actions)],
       ...(mcpServers ? { mcpServers } : {}),
       schedules,
+      reportsTo: ROOT_ROLE_ID,
       tools: c.tools,
       ...(c.repo ? { repo: c.repo } : {}),
       ...(c.maxTurns ? { maxTurns: c.maxTurns } : {}),

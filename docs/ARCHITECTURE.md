@@ -118,8 +118,8 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
   `/mcp/actions`). Each agent run gets a short-lived token scoped to its task. This means one
   brain writer, and the same brain is reachable from agents on the PCs. The brain later moved from
   a git checkout to Postgres, so edits from the app need no git and concurrent writes can't clash.
-- Agent workspaces are per vertical and role (see `docs/ORG.md`), and only that role's skills are symlinked into
-  `.claude/skills`.
+- Agent workspaces are per vertical and role (the assistant or a specialist, see `docs/ORG.md`), and only
+  that role's skills are symlinked into `.claude/skills` (every skill for the assistant).
 - Triage is rules-only for now. Jev slots in as another `Triager` in Phase 1.
 - Still open: a smoke test of real Claude Code against the deployed MCP endpoints (see
   `docs/SETUP.md`, "First check after deploying"), and passkeys. Sign-in is email + password with optional TOTP; the admin token remains for automation and MCP.

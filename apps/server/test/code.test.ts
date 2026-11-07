@@ -198,7 +198,9 @@ describe.skipIf(!DB_URL)("Software Lead: coding in a checkout and raising PRs (i
     expect(request.allowedTools).toContain("WebSearch");
     expect(request.allowedTools).not.toContain("WebFetch");
     expect(request.systemPrompt).toContain("Opening pages (WebFetch) is off because this task came from outside input (webhook)");
-    expect(request.systemPrompt).toContain("This task came from outside input (webhook), so your coding tools and the repository are off");
+    // It goes to the assistant, which has no coding tools, and keeps to the Command Centre's own servers.
+    expect(request.cwd).toMatch(/workspaces\/command-centre\/chief-of-staff$/);
+    expect(request.systemPrompt).toContain("This task came from outside input, so you have only Command Centre's tools");
     expect(existsSync(join(request.cwd!, "work", task.id))).toBe(false);
   });
 });

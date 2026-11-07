@@ -1,45 +1,52 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
 <topic id="org">
-  <title>Org: roles, missions and policies</title>
-  <shortdesc>The org chart of agent roles: the Chief of Staff, a lead for each business and specialists under each lead, with live numbers per role. Edit it here.</shortdesc>
+  <title>Businesses: policies, schedules and specialists</title>
+  <shortdesc>Your assistant and each business it works for: what the business is, how its work is done, its budget, schedules and approval policies, and its specialists, with live numbers. Edit them here.</shortdesc>
   <prolog>
     <resourceid appname="command-centre" appid="org"/>
   </prolog>
   <body>
     <fig id="fig-org">
-      <title>The org chart</title>
+      <title>The Businesses page</title>
       <image href="../../screenshots/org-desktop-light.png" placement="break" width="900">
-        <alt>The Org page: the Chief of Staff at the top and each business's lead and roles below, each card with open, done, cost and approval counts.</alt>
+        <alt>The Businesses page: the assistant's card at the top, then each business with its description, budget, schedules and specialists, each card with open, done, cost and approval counts.</alt>
       </image>
     </fig>
-    <p>Each card shows a role's open tasks, tasks done and cost over the last days, and approvals waiting. Choose its title to see its tasks in the Inbox. <uicontrol>Mission and tools</uicontrol> shows what it is for, its autonomy notes, the kinds of work it owns, its skills and tools, its schedules, the names you can address it by in chat, and what it is measured on.</p>
-    <p>A role decides who does the work and what they can see. Whether an action runs or waits is decided by the business's <xref href="#policies">policies</xref>.</p>
+    <p>Your <term>assistant</term> takes every task: your chats and Converse requests, schedules, and incoming email, Odoo, social and webhook messages. Each task is filed under the business it is about, so a DMS email or a chat starting <userinput>dms:</userinput> is a DMS task. On work you started it can use every business's accounts (Odoo, mail, parcels, calendar and reminders, the Brain) and every skill. On work from outside it uses only that business's, and everything it proposes waits for you.</p>
+    <p>The assistant's card at the top shows its open tasks, tasks done and cost over the last days, and approvals waiting, over every business. Below it, each business shows:</p>
+    <ul>
+      <li>its description, and a link to how it works (such as <uicontrol>How Desktop Machine Shop works</uicontrol>): a note in the <xref href="../knowledge/brain.dita">Brain</xref> with what good looks like and what always needs you (refunds always need you, for example). The assistant reads it before working on that business. Edit it on the Brain page to change how the work is done;</li>
+      <li>its daily budget and its schedules, with those that are off marked so;</li>
+      <li>its approval policies, folded (see <xref href="#policies">Policies</xref>);</li>
+      <li>its <term>specialists</term>, if it has any.</li>
+    </ul>
+    <p>The specialists are the <b>Software Lead</b> (Command Centre: changes the app's code and raises pull requests), the <b>Video Producer</b> and the <b>Blog Writer</b> (3dpandme). The assistant hands them only that kind of work, and they report back to it on the same task. You can also start a message with a specialist's name, such as <userinput>video: …</userinput>, <userinput>blog: …</userinput> or <userinput>software: …</userinput>. A specialist's <uicontrol>Mission and tools</uicontrol> shows what it is for, its autonomy notes, skills, tools, schedules, the names you can address it by and what it is measured on.</p>
+    <p>Choose a card's title to see its tasks in the Inbox. Whether an action runs or waits is decided by the business's <xref href="#policies">policies</xref>.</p>
   </body>
   <topic id="edit">
-    <title>Edit the org</title>
+    <title>Edit businesses and specialists</title>
     <prolog><resourceid appname="command-centre" appid="org.edit"/></prolog>
     <body>
-      <p>Choose <uicontrol>Edit</uicontrol>. Changes apply to the next task, and each business keeps a history you can restore. Each business gets <uicontrol>Add role</uicontrol>, <uicontrol>Policies</uicontrol> and <uicontrol>History</uicontrol>; a pencil on each card edits that role. Choose <uicontrol>Done</uicontrol> when finished.</p>
+      <p>Choose <uicontrol>Edit</uicontrol>. Changes apply to the next task, and each business keeps a history you can restore. Each business gets <uicontrol>Add specialist</uicontrol>, <uicontrol>Policies</uicontrol> and <uicontrol>History</uicontrol>, and the assistant has its own <uicontrol>History</uicontrol>. A pencil on each card edits the assistant or that specialist. Choose <uicontrol>Done</uicontrol> when finished.</p>
+      <p>A business's description, budget and own schedules are set in the code; its how-we-work note is edited in the Brain.</p>
       <p>If a change saved in the app no longer fits a newer version of the code, the page warns you and the code's version runs until you save again or reset it.</p>
     </body>
   </topic>
   <topic id="role">
-    <title>Add or edit a role</title>
+    <title>Add or edit a specialist</title>
     <prolog><resourceid appname="command-centre" appid="org.role"/></prolog>
     <body>
       <dl>
         <dlentry><dt><uicontrol>Title</uicontrol> and <uicontrol>Id</uicontrol></dt><dd>The id is lower case with dashes and can't change later, because tasks keep it.</dd></dlentry>
-        <dlentry><dt><uicontrol>Reports to</uicontrol></dt><dd>Making a role report to the Chief of Staff makes it the business's lead; the old lead then reports to it.</dd></dlentry>
-        <dlentry><dt><uicontrol>Mission</uicontrol> and <uicontrol>Autonomy</uicontrol></dt><dd>What the role is for and how it should behave. Both go into the agent's instructions.</dd></dlentry>
-        <dlentry><dt><uicontrol>Owns these kinds of work</uicontrol></dt><dd>Triage intents. Taking one from another role moves it here; unowned ones go to the lead.</dd></dlentry>
-        <dlentry><dt><uicontrol>Skills</uicontrol> and <uicontrol>Tools</uicontrol></dt><dd>Only these skills are in its workspace, and it can reach only these servers (Odoo, mail, calendar…).</dd></dlentry>
+        <dlentry><dt><uicontrol>Mission</uicontrol> and <uicontrol>Autonomy</uicontrol></dt><dd>What it is for and how it should behave. Both go into the agent's instructions. The assistant sees the first sentence of each specialist's mission when deciding whom to hand work to.</dd></dlentry>
+        <dlentry><dt><uicontrol>Skills</uicontrol> and <uicontrol>Tools</uicontrol></dt><dd>Only these skills are in a specialist's workspace, and it can reach only these servers (Odoo, mail, calendar…). The assistant has every skill and, on work you started, every business's servers, whatever its card lists.</dd></dlentry>
         <dlentry><dt><uicontrol>Usually proposes</uicontrol></dt><dd>The actions it is expected to propose.</dd></dlentry>
-        <dlentry><dt><uicontrol>Also answers to</uicontrol></dt><dd>Extra chat names, comma separated, as in <userinput>trade: …</userinput>.</dd></dlentry>
+        <dlentry><dt><uicontrol>Also answers to</uicontrol></dt><dd>Extra chat names, comma separated, as in <userinput>podcast: …</userinput>.</dd></dlentry>
         <dlentry><dt><uicontrol>Measured on</uicontrol></dt><dd>KPIs, one per line.</dd></dlentry>
-        <dlentry><dt><uicontrol>Schedules</uicontrol></dt><dd>Each fires a task for this role on a cron schedule, such as <codeph>0 7 * * 1-5</codeph> for 07:00 on weekdays, with the prompt you give it. Schedules can be turned on and off.</dd></dlentry>
+        <dlentry><dt><uicontrol>Schedules</uicontrol></dt><dd>Each fires a task for it on a cron schedule, such as <codeph>0 7 * * 1-5</codeph> for 07:00 on weekdays, with the prompt you give it. Schedules can be turned on and off.</dd></dlentry>
       </dl>
-      <p><uicontrol>Remove</uicontrol> deletes a role once no roles report to it. Its tasks stay and count as the lead's.</p>
+      <p><uicontrol>Remove</uicontrol> deletes a specialist. Its tasks stay and count as the assistant's.</p>
     </body>
   </topic>
   <topic id="policies">
@@ -54,7 +61,7 @@
     <title>History, restore and reset</title>
     <prolog><resourceid appname="command-centre" appid="org.history"/></prolog>
     <body>
-      <p>Every save is a version. <uicontrol>Restore</uicontrol> brings back an older one; <uicontrol>Reset to code</uicontrol> goes back to how the code defines that part of the org. Neither loses anything: your changes stay in the history.</p>
+      <p>Every save is a version. <uicontrol>Restore</uicontrol> brings back an older one; <uicontrol>Reset to code</uicontrol> goes back to how the code defines that business, or the assistant. Neither loses anything: your changes stay in the history.</p>
     </body>
   </topic>
 </topic>

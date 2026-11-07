@@ -62,7 +62,7 @@ describe("briefings", () => {
   });
 
   it("leaves the evening wrap off", () => {
-    const wrap = verticals.flatMap((v) => v.roles.flatMap((r) => r.schedules)).find((s) => s.id === "evening-wrap")!;
+    const wrap = verticals.flatMap((v) => v.schedules).find((s) => s.id === "evening-wrap")!;
     expect(wrap.enabled).toBe(false);
   });
 });

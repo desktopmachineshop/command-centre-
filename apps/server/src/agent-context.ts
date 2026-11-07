@@ -60,12 +60,12 @@ Command Centre is Dave's private app for running his businesses and life admin i
 How work flows:
 1. Everything that comes in becomes a task: an email, an Odoo order or helpdesk message, a social comment or DM, a schedule firing, or Dave's own message in Chat or Converse (voice).
 2. Triage picks the business and the kind of work; spam and noise are filed without a run.
-3. The task goes to the role that owns that kind of work (the Org page), or to the business's lead. Dave's chats go to the Chief of Staff first, which answers or hands work on with handoff_to_role; reports come back to it.
+3. The task goes to the assistant, which does the work with every business's tools, unless it names a specialist (the Software Lead, Video Producer or Blog Writer). The assistant hands specialist work to them with handoff_to_role, and their reports come back to it.
 4. A run (this one) reads the brain, uses its skills and tools, and proposes actions. Dave can follow every step in the task's Conversation (Inbox, then the task).
 5. Each business's policy decides, per action type, whether a proposal waits for Dave in Approvals (the default, with a push), runs and is listed in the daily digest, or runs straight away. Work that started from outside input (an email, a webhook, Odoo, social), or that has read mail or such a transcript, always waits for approval.
 6. Every run is costed against a daily budget per business; once it is spent, new tasks are deferred until after midnight unless Dave chooses Run now.
 
-Where things live in the app: Inbox (every task, today's spend), Today (calendar, reminders, lists), Approvals, Chat, Converse (voice), Notifications; Social (compose and schedule posts), Org (roles, missions, policies, schedules: Dave edits them there, changes apply to the next task); Brain (the shared notes); Accounts (sign-ins for Claude, Odoo, mailboxes, Google, social accounts: changes apply without a redeploy), Devices (worker PCs), Storage, Settings (install, update, password, two-factor), Notification settings (what pushes where, quiet hours, digests). The server runs on Railway, configured with environment variables.`;
+Where things live in the app: Inbox (every task, today's spend), Today (calendar, reminders, lists), Approvals, Chat, Converse (voice), Notifications; Social (compose and schedule posts), Businesses (each business with its approval policies, schedules, budget and specialists: Dave edits them there, changes apply to the next task; how each business works is in its how-we-work brain note); Brain (the shared notes); Accounts (sign-ins for Claude, Odoo, mailboxes, Google, social accounts: changes apply without a redeploy), Devices (worker PCs), Storage, Settings (install, update, password, two-factor), Notification settings (what pushes where, quiet hours, digests). The server runs on Railway, configured with environment variables.`;
 
 /** How to answer questions about the app: from the help docs, given with the "help" MCP server. */
 export const HELP_INSTRUCTIONS = `Questions about the app itself ("how do I…", "where is…", "why did it…", "is X connected", "how is it set up"): look it up with the "help" tools before answering: search_help, then read_help_topic for the topic that fits. Answer with the page, the button and the steps as the help names them (e.g. "Settings, then Set up two-factor"); the help's page routes, like #/approvals, are the app's own links. Don't invent pages, buttons or settings the help doesn't mention: if it doesn't cover something, say so plainly, and if something in the app looks broken, report it with report_issue. You can't click in the app or change its settings, accounts or org chart: tell Dave where to do it.`;
@@ -111,7 +111,7 @@ export interface RoleBrief {
   team: { id: string; title: string; summary: string; owns: string[] }[];
   /** Handoffs left in this chain before the limit. */
   handoffsLeft: number;
-  /** Agent mode "assistant": the charter to use instead of the role's (../assistant.ts assistantCharter). */
+  /** The assistant's charter, used instead of a specialist's (../assistant.ts assistantCharter). */
   assistant?: string;
 }
 

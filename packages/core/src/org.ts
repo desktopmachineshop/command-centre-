@@ -77,18 +77,14 @@ export interface RoleStats {
   pendingApprovals: number;
 }
 
-/** One card in the org chart. */
+/** A card on the Businesses page: the assistant, or a specialist. */
 export interface OrgRoleNode {
   id: string;
   title: string;
   mission: string;
-  /** Vertical whose tasks this role runs (the home vertical for the Chief of Staff). */
+  /** Business whose tasks it runs (the home business for the assistant, whose tasks run in every business). */
   vertical: string;
-  reportsTo: string | null;
-  /** True for the lead a vertical without an org chart gets. */
-  implicit: boolean;
   aliases: string[];
-  intents: string[];
   skills: string[];
   mcpServers: string[];
   actions: string[];
@@ -96,17 +92,24 @@ export interface OrgRoleNode {
   kpis: string[];
   autonomyNotes: string;
   stats: RoleStats;
-  children: OrgRoleNode[];
 }
 
+/** A business on the Businesses page: its context, its rules, its schedules and its specialists. */
 export interface OrgVerticalNode {
   id: string;
   name: string;
   description: string;
   color: string | null;
-  /** Sum over the vertical's roles. */
+  brainFolder: string;
+  /** Per action type: auto, auto-with-digest or draft. Unlisted types use `defaultPolicy`. */
+  policies: Record<string, string>;
+  defaultPolicy: string;
+  dailyBudgetUsd: number | null;
+  /** The business's own schedules (each runs as the assistant). */
+  schedules: { id: string; cron: string; timezone: string; enabled: boolean }[];
+  /** Everything done in this business: the assistant's tasks and the specialists'. */
   stats: RoleStats;
-  lead: OrgRoleNode;
+  specialists: OrgRoleNode[];
 }
 
 export interface OrgTree {

@@ -1,5 +1,5 @@
 import { BrainConflictError, parseNote, type PgBrain, serializeNote } from "@cc/brain";
-import { Capability, leadOf, ProposalStatus, ROOT_ROLE_ID, SetupRoleId, TaskStatus } from "@cc/core";
+import { Capability, ProposalStatus, ROOT_ROLE_ID, SetupRoleId, TaskStatus } from "@cc/core";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
@@ -157,9 +157,8 @@ export function apiRoutes(deps: ApiDeps) {
     const role = c.req.query("role") || undefined;
     let vertical = c.req.query("vertical") || undefined;
     if (vertical && !verticals.get(vertical)) return c.json({ error: `unknown vertical ${vertical}` }, 404);
-    if (role === ROOT_ROLE_ID) vertical = verticals.rootVertical;
-    // Tasks from before roles existed belong to their vertical's lead.
-    const includeUnassigned = !!(vertical && role && role !== ROOT_ROLE_ID && leadOf(verticals.require(vertical)).id === role);
+    // The assistant's tasks run in every business; tasks from before roles existed are its too.
+    const includeUnassigned = role === ROOT_ROLE_ID;
     return c.json(await store.listTasks({ status, vertical, role, includeUnassigned, limit: limit.parse(c.req.query("limit")) }));
   });
 

@@ -7,7 +7,7 @@
     <resourceid appname="command-centre" appid="overview"/>
   </prolog>
   <conbody>
-    <p>An always-on server takes in email, Odoo events, social comments, schedules and your own requests. Each one is sorted cheaply, given to the right <term>role</term> in the org chart (Customer Support, Catalogue &amp; Pricing, the Personal Assistant and so on), and worked on by an agent. Anything that would leave the building, such as an email reply, a social post or a price change, comes back to you as a <term>proposal</term> to approve, unless you have told that business to let it run.</p>
+    <p>An always-on server takes in email, Odoo events, social comments, schedules and your own requests. Each one is sorted cheaply, filed under its business and worked on by your <term>assistant</term>, which hands specialist work (code changes, videos, blog posts) to a <term>specialist</term>. Anything that would leave the building, such as an email reply, a social post or a price change, comes back to you as a <term>proposal</term> to approve, unless you have told that business to let it run.</p>
     <fig id="fig-inbox">
       <title>The Inbox on a PC</title>
       <image href="../screenshots/inbox-desktop-light.png" placement="break" width="900">
@@ -20,7 +20,7 @@
         <li><b>Approve or adjust</b> what the agents propose, in <xref href="work/approvals.dita">Approvals</xref>, or straight from a push notification.</li>
         <li><b>Ask for things</b> in <xref href="work/chat.dita">Chat</xref>, or hands-free in <xref href="work/converse.dita">Converse</xref>.</li>
         <li><b>Keep an eye on work</b> in the <xref href="work/inbox.dita">Inbox</xref>, and on your own day in <xref href="work/today.dita">Today</xref>.</li>
-        <li><b>Teach the agents</b> by editing notes in the <xref href="knowledge/brain.dita">Brain</xref> and roles in the <xref href="business/org.dita">Org</xref> chart.</li>
+        <li><b>Teach the agents</b> by editing notes in the <xref href="knowledge/brain.dita">Brain</xref>, including each business's how-we-work note, and policies and specialists on the <xref href="business/org.dita">Businesses</xref> page.</li>
       </ul>
     </section>
     <section id="getting-help">

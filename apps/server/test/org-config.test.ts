@@ -6,10 +6,10 @@ import { DB_URL, makeServer, resetDatabase } from "./helpers";
 const wholesale = {
   id: "wholesale",
   title: "Wholesale",
-  reportsTo: "shop-lead",
+  reportsTo: ROOT_ROLE_ID,
   aliases: ["trade"],
   mission: "Quotes trade customers.",
-  intents: ["supplier"],
+  intents: [],
   skills: ["brain-notes"],
   mcpServers: ["brain"],
   actions: ["email.reply"],
@@ -30,11 +30,8 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
 
   const config = async () => (await ctx.api("/api/org/config")).body as OrgConfig;
   const dmsUnit = async () => (await config()).verticals.find((v) => v.unit === "dms")!;
-  /** The dms roles with Ops & Admin's "supplier" intent moved to the new Wholesale role. */
-  const withWholesale = (edit: VerticalOrgEdit): VerticalOrgEdit => ({
-    ...edit,
-    roles: [...edit.roles.map((r) => (r.id === "ops-admin" ? { ...r, intents: r.intents.filter((i) => i !== "supplier") } : r)), wholesale],
-  });
+  /** dms with a new specialist, Wholesale. */
+  const withWholesale = (edit: VerticalOrgEdit): VerticalOrgEdit => ({ ...edit, roles: [...edit.roles, wholesale] });
 
   it("starts from the code manifests", async () => {
     const c = await config();
@@ -57,7 +54,7 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
 
     const tree = (await ctx.api("/api/org")).body as OrgTree;
     const shop = tree.root.verticals.find((v) => v.id === "dms")!;
-    expect(shop.lead.children.map((r) => r.id)).toContain("wholesale");
+    expect(shop.specialists.map((r) => r.id)).toEqual(["wholesale"]);
     const manifest = ((await ctx.api("/api/verticals")).body as { id: string; policies: Record<string, string> }[]).find((v) => v.id === "dms")!;
     expect(manifest.policies).toEqual({ ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto", notify: "auto" });
 
@@ -75,14 +72,14 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
 
   it("refuses an org that fails its checks, listing every problem", async () => {
     const dms = await dmsUnit();
-    const twoLeads = { ...dms.current, roles: dms.current.roles.map((r) => (r.id === "wholesale" ? { ...r, reportsTo: ROOT_ROLE_ID, skills: ["no-such-skill"] } : r)) };
-    let res = await ctx.api("/api/org/config/dms", { method: "PUT", json: { data: twoLeads, expectedVersion: 1 } });
+    const badSkill = { ...dms.current, roles: dms.current.roles.map((r) => (r.id === "wholesale" ? { ...r, skills: ["no-such-skill"] } : r)) };
+    let res = await ctx.api("/api/org/config/dms", { method: "PUT", json: { data: badSkill, expectedVersion: 1 } });
     expect(res.status).toBe(400);
     expect(res.body.issues).toEqual(['dms: role "wholesale" lists skill "no-such-skill", which is not in the skills bank']);
 
-    res = await ctx.api("/api/org/config/dms", { method: "PUT", json: { data: { ...twoLeads, roles: twoLeads.roles.map((r) => ({ ...r, skills: [] })) }, expectedVersion: 1 } });
+    res = await ctx.api("/api/org/config/dms", { method: "PUT", json: { data: { ...dms.current, roles: [...dms.current.roles, wholesale] }, expectedVersion: 1 } });
     expect(res.status).toBe(400);
-    expect(res.body.issues).toEqual([`dms: needs exactly one lead reporting to ${ROOT_ROLE_ID}, found 2`]);
+    expect(res.body.issues).toEqual(['dms: duplicate role id "wholesale"', 'dms: alias "trade" of wholesale clashes with another role name']);
 
     const untitled = { ...dms.current, roles: dms.current.roles.map((r) => (r.id === "wholesale" ? { ...r, title: "" } : r)) };
     res = await ctx.api("/api/org/config/dms", { method: "PUT", json: { data: untitled, expectedVersion: 1 } });
@@ -91,7 +88,7 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
     expect((await dmsUnit()).version).toBe(1);
   });
 
-  it("edits the Chief of Staff", async () => {
+  it("edits the assistant", async () => {
     const { root } = await config();
     const res = await ctx.api(`/api/org/config/${ROOT_ROLE_ID}`, { method: "PUT", json: { data: { ...root.current, mission: "Keeps Dave focused." }, expectedVersion: 0 } });
     expect(res.status).toBe(200);
@@ -121,15 +118,15 @@ describe.skipIf(!DB_URL)("org editing from the app", () => {
   });
 
   it("loads saved changes on boot, leaving out one the code no longer accepts", async () => {
-    // A change saved against an older code manifest: a role owning an intent dms no longer declares.
-    const stale = { ...(await dmsUnit()).base, roles: [...(await dmsUnit()).base.roles, { ...wholesale, intents: ["retired-intent"] }] };
+    // A change saved against an older code manifest: a specialist on a server dms doesn't have.
+    const stale = { ...(await dmsUnit()).base, roles: [...(await dmsUnit()).base.roles, { ...wholesale, mcpServers: ["github"] }] };
     await ctx.server.store.pool.query("update org_overrides set data = $1 where unit = 'dms'", [JSON.stringify(stale)]);
     await ctx.server.org.load();
     const dms = await dmsUnit();
-    expect(dms.problem).toMatch(/owns intent "retired-intent"/);
+    expect(dms.problem).toMatch(/lists MCP server "github"/);
     expect(dms.current.roles.map((r) => r.id)).toContain("wholesale");
     const tree = (await ctx.api("/api/org")).body as OrgTree;
-    expect(tree.root.verticals.find((v) => v.id === "dms")!.lead.children.map((r) => r.id)).not.toContain("wholesale");
+    expect(tree.root.verticals.find((v) => v.id === "dms")!.specialists.map((r) => r.id)).not.toContain("wholesale");
     // The other saved change still runs.
     expect(tree.root.mission).toBe("Keeps Dave focused.");
   });
