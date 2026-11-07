@@ -81,10 +81,13 @@ export function systemPrompt(
   const actions = Object.entries(executors)
     .map(([type, e]) => `- ${type}: ${e.description}`)
     .join("\n");
-  const who = role ? `the ${role.role.title} in Dave's Command Centre, working on: ${vertical.name}` : `the Command Centre agent working for Dave on: ${vertical.name}`;
+  const who = role?.assistant
+    ? "Dave's assistant in his Command Centre, working across all his businesses and his own life admin"
+    : role
+      ? `the ${role.role.title} in Dave's Command Centre, working on: ${vertical.name}`
+      : `the Command Centre agent working for Dave on: ${vertical.name}`;
   return `You are ${who}.
-${vertical.description}
-
+${role?.assistant ? "" : `${vertical.description}\n`}
 Today is ${now.toISOString().slice(0, 10)}.
 ${role ? `\n${roleCharter(role)}\n` : ""}
 Long-term memory lives in the brain (MCP server "brain"). Before answering, search it for relevant context; this vertical's notes are under "${vertical.brainFolder}/". Record durable facts, decisions and outcomes there (use the journal for one-line events). Bugs, faults and anything broken in the Command Centre, its agents or integrations go in the central issue log with the brain tool report_issue (never a note in your own folder).
@@ -108,6 +111,8 @@ export interface RoleBrief {
   team: { id: string; title: string; summary: string; owns: string[] }[];
   /** Handoffs left in this chain before the limit. */
   handoffsLeft: number;
+  /** Agent mode "assistant": the charter to use instead of the role's (../assistant.ts assistantCharter). */
+  assistant?: string;
 }
 
 const firstSentence = (s: string) => (/^.*?[.!?](\s|$)/.exec(s)?.[0] ?? s).trim();
@@ -127,6 +132,7 @@ export function roleBrief(registry: VerticalRegistry, verticalId: string, roleId
 }
 
 function roleCharter(b: RoleBrief): string {
+  if (b.assistant) return b.assistant;
   const { role, manager } = b;
   const lines = [`## Your role: ${role.title} (${role.id})`, role.mission];
   lines.push(manager ? `You report to the ${manager.title} (${manager.id}).` : "You are the top of the org: every vertical lead reports to you, and you report to Dave.");

@@ -653,7 +653,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       ...(code.token
         ? {
             github: (caller: Caller) => {
-              const vertical = caller.kind === "run" ? caller.scope.vertical : verticals.all().find((v) => verticals.roles(v.id).some((r) => r.repo))?.id;
+              // The assistant (and Dave) read the coding role's repository.
+              const vertical = caller.kind === "run" && caller.scope.role !== ROOT_ROLE_ID ? caller.scope.vertical : verticals.all().find((v) => verticals.roles(v.id).some((r) => r.repo))?.id;
               const repo = vertical ? verticals.roles(vertical).find((r) => r.repo)?.repo : undefined;
               return createGithubMcpServer({ token: code.token!, repo: repo ?? "unknown/unknown", fetch: code.fetch });
             },
@@ -762,6 +763,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     voice: voiceConversations,
     chatFilesReadRule: chatFiles.readRule(),
     chatFileImages: (files) => chatFiles.images(files),
+    mode: () => agentConfig.agent.mode, // Accounts → Agents → Agent mode (./assistant.ts)
   });
 
   const app = new Hono();

@@ -50,6 +50,11 @@
         <dlentry><dt><option>codex-then-claude</option></dt><dd>ChatGPT, and Claude once ChatGPT reaches its usage limit.</dd></dlentry>
       </dl>
       <p>The Anthropic API key, if you have set one, is used only after the subscriptions in the route. On ChatGPT, agents have the same tools (the brain, actions, Odoo and the others), the same skills and the same limits on outside input. Run costs show as unknown, because a plan's usage has no price per run. Drive mode's quick voice replies still use Claude.</p>
+      <p><uicontrol>Agent mode</uicontrol> on the same card decides who answers your chats:</p>
+      <dl>
+        <dlentry><dt><option>org</option></dt><dd>The org chart (the default): the Chief of Staff answers or hands the work to the role that owns it on the <xref href="../business/org.dita">Org</xref> page.</dd></dlentry>
+        <dlentry><dt><option>assistant</option></dt><dd>One assistant answers every chat itself, whichever business it is about, with every account and skill (Odoo, mail, parcels, calendar, the brain). It names the business on each action it proposes, so that business's approval policy and budget apply. It hands work only to the specialists: the Software Lead (code changes), the Video Producer and the Blog Writer, and you can still name one at the start of a message (<userinput>video: …</userinput>). Incoming email, Odoo and social messages still go to the org's roles.</dd></dlentry>
+      </dl>
     </body>
   </topic>
   <topic id="social">
