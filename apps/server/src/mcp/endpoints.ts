@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { type ActionService, MAX_BATCH } from "../actions";
 import { bearer, tokenMatches } from "../auth";
+import { cleanHandover, HANDOVER_MAX } from "../handover";
 import type { RunScope, RunTokens } from "../run-tokens";
 
 /** Who is calling an MCP endpoint: an agent run (scoped) or Dave's admin token. */
@@ -49,8 +50,26 @@ function transcriptLine(message: AgentMessage, query: string): string {
   return `${start > 0 ? "…" : ""}${flat.slice(start, at + query.length + 200)}${at + query.length + 200 < flat.length ? "…" : ""}`;
 }
 
-function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff, searchTranscripts?: SearchTranscripts): McpServer {
+/** Writes a task's handover note (Store.setHandover). */
+export type SetHandover = (taskId: string, text: string) => Promise<void>;
+
+function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff, searchTranscripts?: SearchTranscripts, setHandover?: SetHandover): McpServer {
   const server = new McpServer({ name: "actions", version: "0.1.0" });
+  if (setHandover && caller.kind === "run") {
+    const { taskId } = caller.scope;
+    server.registerTool(
+      "update_handover",
+      {
+        description: `Replace this task's handover note: the hidden context any agent needs to pick the task up later (see "Handover note" in your instructions). Send the whole note, under the headings Goal, Context, Decisions, Done, Open, References. At most ${HANDOVER_MAX} characters.`,
+        inputSchema: { note: z.string().min(1).describe("The whole note, in markdown") },
+      },
+      async ({ note }) => {
+        const text = cleanHandover(note);
+        await setHandover(taskId, text);
+        return { content: [{ type: "text", text: `Handover note saved (${text.length} characters).` }] };
+      },
+    );
+  }
   const types = Object.entries(actions.executors).map(([t, e]) => `${t}: ${e.description}`);
   server.registerTool(
     "propose_action",
@@ -205,6 +224,8 @@ export function mcpRoutes(deps: {
   handoff?: Handoff;
   /** Enables the read-only search_transcripts tool. */
   searchTranscripts?: SearchTranscripts;
+  /** Enables the update_handover tool for runs. */
+  setHandover?: SetHandover;
 }) {
   const app = new Hono<{ Variables: { caller: Caller } }>();
 
@@ -238,7 +259,7 @@ export function mcpRoutes(deps: {
       c.req.raw,
     );
   });
-  app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller"), deps.handoff, deps.searchTranscripts), c.req.raw));
+  app.all("/actions", (c) => handle(actionsServer(deps.actions, c.get("caller"), deps.handoff, deps.searchTranscripts, deps.setHandover), c.req.raw));
   app.all("/:name", (c) => {
     const servers = (typeof deps.servers === "function" ? deps.servers() : deps.servers) ?? {};
     const name = c.req.param("name");

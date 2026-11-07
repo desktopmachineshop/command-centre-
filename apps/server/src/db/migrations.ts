@@ -535,4 +535,12 @@ export const migrations: { id: string; sql: string }[] = [
       create index if not exists server_log_at_idx on server_log (at desc);
     `,
   },
+  {
+    // A task's handover note (./handover.ts): hidden context any agent can pick the task up from.
+    id: "0025_task_handover",
+    sql: `
+      alter table tasks add column if not exists handover text;
+      alter table tasks add column if not exists handover_at timestamptz;
+    `,
+  },
 ];

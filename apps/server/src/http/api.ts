@@ -218,7 +218,9 @@ export function apiRoutes(deps: ApiDeps) {
     );
     const event = await store.getEvent(task.eventId);
     const proposals = await store.listProposals({ taskId: task.id });
-    return c.json({ task, event, runs, proposals });
+    // The handover note (../handover.ts): hidden context for agents, shown behind "Show handover".
+    const handover = await store.getHandover(task.id);
+    return c.json({ task, event, runs, proposals, handover });
   });
 
   /** The proposals of a task and of everything it handed off: a chat shows them inline. */

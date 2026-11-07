@@ -829,6 +829,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       servers: extraMcpServers,
       handoff: (taskId, target, note) => pipeline.handoff(taskId, target, note), // org roles
       searchTranscripts: (o) => store.searchRunMessages(o),
+      setHandover: (taskId, text) => store.setHandover(taskId, text), // ./handover.ts
     }),
   );
   // Uploaded media, public at unguessable URLs so Instagram and Threads can fetch it.

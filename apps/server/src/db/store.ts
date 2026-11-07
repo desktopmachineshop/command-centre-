@@ -237,6 +237,16 @@ export class Store {
     return rows[0].n;
   }
 
+  /** The task's handover note (./handover.ts) and when it was last written; null before the first. */
+  async getHandover(taskId: string): Promise<{ text: string; at: string } | null> {
+    const { rows } = await this.pool.query("select handover, handover_at from tasks where id = $1 and handover is not null", [taskId]);
+    return rows[0] ? { text: rows[0].handover, at: iso(rows[0].handover_at)! } : null;
+  }
+
+  async setHandover(taskId: string, text: string): Promise<void> {
+    await this.pool.query("update tasks set handover = $2, handover_at = now() where id = $1", [taskId, text]);
+  }
+
   /** The tasks this task handed off that haven't finished yet (queued, running or held by the budget). */
   async openHandoffTasks(taskId: string): Promise<Task[]> {
     const { rows } = await this.pool.query(
