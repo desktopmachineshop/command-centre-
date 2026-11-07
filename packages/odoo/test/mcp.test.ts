@@ -30,8 +30,10 @@ describe("odoo MCP server", () => {
   it("exposes only read tools", async () => {
     const tools = (await ctx.mcp.listTools()).tools.map((t) => t.name).sort();
     expect(tools).toEqual([
-      "get_customer_history", "get_order", "get_product", "get_record_messages", "list_websites", "low_stock",
-      "search_blog_posts", "search_customers", "search_loyalty_programs", "search_orders", "search_products",
+      "aged_balances", "get_customer_history", "get_delivery", "get_invoice", "get_order", "get_product", "get_purchase_order",
+      "get_record_messages", "list_websites", "low_stock", "product_suppliers", "sales_summary", "search_activities", "search_blog_posts",
+      "search_customers", "search_deliveries", "search_invoices", "search_leads", "search_loyalty_programs", "search_orders",
+      "search_payments", "search_products", "search_purchase_orders", "search_records", "search_tickets", "stock_by_location",
     ]);
     const methods = new Set(ctx.odoo.calls.map((c) => c.method));
     for (const write of ["create", "write", "unlink", "message_post"]) expect(methods.has(write)).toBe(false);

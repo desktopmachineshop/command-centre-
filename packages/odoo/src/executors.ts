@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { type Domain, type OdooClient, OdooError, type OdooRecord, OdooRpcError } from "./client";
+import { createDailyExecutors } from "./daily-executors";
+import { defined, parse, setMany } from "./payload";
 import { previewExistingQuote, previewNewQuote, type QuotePreview, QuoteLookupError, quoteNote } from "./quote-preview";
 
 /**
@@ -219,9 +221,6 @@ function similarNote(similar: SimilarCustomer[]): string {
   return `[${similar.length} possible match${similar.length === 1 ? "" : "es"} in Odoo: ${shown.join("; ")}${more}.]`;
 }
 
-/** `[[6, 0, ids]]`: set a many2many to exactly these ids. */
-const setMany = (ids: number[] | undefined) => (ids?.length ? [[6, 0, ids]] : undefined);
-const defined = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
 /**
  * Emails a quotation the way Odoo's Send button does: the composer opened by
@@ -257,12 +256,6 @@ async function withQuotePreview(payload: Record<string, unknown>, look: () => Pr
   }
 }
 
-function parse<T>(schema: z.ZodType<T>, payload: unknown): T {
-  const r = schema.safeParse(payload);
-  if (!r.success) throw new OdooError(`Invalid payload: ${r.error.issues.map((i) => `${i.path.join(".") || "payload"} ${i.message}`).join("; ")}`);
-  return r.data;
-}
-
 /**
  * Posts on a record's chatter: an internal note (only staff see it) or a message emailed to the
  * record's followers. Returns the mail.message id.
@@ -277,9 +270,10 @@ export async function postMessage(client: Pick<OdooWriter, "call">, model: strin
   });
 }
 
-/** Write actions on Odoo. All of them default to `draft` policy: Dave approves each one. */
+/** Write actions on Odoo. Every one waits for Dave's approval (ODOO_WRITE_POLICY in @cc/core). */
 export function createOdooExecutors(client: OdooWriter): Record<string, OdooActionExecutor> {
   return {
+    ...createDailyExecutors(client),
     "odoo.message.post": {
       description:
         "Post on an Odoo record's chatter. payload: { model, id, body, internal? }. internal=true logs a note only staff see; otherwise it is a message emailed to the record's followers, i.e. the customer.",

@@ -126,15 +126,25 @@ export function policyFor(vertical: VerticalManifest, actionType: string): Polic
 export const INTERNAL_ODOO_NOTE = "odoo.message.post.internal";
 
 /**
- * The policy for one proposal. Like `policyFor`, except that an internal Odoo note
- * (`odoo.message.post` with `internal: true`, exactly) uses the `odoo.message.post.internal`
- * policy when the vertical sets one. A message to the record's followers (the customer) keeps
- * `odoo.message.post`'s policy.
+ * Every other write to Odoo (an `odoo.*` action) waits for Dave's approval, whatever a business's
+ * policies say: the agents read Odoo freely through the odoo MCP tools, and change it only through
+ * proposals Dave approves. The one exception is an internal note (INTERNAL_ODOO_NOTE).
+ */
+export const ODOO_WRITE_POLICY: Policy = "draft";
+
+/** True for an action type (or policy key) whose policy is fixed at ODOO_WRITE_POLICY. */
+export const isOdooWrite = (actionType: string) => actionType.startsWith("odoo.") && actionType !== INTERNAL_ODOO_NOTE;
+
+/**
+ * The policy for one proposal: an internal Odoo note (`odoo.message.post` with `internal: true`,
+ * exactly) uses the vertical's `odoo.message.post.internal` policy when it sets one; any other Odoo
+ * write is always `draft` (ODOO_WRITE_POLICY); everything else uses `policyFor`.
  */
 export function proposalPolicy(vertical: VerticalManifest, actionType: string, payload: Record<string, unknown>): Policy {
   if (actionType === "odoo.message.post" && payload.internal === true && vertical.policies[INTERNAL_ODOO_NOTE]) {
     return vertical.policies[INTERNAL_ODOO_NOTE];
   }
+  if (isOdooWrite(actionType)) return ODOO_WRITE_POLICY;
   return policyFor(vertical, actionType);
 }
 

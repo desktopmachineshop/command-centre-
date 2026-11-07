@@ -18,7 +18,7 @@ const AREAS = [
       aliases: ["shop"],
       mission:
         "Running the shop day to day on Dave's behalf: nothing left unowned, and the shop's notes in the brain kept current. Anything that needs Dave's attention across the business goes to him with notify.",
-      skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status"],
+      skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "odoo-daily"],
       actions: ["brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Nothing unowned for more than a day", "Weekly shop summary in the brain"],
       autonomyNotes:
@@ -32,9 +32,13 @@ const AREAS = [
       mission:
         "Answers customers the way Dave would: pre-sales and compatibility questions, where an order is, returns and warranty claims. Works from live Odoo data and the brain, never from memory, and keeps each customer's history in the brain.",
       intents: ["presales-question", "order-status", "return-warranty", "customer-message", "review", "rfq"],
-      skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "social-platform-guide", "social-voice-dms"],
+      skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "odoo-daily", "social-platform-guide", "social-voice-dms"],
       mcpServers: ["brain", "odoo", "mail", "sendcloud"],
-      actions: ["email.reply", "email.label", "odoo.message.post", "odoo.customer.create", "odoo.quote.create", "odoo.quote.send", "social.reply", "social.dm", "brain.write"],
+      actions: [
+        "email.reply", "email.label", "odoo.message.post", "odoo.customer.create", "odoo.customer.update", "odoo.quote.create", "odoo.quote.update",
+        "odoo.quote.send", "odoo.order.confirm", "odoo.invoice.send", "odoo.delivery.set_tracking", "odoo.activity.schedule", "odoo.activity.done",
+        "odoo.lead.create", "odoo.lead.update", "odoo.ticket.update", "social.reply", "social.dm", "brain.write",
+      ],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
       autonomyNotes:
         "Drafts every customer reply, new customer contact and quotation for approval. Refunds, exchanges outside the returns policy, discounts and warranty decisions always need Dave.",
@@ -46,10 +50,10 @@ const AREAS = [
       aliases: ["pricing", "catalogue", "catalog"],
       mission:
         "Keeps the Odoo catalogue accurate and the prices competitive: product facts, descriptions, gaps in the range and price checks against competitors. Proposes price changes with the net and VAT-inclusive figures and the reason, and sets up and ends discount and loyalty deals.",
-      skills: ["brain-notes", "dms-catalogue-pricing"],
+      skills: ["brain-notes", "dms-catalogue-pricing", "odoo-daily"],
       // Supplier costs come from the price lists Ops & Admin files under dms/pricelists/ in the brain.
       mcpServers: ["brain", "odoo"],
-      actions: ["odoo.product.update_price", "odoo.loyalty.create", "odoo.loyalty.archive", "brain.write"],
+      actions: ["odoo.product.update_price", "odoo.product.update", "odoo.product.create", "odoo.loyalty.create", "odoo.loyalty.archive", "brain.write"],
       kpis: ["Price review of top sellers each month", "Catalogue facts with no gaps (SKU, weight, HS code)"],
       autonomyNotes:
         "Every price change, new discount or loyalty deal and archived deal is a draft with what changes, the margin effect and the reason. Never edits product records directly.",
@@ -75,12 +79,17 @@ const AREAS = [
       mission:
         "Handles the back office: supplier emails, stock and lead times, purchase prices, supplier price lists, invoices and bills. Files each one in the brain (price lists by vendor and date under dms/pricelists/), flags low stock early and keeps supplier notes current.",
       intents: ["supplier", "invoice-admin", "new-order", "stock-low", "delivery-late", "supplier-reply"],
-      skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status", "dms-supplier-pricelists"],
+      skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status", "dms-supplier-pricelists", "odoo-daily"],
       mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
-      actions: ["email.reply", "email.label", "email.send", "odoo.message.post", "notify", "brain.write"],
+      actions: [
+        "email.reply", "email.label", "email.send", "odoo.message.post", "odoo.order.confirm", "odoo.order.cancel", "odoo.invoice.create",
+        "odoo.invoice.post", "odoo.invoice.send", "odoo.invoice.register_payment", "odoo.delivery.validate", "odoo.delivery.set_tracking",
+        "odoo.stock.adjust", "odoo.purchase.create", "odoo.purchase.send", "odoo.purchase.confirm", "odoo.purchase.bill", "odoo.activity.schedule",
+        "odoo.activity.done", "notify", "brain.write",
+      ],
       kpis: ["No stock-out without warning", "Every invoice filed within a day", "Every supplier price list in the brain within a day"],
       autonomyNotes:
-        "May file notes and post internal Odoo notes for review. Purchase orders, payments and any commitment to a supplier always need Dave.",
+        "May file notes in the brain and post internal Odoo notes. Every other Odoo change (invoices, payments, deliveries, stock counts, purchase orders) is a proposal Dave approves.",
     },
 ];
 
@@ -95,7 +104,7 @@ export default defineVertical({
     // Odoo events (rules triager, see @cc/triage odoo.ts)
     "new-order", "customer-message", "stock-low", "delivery-late", "review", "rfq", "supplier-reply",
   ],
-  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide", "video-reel"],
+  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "odoo-daily", "social-voice-dms", "social-platform-guide", "video-reel"],
   // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
   mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
