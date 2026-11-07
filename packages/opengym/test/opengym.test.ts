@@ -47,6 +47,11 @@ const STATE = {
     },
     { d: "not a date", entries: [] },
   ],
+  customMeasurements: [{ id: "m1", name: "Muscle mass", unit: "kg" }],
+  measurements: [
+    { d: "2026-10-01", t: 0, waist: 92, chest: 104, bodyFat: 22.5, upperArmLeft: null, other: [{ id: "m1", name: "Muscle mass", value: 36.2, unit: "kg" }] },
+    { d: "2026-11-01", t: 0, waist: 90.5, chest: null, bodyFat: 21, other: [{ id: "m1", value: 36.8, unit: "kg" }] },
+  ],
   bodyweight: [
     { d: "2026-10-01", w: 86 },
     { d: "2026-10-29", w: 84.4 },
@@ -194,7 +199,15 @@ describe("GymService", () => {
     const client = new Client({ name: "t", version: "0" });
     await client.connect(b);
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(tools).toEqual(["get_bodyweight", "get_workout", "list_workouts", "training_summary"]);
+    expect(tools).toEqual(["get_bodyweight", "get_measurements", "get_workout", "list_workouts", "training_summary"]);
+    const m = JSON.parse(((await client.callTool({ name: "get_measurements", arguments: {} })) as { content: { text: string }[] }).content[0]!.text);
+    expect(m.fields).toEqual([
+      { field: "Chest", unit: "cm", latest: { date: "2026-10-01", value: 104 }, change: null, since: null },
+      { field: "Waist", unit: "cm", latest: { date: "2026-11-01", value: 90.5 }, change: -1.5, since: "2026-10-01" },
+      { field: "Body fat", unit: "%", latest: { date: "2026-11-01", value: 21 }, change: -1.5, since: "2026-10-01" },
+      { field: "Muscle mass", unit: "kg", latest: { date: "2026-11-01", value: 36.8 }, change: 0.6, since: "2026-10-01" },
+    ]);
+    expect(m.days).toHaveLength(2);
     const res = (await client.callTool({ name: "get_bodyweight", arguments: { from: "2026-10-15" } })) as { content: { text: string }[] };
     const body = JSON.parse(res.content[0]!.text);
     expect(body.entries).toHaveLength(2);

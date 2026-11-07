@@ -187,3 +187,67 @@ export function weightOn(weighIns: WeighIn[], day: string): WeighIn | null {
   }
   return found;
 }
+
+/** openGym's built-in measurement fields (frontend/src/lib/measurements.js): lengths in cm, bodyFat in %. */
+export const MEASUREMENT_FIELDS: readonly { key: string; label: string; unit: "cm" | "%" }[] = [
+  ...(
+    [
+      ["neck", "Neck"], ["shoulders", "Shoulders"], ["chest", "Chest"], ["waist", "Waist"], ["hips", "Hips"], ["abdomen", "Abdomen"],
+      ["upperArmLeft", "Left upper arm"], ["upperArmRight", "Right upper arm"], ["forearmLeft", "Left forearm"], ["forearmRight", "Right forearm"],
+      ["wristLeft", "Left wrist"], ["wristRight", "Right wrist"], ["thighLeft", "Left thigh"], ["thighRight", "Right thigh"],
+      ["calfLeft", "Left calf"], ["calfRight", "Right calf"], ["ankleLeft", "Left ankle"], ["ankleRight", "Right ankle"],
+    ] as const
+  ).map(([key, label]) => ({ key, label, unit: "cm" as const })),
+  { key: "bodyFat", label: "Body fat", unit: "%" },
+];
+
+const MEASUREMENT_UNITS = new Set(["cm", "in", "%", "kg", "lb", "none"]);
+
+export interface MeasurementReading {
+  field: string;
+  value: number;
+  /** Storage unit: cm for lengths (also custom cm/in fields), kg for masses, % or none. */
+  unit: string;
+}
+
+export interface MeasurementDay {
+  date: string;
+  readings: MeasurementReading[];
+}
+
+/**
+ * Body measurements, one check-in per day, oldest first, with only the fields that have a value.
+ * Custom fields store canonical units: cm for a cm/in field, kg for kg/lb, % or a plain number.
+ */
+export function measurementsOf(state: GymState | null): MeasurementDay[] {
+  const custom = new Map<string, { name: string; unit: string | null }>();
+  for (const c of arr(state?.customMeasurements)) {
+    if (c && typeof c === "object" && typeof (c as { id?: unknown }).id === "string") {
+      const u = (c as { unit?: unknown }).unit;
+      custom.set((c as { id: string }).id, { name: str((c as { name?: unknown }).name) ?? "Other", unit: typeof u === "string" && MEASUREMENT_UNITS.has(u) ? u : null });
+    }
+  }
+  const canonical = (unit: string | null) => (unit === "in" || unit === null ? "cm" : unit === "lb" ? "kg" : unit);
+  const out: MeasurementDay[] = [];
+  for (const raw of arr(state?.measurements)) {
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as Record<string, unknown>;
+    if (!isDay(e.d)) continue;
+    const readings: MeasurementReading[] = [];
+    for (const f of MEASUREMENT_FIELDS) {
+      const v = num(e[f.key]);
+      if (v !== null && (f.unit === "%" ? v >= 0 : v > 0)) readings.push({ field: f.label, value: v, unit: f.unit });
+    }
+    for (const o of arr(e.other)) {
+      if (!o || typeof o !== "object") continue;
+      const r = o as { id?: unknown; name?: unknown; value?: unknown; unit?: unknown };
+      const v = num(r.value);
+      if (v === null) continue;
+      const def = typeof r.id === "string" ? custom.get(r.id) : undefined;
+      const unit = typeof r.unit === "string" && MEASUREMENT_UNITS.has(r.unit) ? r.unit : (def?.unit ?? null);
+      readings.push({ field: def?.name ?? str(r.name) ?? "Other", value: v, unit: canonical(unit) });
+    }
+    if (readings.length) out.push({ date: e.d, readings });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}

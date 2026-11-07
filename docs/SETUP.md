@@ -303,8 +303,8 @@ tracking updates in Odoo** on its Sendcloud card. The daily digest is unaffected
 
 [openGym](https://github.com/DuarteSantos8/openGym) is an open-source gym tracker (web app, iPhone,
 Android, watches) that Dave self-hosts. Connect it and the assistant can answer from his workouts,
-PRs and weigh-ins ("how did training go this week?", "what did I bench last Tuesday?", "how's my
-weight against my goal?"). Nothing is ever logged or changed in openGym.
+PRs, weigh-ins and body measurements ("how did training go this week?", "what did I bench last
+Tuesday?", "how's my waist doing?"). Nothing is ever logged or changed in openGym.
 
 1. Run openGym somewhere with **https** (see "Hosting openGym on Railway" below). Sign in and log
    a workout or a weigh-in so there is a profile to read.
@@ -320,7 +320,7 @@ weight against my goal?"). Nothing is ever logged or changed in openGym.
 expires, so prefer the Accounts page.
 
 The tools (`/mcp/opengym`, on Personal work and on any work Dave started): `training_summary`,
-`list_workouts`, `get_workout` and `get_bodyweight`. Exercise names come from the profile's own
+`list_workouts`, `get_workout`, `get_bodyweight` and `get_measurements`. Exercise names come from the profile's own
 exercises, then openGym's public catalogue on GitHub (one small file per exercise, cached).
 
 ### Hosting openGym on Railway

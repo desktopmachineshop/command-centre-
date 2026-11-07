@@ -58,5 +58,15 @@ export function createOpenGymMcpServer(gym: GymService, timeZone?: string): McpS
     ({ from, to }) => guard(() => gym.bodyweight({ from, to, timeZone })),
   );
 
+  server.registerTool(
+    "get_measurements",
+    {
+      description:
+        "Body measurements (waist, chest, arms, body fat %, and Dave's own fields such as muscle mass) between `from` and `to`: each field's latest value and change over the range, and every check-in. Lengths in cm and masses in kg, whatever the app shows.",
+      inputSchema: { from: day().optional(), to: day().optional() },
+    },
+    ({ from, to }) => guard(() => gym.measurements({ from, to, timeZone })),
+  );
+
   return server;
 }

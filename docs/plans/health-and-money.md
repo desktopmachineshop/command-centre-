@@ -40,28 +40,29 @@ Still to do:
 
 ## 2. Food, weight and body measurements
 
-openGym has body weight (and progress photos) today, and body composition is on its roadmap
-(v1.4.6). It has no food log and no tape measurements (waist, chest, arms...).
+What openGym's own plans say (ROADMAP.md, issues, November 2026):
 
-Options:
+- **Body weight and measurements are already in openGym.** Weigh-ins with a goal line; one
+  measurement check-in per day with neck, chest, waist, hips, arms, legs, body fat %, and custom
+  fields in cm/in, %, kg/lb or a plain number (#82, #699). Command Centre reads them with
+  `get_measurements`. Nothing to build.
+- **Body composition** (fat %, muscle mass, water, visceral fat, BMR as proper fields with charts,
+  later filled from Health Connect and Apple Health) is the maintainer's own design in **#648**,
+  milestone v1.4.6, nobody assigned. Until it lands, custom fields cover it (Muscle mass in kg,
+  Visceral fat as a plain number). This is the best openGym contribution on Dave's list: it is
+  wanted, designed and scheduled. Offer it on the issue first, then build it to that design.
+- **Food is not meant to go into openGym.** The roadmap lists "openNutrition, the sister app for
+  food" under later ideas, and a community PR adding a nutrition tracker to openGym (#947) has had
+  no review. Building food into openGym would work against the project's direction.
 
-| Option | For | Against |
-| --- | --- | --- |
-| **Contribute measurements, then food, to openGym** (Dave's preference) | One app for everything; the API and our tools pick it up for free; benefits the project | Upstream must agree on scope. A food diary is a big feature (food database, barcode scanning, macros) and may be judged out of scope for a gym app. openGym requires a CLA (`CLA.md`) |
-| wger alongside | Has food diary (Open Food Facts, barcode), weight and custom measurements, REST API | A second app and server (Django, Postgres, Redis) |
-| Log in Command Centre | Lightest; "two eggs on toast" by chat or photo | Another place for the data; no app UI |
+For food, then:
 
-Recommended path:
-
-1. **Body measurements in openGym first.** Small and close to what it already has (it sits next
-   to body weight and the planned body composition). Open an issue upstream proposing it
-   (`bodyMeasurements[]: { d, site, value, unit }`, a chart per site, CSV export, the MCP tool),
-   then a PR once the maintainer agrees. Read `CONTRIBUTING.md` and sign the CLA.
-2. **Food: ask before building.** Open a discussion issue on whether nutrition fits openGym. If
-   yes, start small (daily calories and protein against a target, no food database), which keeps
-   the PR reviewable. If no, use wger for food only, or log meals in Command Centre.
-3. Command Centre reads whichever lands through the same `/api/data` document: add
-   `get_measurements` (and later `get_nutrition`) to `/mcp/opengym`.
+1. Ask the maintainer (openGym Discussions → Ideas, or Discord) whether openNutrition has a plan
+   and would welcome help, and how it should share data with openGym (weight, body composition).
+   If it is starting, contribute there.
+2. Until then, keep food out of openGym: log meals in Command Centre ("two eggs on toast" by chat
+   or photo, macros from Open Food Facts), and keep the data simple enough to move into
+   openNutrition later. wger stays the fallback if a full food app is wanted sooner.
 
 ### Fork, deploy the fork, upstream later
 
@@ -74,6 +75,11 @@ back to the official `ghcr.io/duartesantos8/opengym-*` images and the fork is re
   building `api/Dockerfile` and `web/Dockerfile` instead of pulling images.
 - Pull upstream into the fork regularly (a scheduled GitHub Action or by hand), so the upstream
   PRs stay mergeable and the fork doesn't drift.
+- How openGym wants contributions (CONTRIBUTING.md, CLAUDE.md): an issue or Discussions idea
+  first for anything not already designed; dependency-light (no new packages without a strong
+  case); training and read-back logic as pure helpers in `frontend/src/lib` with tests beside
+  them; every new UI string in every locale; no em dashes in UI text; CHANGELOG left alone; the
+  CLA signed once by Dave on the first PR; changes clicked through in a browser.
 - Keep stored data compatible: new fields only, in a shape agreed on the upstream issue first.
   Otherwise switching back to the official images could drop or misread data.
 - Licences: AGPL-3.0 is fine for a public fork run for Dave. The exercise media (Gym visual) may

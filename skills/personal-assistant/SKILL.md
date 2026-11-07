@@ -94,6 +94,9 @@ can be logged or changed from here (if he asks you to log a workout, tell him to
 - `list_workouts` (from/to, limit), then `get_workout` (by `id`, or `date`) for set-by-set detail
   ("8 × 60 kg") and each exercise's best estimated 1RM that day.
 - `get_bodyweight` (from/to): weigh-ins, the goal, latest vs goal, 7- and 30-day change.
+- `get_measurements` (from/to): tape measurements (waist, chest, arms...), body fat % and Dave's
+  own fields, each with its latest value and change over the range. Values come in cm and kg:
+  convert only if Dave asks for inches or pounds.
 
 Answer from the numbers, in the profile's `unit` (kg unless it says lb), rounded sensibly
 ("83.6 kg, down 0.8 kg this week, 3.6 kg above goal"). Volume is weight × reps of work sets
