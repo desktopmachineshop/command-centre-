@@ -289,7 +289,7 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       // so a test before then must not use it up.
       if (isPairingCode(token)) {
         const using = config?.gym?.accounts.find((a) => a.id === entry.id);
-        if (!using || isPairingCode(using.token)) return ok("Pairing code saved: Command Centre swaps it for a token on first use (within 5 minutes of making it)");
+        if (!using || isPairingCode(using.token)) return ok("Pairing code saved: Command Centre swaps it for a token as soon as it is saved, and the card shows whether that worked");
       }
       try {
         const { user } = await new OpenGymClient({ url, token, fetch: f, timeoutMs }).me();

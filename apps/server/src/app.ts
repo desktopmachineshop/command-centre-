@@ -41,7 +41,7 @@ import { DigestService } from "./digest";
 import type { OdooLateNow, OdooStockNow } from "./odoo-digest";
 import { ShippingNotes } from "./shipping-notes";
 import { createSendcloudMcpServer, ShippingService } from "@cc/sendcloud";
-import { createOpenGymMcpServer, GymService } from "@cc/opengym";
+import { createOpenGymMcpServer, GymService, isPairingCode } from "@cc/opengym";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { storagePublicRoutes } from "./http/storage";
@@ -476,11 +476,27 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     const account = c.gym.accounts[0];
     if (!account) return null;
     verticals.require(account.vertical);
-    return new GymService(account, {
+    const service = new GymService(account, {
       fetch: overrides.openGymFetch,
       catalogueUrl: overrides.openGymCatalogueUrl,
       onToken: (id, token) => integrations.rotateSecret("opengym", id, "token", token).catch((err) => console.error("[opengym] saving the openGym token failed", err)),
     });
+    // A pairing code lasts 5 minutes and lives only in openGym's memory, so swap it for a token as
+    // soon as it is saved rather than on the first question. The card shows how that went.
+    if (isPairingCode(account.token)) {
+      const report = (ok: boolean, message: string, name?: string) =>
+        integrations
+          .patchMeta("opengym", account.id, { lastTest: { at: new Date().toISOString(), ok, message }, ...(name ? { account: name } : {}) })
+          .catch((err) => console.error("[opengym] recording the pairing result failed", err));
+      service.paired = service
+        .whoami()
+        .then((name) => report(true, `Paired with openGym${name ? ` as ${name}` : ""}`, name ?? undefined))
+        .catch((err) => {
+          console.error(`[opengym] pairing failed: ${(err as Error).message}`);
+          return report(false, (err as Error).message);
+        });
+    }
+    return service;
   };
   const gym = new Live(buildGym(config));
   // Sendcloud tracking updates as internal notes on Odoo delivery orders, while both are connected.

@@ -61,18 +61,30 @@ describe.skipIf(!DB_URL)("openGym (server)", () => {
   it("is connected with a pairing code, which is swapped for a token and saved", async () => {
     const saved = await ctx.api("/api/integrations/opengym/default", { method: "PUT", json: { data: { vertical: "personal", url: GYM }, secrets: { token: "K7WQ-2MZP" } } });
     expect(saved.body).toMatchObject({ ok: true, reloaded: ["gym"] });
-    // Testing before first use must not spend the one-time code.
-    const before = await ctx.api("/api/integrations/opengym/default/test", { method: "POST" });
-    expect(before.body).toMatchObject({ ok: true });
-    expect(calls).toEqual([]);
+
+    // The code is swapped for a token straight away, not on the first question: it lasts five
+    // minutes and only lives in openGym's memory. The token replaces the code in the saved entry,
+    // and the card records that pairing worked.
+    const deadline = Date.now() + 5000;
+    let entry = await ctx.server.integrations.resolved("opengym");
+    while (entry?.secrets.token !== "uid:1:1.paired" && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+      entry = await ctx.server.integrations.resolved("opengym");
+    }
+    expect(entry?.secrets.token).toBe("uid:1:1.paired");
+    expect(calls.filter((c) => c.endsWith("/api/pair/redeem"))).toHaveLength(1);
+    let meta = (await ctx.server.integrations.entry("opengym", "default"))?.meta;
+    for (let i = 0; !meta?.lastTest && i < 50; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      meta = (await ctx.server.integrations.entry("opengym", "default"))?.meta;
+    }
+    expect(meta).toMatchObject({ account: "Dave", lastTest: { ok: true, message: "Paired with openGym as Dave" } });
 
     const { body } = await tool("training_summary", { days: 7 });
     expect(body).toMatchObject({ sessions: 1, volume: 560, prs: ["barbell bent over row"], weight: { latest: { weight: 83.6 }, goal: 80 } });
     expect(calls.filter((c) => c.endsWith("/api/pair/redeem"))).toHaveLength(1);
 
-    // The token replaced the code in the saved entry, without restarting the integration.
-    const entry = await ctx.server.integrations.resolved("opengym");
-    expect(entry?.secrets.token).toBe("uid:1:1.paired");
+    // Saving the token didn't restart the integration.
     expect(ctx.server.integrations.current().gym.accounts[0]?.token).toBe("uid:1:1.paired");
     const list = await ctx.api("/api/integrations");
     expect(JSON.stringify(list.body)).not.toContain("uid:1:1.paired");
@@ -84,5 +96,16 @@ describe.skipIf(!DB_URL)("openGym (server)", () => {
     const w = await tool("get_workout", { date: today });
     expect(w.body.entries).toEqual([{ exercise: "barbell bent over row", body_part: null, best_e1rm: 88.7, sets: ["8 × 70 kg"] }]);
     expect((await tool("get_bodyweight")).body.latest).toMatchObject({ weight: 83.6, vs_goal: 3.6 });
+  });
+
+  it("shows a refused or expired pairing code on the card", async () => {
+    await ctx.api("/api/integrations/opengym/default", { method: "PUT", json: { data: { vertical: "personal", url: GYM }, secrets: { token: "ZZZZ-ZZZZ" } } });
+    let meta = (await ctx.server.integrations.entry("opengym", "default"))?.meta;
+    for (let i = 0; !(meta?.lastTest && meta.lastTest.ok === false) && i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      meta = (await ctx.server.integrations.entry("opengym", "default"))?.meta;
+    }
+    expect(meta?.lastTest).toMatchObject({ ok: false });
+    expect(meta?.lastTest?.message).toMatch(/refused the pairing code/);
   });
 });

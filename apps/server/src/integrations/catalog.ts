@@ -210,7 +210,7 @@ export const CATALOG: readonly KindDef[] = [
         label: "Pairing code or token",
         type: "secret",
         required: true,
-        help: "openGym: Settings → Pair the mobile app, then paste the 8-character code here and save within 5 minutes. Command Centre swaps it for a token, saves that, and keeps it renewed.",
+        help: "openGym: Settings → Pair the mobile app, then paste the 8-character code here and save within 5 minutes. Command Centre swaps it for a token straight away (the card shows whether that worked), saves that, and keeps it renewed.",
       },
     ],
     affects: ["gym"],
