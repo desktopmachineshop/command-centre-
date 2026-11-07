@@ -4,8 +4,8 @@
  * Kept free of React so it is unit-tested (test/integrations.test.ts).
  */
 
-export type Section = "ai" | "business" | "google" | "social" | "apps" | "settings";
-export type Group = "runner" | "triage" | "voice" | "odoo" | "shipping" | "email" | "social" | "calendar" | "storage";
+export type Section = "ai" | "business" | "personal" | "google" | "social" | "apps" | "settings";
+export type Group = "runner" | "triage" | "voice" | "odoo" | "shipping" | "gym" | "email" | "social" | "calendar" | "storage";
 export type FieldType = "text" | "secret" | "url" | "email" | "number" | "boolean" | "select" | "list" | "json";
 
 export interface FieldDef {
@@ -80,6 +80,7 @@ export const DEFAULT_ID = "default";
 export const SECTION_ORDER: { section: Section; title: string; sub?: string }[] = [
   { section: "ai", title: "AI" },
   { section: "business", title: "Business" },
+  { section: "personal", title: "Personal" },
   { section: "google", title: "Google" },
   { section: "social", title: "Social" },
   { section: "settings", title: "Settings" },
@@ -92,6 +93,7 @@ export const GROUP_LABELS: Record<Group, string> = {
   voice: "Voice",
   odoo: "Odoo",
   shipping: "Sendcloud",
+  gym: "openGym",
   email: "Email",
   social: "Social",
   calendar: "Calendar",

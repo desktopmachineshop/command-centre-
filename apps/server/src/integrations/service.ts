@@ -244,6 +244,10 @@ export class IntegrationService {
         const accounts = this.effective.email.accounts.map((a) => (a.id === id && a.oauth ? { ...a, oauth: { ...a.oauth, refreshToken: value } } : a));
         this.effective = { ...this.effective, email: { ...this.effective.email, accounts } };
       }
+      if (kind === "opengym" && key === "token") {
+        const accounts = this.effective.gym.accounts.map((a) => (a.id === id ? { ...a, token: value } : a));
+        this.effective = { ...this.effective, gym: { ...this.effective.gym, accounts } };
+      }
     });
   }
 

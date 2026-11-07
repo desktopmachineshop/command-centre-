@@ -1,6 +1,6 @@
 ---
 name: personal-assistant
-description: How to act as Dave's personal assistant with the "pa" MCP server (calendar, contacts, reminders, to-do lists). Use for any request about his day, schedule, free time, appointments, "remind me…", "add … to the shopping list", and for the morning brief and evening wrap.
+description: How to act as Dave's personal assistant with the "pa" MCP server (calendar, contacts, reminders, to-do lists) and the "opengym" server (workouts, weigh-ins). Use for any request about his day, schedule, free time, appointments, "remind me…", "add … to the shopping list", the gym or his weight, and for the morning brief and evening wrap.
 metadata:
   verticals: [personal]
 ---
@@ -83,6 +83,23 @@ work things; for family or evening plans use 08:00–21:00. List the slots in on
 **Moving or cancelling** an event: `list_events` to get its `eventId` and `calendar`, then
 propose `calendar.update` or `calendar.delete`. For one occurrence of a repeating event use that
 occurrence's eventId.
+
+## Gym and weight (MCP server `opengym`, when connected)
+
+Dave logs training and weigh-ins in openGym, his self-hosted gym app. The tools read it; nothing
+can be logged or changed from here (if he asks you to log a workout, tell him to do it in the app).
+
+- `training_summary` (`days`, default 7): sessions, volume, sets, PRs, days since the last
+  workout and weight change, each against the period before. Start here for "how's the gym going?".
+- `list_workouts` (from/to, limit), then `get_workout` (by `id`, or `date`) for set-by-set detail
+  ("8 × 60 kg") and each exercise's best estimated 1RM that day.
+- `get_bodyweight` (from/to): weigh-ins, the goal, latest vs goal, 7- and 30-day change.
+
+Answer from the numbers, in the profile's `unit` (kg unless it says lb), rounded sensibly
+("83.6 kg, down 0.8 kg this week, 3.6 kg above goal"). Volume is weight × reps of work sets
+(warm-ups left out); say "volume" rather than a made-up term. Don't give medical or diet advice
+beyond what he asks; a gap of a week or more without training is worth one line, not a lecture.
+If the server isn't in your tools, openGym isn't connected: say so (Accounts → openGym).
 
 ## Planning Dave's day (morning brief, evening wrap, "plan my day")
 

@@ -2,6 +2,7 @@ import { join, resolve } from "node:path";
 import { isTimeZone } from "@cc/core";
 import { type EmailAccount, parseEmailAccounts } from "@cc/email";
 import { type OdooEventsConfig, parseOdooEventsConfig } from "@cc/odoo";
+import { type OpenGymAccount, openGymAccountFromEnv } from "@cc/opengym";
 import { type CalendarAccount, parseCalendarAccounts } from "@cc/pa";
 import { type SendcloudAccount, sendcloudAccountFromEnv } from "@cc/sendcloud";
 import { parseSocialAccounts, type SocialAccount } from "@cc/social";
@@ -173,6 +174,11 @@ const Env = z.object({
   SENDCLOUD_SECRET_KEY: z.string().optional(),
   /** Which business the env Sendcloud account ships for. Default dms. */
   SENDCLOUD_VERTICAL: z.string().optional(),
+  /** openGym (self-hosted gym tracker): its https address and a paired token or pairing code. Read tools at /mcp/opengym. */
+  OPENGYM_URL: z.string().optional(),
+  OPENGYM_TOKEN: z.string().optional(),
+  /** Which business the gym data belongs to. Default personal. */
+  OPENGYM_VERTICAL: z.string().optional(),
 
   // --- Voice (see docs/SETUP.md, "Voice and Drive mode"); all optional, the PWA falls back to browser speech ---
   /** Server speech-to-text: "auto" (first provider with a key), "openai", "elevenlabs" or "off". */
@@ -296,6 +302,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   } catch (err) {
     throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
   }
+  let gymAccounts: OpenGymAccount[];
+  try {
+    gymAccounts = openGymAccountFromEnv({ OPENGYM_URL: e.OPENGYM_URL, OPENGYM_TOKEN: e.OPENGYM_TOKEN, OPENGYM_VERTICAL: e.OPENGYM_VERTICAL });
+  } catch (err) {
+    throw new Error(`Invalid configuration:\n  ${(err as Error).message}`);
+  }
   const dataDir = resolve(e.DATA_DIR);
   return {
     port: e.PORT,
@@ -352,6 +364,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     odoo,
     odooEvents,
     shipping: { accounts: sendcloudAccounts },
+    gym: { accounts: gymAccounts },
     publicBaseUrl: e.PUBLIC_BASE_URL?.replace(/\/+$/, ""),
     // --- DMSid sign-in: needs the secret and a public address to come back to ---
     dmsid:

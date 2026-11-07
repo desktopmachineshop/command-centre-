@@ -63,7 +63,7 @@ The assistant's runs depend on where the work came from (`apps/server/src/pipeli
 `untrustedSource`):
 
 - **Work Dave started** (chat, schedules, and handoffs from those): every business's MCP servers
-  (`assistantServers`: Odoo, mail for every mailbox, Sendcloud parcels, `pa` for calendar and
+  (`assistantServers`: Odoo, mail for every mailbox, Sendcloud parcels, openGym workouts, `pa` for calendar and
   reminders, the brain, `ops`, read-only `github`) and every skill (`assistantSkills`). The run
   token carries the servers and `anyVertical`, so the MCP endpoints allow them, and mail, parcels,
   `list_pending` and `search_transcripts` cover every business. Each proposal names its business

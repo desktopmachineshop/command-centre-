@@ -1,5 +1,6 @@
 import { type EmailAccount, type ImapConnector, imapflowConnector, sendRoute, smtpAuth, verifyHttpsSending } from "@cc/email";
 import { OdooClient } from "@cc/odoo";
+import { isPairingCode, OpenGymClient, openGymBase } from "@cc/opengym";
 import { createGoogleTokenProvider } from "@cc/pa";
 import { SENDCLOUD_API, SendcloudClient } from "@cc/sendcloud";
 import { IG_GRAPH_BASE, REDDIT_API, REDDIT_TOKEN_URL, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
@@ -272,6 +273,30 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
         return ok(`Sendcloud accepted the keys${account ? ` (${account})` : ""}`, account);
       } catch (err) {
         return fail(redact((err as Error).message, [secretKey, publicKey]).slice(0, 300));
+      }
+    },
+
+    async opengym(entry, config) {
+      const url = (entry.data.url as string | undefined)?.trim();
+      const token = entry.secrets.token?.trim();
+      if (!url || !token) return fail("The openGym address and a pairing code or token are both needed");
+      try {
+        openGymBase(url);
+      } catch (err) {
+        return fail((err as Error).message);
+      }
+      // A pairing code works once: the gym service redeems it as soon as the entry is saved,
+      // so a test before then must not use it up.
+      if (isPairingCode(token)) {
+        const using = config?.gym?.accounts.find((a) => a.id === entry.id);
+        if (!using || isPairingCode(using.token)) return ok("Pairing code saved: Command Centre swaps it for a token on first use (within 5 minutes of making it)");
+      }
+      try {
+        const { user } = await new OpenGymClient({ url, token, fetch: f, timeoutMs }).me();
+        const name = typeof user?.name === "string" ? user.name : undefined;
+        return ok(`Signed in to openGym${name ? ` as ${name}` : ""}`, name);
+      } catch (err) {
+        return fail(redact((err as Error).message, [token]).slice(0, 300));
       }
     },
 
