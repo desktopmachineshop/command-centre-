@@ -1133,11 +1133,12 @@ that reads outside mail makes its proposals drafts, which would hold the brief f
 
 **Internal actions run without approval** in every vertical (`INTERNAL_AUTO_POLICIES` in
 `packages/verticals/src/policies.ts`): reminders and to-dos (`pa.reminder.add`, `.update`,
-`.complete`, `.cancel`, `pa.items.add`, `pa.item.complete`) are `auto`; `notify` and an internal
-Odoo note (`odoo.message.post` with `internal: true`, policy key `odoo.message.post.internal`) are
+`.complete`, `.cancel`, `pa.items.add`, `pa.item.complete`) are `auto`; `notify` is
 `auto-with-digest`. These are what a "chaser" is: there is no `chaser` action. Anything that
-reaches someone else (`email.*`, an `odoo.message.post` to the record's followers, `social.*`) or
-changes prices or publishes still waits for approval.
+reaches someone else (`email.*`, `social.*`) or changes prices or publishes still waits for
+approval, and so does **every change to Odoo** (any `odoo.*` action, internal notes included):
+that is fixed in code (`ODOO_WRITE_POLICY` in `packages/core/src/vertical.ts`), whatever a
+business's policies say, and the Businesses page shows those action types as always waiting.
 
 **Batches.** Several related actions (a message to each open delivery order) go through the
 `propose_batch` tool as one batch: Approvals shows one card with every item (recipient and text),
@@ -1391,29 +1392,55 @@ in the app. API: `GET /api/notifications?category=&unread=1`, `GET /api/notifica
 
 
 The server talks to Odoo Online through its external API. No custom modules are needed. When
-Odoo is configured, the DMS and 3dpandme agents get the read-only `odoo` MCP server (products,
-stock, orders, customers, chatter, websites, blogs, and discount and loyalty programs). They also
-get these actions, all `draft` (approve each one), except that an internal note is posted straight
-away and shown in the digest:
+Odoo is configured, the DMS and 3dpandme agents get the read-only `odoo` MCP server. **Reading
+never needs approval; every change to Odoo does.**
+
+Read tools (no approval): products (`search_products`, `get_product`, `stock_by_location`,
+`product_suppliers`, `low_stock`), customers (`search_customers`, `get_customer_history`), sales
+(`search_orders`, `get_order`, `sales_summary`), invoicing (`search_invoices`, `get_invoice`,
+`aged_balances`, `search_payments`), inventory (`search_deliveries`, `get_delivery`), purchasing
+(`search_purchase_orders`, `get_purchase_order`), CRM and helpdesk (`search_leads`,
+`search_tickets`), `search_activities`, chatter (`get_record_messages`), websites, blogs and
+discount programs (`list_websites`, `search_blog_posts`, `search_loyalty_programs`), and
+`search_records` to read any other model. A tool whose Odoo app isn't installed answers with a
+short error; fields an Odoo version doesn't have are left out.
+
+Write actions, every one waiting for Dave's approval (many approvals also show what Odoo says
+now: a quote's lines and totals, what an invoice still owes, stock on hand, current details,
+possible duplicates):
 
 - `odoo.message.post`: a chatter message to the customer, or an internal note;
-- `odoo.blog.draft`: an unpublished blog post;
-- `odoo.product.update_price`: a price change;
-- `odoo.customer.create`: a new customer contact. When it is proposed, the server searches Odoo
-  for similar or existing contacts (same email, phone, VAT number or reference, the words of the
-  name, or a company email domain, archived contacts included) and adds them to the approval and
-  its summary;
-- `odoo.quote.create`: a quotation (draft sales order), and with `send: true` emailed to the
-  customer with Odoo's quotation template;
-- `odoo.quote.send`: email an existing quotation;
-- `odoo.loyalty.create`: a live discount, promo code, buy X get Y or loyalty program;
-- `odoo.loyalty.archive`: switch a discount or loyalty program off.
+- `odoo.customer.create` (the approval lists similar or existing contacts: same email, phone,
+  VAT number or reference, the words of the name, or a company email domain, archived contacts
+  included) and `odoo.customer.update`;
+- `odoo.quote.create` (with `send: true` emailed with Odoo's quotation template), `odoo.quote.update`
+  (add, change or remove lines, dates, reference), `odoo.quote.send`;
+- `odoo.order.confirm`, `odoo.order.cancel`;
+- `odoo.invoice.create` (draft invoice for a confirmed order), `odoo.invoice.post`,
+  `odoo.invoice.send` (also as a reminder), `odoo.invoice.register_payment`;
+- `odoo.delivery.validate` (with or without a backorder), `odoo.delivery.set_tracking`,
+  `odoo.stock.adjust` (a counted quantity at a location);
+- `odoo.purchase.create` (an RFQ, optionally emailed), `odoo.purchase.send`, `odoo.purchase.confirm`,
+  `odoo.purchase.bill` (draft vendor bill);
+- `odoo.product.create`, `odoo.product.update`, `odoo.product.update_price`;
+- `odoo.loyalty.create`, `odoo.loyalty.archive`: discount, promo code, buy X get Y or loyalty
+  programs;
+- `odoo.activity.schedule`, `odoo.activity.done`: follow-ups on any record;
+- `odoo.lead.create`, `odoo.lead.update` (stage, won, lost), `odoo.ticket.update` (stage,
+  assignee, priority);
+- `odoo.blog.draft`: an unpublished blog post.
+
+The agents' guide to all of this is the `odoo-daily` skill.
 
 Without the Odoo variables, all of this is simply left out.
 
 1. **Use a dedicated user** if your plan allows one, e.g. "Command Centre bot". Give it only the
-   access it needs: Contacts (create, for new customers), Sales (User: All Documents, to create and send quotations; Administrator, to
-   create and archive discount and loyalty programs), Inventory read, and Website/Blog editor. Discount and loyalty programs also need **Sales > Settings > Discounts, Loyalty & Gift
+   access it needs: Contacts (create, for new customers), Sales (User: All Documents, to create, send and
+   confirm quotations; Administrator, to create and archive discount and loyalty programs), Invoicing
+   (Billing, to create, post and send invoices and register payments), Inventory (User, to validate
+   deliveries; Administrator, for stock adjustments), Purchase (User), CRM and Helpdesk (User) if you
+   use them, and Website/Blog editor. Without a right, the action fails with Odoo's access error and
+   the rest keep working; the read tools only need read access. Discount and loyalty programs also need **Sales > Settings > Discounts, Loyalty & Gift
    Card** turned on. Every action it
    takes is logged in Odoo under that user. Odoo notes that the external API needs a **Custom**
    plan on Odoo Online; it isn't available on One App Free or Standard.

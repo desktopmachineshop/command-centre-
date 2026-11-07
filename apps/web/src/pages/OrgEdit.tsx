@@ -5,7 +5,7 @@
  * checks the whole org first and answers 400 with the problems, or 409 when someone
  * saved in between. See docs/ORG.md.
  */
-import type { OrgConfig, OrgConfigVersion, Policy, Role, RootOrgEdit, Schedule, VerticalOrgEdit } from "@cc/core";
+import { isOdooWrite, type OrgConfig, type OrgConfigVersion, type Policy, type Role, type RootOrgEdit, type Schedule, type VerticalOrgEdit } from "@cc/core";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { type Api, ApiError } from "../api";
 import { ago } from "../format";
@@ -364,6 +364,9 @@ function PoliciesDialog({ api, config, unit, onSaved, close }: { api: Api; confi
           {types.map((t) => (
             <label key={t} className="row between">
               <code>{t}</code>
+              {isOdooWrite(t) ? (
+                <span className="muted small">Waits for approval (every Odoo change does)</span>
+              ) : (
               <select
                 value={policies[t] ?? ""}
                 onChange={(e) => {
@@ -378,6 +381,7 @@ function PoliciesDialog({ api, config, unit, onSaved, close }: { api: Api; confi
                   </option>
                 ))}
               </select>
+              )}
             </label>
           ))}
         </div>

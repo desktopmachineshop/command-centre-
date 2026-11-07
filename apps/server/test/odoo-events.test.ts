@@ -159,7 +159,7 @@ describe.skipIf(!DB_URL)("Odoo events (integration)", () => {
   const odoo = new FakeOdoo({ models: eventModels() });
   const runner = new McpCallingRunner([]);
   const calls = (runner as any).calls as { server: string; tool: string; args: Record<string, unknown> }[];
-  // DMS with Odoo posts and notify on auto: the untrusted-input rule must still hold them for approval.
+  // DMS with Odoo posts and notify on auto: Odoo writes always wait, and the untrusted-input rule holds notify.
   const dms = verticals.find((v) => v.id === "dms")!;
   const registry = new VerticalRegistry([
     ...verticals.filter((v) => v.id !== "dms"),
@@ -262,8 +262,11 @@ describe.skipIf(!DB_URL)("Odoo events (integration)", () => {
     const { proposals } = (await ctx.api(`/api/tasks/${task.id}`)).body as { proposals: any[] };
     const post = proposals.find((p) => p.actionType === "odoo.message.post");
     expect(post).toMatchObject({ policy: "draft", status: "pending" });
-    expect(post.payload.policyDowngrade).toEqual({ from: "auto", reason: "task was triggered by untrusted odoo input" });
-    expect(proposals.find((p) => p.actionType === "notify")).toMatchObject({ policy: "draft", status: "pending" });
+    // Odoo writes wait for Dave whatever the policy says, so there is nothing to downgrade.
+    expect(post.payload.policyDowngrade).toBeUndefined();
+    const notify = proposals.find((p) => p.actionType === "notify");
+    expect(notify).toMatchObject({ policy: "draft", status: "pending" });
+    expect(notify.payload.policyDowngrade).toEqual({ from: "auto", reason: "task was triggered by untrusted odoo input" });
     expect(proposals.find((p) => p.actionType === "brain.write")).toMatchObject({ policy: "auto", status: "executed" });
     expect(odoo.callsTo("message_post")).toHaveLength(0);
     expect(ctx.notifier.sent.some((n) => n.body === "evil.example")).toBe(false);

@@ -211,8 +211,9 @@ export class FakeOdoo {
           checkFields(Object.keys(vals));
           const id = Math.max(0, ...model.records.map((r) => r.id)) + 1;
           const record: Rec = { ...this.commands(modelName, vals), id };
-          if (modelName === "mail.compose.message") record._context = params.context ?? {};
+          if (modelName === "mail.compose.message" || WIZARDS.has(modelName)) record._context = params.context ?? {};
           if (modelName === "sale.order") this.computeOrder(record);
+          if (modelName === "purchase.order") this.computePurchase(record);
           model.records.push(record);
           return id;
         });
@@ -221,7 +222,10 @@ export class FakeOdoo {
       case "write": {
         const vals = params.vals as Record<string, unknown>;
         checkFields(Object.keys(vals));
-        for (const r of byIds(params.ids)) Object.assign(r, vals);
+        for (const r of byIds(params.ids)) {
+          Object.assign(r, this.writeCommands(modelName, r, vals));
+          if (modelName === "sale.order" && "order_line" in vals) this.orderTotals(r);
+        }
         return true;
       }
       case "message_post": {
@@ -265,7 +269,7 @@ export class FakeOdoo {
         for (const id of (ctx.default_res_ids as number[]) ?? []) {
           const record = target?.records.find((r) => r.id === id);
           if (!record) continue;
-          if (ctx.mark_so_as_sent && record.state === "draft") record.state = "sent";
+          if ((ctx.mark_so_as_sent || ctx.mark_rfq_as_sent) && record.state === "draft") record.state = "sent";
           const messages = this.models["mail.message"]!;
           messages.records.push({
             id: Math.max(0, ...messages.records.map((r) => r.id)) + 1,
@@ -283,7 +287,85 @@ export class FakeOdoo {
       default:
         break;
     }
+    const handler = WORKFLOW[`${modelName}.${method}`];
+    if (handler) {
+      const records = byIds(params.ids ?? []);
+      if (Array.isArray(params.ids) && records.length !== (params.ids as unknown[]).length) {
+        throw new FakeOdooException("odoo.exceptions.MissingError", "Record does not exist or has been deleted.");
+      }
+      return handler(this, records, params);
+    }
     throw new FakeOdooException("builtins.AttributeError", `The method '${method}' does not exist on the model '${modelName}'`);
+  }
+
+  /** The next id of a model. */
+  nextId(modelName: string): number {
+    return Math.max(0, ...this.models[modelName]!.records.map((r) => r.id)) + 1;
+  }
+
+  /** x2many commands in write values: 0 creates a line, 1 updates one, 2 deletes one, 6 sets ids. */
+  private writeCommands(modelName: string, record: Rec, vals: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...vals };
+    for (const [field, v] of Object.entries(vals)) {
+      const lineModel = LINE_MODELS[`${modelName}.${field}`];
+      if (!lineModel || !Array.isArray(v) || !v.every((c) => Array.isArray(c))) continue;
+      let ids = [...((record[field] as number[] | undefined) ?? [])];
+      const lines = this.models[lineModel]!;
+      for (const [cmd, id, data] of v as [number, number, Record<string, unknown> | number[]][]) {
+        if (cmd === 0) ids.push(this.dispatch("jsonrpc", lineModel, "create", { vals_list: data }) as number);
+        else if (cmd === 1) Object.assign(lines.records.find((l) => l.id === id) ?? {}, data);
+        else if (cmd === 2) {
+          ids = ids.filter((x) => x !== id);
+          lines.records = lines.records.filter((l) => l.id !== id);
+        } else if (cmd === 6) ids = [...(data as number[])];
+      }
+      out[field] = ids;
+    }
+    return out;
+  }
+
+  /** Line prices and order totals (20% tax). */
+  private orderTotals(order: Rec) {
+    const lines = this.models["sale.order.line"]!.records.filter((l) => (order.order_line as number[] | undefined)?.includes(l.id));
+    const products = this.models["product.product"]!.records;
+    let untaxed = 0;
+    for (const line of lines) {
+      const productId = Array.isArray(line.product_id) ? line.product_id[0] : line.product_id;
+      const product = products.find((p) => p.id === productId);
+      if (!product) throw new FakeOdooException("odoo.exceptions.MissingError", `Product ${String(productId)} does not exist`);
+      line.product_id = [product.id, product.display_name];
+      line.name ??= product.name;
+      line.price_unit ??= product.lst_price;
+      line.price_subtotal = (line.product_uom_qty as number) * (line.price_unit as number) * (1 - ((line.discount as number) ?? 0) / 100);
+      untaxed += line.price_subtotal as number;
+    }
+    order.amount_untaxed = untaxed;
+    order.amount_total = Math.round(untaxed * 120) / 100;
+  }
+
+  /** What Odoo computes on a new purchase order: name, draft state, vendor prices and totals. */
+  private computePurchase(po: Rec) {
+    const lines = this.models["purchase.order.line"]!.records.filter((l) => (po.order_line as number[] | undefined)?.includes(l.id));
+    let untaxed = 0;
+    for (const line of lines) {
+      const product = this.models["product.product"]!.records.find((p) => p.id === line.product_id);
+      if (!product) throw new FakeOdooException("odoo.exceptions.MissingError", `Product ${String(line.product_id)} does not exist`);
+      line.product_id = [product.id, product.display_name];
+      line.price_unit ??= product.standard_price;
+      line.price_subtotal = (line.product_qty as number) * (line.price_unit as number);
+      untaxed += line.price_subtotal as number;
+    }
+    const vendor = this.models["res.partner"]!.records.find((p) => p.id === po.partner_id);
+    if (!vendor) throw new FakeOdooException("odoo.exceptions.MissingError", `Contact ${String(po.partner_id)} does not exist`);
+    Object.assign(po, {
+      name: `P${String(po.id).padStart(5, "0")}`,
+      partner_id: [vendor.id, vendor.name],
+      state: "draft",
+      amount_untaxed: untaxed,
+      amount_total: Math.round(untaxed * 120) / 100,
+      picking_ids: [],
+      invoice_ids: [],
+    });
   }
 
   /** x2many commands in create values: `[0, 0, vals]` creates a line record, `[6, 0, ids]` sets ids. */
@@ -305,18 +387,8 @@ export class FakeOdoo {
 
   /** What Odoo computes on a new sales order: its name, draft state, line products and totals (20% tax). */
   private computeOrder(order: Rec) {
-    const lines = this.models["sale.order.line"]!.records.filter((l) => (order.order_line as number[] | undefined)?.includes(l.id));
-    const products = this.models["product.product"]!.records;
-    let untaxed = 0;
-    for (const line of lines) {
-      const product = products.find((p) => p.id === line.product_id);
-      if (!product) throw new FakeOdooException("odoo.exceptions.MissingError", `Product ${String(line.product_id)} does not exist`);
-      line.product_id = [product.id, product.display_name];
-      line.name ??= product.name;
-      line.price_unit ??= product.lst_price;
-      line.price_subtotal = (line.product_uom_qty as number) * (line.price_unit as number) * (1 - ((line.discount as number) ?? 0) / 100);
-      untaxed += line.price_subtotal as number;
-    }
+    this.orderTotals(order);
+    const untaxed = order.amount_untaxed as number;
     const partner = this.models["res.partner"]!.records.find((p) => p.id === order.partner_id);
     if (!partner) throw new FakeOdooException("odoo.exceptions.MissingError", `Contact ${String(order.partner_id)} does not exist`);
     Object.assign(order, {
@@ -334,8 +406,145 @@ export class FakeOdoo {
 /** One2many fields FakeOdoo can create lines for, and the line model. */
 const LINE_MODELS: Record<string, string> = {
   "sale.order.order_line": "sale.order.line",
+  "purchase.order.order_line": "purchase.order.line",
   "loyalty.program.rule_ids": "loyalty.rule",
   "loyalty.program.reward_ids": "loyalty.reward",
+};
+
+/** Models whose records remember the context they were created with (wizards). */
+const WIZARDS = new Set(["sale.advance.payment.inv", "account.payment.register", "account.move.send.wizard", "stock.backorder.confirmation", "sale.order.cancel"]);
+
+type Handler = (fake: FakeOdoo, records: Rec[], params: Record<string, unknown>) => unknown;
+const contextOf = (params: Record<string, unknown>) => (params.context ?? {}) as Record<string, unknown>;
+const wizardContext = (r: Rec | undefined) => (r?._context ?? {}) as Record<string, unknown>;
+const recs = (fake: FakeOdoo, model: string) => fake.models[model]!.records;
+
+/** Workflow buttons and wizards FakeOdoo understands, as `model.method`. */
+const WORKFLOW: Record<string, Handler> = {
+  "sale.order.action_confirm": (_f, rs) => {
+    for (const r of rs) {
+      if (r.state !== "draft" && r.state !== "sent") throw new FakeOdooException("odoo.exceptions.UserError", "Only quotations can be confirmed");
+      r.state = "sale";
+      r.invoice_status = "to invoice";
+    }
+    return true;
+  },
+  "sale.order.action_cancel": (_f, rs, params) => {
+    if (!contextOf(params).disable_cancel_warning) {
+      return { type: "ir.actions.act_window", res_model: "sale.order.cancel", target: "new", context: { default_order_id: rs[0]?.id } };
+    }
+    for (const r of rs) r.state = "cancel";
+    return true;
+  },
+  "sale.advance.payment.inv.create_invoices": (f, [wizard]) => {
+    const ctx = wizardContext(wizard);
+    for (const id of (ctx.active_ids as number[]) ?? []) {
+      const order = recs(f, "sale.order").find((o) => o.id === id)!;
+      const invoice = f.nextId("account.move");
+      recs(f, "account.move").push({ id: invoice, name: false, state: "draft", payment_state: "not_paid", move_type: "out_invoice", amount_total: order.amount_total, amount_residual: order.amount_total, invoice_origin: order.name, partner_id: order.partner_id, invoice_date: false, invoice_date_due: false });
+      order.invoice_ids = [...((order.invoice_ids as number[]) ?? []), invoice];
+      order.invoice_status = "invoiced";
+    }
+    return { type: "ir.actions.act_window", res_model: "account.move" };
+  },
+  "account.move.action_post": (f, rs) => {
+    for (const r of rs) {
+      if (r.state !== "draft") throw new FakeOdooException("odoo.exceptions.UserError", "Only draft entries can be posted");
+      r.state = "posted";
+      r.name ||= `${r.move_type === "in_invoice" ? "BILL" : "INV"}/2026/${String(r.id).padStart(5, "0")}`;
+    }
+    return false;
+  },
+  "account.move.action_invoice_sent": (_f, rs) => ({
+    type: "ir.actions.act_window",
+    res_model: "account.move.send.wizard",
+    target: "new",
+    context: { active_model: "account.move", active_ids: rs.map((r) => r.id) },
+  }),
+  "account.move.send.wizard.action_send_and_print": (f, [wizard]) => {
+    for (const id of (wizardContext(wizard).active_ids as number[]) ?? []) {
+      const move = recs(f, "account.move").find((m) => m.id === id)!;
+      recs(f, "mail.message").push({ id: f.nextId("mail.message"), model: "account.move", res_id: id, body: `<p>Invoice ${String(move.name)}</p>`, message_type: "comment", subtype_id: [1, "Discussions"], author_id: [3, "Bot"], date: "2026-10-23 09:00:00" });
+    }
+    return { type: "ir.actions.act_window_close" };
+  },
+  "account.payment.register.action_create_payments": (f, [wizard]) => {
+    for (const id of (wizardContext(wizard).active_ids as number[]) ?? []) {
+      const move = recs(f, "account.move").find((m) => m.id === id)!;
+      const amount = (wizard!.amount as number | undefined) ?? (move.amount_residual as number);
+      move.amount_residual = Math.round(((move.amount_residual as number) - amount) * 100) / 100;
+      move.payment_state = (move.amount_residual as number) <= 0 ? "paid" : "partial";
+      recs(f, "account.payment").push({ id: f.nextId("account.payment"), name: `PBNK/${id}`, amount, partner_id: move.partner_id, payment_type: "inbound", state: "paid", date: wizard!.payment_date ?? "2026-11-07", reconciled_invoice_ids: [id] });
+    }
+    return true;
+  },
+  "purchase.order.button_confirm": (_f, rs) => {
+    for (const r of rs) r.state = "purchase";
+    return true;
+  },
+  "purchase.order.action_rfq_send": (_f, [po]) => ({
+    type: "ir.actions.act_window",
+    res_model: "mail.compose.message",
+    context: { default_model: "purchase.order", default_res_ids: [po!.id], default_template_id: 12, default_composition_mode: "comment", mark_rfq_as_sent: true },
+  }),
+  "purchase.order.action_create_invoice": (f, rs) => {
+    for (const po of rs) {
+      const bill = f.nextId("account.move");
+      recs(f, "account.move").push({ id: bill, name: false, state: "draft", payment_state: "not_paid", move_type: "in_invoice", amount_total: po.amount_total, amount_residual: po.amount_total, invoice_origin: po.name, partner_id: po.partner_id });
+      po.invoice_ids = [...((po.invoice_ids as number[]) ?? []), bill];
+    }
+    return { type: "ir.actions.act_window", res_model: "account.move" };
+  },
+  "stock.picking.button_validate": (f, rs) => {
+    for (const p of rs) {
+      const moves = recs(f, "stock.move").filter((m) => ((p.move_ids as number[]) ?? []).includes(m.id));
+      if (moves.some((m) => (m.quantity as number) < (m.product_uom_qty as number))) {
+        return { type: "ir.actions.act_window", res_model: "stock.backorder.confirmation", target: "new", context: { button_validate_picking_ids: [p.id] } };
+      }
+      p.state = "done";
+      p.date_done = "2026-11-07 10:00:00";
+    }
+    return true;
+  },
+  "stock.backorder.confirmation.process": (f, [wizard]) => {
+    for (const id of (wizardContext(wizard).button_validate_picking_ids as number[]) ?? []) {
+      const p = recs(f, "stock.picking").find((x) => x.id === id)!;
+      const backorder = f.nextId("stock.picking");
+      recs(f, "stock.picking").push({ ...p, id: backorder, name: `${String(p.name)}-BO`, state: "assigned", move_ids: [], backorder_ids: [] });
+      p.backorder_ids = [backorder];
+      p.state = "done";
+    }
+    return true;
+  },
+  "stock.backorder.confirmation.process_cancel_backorder": (f, [wizard]) => {
+    for (const id of (wizardContext(wizard).button_validate_picking_ids as number[]) ?? []) recs(f, "stock.picking").find((x) => x.id === id)!.state = "done";
+    return true;
+  },
+  "stock.quant.action_apply_inventory": (f, rs) => {
+    for (const q of rs) {
+      q.quantity = q.inventory_quantity;
+      const product = recs(f, "product.product").find((p) => p.id === (Array.isArray(q.product_id) ? q.product_id[0] : q.product_id));
+      if (product) product.qty_available = recs(f, "stock.quant").filter((x) => (Array.isArray(x.product_id) ? x.product_id[0] : x.product_id) === product.id).reduce((t, x) => t + ((x.quantity as number) ?? 0), 0);
+    }
+    return false;
+  },
+  "mail.activity.action_feedback": (f, rs, params) => {
+    const ids = rs.map((r) => r.id);
+    f.models["mail.activity"]!.records = recs(f, "mail.activity").filter((a) => !ids.includes(a.id));
+    const id = f.nextId("mail.message");
+    recs(f, "mail.message").push({ id, model: rs[0]?.res_model, res_id: rs[0]?.res_id, body: `<p>${String(rs[0]?.summary)} done${params.feedback ? `: ${String(params.feedback)}` : ""}</p>`, message_type: "notification", subtype_id: [5, "Activities"], author_id: [3, "Bot"], date: "2026-11-07 10:00:00" });
+    return id;
+  },
+  "crm.lead.action_set_won": (f, rs) => {
+    const won = recs(f, "crm.stage").find((s) => s.is_won);
+    for (const r of rs) Object.assign(r, { probability: 100, stage_id: won ? [won.id, won.name] : r.stage_id });
+    return true;
+  },
+  "crm.lead.action_set_lost": (f, rs, params) => {
+    const reason = recs(f, "crm.lost.reason").find((x) => x.id === params.lost_reason_id);
+    for (const r of rs) Object.assign(r, { active: false, probability: 0, lost_reason_id: reason ? [reason.id, reason.name] : false });
+    return true;
+  },
 };
 
 /**
@@ -571,4 +780,114 @@ function leaf(raw: unknown, op: string, value: unknown): boolean {
     default:
       throw new FakeOdooException("builtins.ValueError", `Invalid operator ${op}`);
   }
+}
+
+/**
+ * `eventModels` plus what the day-to-day tools and actions use: invoice lines, payments, stock
+ * moves, quants and locations, purchase lines and vendor prices, activities, CRM and helpdesk
+ * stages, and the wizards behind Odoo's buttons.
+ */
+export function dailyModels(): Record<string, FakeModel> {
+  const m = eventModels();
+  const extend = (name: string, fields: string[], records: Rec[] = []) =>
+    (m[name] = { fields: [...m[name]!.fields, ...fields], records: [...(m[name]!.records ?? []), ...records] });
+  extend("product.product", ["purchase_ok"]);
+  extend("res.partner", [], [{ id: 30, name: "Spindle Supplies Ltd", email: "sales@spindles.example", is_company: true, parent_id: false, customer_rank: 0, active: true }]);
+  extend("account.move", ["currency_id", "ref", "invoice_line_ids", "amount_untaxed", "amount_tax", "invoice_payment_term_id", "narration"], [
+    { id: 9, name: "INV/2026/00009", state: "posted", payment_state: "not_paid", move_type: "out_invoice", invoice_date: "2026-08-01", invoice_date_due: "2026-08-31", amount_total: 1500, amount_residual: 1500, invoice_origin: "S00039", partner_id: [11, "Acme Robotics"], invoice_line_ids: [1], amount_untaxed: 1250, amount_tax: 250 },
+    { id: 10, name: "INV/2026/00010", state: "posted", payment_state: "partial", move_type: "out_invoice", invoice_date: "2026-10-25", invoice_date_due: "2026-11-24", amount_total: 240, amount_residual: 100, invoice_origin: "S00040", partner_id: [10, "Jane Doe"] },
+    { id: 11, name: false, state: "draft", payment_state: "not_paid", move_type: "out_invoice", invoice_date: false, invoice_date_due: false, amount_total: 60, amount_residual: 60, partner_id: [10, "Jane Doe"] },
+    { id: 12, name: "BILL/2026/00003", state: "posted", payment_state: "not_paid", move_type: "in_invoice", invoice_date: "2026-10-01", invoice_date_due: "2026-10-31", amount_total: 820, amount_residual: 820, invoice_origin: "P00070", partner_id: [30, "Spindle Supplies Ltd"] },
+  ]);
+  m["account.move.line"] = {
+    fields: ["product_id", "name", "quantity", "price_unit", "discount", "price_subtotal", "price_total", "tax_ids", "display_type"],
+    records: [{ id: 1, product_id: [3, "[MILO-V2] Milo v2 CNC kit"], name: "Milo v2 CNC kit", quantity: 1, price_unit: 1250, discount: 0, price_subtotal: 1250, price_total: 1500, tax_ids: [1], display_type: "product" }],
+  };
+  m["account.payment"] = {
+    fields: ["name", "date", "partner_id", "amount", "currency_id", "payment_type", "journal_id", "state", "memo", "reconciled_invoice_ids", "reconciled_bill_ids"],
+    records: [{ id: 1, name: "PBNK/2026/00001", date: "2026-10-20", partner_id: [10, "Jane Doe"], amount: 113.5, currency_id: [1, "GBP"], payment_type: "inbound", journal_id: [6, "Bank"], state: "paid", memo: "S00042", reconciled_invoice_ids: [8], reconciled_bill_ids: [] }],
+  };
+  m["sale.advance.payment.inv"] = { fields: ["advance_payment_method"], records: [] };
+  m["account.payment.register"] = { fields: ["amount", "payment_date", "journal_id", "communication"], records: [] };
+  m["account.move.send.wizard"] = { fields: [], records: [] };
+  m["sale.order.cancel"] = { fields: [], records: [] };
+  extend("stock.picking", ["move_ids", "backorder_ids", "purchase_id", "location_id", "location_dest_id", "note", "carrier_tracking_url"], [
+    { id: 6, name: "WH/IN/00004", state: "assigned", picking_type_code: "incoming", scheduled_date: "2026-11-05 09:00:00", date_done: false, partner_id: [30, "Spindle Supplies Ltd"], origin: "P00070", move_ids: [2], backorder_ids: [], purchase_id: [70, "P00070"] },
+  ]);
+  m["stock.picking"]!.records![0] = { ...m["stock.picking"]!.records![0]!, partner_id: [10, "Jane Doe"], origin: "S00042", move_ids: [1], backorder_ids: [], location_id: [8, "WH/Stock"], location_dest_id: [5, "Partners/Customers"] };
+  m["stock.move"] = {
+    fields: ["product_id", "product_uom_qty", "quantity", "product_uom", "state"],
+    records: [
+      { id: 1, product_id: [2, "[SP-300W] 300W spindle"], product_uom_qty: 1, quantity: 1, product_uom: [1, "Units"], state: "assigned" },
+      { id: 2, product_id: [2, "[SP-300W] 300W spindle"], product_uom_qty: 10, quantity: 6, product_uom: [1, "Units"], state: "assigned" },
+    ],
+  };
+  m["stock.backorder.confirmation"] = { fields: [], records: [] };
+  m["stock.location"] = {
+    fields: ["name", "usage"],
+    records: [
+      { id: 8, name: "WH/Stock", usage: "internal" },
+      { id: 9, name: "WH/Stock/Shelf 2", usage: "internal" },
+      { id: 5, name: "Partners/Customers", usage: "customer" },
+    ],
+  };
+  m["stock.warehouse"] = { fields: ["name", "lot_stock_id"], records: [{ id: 1, name: "WH", lot_stock_id: [8, "WH/Stock"] }] };
+  m["stock.quant"] = {
+    fields: ["product_id", "location_id", "quantity", "reserved_quantity", "lot_id", "inventory_quantity"],
+    records: [
+      { id: 1, product_id: [2, "[SP-300W] 300W spindle"], location_id: [8, "WH/Stock"], quantity: 9, reserved_quantity: 1, lot_id: false },
+      { id: 2, product_id: [2, "[SP-300W] 300W spindle"], location_id: [9, "WH/Stock/Shelf 2"], quantity: 3, reserved_quantity: 0, lot_id: false },
+      { id: 3, product_id: [2, "[SP-300W] 300W spindle"], location_id: [5, "Partners/Customers"], quantity: 40, reserved_quantity: 0, lot_id: false },
+    ],
+  };
+  extend("purchase.order", ["partner_ref", "date_order", "amount_untaxed", "receipt_status", "invoice_status", "order_line", "picking_ids", "invoice_ids", "notes"]);
+  Object.assign(m["purchase.order"]!.records![0]!, { date_order: "2026-10-28 09:00:00", order_line: [1], picking_ids: [6], invoice_ids: [12], receipt_status: "partial", amount_untaxed: 683.33 });
+  m["purchase.order.line"] = {
+    fields: ["product_id", "name", "product_qty", "qty_received", "qty_invoiced", "price_unit", "price_subtotal", "date_planned", "display_type"],
+    records: [{ id: 1, product_id: [2, "[SP-300W] 300W spindle"], name: "300W spindle", product_qty: 10, qty_received: 6, qty_invoiced: 10, price_unit: 41, price_subtotal: 410, date_planned: "2026-11-05 09:00:00", display_type: false }],
+  };
+  m["product.supplierinfo"] = {
+    fields: ["partner_id", "product_code", "product_name", "price", "currency_id", "min_qty", "delay", "date_start", "date_end", "product_id", "product_tmpl_id", "sequence"],
+    records: [{ id: 1, partner_id: [30, "Spindle Supplies Ltd"], product_code: "SS-300", price: 41, currency_id: [1, "GBP"], min_qty: 5, delay: 7, product_id: false, product_tmpl_id: [12, "300W spindle"], sequence: 1 }],
+  };
+  m["ir.model"] = { fields: ["model", "name"], records: [{ id: 101, model: "sale.order", name: "Sales Order" }, { id: 102, model: "res.partner", name: "Contact" }] };
+  m["ir.model.data"] = {
+    fields: ["module", "name", "model", "res_id"],
+    records: [
+      { id: 1, module: "mail", name: "mail_activity_data_todo", model: "mail.activity.type", res_id: 4 },
+      { id: 2, module: "mail", name: "mail_activity_data_call", model: "mail.activity.type", res_id: 2 },
+    ],
+  };
+  m["mail.activity"] = {
+    fields: ["res_model", "res_model_id", "res_id", "res_name", "activity_type_id", "summary", "note", "date_deadline", "user_id", "state"],
+    records: [
+      { id: 1, res_model: "sale.order", res_id: 41, res_name: "S00041", activity_type_id: [2, "Call"], summary: "Chase Acme on the Milo quote", note: false, date_deadline: "2026-09-10", user_id: [7, "Command Centre"], state: "overdue" },
+      { id: 2, res_model: "res.partner", res_id: 10, res_name: "Jane Doe", activity_type_id: [4, "To-Do"], summary: "Send collet guide", note: "<p>PDF from the brain</p>", date_deadline: "2099-01-01", user_id: [7, "Command Centre"], state: "planned" },
+    ],
+  };
+  extend("crm.lead", ["stage_id", "user_id", "probability", "active", "date_deadline", "priority", "lost_reason_id"], [
+    { id: 1, name: "School makerspace: 6 Milo kits", type: "opportunity", partner_id: false, partner_name: "Leeds College", contact_name: "Sam Patel", email_from: "sam@leeds.example", stage_id: [2, "Qualified"], user_id: [7, "Command Centre"], expected_revenue: 7500, probability: 30, active: true, create_date: "2026-10-30 10:00:00" },
+  ]);
+  m["crm.stage"] = {
+    fields: ["name", "is_won", "sequence"],
+    records: [
+      { id: 1, name: "New", is_won: false },
+      { id: 2, name: "Qualified", is_won: false },
+      { id: 3, name: "Proposition", is_won: false },
+      { id: 4, name: "Won", is_won: true },
+    ],
+  };
+  m["crm.lost.reason"] = { fields: ["name"], records: [{ id: 1, name: "Too expensive" }] };
+  extend("helpdesk.ticket", ["user_id", "close_date", "fold"], [
+    { id: 1, name: "Spindle runs hot", ticket_ref: "17", partner_id: [10, "Jane Doe"], partner_email: "jane@example.com", team_id: [1, "Support"], stage_id: [1, "New"], priority: "1", create_date: "2026-11-01 09:00:00", close_date: false, fold: false, user_id: false, description: "<p>After 10 minutes it is too hot to touch.</p>" },
+  ]);
+  m["helpdesk.stage"] = {
+    fields: ["name", "team_ids"],
+    records: [
+      { id: 1, name: "New", team_ids: [1] },
+      { id: 2, name: "In Progress", team_ids: [1] },
+      { id: 3, name: "Solved", team_ids: [1] },
+    ],
+  };
+  return m;
 }

@@ -163,8 +163,9 @@ const partner = (r: OdooRecord) =>
   });
 
 /**
- * READ-ONLY MCP server over Odoo: products, stock, orders, customers, chatter,
- * websites, blogs and discount/loyalty programs. Results are compact JSON; fields or apps missing from the
+ * READ-ONLY MCP server over Odoo: products, stock, orders, customers, chatter, websites, blogs,
+ * discount/loyalty programs, and the day-to-day reads (registerDailyTools): invoices, what's owed,
+ * payments, deliveries, purchases, sales figures, leads, tickets, activities and any other model. Results are compact JSON; fields or apps missing from the
  * instance are left out rather than failing. Writes are action executors only.
  */
 export function createOdooMcpServer(client: OdooReader, options: OdooMcpOptions = {}): McpServer {
@@ -538,5 +539,645 @@ export function createOdooMcpServer(client: OdooReader, options: OdooMcpOptions 
     }),
   );
 
+  registerDailyTools(server, odoo, { tool, limit, message, max });
+
   return server;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+const Who = z.union([z.number().int(), z.string()]).optional().describe("Partner id (includes their contacts) or name");
+const partnerLeaf = (who: number | string | undefined, field = "partner_id"): Domain =>
+  typeof who === "number" ? [[field, "child_of", who]] : who ? [[field, "ilike", who]] : [];
+const dateRange = (field: string, from?: string, to?: string, datetime = true): Domain => [
+  ...(from ? [[field, ">=", datetime ? `${from} 00:00:00` : from]] : []),
+  ...(to ? [[field, "<=", datetime ? `${to} 23:59:59` : to]] : []),
+];
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const num = (v: unknown) => (typeof v === "number" ? v : 0);
+
+const MOVE_TYPES = {
+  customer_invoice: ["out_invoice"],
+  customer_credit_note: ["out_refund"],
+  vendor_bill: ["in_invoice"],
+  vendor_refund: ["in_refund"],
+  customer: ["out_invoice", "out_refund"],
+  vendor: ["in_invoice", "in_refund"],
+} as const;
+
+const PICKING_FIELDS = [
+  "name", "state", "picking_type_code", "partner_id", "origin", "scheduled_date", "date_deadline", "date_done", "carrier_id",
+  "carrier_tracking_ref", "carrier_tracking_url", "sale_id", "purchase_id",
+];
+const picking = (r: OdooRecord) =>
+  compact(r, {
+    name: "name",
+    type: first("picking_type_code"),
+    state: "state",
+    partner: first("partner_id"),
+    origin: first("origin"),
+    scheduled: first("scheduled_date"),
+    deadline: first("date_deadline"),
+    done: first("date_done"),
+    carrier: (x) => nameOf(x.carrier_id) ?? undefined,
+    tracking_ref: first("carrier_tracking_ref"),
+    tracking_url: first("carrier_tracking_url"),
+    sale_order: (x) => nameOf(x.sale_id) ?? undefined,
+    purchase_order: (x) => nameOf(x.purchase_id) ?? undefined,
+  });
+
+const PURCHASE_FIELDS = ["name", "state", "partner_id", "partner_ref", "date_order", "date_planned", "date_approve", "amount_untaxed", "amount_total", "currency_id", "receipt_status", "invoice_status", "origin"];
+const purchase = (r: OdooRecord) =>
+  compact(r, {
+    name: "name",
+    vendor: "partner_id",
+    vendor_ref: first("partner_ref"),
+    state: "state",
+    date: first("date_order"),
+    expected: first("date_planned"),
+    confirmed: first("date_approve"),
+    untaxed: first("amount_untaxed"),
+    total: "amount_total",
+    currency: (x) => nameOf(x.currency_id) ?? undefined,
+    receipt_status: first("receipt_status"),
+    billing_status: first("invoice_status"),
+    origin: first("origin"),
+  });
+
+interface DailyHelpers {
+  tool: <A>(fn: (args: A) => Promise<unknown>) => (args: A) => Promise<{ content: { type: "text"; text: string }[]; isError?: boolean }>;
+  limit: (fallback: number, cap?: number) => z.ZodDefault<z.ZodNumber>;
+  message: (r: OdooRecord) => Record<string, unknown>;
+  max: number;
+}
+
+/**
+ * The day-to-day reads: invoices and bills, what's owed, payments, deliveries and receipts,
+ * stock by location, purchase orders, sales figures, CRM leads, helpdesk tickets, activities,
+ * and a generic read of any model for everything else. All read-only.
+ */
+function registerDailyTools(server: McpServer, odoo: Reader, { tool, limit, message, max }: DailyHelpers) {
+  const invoiceRow = (r: OdooRecord) => ({
+    ...invoice(r),
+    ...compact(r, { partner: first("partner_id"), currency: (x) => nameOf(x.currency_id) ?? undefined, reference: first("ref") }),
+  });
+  const INVOICE_LIST_FIELDS = [...INVOICE_FIELDS, "partner_id", "currency_id", "ref"];
+
+  server.registerTool(
+    "search_invoices",
+    {
+      description:
+        "Search invoices, credit notes and vendor bills. type: customer_invoice (default), customer_credit_note, vendor_bill, vendor_refund, customer (both customer kinds) or vendor. Filter by query (number, origin order, reference or partner name), partner, state (draft, posted, cancel), payment_state (not_paid, partial, in_payment, paid), overdue (posted, unpaid and past due) and invoice date range. Newest first.",
+      inputSchema: {
+        type: z.enum(Object.keys(MOVE_TYPES) as [keyof typeof MOVE_TYPES]).default("customer_invoice"),
+        query: z.string().optional(),
+        partner: Who,
+        state: z.string().optional(),
+        payment_state: z.string().optional(),
+        overdue: z.boolean().default(false),
+        date_from: Day.optional(),
+        date_to: Day.optional(),
+        limit: limit(20, 100),
+      },
+    },
+    tool(async ({ type, query, partner: who, state, payment_state, overdue, date_from, date_to, limit }) => {
+      const fields = await odoo.require("account.move", "is the Invoicing app installed?");
+      const domain: Domain = [["move_type", "in", [...MOVE_TYPES[type]]], ...partnerLeaf(who), ...dateRange("invoice_date", date_from, date_to, false)];
+      if (query) domain.push(...anyOf(fields, ["name", "invoice_origin", "ref", "partner_id"], "ilike", query));
+      if (state) domain.push(["state", "=", state]);
+      if (payment_state) domain.push(["payment_state", "=", payment_state]);
+      if (overdue) domain.push(["state", "=", "posted"], ["payment_state", "in", ["not_paid", "partial"]], ["invoice_date_due", "<", today()]);
+      return (await odoo.find("account.move", domain, INVOICE_LIST_FIELDS, { limit, order: "invoice_date desc" })).map(invoiceRow);
+    }),
+  );
+
+  server.registerTool(
+    "get_invoice",
+    {
+      description: "Get one invoice, credit note or bill by number (e.g. INV/2026/00008) or id: partner, lines, taxes, totals, what is still owed, payment terms and recent chatter.",
+      inputSchema: { name: z.string().optional(), id: z.number().int().optional() },
+    },
+    tool(async ({ name, id }) => {
+      if (!name && !id) throw new OdooError("Pass name or id");
+      await odoo.require("account.move", "is the Invoicing app installed?");
+      const domain: Domain = id ? [["id", "=", id]] : [["name", "=ilike", name]];
+      const extra = ["invoice_line_ids", "amount_untaxed", "amount_tax", "invoice_payment_term_id", "narration", "payment_reference", "invoice_user_id"];
+      const [r] = await odoo.find("account.move", domain, [...INVOICE_LIST_FIELDS, ...extra], { limit: 1 });
+      if (!r) throw new OdooError(`No invoice ${name ?? id}`);
+      const [lines, messages] = await Promise.all([
+        odoo.read("account.move.line", r.invoice_line_ids, ["product_id", "name", "quantity", "price_unit", "discount", "price_subtotal", "price_total", "tax_ids", "display_type"]),
+        odoo.find("mail.message", [["model", "=", "account.move"], ["res_id", "=", r.id], ...NOT_NOTIFICATIONS], MESSAGE_FIELDS, { limit: 5, order: "date desc" }),
+      ]);
+      return {
+        ...invoiceRow(r),
+        ...compact(r, {
+          untaxed: first("amount_untaxed"),
+          tax: first("amount_tax"),
+          payment_terms: (x) => nameOf(x.invoice_payment_term_id) ?? undefined,
+          payment_reference: first("payment_reference"),
+          salesperson: (x) => nameOf(x.invoice_user_id) ?? undefined,
+          notes: (x) => (x.narration === undefined ? undefined : htmlToText(x.narration, max)),
+        }),
+        lines: lines
+          .filter((l) => !l.display_type || l.display_type === "product")
+          .map((l) =>
+            compact(l, {
+              product: (x) => nameOf(x.product_id),
+              description: (x) => htmlToText(x.name, 120),
+              qty: "quantity",
+              unit_price: "price_unit",
+              discount: first("discount"),
+              subtotal: "price_subtotal",
+              total: first("price_total"),
+            }),
+          ),
+        messages: messages.map(message),
+      };
+    }),
+  );
+
+  server.registerTool(
+    "aged_balances",
+    {
+      description:
+        "Who owes us (receivable, default) or whom we owe (payable): posted, unpaid invoices or bills per partner, split into not yet due, 1-30, 31-60, 61-90 and over 90 days overdue, biggest balance first, with the oldest overdue invoices.",
+      inputSchema: { kind: z.enum(["receivable", "payable"]).default("receivable"), as_of: Day.optional().describe("Default today"), limit: limit(20, 100) },
+    },
+    tool(async ({ kind, as_of, limit }) => {
+      await odoo.require("account.move", "is the Invoicing app installed?");
+      const asOf = as_of ?? today();
+      const types = kind === "receivable" ? ["out_invoice", "out_refund"] : ["in_invoice", "in_refund"];
+      const rows = await odoo.find(
+        "account.move",
+        [["move_type", "in", types], ["state", "=", "posted"], ["payment_state", "in", ["not_paid", "partial"]]],
+        ["name", "partner_id", "move_type", "invoice_date", "invoice_date_due", "amount_residual", "amount_total"],
+        { limit: 2000, order: "invoice_date_due" },
+      );
+      const day = (d: string) => Date.parse(`${d.slice(0, 10)}T00:00:00Z`);
+      const buckets = ["not_due", "1_30", "31_60", "61_90", "over_90"] as const;
+      const by = new Map<string, { partner: unknown; total: number; overdue: number; invoices: number } & Record<(typeof buckets)[number], number>>();
+      const overdueList: Record<string, unknown>[] = [];
+      for (const r of rows) {
+        const sign = r.move_type === "out_refund" || r.move_type === "in_refund" ? -1 : 1;
+        const owed = sign * num(r.amount_residual);
+        const due = typeof r.invoice_date_due === "string" ? r.invoice_date_due : typeof r.invoice_date === "string" ? r.invoice_date : asOf;
+        const late = Math.floor((day(asOf) - day(due)) / 86_400_000);
+        const bucket = late <= 0 ? "not_due" : late <= 30 ? "1_30" : late <= 60 ? "31_60" : late <= 90 ? "61_90" : "over_90";
+        const key = Array.isArray(r.partner_id) ? String(r.partner_id[0]) : "none";
+        const row = by.get(key) ?? { partner: value(r.partner_id), total: 0, overdue: 0, invoices: 0, not_due: 0, "1_30": 0, "31_60": 0, "61_90": 0, over_90: 0 };
+        row.total += owed;
+        row[bucket] += owed;
+        if (late > 0) row.overdue += owed;
+        row.invoices++;
+        by.set(key, row);
+        if (late > 0 && sign > 0) overdueList.push({ id: r.id, name: r.name, partner: nameOf(r.partner_id), due, days_overdue: late, owed: round2(owed) });
+      }
+      const partners = [...by.values()]
+        .map((p) => ({ ...p, ...Object.fromEntries([...buckets, "total", "overdue"].map((b) => [b, round2(p[b as keyof typeof p] as number)])) }))
+        .sort((a, b) => (b.total as number) - (a.total as number));
+      const sum = (k: string) => round2(partners.reduce((t, p) => t + (p[k as keyof typeof p] as number), 0));
+      return {
+        kind,
+        as_of: asOf,
+        totals: Object.fromEntries([...buckets, "total", "overdue"].map((b) => [b, sum(b)])),
+        partners: partners.slice(0, limit),
+        oldest_overdue: overdueList.sort((a, b) => (b.days_overdue as number) - (a.days_overdue as number)).slice(0, 10),
+      };
+    }),
+  );
+
+  server.registerTool(
+    "search_payments",
+    {
+      description: "Payments received (inbound) or sent (outbound), newest first: amount, partner, date, journal, state, memo and the invoices they paid.",
+      inputSchema: {
+        direction: z.enum(["inbound", "outbound", "any"]).default("inbound"),
+        partner: Who,
+        date_from: Day.optional(),
+        date_to: Day.optional(),
+        limit: limit(20, 100),
+      },
+    },
+    tool(async ({ direction, partner: who, date_from, date_to, limit }) => {
+      await odoo.require("account.payment", "is the Invoicing app installed?");
+      const domain: Domain = [...partnerLeaf(who), ...dateRange("date", date_from, date_to, false)];
+      if (direction !== "any") domain.push(["payment_type", "=", direction]);
+      const rows = await odoo.find(
+        "account.payment",
+        domain,
+        ["name", "date", "partner_id", "amount", "currency_id", "payment_type", "journal_id", "state", "memo", "ref", "reconciled_invoice_ids", "reconciled_bill_ids"],
+        { limit, order: "date desc" },
+      );
+      const invoiceIds = [...new Set(rows.flatMap((r) => [r.reconciled_invoice_ids, r.reconciled_bill_ids].flatMap((v) => (Array.isArray(v) ? (v as number[]) : []))))];
+      const invoices = new Map((await odoo.read("account.move", invoiceIds, ["name"])).map((m) => [m.id, m.name]));
+      return rows.map((r) =>
+        compact(r, {
+          name: "name",
+          date: "date",
+          partner: "partner_id",
+          amount: "amount",
+          currency: (x) => nameOf(x.currency_id) ?? undefined,
+          direction: "payment_type",
+          journal: (x) => nameOf(x.journal_id) ?? undefined,
+          state: "state",
+          memo: first("memo", "ref"),
+          paid: (x) =>
+            [x.reconciled_invoice_ids, x.reconciled_bill_ids].flatMap((v) => (Array.isArray(v) ? (v as number[]) : [])).map((id) => invoices.get(id) ?? id),
+        }),
+      );
+    }),
+  );
+
+  server.registerTool(
+    "search_deliveries",
+    {
+      description:
+        "Search transfers: deliveries to customers (type outgoing, default), receipts from suppliers (incoming), internal moves or any. Filter by query (reference or source document, e.g. S00042), partner, state (draft, waiting, confirmed, assigned = ready, done, cancel), open (not done or cancelled) and late (open and scheduled before now). Soonest first.",
+      inputSchema: {
+        type: z.enum(["outgoing", "incoming", "internal", "any"]).default("outgoing"),
+        query: z.string().optional(),
+        partner: Who,
+        state: z.string().optional(),
+        open: z.boolean().default(false),
+        late: z.boolean().default(false),
+        limit: limit(20, 100),
+      },
+    },
+    tool(async ({ type, query, partner: who, state, open, late, limit }) => {
+      const fields = await odoo.require("stock.picking", "is the Inventory app installed?");
+      const domain: Domain = [...partnerLeaf(who)];
+      if (type !== "any") domain.push(["picking_type_code", "=", type]);
+      if (query) domain.push(...anyOf(fields, ["name", "origin", "carrier_tracking_ref"], "ilike", query));
+      if (state) domain.push(["state", "=", state]);
+      if (open || late) domain.push(["state", "not in", ["done", "cancel"]]);
+      if (late) domain.push(["scheduled_date", "<", new Date().toISOString().slice(0, 19).replace("T", " ")]);
+      return (await odoo.find("stock.picking", domain, PICKING_FIELDS, { limit, order: "scheduled_date" })).map(picking);
+    }),
+  );
+
+  server.registerTool(
+    "get_delivery",
+    {
+      description: "Get one transfer (delivery, receipt) by reference (e.g. WH/OUT/00017) or id: products with quantities demanded and done, carrier, tracking, source document and recent chatter.",
+      inputSchema: { name: z.string().optional(), id: z.number().int().optional() },
+    },
+    tool(async ({ name, id }) => {
+      if (!name && !id) throw new OdooError("Pass name or id");
+      await odoo.require("stock.picking", "is the Inventory app installed?");
+      const domain: Domain = id ? [["id", "=", id]] : [["name", "=ilike", name]];
+      const [r] = await odoo.find("stock.picking", domain, [...PICKING_FIELDS, "move_ids", "note", "location_id", "location_dest_id"], { limit: 1 });
+      if (!r) throw new OdooError(`No transfer ${name ?? id}`);
+      const [moves, messages] = await Promise.all([
+        odoo.read("stock.move", r.move_ids, ["product_id", "product_uom_qty", "quantity", "quantity_done", "product_uom", "state"]),
+        odoo.find("mail.message", [["model", "=", "stock.picking"], ["res_id", "=", r.id], ...NOT_NOTIFICATIONS], MESSAGE_FIELDS, { limit: 5, order: "date desc" }),
+      ]);
+      return {
+        ...picking(r),
+        ...compact(r, {
+          from: (x) => nameOf(x.location_id) ?? undefined,
+          to: (x) => nameOf(x.location_dest_id) ?? undefined,
+          note: (x) => (x.note === undefined ? undefined : htmlToText(x.note, max)),
+        }),
+        moves: moves.map((m) =>
+          compact(m, {
+            product: (x) => nameOf(x.product_id),
+            demand: "product_uom_qty",
+            done: first("quantity", "quantity_done"),
+            uom: (x) => nameOf(x.product_uom) ?? undefined,
+            state: "state",
+          }),
+        ),
+        messages: messages.map(message),
+      };
+    }),
+  );
+
+  server.registerTool(
+    "stock_by_location",
+    {
+      description: "Where a product's stock is: on-hand and reserved quantity per internal location (and lot/serial), with the total. Pass the product id or SKU.",
+      inputSchema: { product_id: z.number().int().optional(), sku: z.string().optional() },
+    },
+    tool(async ({ product_id, sku }) => {
+      if (!product_id && !sku) throw new OdooError("Pass product_id or sku");
+      await odoo.require("stock.quant", "is the Inventory app installed?");
+      const [p] = await odoo.find("product.product", product_id ? [["id", "=", product_id]] : [["default_code", "=ilike", sku]], ["default_code", "display_name", "name"], { limit: 1 });
+      if (!p) throw new OdooError(`No product with ${product_id ? `id ${product_id}` : `SKU ${sku}`}`);
+      const quants = await odoo.find("stock.quant", [["product_id", "=", p.id]], ["location_id", "quantity", "reserved_quantity", "lot_id"], { limit: 200 });
+      const locationIds = [...new Set(quants.map((q) => (Array.isArray(q.location_id) ? (q.location_id[0] as number) : 0)).filter(Boolean))];
+      const usage = new Map((await odoo.read("stock.location", locationIds, ["usage"])).map((l) => [l.id, l.usage]));
+      const internal = quants.filter((q) => Array.isArray(q.location_id) && (usage.get(q.location_id[0] as number) ?? "internal") === "internal");
+      return {
+        product: compact(p, { sku: "default_code", name: stripSku }),
+        on_hand: round2(internal.reduce((t, q) => t + num(q.quantity), 0)),
+        reserved: round2(internal.reduce((t, q) => t + num(q.reserved_quantity), 0)),
+        locations: internal.map((q) =>
+          compact(q, { location: (x) => nameOf(x.location_id), quantity: "quantity", reserved: first("reserved_quantity"), lot: (x) => nameOf(x.lot_id) ?? undefined }),
+        ),
+      };
+    }),
+  );
+
+  server.registerTool(
+    "search_purchase_orders",
+    {
+      description: "Search purchase orders and RFQs by query (reference, vendor reference or vendor name), vendor, state (draft = RFQ, sent, to approve, purchase, done, cancel) and order date range. Newest first.",
+      inputSchema: {
+        query: z.string().optional(),
+        vendor: Who,
+        state: z.string().optional(),
+        date_from: Day.optional(),
+        date_to: Day.optional(),
+        limit: limit(20, 100),
+      },
+    },
+    tool(async ({ query, vendor, state, date_from, date_to, limit }) => {
+      const fields = await odoo.require("purchase.order", "is the Purchase app installed?");
+      const domain: Domain = [...partnerLeaf(vendor), ...dateRange("date_order", date_from, date_to)];
+      if (query) domain.push(...anyOf(fields, ["name", "partner_ref", "partner_id", "origin"], "ilike", query));
+      if (state) domain.push(["state", "=", state]);
+      return (await odoo.find("purchase.order", domain, PURCHASE_FIELDS, { limit, order: "date_order desc" })).map(purchase);
+    }),
+  );
+
+  server.registerTool(
+    "get_purchase_order",
+    {
+      description: "Get one purchase order by reference (e.g. P00070) or id: lines with quantities ordered, received and billed, receipts, vendor bills and recent chatter.",
+      inputSchema: { name: z.string().optional(), id: z.number().int().optional() },
+    },
+    tool(async ({ name, id }) => {
+      if (!name && !id) throw new OdooError("Pass name or id");
+      await odoo.require("purchase.order", "is the Purchase app installed?");
+      const domain: Domain = id ? [["id", "=", id]] : [["name", "=ilike", name]];
+      const [r] = await odoo.find("purchase.order", domain, [...PURCHASE_FIELDS, "order_line", "picking_ids", "invoice_ids", "notes"], { limit: 1 });
+      if (!r) throw new OdooError(`No purchase order ${name ?? id}`);
+      const [lines, pickings, bills, messages] = await Promise.all([
+        odoo.read("purchase.order.line", r.order_line, ["product_id", "name", "product_qty", "qty_received", "qty_invoiced", "price_unit", "price_subtotal", "date_planned", "display_type"]),
+        odoo.read("stock.picking", r.picking_ids, PICKING_FIELDS),
+        odoo.read("account.move", r.invoice_ids, INVOICE_FIELDS),
+        odoo.find("mail.message", [["model", "=", "purchase.order"], ["res_id", "=", r.id], ...NOT_NOTIFICATIONS], MESSAGE_FIELDS, { limit: 5, order: "date desc" }),
+      ]);
+      return {
+        ...purchase(r),
+        notes: htmlToText(r.notes, max),
+        lines: lines
+          .filter((l) => !l.display_type)
+          .map((l) =>
+            compact(l, {
+              product: (x) => nameOf(x.product_id),
+              description: (x) => htmlToText(x.name, 120),
+              qty: "product_qty",
+              received: first("qty_received"),
+              billed: first("qty_invoiced"),
+              unit_price: "price_unit",
+              subtotal: "price_subtotal",
+              expected: first("date_planned"),
+            }),
+          ),
+        receipts: pickings.map(picking),
+        bills: bills.map(invoice),
+        messages: messages.map(message),
+      };
+    }),
+  );
+
+  server.registerTool(
+    "product_suppliers",
+    {
+      description: "A product's vendors (purchase price lists): vendor, their product code, price, minimum quantity and lead time in days.",
+      inputSchema: { product_id: z.number().int() },
+    },
+    tool(async ({ product_id }) => {
+      await odoo.require("product.supplierinfo", "is the Purchase app installed?");
+      const [p] = await odoo.read("product.product", [product_id], ["product_tmpl_id", "display_name"]);
+      if (!p) throw new OdooError(`No product with id ${product_id}`);
+      const tmpl = Array.isArray(p.product_tmpl_id) ? p.product_tmpl_id[0] : null;
+      const domain: Domain = tmpl ? ["|", ["product_id", "=", product_id], "&", ["product_tmpl_id", "=", tmpl], ["product_id", "=", false]] : [["product_id", "=", product_id]];
+      const rows = await odoo.find("product.supplierinfo", domain, ["partner_id", "product_code", "product_name", "price", "currency_id", "min_qty", "delay", "date_start", "date_end", "product_id"], { limit: 50, order: "sequence" });
+      return rows.map((r) =>
+        compact(r, {
+          vendor: "partner_id",
+          vendor_code: first("product_code"),
+          vendor_name: first("product_name"),
+          price: "price",
+          currency: (x) => nameOf(x.currency_id) ?? undefined,
+          min_qty: first("min_qty"),
+          lead_days: first("delay"),
+          valid_from: first("date_start"),
+          valid_to: first("date_end"),
+        }),
+      );
+    }),
+  );
+
+  server.registerTool(
+    "sales_summary",
+    {
+      description:
+        "Sales figures for a period (default the last 30 days): confirmed orders, revenue untaxed and with tax, average order, and the top products and customers by revenue. Optionally one website (id). Dates are order dates.",
+      inputSchema: { date_from: Day.optional(), date_to: Day.optional(), website_id: z.number().int().optional(), top: limit(10, 50) },
+    },
+    tool(async ({ date_from, date_to, website_id, top }) => {
+      await odoo.require("sale.order", "is the Sales app installed?");
+      const to = date_to ?? today();
+      const from = date_from ?? new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10);
+      const domain: Domain = [["state", "in", ["sale", "done"]], ...dateRange("date_order", from, to)];
+      if (website_id) domain.push(["website_id", "=", website_id]);
+      const orders = await odoo.find("sale.order", domain, ["name", "partner_id", "amount_untaxed", "amount_total", "order_line"], { limit: 5000, order: "date_order" });
+      const untaxed = orders.reduce((t, o) => t + num(o.amount_untaxed), 0);
+      const total = orders.reduce((t, o) => t + num(o.amount_total), 0);
+      const customers = new Map<string, { customer: unknown; orders: number; untaxed: number }>();
+      for (const o of orders) {
+        const key = Array.isArray(o.partner_id) ? String(o.partner_id[0]) : "none";
+        const c = customers.get(key) ?? { customer: value(o.partner_id), orders: 0, untaxed: 0 };
+        c.orders++;
+        c.untaxed += num(o.amount_untaxed);
+        customers.set(key, c);
+      }
+      const lineIds = orders.flatMap((o) => (Array.isArray(o.order_line) ? (o.order_line as number[]) : []));
+      const lines = lineIds.length ? await odoo.read("sale.order.line", lineIds, ["product_id", "product_uom_qty", "price_subtotal", "display_type", "is_delivery"]) : [];
+      const products = new Map<string, { product: unknown; qty: number; untaxed: number }>();
+      for (const l of lines) {
+        if (l.display_type || l.is_delivery || !Array.isArray(l.product_id)) continue;
+        const key = String(l.product_id[0]);
+        const p = products.get(key) ?? { product: value(l.product_id), qty: 0, untaxed: 0 };
+        p.qty += num(l.product_uom_qty);
+        p.untaxed += num(l.price_subtotal);
+        products.set(key, p);
+      }
+      const ranked = <T extends { untaxed: number }>(m: Map<string, T>) =>
+        [...m.values()].sort((a, b) => b.untaxed - a.untaxed).slice(0, top).map((x) => ({ ...x, untaxed: round2(x.untaxed) }));
+      return {
+        from,
+        to,
+        orders: orders.length,
+        untaxed: round2(untaxed),
+        total: round2(total),
+        average_order_untaxed: orders.length ? round2(untaxed / orders.length) : 0,
+        top_products: ranked(products),
+        top_customers: ranked(customers),
+        ...(orders.length === 5000 ? { note: "Only the first 5000 orders were counted; use a shorter period." } : {}),
+      };
+    }),
+  );
+
+  server.registerTool(
+    "search_leads",
+    {
+      description: "Search CRM leads and opportunities by query (title, contact, company, email), type (lead, opportunity), stage name, salesperson (user id) and whether open (not won or lost; default). Newest first.",
+      inputSchema: {
+        query: z.string().optional(),
+        type: z.enum(["lead", "opportunity"]).optional(),
+        stage: z.string().optional(),
+        user_id: z.number().int().optional(),
+        open: z.boolean().default(true),
+        limit: limit(20, 100),
+      },
+    },
+    tool(async ({ query, type, stage, user_id, open, limit }) => {
+      const fields = await odoo.require("crm.lead", "is the CRM app installed?");
+      const domain: Domain = [];
+      if (query) domain.push(...anyOf(fields, ["name", "contact_name", "partner_name", "email_from", "partner_id"], "ilike", query));
+      if (type) domain.push(["type", "=", type]);
+      if (stage) domain.push(["stage_id", "ilike", stage]);
+      if (user_id) domain.push(["user_id", "=", user_id]);
+      if (open && fields.has("active")) domain.push(["active", "=", true]);
+      if (open && fields.has("probability")) domain.push(["probability", "<", 100]);
+      const rows = await odoo.find(
+        "crm.lead",
+        domain,
+        ["name", "type", "partner_id", "partner_name", "contact_name", "email_from", "phone", "stage_id", "user_id", "expected_revenue", "probability", "date_deadline", "priority", "create_date", "description"],
+        { limit, order: "create_date desc" },
+      );
+      return rows.map((r) =>
+        compact(r, {
+          title: "name",
+          type: first("type"),
+          customer: (x) => value(x.partner_id) ?? value(x.partner_name),
+          contact: first("contact_name"),
+          email: first("email_from"),
+          phone: first("phone"),
+          stage: (x) => nameOf(x.stage_id) ?? undefined,
+          salesperson: (x) => nameOf(x.user_id) ?? undefined,
+          expected_revenue: first("expected_revenue"),
+          probability: first("probability"),
+          deadline: first("date_deadline"),
+          priority: first("priority"),
+          created: first("create_date"),
+          description: (x) => (x.description === undefined ? undefined : htmlToText(x.description, 300)),
+        }),
+      );
+    }),
+  );
+
+  server.registerTool(
+    "search_tickets",
+    {
+      description: "Search helpdesk tickets by query (subject, reference, customer name or email), stage name, team, customer and whether open (not in a closing stage; default). Newest first.",
+      inputSchema: { query: z.string().optional(), stage: z.string().optional(), team: z.string().optional(), partner: Who, open: z.boolean().default(true), limit: limit(20, 100) },
+    },
+    tool(async ({ query, stage, team, partner: who, open, limit }) => {
+      const fields = await odoo.require("helpdesk.ticket", "is the Helpdesk app installed?");
+      const domain: Domain = [...partnerLeaf(who)];
+      if (query) domain.push(...anyOf(fields, ["name", "ticket_ref", "partner_name", "partner_email", "partner_id"], "ilike", query));
+      if (stage) domain.push(["stage_id", "ilike", stage]);
+      if (team) domain.push(["team_id", "ilike", team]);
+      if (open) {
+        if (fields.has("fold")) domain.push(["fold", "=", false]);
+        else if (fields.has("close_date")) domain.push(["close_date", "=", false]);
+      }
+      const rows = await odoo.find(
+        "helpdesk.ticket",
+        domain,
+        ["name", "ticket_ref", "partner_id", "partner_name", "partner_email", "team_id", "stage_id", "user_id", "priority", "create_date", "close_date", "description"],
+        { limit, order: "create_date desc" },
+      );
+      return rows.map((r) =>
+        compact(r, {
+          subject: "name",
+          ref: first("ticket_ref"),
+          customer: (x) => value(x.partner_id) ?? value(x.partner_name),
+          email: first("partner_email"),
+          team: (x) => nameOf(x.team_id) ?? undefined,
+          stage: (x) => nameOf(x.stage_id) ?? undefined,
+          assigned: (x) => nameOf(x.user_id) ?? undefined,
+          priority: first("priority"),
+          created: first("create_date"),
+          closed: first("close_date"),
+          description: (x) => (x.description === undefined ? undefined : htmlToText(x.description, 300)),
+        }),
+      );
+    }),
+  );
+
+  server.registerTool(
+    "search_activities",
+    {
+      description:
+        "Scheduled activities (to-dos, calls, emails, meetings on records), soonest due first. when: overdue, today, upcoming or all (default). Optionally one model (e.g. sale.order) or user (user id). Use the ids with odoo.activity.done.",
+      inputSchema: {
+        when: z.enum(["overdue", "today", "upcoming", "all"]).default("all"),
+        model: z.string().optional(),
+        user_id: z.number().int().optional(),
+        limit: limit(30, 100),
+      },
+    },
+    tool(async ({ when, model, user_id, limit }) => {
+      await odoo.require("mail.activity", "activities");
+      const d = today();
+      const domain: Domain = [];
+      if (when === "overdue") domain.push(["date_deadline", "<", d]);
+      if (when === "today") domain.push(["date_deadline", "=", d]);
+      if (when === "upcoming") domain.push(["date_deadline", ">", d]);
+      if (model) domain.push(["res_model", "=", model]);
+      if (user_id) domain.push(["user_id", "=", user_id]);
+      const rows = await odoo.find("mail.activity", domain, ["res_model", "res_id", "res_name", "activity_type_id", "summary", "note", "date_deadline", "user_id", "state"], {
+        limit,
+        order: "date_deadline",
+      });
+      return rows.map((r) =>
+        compact(r, {
+          on: (x) => `${String(x.res_model)},${String(x.res_id)}`,
+          record: first("res_name"),
+          type: (x) => nameOf(x.activity_type_id) ?? undefined,
+          summary: first("summary"),
+          note: (x) => (x.note === undefined ? undefined : htmlToText(x.note, 300)),
+          due: "date_deadline",
+          assigned: (x) => nameOf(x.user_id) ?? undefined,
+          state: first("state"),
+        }),
+      );
+    }),
+  );
+
+  server.registerTool(
+    "search_records",
+    {
+      description:
+        "Read any Odoo model the other tools don't cover (e.g. res.users, stock.lot, account.journal, product.pricelist, uom.uom, crm.stage, helpdesk.stage, mail.activity.type, product.category, delivery.carrier). domain is Odoo's, e.g. [[\"name\",\"ilike\",\"x\"]]; fields lists what to return (unknown ones are dropped). Returns the matching count and records. Read-only.",
+      inputSchema: {
+        model: z.string().regex(/^[a-z0-9_.]+$/, "an Odoo model name, e.g. stock.lot"),
+        domain: z.array(z.unknown()).default([]),
+        fields: z.array(z.string()).min(1).max(40),
+        order: z.string().optional(),
+        limit: limit(20, 200),
+        offset: z.number().int().min(0).default(0),
+      },
+    },
+    tool(async ({ model, domain, fields, order, limit, offset }) => {
+      const available = await odoo.has(model);
+      if (!available) throw new OdooRpcError(`Odoo has no ${model} model`, "missing_model", "KeyError");
+      const unknown = fields.filter((f) => !available.has(f));
+      const [count, rows] = await Promise.all([
+        odoo.count(model, domain as Domain),
+        odoo.find(model, domain as Domain, fields, { limit, offset, order }),
+      ]);
+      return {
+        count,
+        records: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "string" && v.length > max * 2 ? `${v.slice(0, max * 2)}…` : value(v)]))),
+        ...(unknown.length ? { unknown_fields: unknown } : {}),
+      };
+    }),
+  );
 }
