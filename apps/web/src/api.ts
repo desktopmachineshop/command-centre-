@@ -123,6 +123,8 @@ export type TaskDetail = {
   event: Event | null;
   runs: (AgentRun & { messages: AgentMessage[]; response?: VoiceResponse | null })[];
   proposals: Proposal[];
+  /** The hidden handover note agents carry the task on from (server handover.ts); null before the first run. */
+  handover?: { text: string; at: string } | null;
 };
 
 export type Stats = {

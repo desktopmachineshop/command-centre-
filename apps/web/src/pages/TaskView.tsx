@@ -12,6 +12,7 @@ import { useStickToBottom } from "../scroll";
 import { ErrorReport, type ReportFacts } from "../copy";
 import { AttachedFiles, chatFilesOf, Composer } from "../composer";
 import { ReadAloudControl, useReadAloud } from "../voice/readAloud";
+import { Markdown } from "../markdown";
 
 export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: string }) {
   const { data, error } = useLoad(
@@ -139,6 +140,13 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           </div>
         )}
         {retryError && <ErrorBanner>{retryError}</ErrorBanner>}
+        {data.handover && (
+          <details className="handover">
+            <summary className="small muted">Show handover</summary>
+            <p className="small muted">What any agent picking this task up starts from (updated {ago(data.handover.at)}).</p>
+            <Markdown className="msg text" text={data.handover.text} />
+          </details>
+        )}
       </div>
 
       {(runs.length > 0 || liveOnly.length > 0) && (

@@ -4556,3 +4556,13 @@ a.button-link.call-button {
   padding: 6px 12px;
   min-height: 0;
 }
+
+/* A task's handover note, folded away on the task page. */
+.handover {
+  margin-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-2);
+}
+.handover summary {
+  cursor: pointer;
+}

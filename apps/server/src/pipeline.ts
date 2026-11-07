@@ -9,6 +9,7 @@ import { type BudgetService, bypassesBudget } from "./budget";
 import type { ChatFile } from "./chat-files";
 import type { Store } from "./db/store";
 import { type CodeOptions, prepareCheckout } from "./code";
+import { autoHandover, handoverSection } from "./handover";
 import type { Hub } from "./hub";
 import { startProgressUpdates } from "./progress";
 import type { Notifier } from "./push";
@@ -167,6 +168,7 @@ export class Pipeline {
     const fromVertical = verticals.require(from.vertical);
     // Files Dave attached anywhere up the chain (the chat or a reply to it) go along, so the role can open them.
     const files = uniqueFiles([...filesOf(fromEvent), ...((await this.deps.voice?.replyFiles(from.id)) ?? [])]);
+    const fromHandover = await store.getHandover(from.id);
     const prompt = [
       `Handoff to you from the ${fromRole.title} (${fromVertical.name}).`,
       "",
@@ -177,6 +179,7 @@ export class Pipeline {
       "<<<",
       from.prompt.slice(0, 12_000),
       ">>>",
+      ...(fromHandover ? ["", `Where their task had got to (its handover note):`, "<<<", fromHandover.text.slice(0, 6000), ">>>"] : []),
       "",
       ...(files.length
         ? [`Files Dave attached to the request: ${files.map((f) => f.name).join(", ")}. Images among them come with this message; the request above says where each file is on disk.`, ""]
@@ -366,6 +369,8 @@ export class Pipeline {
       const cwd = await prepareWorkspace(this.deps.dataDir, this.deps.skillsDir, vertical, role);
       const mcpServers = mcpServersFor(vertical, this.deps.internalBaseUrl, token, typeof this.deps.mcpServers === "function" ? this.deps.mcpServers() : this.deps.mcpServers, role.mcpServers ?? vertical.mcpServers);
       const brief = roleBrief(verticals, vertical.id, role.id, this.maxHandoffDepth - handoffDepth(event));
+      // The task's handover note goes into every run, so any runner can carry on from it (./handover.ts).
+      const handover = await store.getHandover(taskId);
       const workbench = await this.workbench(task, role, cwd);
       // --- voice: a reply from Dave continues the task, resuming the earlier session (./voice/conversations.ts) ---
       const turn = (await this.deps.voice?.beforeRun(task, run.id)) ?? null;
@@ -393,7 +398,7 @@ export class Pipeline {
         prompt: turn?.prompt ?? runPrompt(task, event),
         resumeSessionId: turn?.resumeSessionId,
         promptWithoutResume: turn?.promptWithoutResume,
-        systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief, this.deps.appGuide), ...workbench.notes].join("\n\n"),
+        systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief, this.deps.appGuide), ...workbench.notes, handoverSection(handover?.text ?? null)].join("\n\n"),
         cwd,
         mcpServers,
         allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...skillReadRules(this.deps.skillsDir, vertical, role)],
@@ -415,8 +420,15 @@ export class Pipeline {
       // --- voice: store and broadcast the structured spoken answer of voice-mode runs ---
       await this.deps.voice?.afterRun(task, run.id, result, turn).catch((err) => console.error("[voice]", err));
       // --- end voice ---
+      // The agent didn't update the note this run: record the outcome there, so the next run knows it.
+      const stoppedNow = this.stopping.has(taskId);
+      const after = await store.getHandover(taskId);
+      if (after?.at === handover?.at) {
+        const outcome = stoppedNow ? { ...result, status: "stopped from the app" } : result;
+        await store.setHandover(taskId, autoHandover(handover?.text ?? null, task, outcome)).catch((err) => console.error("[handover]", err));
+      }
 
-      if (this.stopping.has(taskId)) {
+      if (stoppedNow) {
         // Stopped from the app: it stays stopped, and nothing waiting on it runs it again.
         await this.deps.voice?.discardPending(taskId).catch(() => {});
         hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "failed", STOPPED_NOTE) });
