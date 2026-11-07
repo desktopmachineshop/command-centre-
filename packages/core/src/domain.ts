@@ -79,6 +79,15 @@ export const Task = z.object({
 });
 export type Task = z.infer<typeof Task>;
 
+/**
+ * The note on a task Dave stopped from the app (Stop on a chat turn or task, or Stop all agents).
+ * A stopped task is "failed", so it can be retried or continued with a reply like any other.
+ */
+export const STOPPED_NOTE = "Stopped from the app.";
+export function isStopped(task: Pick<Task, "status" | "note">): boolean {
+  return task.status === "failed" && task.note === STOPPED_NOTE;
+}
+
 /** One normalised message from an agent run, independent of the runner that produced it. */
 export const AgentMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: z.string() }),

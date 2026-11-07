@@ -1,4 +1,4 @@
-import type { AgentMessage, Proposal, Task } from "@cc/core";
+import { type AgentMessage, isStopped, type Proposal, type Task } from "@cc/core";
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Api, ChatFile } from "../api";
 import { type LiveFeed, useLive } from "../live";
@@ -18,7 +18,8 @@ import { go } from "../router";
 type Turn = {
   key: number;
   text: string;
-  files?: { name: string; size: number }[];
+  /** As sent (with ids, so "Stop & edit" can attach them again), or just names and sizes once restored. */
+  files?: (Pick<ChatFile, "name" | "size"> & Partial<ChatFile>)[];
   /** The task it went to; none for a Converse exchange the voice front answered itself. */
   task?: Task;
   messages: AgentMessage[];
@@ -32,6 +33,10 @@ type Turn = {
 
 /** A task in these states has answered, so a follow-up can continue it. */
 const REPLYABLE: Task["status"][] = ["done", "awaiting_approval", "failed"];
+/** A task in these states is working (or about to), so it can be stopped. */
+const STOPPABLE: Task["status"][] = ["queued", "running", "deferred"];
+/** Leads the corrected message after "Stop & edit" on a follow-up, so the agent drops the version it was working on. */
+const EDITED = "(Dave stopped you to correct his last message. This replaces it; ignore the earlier version and anything you'd started on it.)";
 
 /** Applies `f` to the latest turn on `taskId` (a task's follow-ups each have their own turn). */
 function onLatest(ts: Turn[], taskId: string, f: (t: Turn) => Turn): Turn[] {
@@ -350,6 +355,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   const newChat = () => {
     readAloud.stop();
     setQueue([]);
+    setEditing(null);
     clearChat();
     setTurns([]);
     setThreadId(null);
@@ -408,8 +414,44 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   /** Messages written while the agent is still working: each is sent, in order, once it has answered. */
   const [queue, setQueue] = useState<Queued[]>([]);
   const sending = useRef(false);
+  /**
+   * "Stop & edit": the stopped message is back in the box. The correction continues its task
+   * (`followUp`), or starts the chat afresh when it was the task's first message. Queued messages
+   * wait until it has been sent (or the edit is cancelled).
+   */
+  const [editing, setEditing] = useState<{ taskId: string; followUp: boolean } | null>(null);
+  const restoreFiles = useRef<((files: ChatFile[]) => void) | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
+
+  /** Stop: ends the turn's task (and the work it handed on). With `edit`, its message goes back in the box. */
+  const stopTurn = async (turn: Turn, edit: boolean) => {
+    const task = turn.task;
+    if (!task) return;
+    setStoppingId(task.id);
+    setError(null);
+    let stopped: Task[];
+    try {
+      stopped = (await api.stopTask(task.id)).stopped;
+    } catch (err) {
+      setError(`Couldn't stop it: ${(err as Error).message}`);
+      return;
+    } finally {
+      setStoppingId(null);
+    }
+    const settle = (ts: Turn[]) => stopped.reduce((all, s) => onLatest(all, s.id, (t) => ({ ...t, task: s })), ts);
+    if (!edit) return setTurns(settle);
+    const followUp = turns.some((t) => t.key !== turn.key && t.task?.id === task.id);
+    setTurns((ts) => settle(ts.filter((t) => t.key !== turn.key)));
+    if (!followUp) setThreadId(null);
+    setEditing({ taskId: task.id, followUp });
+    setText((now) => (now.trim() ? `${turn.text}\n\n${now}` : turn.text));
+    const files = (turn.files ?? []).filter((f): f is ChatFile => !!f.id && !!f.contentType);
+    if (files.length) restoreFiles.current?.(files);
+    document.querySelector<HTMLTextAreaElement>(".chat .composer textarea")?.focus();
+  };
+
   useEffect(() => {
-    if (!ready || sending.current || !queue.length || restoring) return;
+    if (!ready || sending.current || !queue.length || restoring || editing) return;
     const [next, ...rest] = queue;
     setQueue(rest);
     sending.current = true;
@@ -426,7 +468,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
       setText("");
       return true;
     }
-    if (!ready || queue.length) {
+    if (!ready || (queue.length && !editing)) {
       setQueue((q) => [...q, { id: ++queueId, text: message, files }]);
       setText("");
       setError(null);
@@ -440,12 +482,17 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
     if (restore) setText("");
     setError(null);
     const ids = files.map((f) => f.id);
+    // A correction after "Stop & edit" on a follow-up tells the agent it replaces what it was doing.
+    const corrected = editing?.followUp && threadId === editing.taskId ? `${EDITED}\n\n${message}` : message;
     try {
-      const task = threadId ? await api.replyToTask(threadId, message, false, ids) : (await api.chat(message, vertical || undefined, { files: ids })).task;
+      const task = threadId ? await api.replyToTask(threadId, corrected, false, ids) : (await api.chat(message, vertical || undefined, { files: ids })).task;
       setThreadId(task.id);
+      setEditing(null);
       // A follow-up's task timestamp is when the server took the reply; a new chat's is its creation.
-      const shown = files.map((f) => ({ name: f.name, size: f.size }));
-      setTurns((ts) => [...ts, { key: ts.length, text: message, ...(shown.length ? { files: shown } : {}), task, messages: [], at: threadId ? task.updatedAt : task.createdAt }]);
+      setTurns((ts) => [
+        ...ts,
+        { key: ts.length ? Math.max(...ts.map((t) => t.key)) + 1 : 0, text: message, ...(files.length ? { files } : {}), task, messages: [], at: threadId ? task.updatedAt : task.createdAt },
+      ]);
       return true;
     } catch (err) {
       setError(restore ? (err as Error).message : `Couldn't send the queued message "${message.slice(0, 60)}": ${(err as Error).message}`);
@@ -473,14 +520,43 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
               {t.voice && <Icon name="mic" size={14} className="said" aria-label="Said in Converse" />}
               {t.text}
               <AttachedFiles files={t.files ?? []} />
+              {t.task && STOPPABLE.includes(t.task.status) && latestTurnOf.get(t.task.id) === t.key && !t.voice && (
+                <div className="row end small turn-edit">
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={stoppingId === t.task.id}
+                    onClick={() => void stopTurn(t, true)}
+                    title="Stop the agent and put this message back in the box to change it"
+                  >
+                    <Icon name="edit" size={14} />
+                    Stop &amp; edit
+                  </button>
+                </div>
+              )}
             </div>
             <div className="bubble agent">
               {t.task ? (
                 <div className="row between small">
                   <TaskTag task={t.task} />
-                  <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
-                    {t.task.status.replace("_", " ")}
-                  </a>
+                  <span className="row small">
+                    {STOPPABLE.includes(t.task.status) && latestTurnOf.get(t.task.id) === t.key && (
+                      <button
+                        type="button"
+                        className="ghost danger turn-stop"
+                        disabled={stoppingId === t.task.id}
+                        onClick={() => void stopTurn(t, false)}
+                        aria-label="Stop the agent"
+                        title="Stop the agent (and any work it handed on)"
+                      >
+                        <Icon name="stop" size={14} />
+                        {stoppingId === t.task.id ? "Stopping…" : "Stop"}
+                      </button>
+                    )}
+                    <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
+                      {isStopped(t.task) ? "stopped" : t.task.status.replace("_", " ")}
+                    </a>
+                  </span>
                 </div>
               ) : (
                 <div className="row small muted">Converse</div>
@@ -492,7 +568,10 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
                 </div>
               )}
               <Transcript messages={t.messages} readAloud={readAloud} id={`turn-${t.key}`} />
-              {t.task?.status === "failed" && latestTurnOf.get(t.task.id) === t.key && (
+              {t.task && isStopped(t.task) && latestTurnOf.get(t.task.id) === t.key && (
+                <p className="small muted">Stopped. Send a message to carry on, or open the task to retry it.</p>
+              )}
+              {t.task?.status === "failed" && !isStopped(t.task) && latestTurnOf.get(t.task.id) === t.key && (
                 <ErrorReport
                   title="This didn't finish"
                   error={t.task.note ?? "The agent's run failed without a message. Open the task for details."}
@@ -519,12 +598,23 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
         ))}
       </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}
+      {editing && (
+        <div className="row between small editing-note" role="status">
+          <span className="muted">
+            <Icon name="edit" size={14} /> Editing your stopped message: change it and press Send.
+          </span>
+          <button type="button" className="ghost" onClick={() => setEditing(null)}>
+            Cancel edit
+          </button>
+        </div>
+      )}
       {driving && <div className="composer-spacer" aria-hidden="true" />}
       <Composer
         api={api}
         value={text}
         onChange={setText}
         onSend={send}
+        restoreFilesRef={restoreFiles}
         label="Message"
         placeholder={driving ? "Or type it here" : "What needs doing?"}
         className={driving ? `is-driving is-${driveStage}` : ""}

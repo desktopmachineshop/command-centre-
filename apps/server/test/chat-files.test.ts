@@ -51,9 +51,11 @@ describe.skipIf(!DB_URL)("files attached in the chat box (integration)", () => {
     const request = runner.calls[0]!;
     expect(request.prompt).toMatch(/^dms: check these prices\n\nDave attached 2 files to this message\./);
     expect(request.prompt).toContain("ER11 collet,12.50");
-    const path = /On disk at (\S+): open it with the Read tool/.exec(request.prompt)?.[1];
+    const path = /On disk at (\S+): it is attached to this message/.exec(request.prompt)?.[1];
     expect(path).toBeTruthy();
     expect(readFileSync(path!)).toEqual(PNG);
+    // The image goes with the prompt too, for a runner without a Read tool (Codex); the CSV doesn't.
+    expect(request.images).toEqual([path]);
     // Runs of work Dave started may read the copies, and only those.
     expect(request.allowedTools).toContain(`Read(/${path!.slice(0, path!.lastIndexOf("/"))}/**)`);
     // The files are listed on the Storage page under attachments.
@@ -73,6 +75,24 @@ describe.skipIf(!DB_URL)("files attached in the chat box (integration)", () => {
     expect(runner.calls.at(-1)!.prompt).toContain("Customer wants 50 units by Friday.");
     const detail = (await ctx.api(`/api/tasks/${body.task.id}`)).body;
     expect(detail.runs[1].messages[0]).toEqual({ type: "system", text: "Dave replied: Use these notes [attached: notes.txt]" });
+    expect(runner.calls.at(-1)!.images).toBeUndefined();
+
+    const shot = await upload("screenshot.png", PNG, "image/png");
+    await ctx.api(`/api/tasks/${body.task.id}/reply`, { method: "POST", json: { text: "And this screenshot", files: [shot.body.id] } });
+    await ctx.queue.drain();
+    expect(runner.calls.at(-1)!.images).toEqual([expect.stringMatching(new RegExp(`/chat-files/${shot.body.id}$`))]);
+  });
+
+  it("hands Dave's files on with a handoff", async () => {
+    const png = await upload("drawing.png", PNG, "image/png");
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "dms: quote this part", files: [png.body.id] } });
+    await ctx.queue.drain();
+    const { task } = await ctx.server.pipeline.handoff(body.task.id, "chief-of-staff", "Over to you");
+    await ctx.queue.drain();
+    const request = runner.calls.find((c) => c.prompt.includes(`(task ${body.task.id})`) && c.prompt.startsWith("Handoff"))!;
+    expect(request.images).toEqual([expect.stringMatching(new RegExp(`/chat-files/${png.body.id}$`))]);
+    expect(request.prompt).toContain("drawing.png");
+    expect((await ctx.api(`/api/tasks/${task.id}`)).body.task.status).toBe("done");
   });
 
   it("refuses ids that aren't chat files", async () => {

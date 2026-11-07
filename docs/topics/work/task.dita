@@ -15,6 +15,7 @@
     </fig>
     <dl>
       <dlentry><dt>The task card</dt><dd>The business, status and what came in. An email shows its sender, date and attachments; automated mail is folded away (<uicontrol>Show it</uicontrol>). Below: the role, kind of work, route, urgency and age.</dd></dlentry>
+      <dlentry><dt><uicontrol>Stop</uicontrol></dt><dd>A running or queued task can be stopped, with the work it handed on. It then shows as failed with the note "Stopped from the app.", and can be retried.</dd></dlentry>
       <dlentry><dt><uicontrol>Retry</uicontrol> and <uicontrol>Run now</uicontrol></dt><dd>A failed task can be retried. A deferred one can be run now, ignoring the daily budget for this one run.</dd></dlentry>
       <dlentry><dt><wintitle>Conversation</wintitle></dt><dd>Each agent run, with its cost and transcript. Tool calls are folded as <systemoutput>→ tool</systemoutput> and their results as <systemoutput>← result</systemoutput>; open one to see exactly what the agent sent and got back.</dd></dlentry>
       <dlentry><dt>Duplicates</dt><dd>The same request for the same business within a few minutes is linked to the first task instead of running again. <uicontrol>Open the original task</uicontrol> goes there.</dd></dlentry>

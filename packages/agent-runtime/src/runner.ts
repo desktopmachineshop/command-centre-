@@ -23,6 +23,12 @@ export interface AgentRunRequest {
    * runner that doesn't have it): `prompt` with the earlier context spelled out.
    */
   promptWithoutResume?: string;
+  /**
+   * Image files (absolute paths) attached to this prompt, e.g. a screenshot pasted in the chat.
+   * Codex attaches them to the prompt (it has no Read tool); Claude Code opens them with Read,
+   * so the prompt names their paths as well.
+   */
+  images?: string[];
   signal?: AbortSignal;
 }
 

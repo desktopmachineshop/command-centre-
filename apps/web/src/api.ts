@@ -131,6 +131,8 @@ export type Stats = {
   costTodayByVertical: Record<string, number>;
   budgets: { globalUsd: number | null; verticals: Record<string, number> };
   pendingApprovals: number;
+  /** Tasks running or queued to run. */
+  activeTasks?: number;
 };
 
 export type DigestCounts = { done: number; failed: number; deferred: number; autoActions: number; pendingApprovals: number; jobs: number };
@@ -393,6 +395,10 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     orgRestore: (unit: string, version: number) => post<OrgConfig>(`/org/config/${encodeURIComponent(unit)}/restore`, { version }),
     task: (id: string) => call<TaskDetail>(`/tasks/${id}`),
     retry: (id: string) => post<Task>(`/tasks/${id}/retry`),
+    /** Stops a task's run (or takes it off the queue), with the open work it handed off. */
+    stopTask: (id: string) => post<{ stopped: Task[] }>(`/tasks/${encodeURIComponent(id)}/stop`),
+    /** Stops every running, queued or deferred task. */
+    stopAll: () => post<{ stopped: Task[] }>("/tasks/stop-all"),
     digest: (options: { vertical?: string; date?: string } = {}) =>
       call<DigestDay>(`/digest?${new URLSearchParams(Object.entries(options).filter(([, v]) => v) as [string, string][])}`),
     proposals: (status?: string) => call<Proposal[]>(`/proposals${status ? `?status=${status}` : ""}`),

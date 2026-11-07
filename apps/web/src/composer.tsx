@@ -1,4 +1,4 @@
-import { type ClipboardEvent, type DragEvent, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ClipboardEvent, type DragEvent, type FormEvent, type MutableRefObject, type ReactNode, useEffect, useRef, useState } from "react";
 import type { Api, ChatFile } from "./api";
 import { formatBytes } from "./format";
 import { Icon } from "./icons";
@@ -52,6 +52,7 @@ export function Composer({
   className = "",
   children,
   panel,
+  restoreFilesRef,
 }: {
   api: Pick<Api, "voiceConfig" | "transcribe" | "voiceListenUrl" | "token"> & Partial<Pick<Api, "uploadChatFile">>;
   value: string;
@@ -73,6 +74,8 @@ export function Composer({
    * mic and the paperclip are off; everything else stays where it is.
    */
   panel?: ReactNode;
+  /** Set by the composer: puts already-uploaded files back on the message (the chat's "Stop & edit"). */
+  restoreFilesRef?: MutableRefObject<((files: ChatFile[]) => void) | null>;
 }) {
   const dictation = useDictation(api);
   // What was typed before dictation started, and a send waiting for it to finish.
@@ -106,6 +109,15 @@ export function Composer({
       );
     }
   };
+  if (restoreFilesRef) {
+    restoreFilesRef.current = (files) =>
+      setAttachments((as) => [
+        ...as,
+        ...files
+          .filter((f) => !as.some((a) => a.file?.id === f.id))
+          .map((f): Attachment => ({ key: nextKey.current++, name: f.name, size: f.size, state: "ready", file: f, abort: new AbortController() })),
+      ]);
+  }
   const remove = (a: Attachment) => {
     a.abort.abort();
     setAttachments((as) => as.filter((x) => x.key !== a.key));

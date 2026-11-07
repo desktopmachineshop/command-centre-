@@ -82,6 +82,8 @@ export class CodexRunner implements AgentRunner {
     for (const [name, server] of Object.entries(allowedMcpServers(request.mcpServers ?? {}, allowed))) {
       set(`mcp_servers.${tomlKey(name)}`, server);
     }
+    // `--image=<path>` per file: the flag takes several values, and would swallow the session id and "-".
+    for (const image of request.images ?? []) args.push(`--image=${image}`);
     if (request.resumeSessionId) args.push(request.resumeSessionId);
     args.push("-"); // the prompt comes on stdin
     return args;
