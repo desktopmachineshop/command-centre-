@@ -12,9 +12,7 @@ import { z } from "zod";
 /** Which subscription agents run on; "a-then-b" falls back to b when a hits its usage limit. */
 export const AGENT_ROUTES = ["claude", "codex", "claude-then-codex", "codex-then-claude"] as const;
 export type AgentRoute = (typeof AGENT_ROUTES)[number];
-/** "org": the org chart routes work to its roles. "assistant": one assistant takes Dave's chats (./assistant.ts). */
-export const AGENT_MODES = ["org", "assistant"] as const;
-export type AgentMode = (typeof AGENT_MODES)[number];
+
 
 const bool = z
   .enum(["true", "false", "1", "0"])
@@ -75,8 +73,6 @@ const Env = z.object({
    * when the first hits its usage limit. The Accounts page's "Agent route" setting overrides it.
    */
   AGENT_ROUTE: z.enum(AGENT_ROUTES).default("claude"),
-  /** "org" (the org chart) or "assistant" (one assistant for chat). The Accounts page's "Agent mode" overrides it. */
-  AGENT_MODE: z.enum(AGENT_MODES).default("org"),
   CODEX_BIN: z.string().default("codex"),
   /** The ChatGPT sign-in for Codex: the contents of ~/.codex/auth.json after `codex login`. */
   CODEX_AUTH_JSON: z.string().optional(),
@@ -324,7 +320,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       oauthToken: e.CLAUDE_CODE_OAUTH_TOKEN || undefined,
       fallbackApiKey: e.ANTHROPIC_FALLBACK_API_KEY || undefined,
       route: e.AGENT_ROUTE,
-      mode: e.AGENT_MODE as AgentMode,
       codexBin: e.CODEX_BIN,
       codexAuth: e.CODEX_AUTH_JSON || undefined,
       codexModel: e.CODEX_MODEL || undefined,

@@ -1,6 +1,7 @@
 import { defineVertical } from "@cc/core";
 import { INTERNAL_AUTO_POLICIES } from "./policies";
-import { saasRoles } from "./saas-org";
+import { howWeWork } from "./how-we-work";
+import { saasAreas, saasSchedules } from "./saas-org";
 
 export default defineVertical({
   id: "openv",
@@ -12,5 +13,6 @@ export default defineVertical({
   skills: ["brain-notes", "email-triage-and-reply", "video-reel", "social-platform-guide", "reddit-marketing"],
   mcpServers: ["brain", "pa", "mail"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
-  roles: saasRoles("OpenV"),
+  schedules: saasSchedules("OpenV"),
+  guidance: howWeWork("OpenV", saasAreas("OpenV")),
 });

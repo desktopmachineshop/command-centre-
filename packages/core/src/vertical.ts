@@ -22,27 +22,26 @@ export const Schedule = z.object({
 });
 export type Schedule = z.infer<typeof Schedule>;
 
-/** Id of the org root, the cross-vertical Chief of Staff every vertical lead reports to. */
+/** Id of the org root: Dave's assistant, which takes all work and hands specialist work to the roles. */
 export const ROOT_ROLE_ID = "chief-of-staff";
 
 const slug = z.string().regex(/^[a-z0-9-]+$/);
 
 /**
- * One agent role in a vertical's org chart: the lead (reporting to the Chief of
- * Staff) or a specialist under it. A role decides which tasks a run takes (its
- * intents), what the run sees (skills, MCP servers) and how it behaves (mission
- * and autonomy notes, carried into the system prompt). See docs/ORG.md.
+ * A specialist in a business: an agent the assistant hands specialist work to (code changes, a
+ * video, a blog post), with its own skills, MCP servers and tools, and its mission and autonomy
+ * notes in its system prompt. Every other task runs as the assistant (ROOT_ROLE_ID). See docs/ORG.md.
  */
 export const Role = z.object({
   id: slug,
   title: z.string().min(1),
   /** Two or three sentences: what the role is for and what good looks like. */
   mission: z.string().min(1),
-  /** Id of the role this one reports to, or ROOT_ROLE_ID for the vertical lead. */
-  reportsTo: z.string().min(1),
+  /** Who it reports to: always the assistant (ROOT_ROLE_ID). Kept so older saved edits still parse. */
+  reportsTo: z.string().min(1).default(ROOT_ROLE_ID),
   /** Extra names Dave can address the role by in chat ("support: ..."). */
   aliases: z.array(slug).default([]),
-  /** Triage intents this role owns. Intents no role owns go to the vertical lead. */
+  /** No longer used (every task goes to the assistant unless it names a specialist). Kept so older saved edits still parse. */
   intents: z.array(z.string()).default([]),
   /** Skills from the bank this role's workspace gets (and only these). */
   skills: z.array(z.string()).default([]),
@@ -63,7 +62,7 @@ export const Role = z.object({
     .string()
     .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "owner/name")
     .optional(),
-  /** Schedules whose tasks go to this role. Ids are unique across the whole vertical. */
+  /** Schedules whose tasks go to this specialist. Ids are unique across the whole vertical. */
   schedules: z.array(Schedule).default([]),
   /** What the role is measured on, for display. */
   kpis: z.array(z.string()).default([]),
@@ -96,15 +95,17 @@ export const VerticalManifest = z
     defaultPolicy: Policy.default("draft"),
     /** Optional cap on this vertical's agent spend per day; over it, new tasks are deferred. */
     dailyBudgetUsd: z.number().positive().optional(),
-    /** Display colour (CSS hex) for the org chart. */
+    /** Display colour (CSS hex) for the Businesses page. */
     color: z
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/)
       .optional(),
     /**
-     * The vertical's org chart: exactly one lead (reportsTo ROOT_ROLE_ID) and the
-     * roles under it. Empty: one implicit lead with the vertical's skills and servers.
+     * How the business's work is done (markdown): seeded once into the brain as
+     * "<brainFolder>/how-we-work.md", which the assistant reads and Dave edits from then on.
      */
+    guidance: z.string().default(""),
+    /** The business's specialists (often none): the assistant hands them the work only they can do. */
     roles: z.array(Role).default([]),
   })
   .superRefine((v, ctx) => {
@@ -138,13 +139,11 @@ export function proposalPolicy(vertical: VerticalManifest, actionType: string, p
 }
 
 /**
- * Problems with a vertical's org chart, as messages (empty when valid): unique
- * ids and aliases, exactly one lead, `reportsTo` naming a role of the vertical
- * (or the root, for the lead), no cycles, role intents declared by the vertical
- * and each owned by at most one role (unowned ones fall to the lead), role MCP
- * servers a subset of the vertical's, and schedule ids unique across the vertical.
+ * Problems with a business's specialists, as messages (empty when valid): unique ids and aliases,
+ * none named like the assistant, role MCP servers a subset of the business's, and schedule ids
+ * unique across the business.
  */
-export function orgIssues(v: Pick<VerticalManifest, "id" | "intents" | "mcpServers" | "schedules" | "roles">): string[] {
+export function orgIssues(v: Pick<VerticalManifest, "id" | "mcpServers" | "schedules" | "roles">): string[] {
   const issues: string[] = [];
   const roles = v.roles;
   const ids = new Map<string, Role>();
@@ -160,42 +159,9 @@ export function orgIssues(v: Pick<VerticalManifest, "id" | "intents" | "mcpServe
       names.add(a);
     }
   }
-  if (roles.length) {
-    const leads = roles.filter((r) => r.reportsTo === ROOT_ROLE_ID);
-    if (leads.length !== 1) issues.push(`${v.id}: needs exactly one lead reporting to ${ROOT_ROLE_ID}, found ${leads.length}`);
-  }
   for (const r of roles) {
-    if (r.reportsTo === r.id) issues.push(`${v.id}: ${r.id} reports to itself`);
-    else if (r.reportsTo !== ROOT_ROLE_ID && !ids.has(r.reportsTo)) issues.push(`${v.id}: ${r.id} reports to unknown role "${r.reportsTo}"`);
-  }
-  // Follow each role's reporting line: one that comes back to a role it passed never reaches the root.
-  const reported = new Set<string>();
-  for (const r of roles) {
-    const seen: string[] = [];
-    let at: Role | undefined = r;
-    while (at && at.reportsTo !== ROOT_ROLE_ID && at.reportsTo !== at.id) {
-      if (seen.includes(at.id)) {
-        const cycle = seen.slice(seen.indexOf(at.id));
-        const key = [...cycle].sort().join(",");
-        if (!reported.has(key)) issues.push(`${v.id}: reporting cycle ${[...cycle, at.id].join(" -> ")}`);
-        reported.add(key);
-        break;
-      }
-      seen.push(at.id);
-      at = ids.get(at.reportsTo);
-    }
-  }
-  const declared = new Set([...v.intents, "other"]);
-  const owner = new Map<string, string>();
-  for (const r of roles) {
-    for (const intent of r.intents) {
-      if (!declared.has(intent)) issues.push(`${v.id}: ${r.id} owns intent "${intent}", which the vertical does not declare`);
-      const prev = owner.get(intent);
-      if (prev && prev !== r.id) issues.push(`${v.id}: intent "${intent}" is owned by both ${prev} and ${r.id}`);
-      owner.set(intent, r.id);
-    }
-    for (const s of r.mcpServers ?? []) {
-      if (!v.mcpServers.includes(s)) issues.push(`${v.id}: ${r.id} lists MCP server "${s}", which the vertical does not have`);
+    for (const srv of r.mcpServers ?? []) {
+      if (!v.mcpServers.includes(srv)) issues.push(`${v.id}: ${r.id} lists MCP server "${srv}", which the vertical does not have`);
     }
   }
   const scheduleIds = new Set<string>();
@@ -206,33 +172,9 @@ export function orgIssues(v: Pick<VerticalManifest, "id" | "intents" | "mcpServe
   return issues;
 }
 
-/** The role a vertical without an org chart runs as: one lead with the vertical's skills and servers. */
-export function implicitLead(v: VerticalManifest): Role {
-  return {
-    id: "lead",
-    title: `${v.name} Lead`,
-    mission: `Handles everything for ${v.name}. ${v.description}`,
-    reportsTo: ROOT_ROLE_ID,
-    aliases: [],
-    intents: [],
-    skills: v.skills,
-    tools: [],
-    actions: [],
-    schedules: [],
-    kpis: [],
-    autonomyNotes: "Follows the vertical's action policies; anything outward-facing is a proposal.",
-  };
-}
-
-/** A vertical's roles, lead first. A vertical with no org chart has just its implicit lead. */
+/** A business's specialists. */
 export function rolesOf(v: VerticalManifest): Role[] {
-  if (!v.roles.length) return [implicitLead(v)];
-  const lead = v.roles.find((r) => r.reportsTo === ROOT_ROLE_ID)!;
-  return [lead, ...v.roles.filter((r) => r !== lead)];
-}
-
-export function leadOf(v: VerticalManifest): Role {
-  return rolesOf(v)[0]!;
+  return v.roles;
 }
 
 const nameKey = (s: string) =>
@@ -242,17 +184,13 @@ const nameKey = (s: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
-/** A role by id, alias or title ("Customer Support" matches customer-support), case-insensitive. */
+/** A specialist by id, alias or title ("Video Producer" matches video-producer), case-insensitive. */
 export function findRole(v: VerticalManifest, name: string): Role | undefined {
   const key = nameKey(name);
   if (!key) return undefined;
   return rolesOf(v).find((r) => r.id === key || r.aliases.includes(key) || nameKey(r.title) === key);
 }
 
-/** The role owning a triage intent, otherwise the lead. */
-export function roleForIntent(v: VerticalManifest, intent: string): Role {
-  return rolesOf(v).find((r) => r.intents.includes(intent)) ?? leadOf(v);
-}
 
 /** MCP servers a role's runs may use: its own list, or else the vertical's. */
 export function roleMcpServers(v: VerticalManifest, role: Pick<Role, "mcpServers"> | undefined): string[] {

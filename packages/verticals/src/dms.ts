@@ -1,4 +1,5 @@
 import { defineVertical } from "@cc/core";
+import { howWeWork } from "./how-we-work";
 import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 const LOW_STOCK_CHECK = `Check Desktop Machine Shop stock.
@@ -8,34 +9,20 @@ const LOW_STOCK_CHECK = `Check Desktop Machine Shop stock.
 3. Write the result to the brain as "dms/stock/<today>.md" (brain.write): product, SKU, on hand, incoming, supplier, suggested reorder quantity.
 4. If anything is out of stock with nothing incoming, propose one "notify" titled "Low stock" listing those SKUs. Do not contact suppliers.`;
 
-export default defineVertical({
-  id: "dms",
-  name: "Desktop Machine Shop",
-  description: "Online retail of CNC accessories and kits, hosted on Odoo Online.",
-  brainFolder: "dms",
-  color: "#d9822b",
-  intents: [
-    "presales-question", "order-status", "return-warranty", "supplier", "invoice-admin", "spam",
-    // Odoo events (rules triager, see @cc/triage odoo.ts)
-    "new-order", "customer-message", "stock-low", "delivery-late", "review", "rfq", "supplier-reply",
-  ],
-  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide", "video-reel"],
-  // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
-  mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
-  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
-  roles: [
+/** The shop's areas of work (the old org chart's roles), for its how-we-work note. */
+const AREAS = [
     {
       id: "shop-lead",
       title: "Shop Lead",
       reportsTo: "chief-of-staff",
       aliases: ["shop"],
       mission:
-        "Runs Desktop Machine Shop day to day on Dave's behalf: picks up anything no specialist owns, decides which role should handle it and keeps the shop's notes in the brain current. Escalates to the Chief of Staff when something needs Dave's attention across the business.",
+        "Running the shop day to day on Dave's behalf: nothing left unowned, and the shop's notes in the brain kept current. Anything that needs Dave's attention across the business goes to him with notify.",
       skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status"],
       actions: ["brain.write", "notify", "email.reply", "email.label"],
       kpis: ["Nothing unowned for more than a day", "Weekly shop summary in the brain"],
       autonomyNotes:
-        "May file notes and hand work to its team. Anything that reaches a customer, supplier or the storefront is a draft for Dave.",
+        "Anything that reaches a customer, supplier or the storefront is a draft for Dave.",
     },
     {
       id: "customer-support",
@@ -91,13 +78,30 @@ export default defineVertical({
       skills: ["brain-notes", "email-triage-and-reply", "dms-ops", "dms-order-status", "dms-supplier-pricelists"],
       mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
       actions: ["email.reply", "email.label", "email.send", "odoo.message.post", "notify", "brain.write"],
-      schedules: [
-        // Turn on once the Odoo low_stock threshold is agreed.
-        { id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", prompt: LOW_STOCK_CHECK, enabled: false },
-      ],
       kpis: ["No stock-out without warning", "Every invoice filed within a day", "Every supplier price list in the brain within a day"],
       autonomyNotes:
         "May file notes and post internal Odoo notes for review. Purchase orders, payments and any commitment to a supplier always need Dave.",
     },
+];
+
+export default defineVertical({
+  id: "dms",
+  name: "Desktop Machine Shop",
+  description: "Online retail of CNC accessories and kits, hosted on Odoo Online.",
+  brainFolder: "dms",
+  color: "#d9822b",
+  intents: [
+    "presales-question", "order-status", "return-warranty", "supplier", "invoice-admin", "spam",
+    // Odoo events (rules triager, see @cc/triage odoo.ts)
+    "new-order", "customer-message", "stock-low", "delivery-late", "review", "rfq", "supplier-reply",
   ],
+  skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "social-voice-dms", "social-platform-guide", "video-reel"],
+  // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
+  mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
+  policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
+  schedules: [
+    // Turn on once the Odoo low_stock threshold is agreed.
+    { id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", prompt: LOW_STOCK_CHECK, enabled: false },
+  ],
+  guidance: howWeWork("Desktop Machine Shop", AREAS),
 });

@@ -71,21 +71,21 @@ describe.skipIf(!DB_URL)("mail MCP server", () => {
     await ctx?.server.stop();
   });
 
-  it("lets Ops & Admin find a price list and read its attachment from a chat", async () => {
-    const { last } = await chat("pricelists: file the Arc Euro price list", [
+  it("lets the assistant find a price list and read its attachment from a chat", async () => {
+    const { last } = await chat("dms: file the Arc Euro price list", [
       { server: "mail", tool: "list_mail_accounts", args: {} },
       { server: "mail", tool: "search_mail", args: { subject: "price list", withAttachments: true } },
       { server: "mail", tool: "read_attachment", args: { accountId: "shop", messageId: "<pricelist@arceurotrade.co.uk>" } },
     ]);
-    expect(last.role).toBe("ops-admin");
+    expect(last.role).toBe("chief-of-staff");
     expect(last.servers).toContain("mail");
-    // Only the DMS mailbox: a DMS role can't read the personal one.
+    // On Dave's own work the assistant reads every business's mailbox.
     expect(last.result).toContain("support@desktopmachineshop.com");
-    expect(last.result).not.toContain("dave@example.com");
+    expect(last.result).toContain("dave@example.com");
     expect(last.result).toContain("AET-ER11-7,18.40");
   });
 
-  it("gives the Chief of Staff every mailbox, and drafts its proposals once it has read mail", async () => {
+  it("drafts the assistant's proposals once it has read mail", async () => {
     const notify = { server: "actions", tool: "propose_action", args: { actionType: "notify", summary: "Price list", payload: { title: "Price list", body: "Filed" } } };
     const before = await chat("cos: tell me something", [notify]);
     expect(before.detail.proposals[0]).toMatchObject({ actionType: "notify", policy: "auto-with-digest" });
@@ -99,9 +99,9 @@ describe.skipIf(!DB_URL)("mail MCP server", () => {
     expect(proposal.payload.policyDowngrade.reason).toMatch(/untrusted email/);
   });
 
-  it("refuses /mcp/mail to roles without it", async () => {
-    const { last } = await chat("calendar: remind me to call the bank", [{ server: "mail", tool: "list_mail_accounts", args: {} }]);
-    expect(last.role).toBe("calendar-reminders");
+  it("refuses /mcp/mail to a specialist without it", async () => {
+    const { last } = await chat("video: plan a reel about the new collets", [{ server: "mail", tool: "list_mail_accounts", args: {} }]);
+    expect(last.role).toBe("video-producer");
     expect(last.servers).not.toContain("mail");
   });
 });

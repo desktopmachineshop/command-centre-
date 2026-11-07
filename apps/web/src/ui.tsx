@@ -31,14 +31,14 @@ export function VTag({ id, children }: { id: string; children?: ReactNode }) {
 }
 
 /**
- * The chip for a task: the business it belongs to, or "Chief of Staff" for the Chief of Staff's own
+ * The chip for a task: the business it belongs to, or "Assistant" for the assistant's own
  * tasks (which run in its home vertical, personal, for budget and access, but aren't personal work).
  */
 export function TaskTag({ task }: { task: { vertical: string; role?: string | null } }) {
   if (task.role === ROOT_ROLE_ID) {
     return (
-      <span className="tag vtag" data-v={ROOT_ROLE_ID} title="Chief of Staff">
-        Chief of Staff
+      <span className="tag vtag" data-v={ROOT_ROLE_ID} title="Assistant">
+        Assistant
       </span>
     );
   }

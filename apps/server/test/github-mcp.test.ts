@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { AgentRunRequest } from "@cc/agent-runtime";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createGithubMcpServer, explainGithubError } from "../src/github-mcp";
-import { DB_URL, makeServer, McpCallingRunner, resetDatabase } from "./helpers";
+import { DB_URL, makeServer, McpCallingRunner, resetDatabase, WEBHOOK } from "./helpers";
 
 /** A fake GitHub API: routes by path, records requests. */
 /** A route is a body (200), or `{ status, body }` for an error. */
@@ -117,7 +117,7 @@ describe.skipIf(!DB_URL)("github MCP for the Software Lead's runs (integration)"
   });
   afterAll(async () => ctx?.server.stop());
 
-  it("lets the Software Lead read its repository through the server's token, and no other role", async () => {
+  it("lets the Software Lead (and the assistant, on Dave's work) read its repository through the server's token, and no outside input", async () => {
     await ctx.api("/api/chat", { method: "POST", json: { text: "software: is CI green on the last PR?" } });
     await ctx.queue.drain();
     const lead = requests.at(-1)!;
@@ -129,7 +129,16 @@ describe.skipIf(!DB_URL)("github MCP for the Software Lead's runs (integration)"
     // The token never reaches the agent.
     expect(JSON.stringify(lead)).not.toContain("ghp_test");
 
-    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: what sold yesterday?" } });
+    // The assistant reads it too on Dave's own work, in any business...
+    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: is the shop's latest fix merged?" } });
+    await ctx.queue.drain();
+    expect(Object.keys(requests.at(-1)!.mcpServers ?? {})).toContain("github");
+    // ...but not on outside input for a business without it.
+    await ctx.server.app.request("/api/ingress/webhook/dms", {
+      method: "POST",
+      headers: { "x-cc-webhook-secret": WEBHOOK, "content-type": "application/json" },
+      body: JSON.stringify({ title: "Note" }),
+    });
     await ctx.queue.drain();
     expect(Object.keys(requests.at(-1)!.mcpServers ?? {})).not.toContain("github");
   });

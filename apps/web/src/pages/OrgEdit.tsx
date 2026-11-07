@@ -125,7 +125,7 @@ const toDraft = (r: Omit<Role, "reportsTo"> & { reportsTo?: string }): Draft => 
 const fromDraft = (d: Draft): Role => ({
   id: d.id,
   title: d.title.trim(),
-  reportsTo: d.reportsTo,
+  reportsTo: ROOT,
   mission: d.mission.trim(),
   autonomyNotes: d.autonomyNotes.trim(),
   aliases: list(d.aliases).map(slug).filter(Boolean),
@@ -139,16 +139,9 @@ const fromDraft = (d: Draft): Role => ({
   ...(d.repo ? { repo: d.repo } : {}),
 });
 
-/**
- * The new roles of a vertical once `role` is saved: it replaces its old self (or is added),
- * intents it took are taken off their old owner, and making it the lead puts the old lead under it.
- */
+/** The specialists of a business once `role` is saved: it replaces its old self, or is added. */
 function nextRoles(roles: Role[], role: Role, isNew: boolean): Role[] {
-  const oldLead = roles.find((r) => r.reportsTo === ROOT);
-  let out = roles.map((r) => (r.id === role.id ? role : { ...r, intents: r.intents.filter((i) => !role.intents.includes(i)) }));
-  if (isNew) out = [...out, role];
-  if (role.reportsTo === ROOT && oldLead && oldLead.id !== role.id) out = out.map((r) => (r.id === oldLead.id ? { ...r, reportsTo: role.id } : r));
-  return out;
+  return isNew ? [...roles, role] : roles.map((r) => (r.id === role.id ? role : r));
 }
 
 function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; config: OrgConfig; unit: string; roleId: string | null; onSaved: (c: OrgConfig) => void; close: () => void }) {
@@ -157,17 +150,14 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
   const roles = vertical?.current.roles ?? [];
   const existing = isRoot ? { ...config.root.current, id: ROOT } : roles.find((r) => r.id === roleId);
   const isNew = !existing;
-  const lead = roles.find((r) => r.reportsTo === ROOT);
   const [draft, setDraft] = useState<Draft>(() =>
     existing
       ? toDraft(existing)
-      : toDraft({ id: "", title: "", reportsTo: lead?.id ?? ROOT, mission: "", autonomyNotes: "", aliases: [], intents: [], skills: ["brain-notes"], actions: [], kpis: [], schedules: [], tools: [] }),
+      : toDraft({ id: "", title: "", reportsTo: ROOT, mission: "", autonomyNotes: "", aliases: [], intents: [], skills: ["brain-notes"], actions: [], kpis: [], schedules: [], tools: [] }),
   );
   const { error, saving, run } = useSave(api, onSaved);
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
   const servers = isRoot ? config.root.mcpServers : (vertical?.mcpServers ?? []);
-  const reports = roles.filter((r) => r.reportsTo === roleId);
-  const isLead = !isRoot && !!existing && "reportsTo" in existing && existing.reportsTo === ROOT;
   const id = isNew ? draft.id || slug(draft.title) : draft.id;
 
   const save = async (e: FormEvent) => {
@@ -183,22 +173,21 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
   };
 
   const remove = async () => {
-    if (!vertical || !existing || !confirm(`Remove ${existing.title}? Its tasks stay and count as the lead's. The change can be undone from History.`)) return;
+    if (!vertical || !existing || !confirm(`Remove ${existing.title}? Its tasks stay and count as the assistant's. The change can be undone from History.`)) return;
     if (await run(() => api.orgSave(unit, { ...vertical.current, roles: roles.filter((r) => r.id !== existing.id) }, vertical.version))) close();
   };
 
-  const ownerOf = (intent: string) => roles.find((r) => r.id !== id && r.intents.includes(intent));
   const skillNames = uniq([...config.skills.map((s) => s.name), ...draft.skills]);
   const actionTypes = uniq([...config.actionTypes, ...draft.actions]).sort();
 
   return (
     <Dialog
-      title={isNew ? `New role in ${vertical?.name ?? unit}` : `Edit ${existing.title}`}
+      title={isNew ? `New specialist in ${vertical?.name ?? unit}` : `Edit ${existing.title}`}
       onClose={close}
       footer={
         <>
-          {!isNew && !isRoot && !isLead && (
-            <button type="button" className="danger" onClick={remove} disabled={saving || reports.length > 0} title={reports.length ? "Move the roles reporting to it first" : undefined}>
+          {!isNew && !isRoot && (
+            <button type="button" className="danger" onClick={remove} disabled={saving}>
               <Icon name="trash" /> Remove
             </button>
           )}
@@ -226,31 +215,6 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
             </span>
           </label>
         )}
-        {!isRoot && (
-          <label className="field">
-            <span>Reports to</span>
-            {isLead ? (
-              <>
-                <input value="Chief of Staff (this is the lead)" readOnly />
-                <span className="muted small">To change the lead, edit another role and make it report to the Chief of Staff.</span>
-              </>
-            ) : (
-              <>
-                <select value={draft.reportsTo} onChange={(e) => set({ reportsTo: e.target.value })}>
-                  {roles
-                    .filter((r) => r.id !== id)
-                    .map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.title}
-                      </option>
-                    ))}
-                  <option value={ROOT}>Chief of Staff (make this the lead)</option>
-                </select>
-                {draft.reportsTo === ROOT && lead && <span className="muted small">{lead.title} will report to this role instead.</span>}
-              </>
-            )}
-          </label>
-        )}
         <label className="field">
           <span>Mission</span>
           <textarea value={draft.mission} onChange={(e) => set({ mission: e.target.value })} rows={4} required placeholder="Two or three sentences: what it does and what good looks like." />
@@ -258,21 +222,8 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
         <label className="field">
           <span>Autonomy</span>
           <textarea value={draft.autonomyNotes} onChange={(e) => set({ autonomyNotes: e.target.value })} rows={3} placeholder="What it may do on its own, and what always needs Dave." />
-          <span className="muted small">Guidance for the agent. Whether an action runs or waits is set by the vertical's policies.</span>
+          <span className="muted small">Guidance for the agent. Whether an action runs or waits is set by the business's policies.</span>
         </label>
-        {!isRoot && vertical && (
-          <Picker
-            label="Owns these kinds of work"
-            hint="Triage intents. Picking one another role owns moves it here; unowned ones go to the lead."
-            options={vertical.intents}
-            value={draft.intents}
-            onChange={(intents) => set({ intents })}
-            note={(i) => {
-              const o = ownerOf(i);
-              return o && !draft.intents.includes(i) ? o.title : undefined;
-            }}
-          />
-        )}
         <Picker label="Skills" hint="Only these are in its workspace." options={skillNames} value={draft.skills} onChange={(skills) => set({ skills })} />
         <fieldset className="field">
           <legend>Tools</legend>
@@ -439,7 +390,7 @@ function HistoryDialog({ api, config, unit, onSaved, close }: { api: Api; config
   const [versions, setVersions] = useState<OrgConfigVersion[] | null>(null);
   const { error, saving, run } = useSave(api, onSaved);
   const info = unit === ROOT ? config.root : config.verticals.find((v) => v.unit === unit)!;
-  const name = unit === ROOT ? "Chief of Staff" : (info as VerticalUnit).name;
+  const name = unit === ROOT ? "the assistant" : (info as VerticalUnit).name;
   const load = () => api.orgHistory(unit).then(setVersions, () => setVersions([]));
   useEffect(() => void load(), [unit, info.version]);
 

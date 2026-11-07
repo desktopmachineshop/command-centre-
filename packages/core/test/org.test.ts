@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { defineOrgRoot, defineVertical, findRole, leadOf, orgIssues, type RoleInput, roleForIntent, roleMcpServers, rolesOf, schedulesOf, type VerticalManifestInput } from "../src";
+import { defineOrgRoot, defineVertical, findRole, orgIssues, type RoleInput, roleMcpServers, rolesOf, schedulesOf, type VerticalManifestInput } from "../src";
 
-const role = (id: string, reportsTo: string, extra: Partial<RoleInput> = {}): RoleInput => ({ id, title: id, mission: `${id} mission.`, reportsTo, ...extra });
+const role = (id: string, extra: Partial<RoleInput> = {}): RoleInput => ({ id, title: id, mission: `${id} mission.`, ...extra });
 
 const base: VerticalManifestInput = {
   id: "shop",
@@ -21,99 +21,65 @@ const issuesFor = (roles: RoleInput[], extra: Partial<VerticalManifestInput> = {
   }
 };
 
-describe("org chart validation", () => {
-  it("accepts a lead with roles under it", () => {
-    const v = defineVertical({
-      ...base,
-      roles: [role("lead", "chief-of-staff"), role("support", "lead", { intents: ["order-status"] }), role("ops", "lead", { intents: ["supplier"] })],
-    });
-    expect(rolesOf(v).map((r) => r.id)).toEqual(["lead", "support", "ops"]);
+describe("specialist validation", () => {
+  it("accepts several specialists, each reporting to the assistant", () => {
+    const v = defineVertical({ ...base, roles: [role("video"), role("blog")] });
+    expect(rolesOf(v).map((r) => r.id)).toEqual(["video", "blog"]);
+    expect(rolesOf(v).every((r) => r.reportsTo === "chief-of-staff")).toBe(true);
     expect(orgIssues(v)).toEqual([]);
   });
 
-  it("puts the lead first whatever the order", () => {
-    const v = defineVertical({ ...base, roles: [role("support", "lead"), role("lead", "chief-of-staff")] });
-    expect(leadOf(v).id).toBe("lead");
-  });
-
   it("rejects duplicate ids and the reserved root id", () => {
-    expect(issuesFor([role("lead", "chief-of-staff"), role("lead", "chief-of-staff")])).toContain('shop: duplicate role id "lead"');
-    expect(issuesFor([role("chief-of-staff", "chief-of-staff")]).join()).toMatch(/reserved/);
+    expect(issuesFor([role("video"), role("video")])).toContain('shop: duplicate role id "video"');
+    expect(issuesFor([role("chief-of-staff")]).join()).toMatch(/reserved/);
   });
 
-  it("rejects a dangling reportsTo", () => {
-    expect(issuesFor([role("lead", "chief-of-staff"), role("support", "boss")])).toContain('shop: support reports to unknown role "boss"');
-  });
-
-  it("rejects cycles and self-reporting", () => {
-    const issues = issuesFor([role("lead", "chief-of-staff"), role("a", "b"), role("b", "c"), role("c", "a")]);
-    expect(issues.filter((m) => m.includes("cycle"))).toHaveLength(1);
-    expect(issues.join()).toMatch(/reporting cycle a -> b -> c -> a/);
-    expect(issuesFor([role("lead", "chief-of-staff"), role("x", "x")])).toContain("shop: x reports to itself");
-  });
-
-  it("needs exactly one lead", () => {
-    expect(issuesFor([role("a", "chief-of-staff"), role("b", "chief-of-staff")]).join()).toMatch(/exactly one lead.*found 2/);
-    expect(issuesFor([role("a", "b"), role("b", "a")]).join()).toMatch(/found 0/);
-  });
-
-  it("gives each intent at most one owner, from the vertical's intents", () => {
-    const twice = issuesFor([role("lead", "chief-of-staff"), role("a", "lead", { intents: ["order-status"] }), role("b", "lead", { intents: ["order-status"] })]);
-    expect(twice).toContain('shop: intent "order-status" is owned by both a and b');
-    const unknown = issuesFor([role("lead", "chief-of-staff", { intents: ["billing"] })]);
-    expect(unknown.join()).toMatch(/owns intent "billing", which the vertical does not declare/);
-  });
-
-  it("keeps role MCP servers within the vertical's and schedule ids unique", () => {
-    expect(issuesFor([role("lead", "chief-of-staff", { mcpServers: ["gmail"] })]).join()).toMatch(/MCP server "gmail"/);
+  it("keeps specialist MCP servers within the business's and schedule ids unique", () => {
+    expect(issuesFor([role("video", { mcpServers: ["gmail"] })]).join()).toMatch(/MCP server "gmail"/);
     const s = { id: "daily", cron: "0 7 * * *", prompt: "p" };
-    expect(issuesFor([role("lead", "chief-of-staff", { schedules: [s] })], { schedules: [s] })).toContain('shop: duplicate schedule id "daily"');
+    expect(issuesFor([role("video", { schedules: [s] })], { schedules: [s] })).toContain('shop: duplicate schedule id "daily"');
   });
 
   it("rejects clashing aliases", () => {
-    expect(issuesFor([role("lead", "chief-of-staff"), role("support", "lead"), role("ops", "lead", { aliases: ["support"] })]).join()).toMatch(/alias "support"/);
+    expect(issuesFor([role("video"), role("blog", { aliases: ["video"] })]).join()).toMatch(/alias "video"/);
+  });
+
+  it("still parses an older saved role with a reporting line and intents", () => {
+    expect(issuesFor([role("video", { reportsTo: "content-lead", intents: ["publishing"] })])).toEqual([]);
   });
 });
 
-describe("roles at runtime", () => {
+describe("specialists at runtime", () => {
   const v = defineVertical({
     ...base,
     roles: [
-      role("shop-lead", "chief-of-staff", { title: "Shop Lead" }),
-      role("customer-support", "shop-lead", { title: "Customer Support", aliases: ["support"], intents: ["order-status"], mcpServers: ["odoo"] }),
-      role("ops", "shop-lead", { schedules: [{ id: "stock", cron: "0 8 * * *", prompt: "check" }] }),
+      role("customer-support", { title: "Customer Support", aliases: ["support"], mcpServers: ["odoo"] }),
+      role("ops", { schedules: [{ id: "stock", cron: "0 8 * * *", prompt: "check" }] }),
     ],
   });
 
-  it("routes an intent to its owner, else the lead", () => {
-    expect(roleForIntent(v, "order-status").id).toBe("customer-support");
-    expect(roleForIntent(v, "spam").id).toBe("shop-lead");
-    expect(roleForIntent(v, "request").id).toBe("shop-lead");
-  });
-
-  it("finds a role by id, alias or title", () => {
+  it("finds a specialist by id, alias or title", () => {
     expect(findRole(v, "customer-support")?.id).toBe("customer-support");
     expect(findRole(v, "Support")?.id).toBe("customer-support");
     expect(findRole(v, "customer support")?.id).toBe("customer-support");
     expect(findRole(v, "nobody")).toBeUndefined();
   });
 
-  it("narrows MCP servers per role", () => {
+  it("narrows MCP servers per specialist", () => {
     expect(roleMcpServers(v, findRole(v, "support"))).toEqual(["odoo"]);
     expect(roleMcpServers(v, findRole(v, "ops"))).toEqual(["brain", "odoo"]);
   });
 
-  it("lists role schedules with their role", () => {
-    expect(schedulesOf(v)).toEqual([{ schedule: expect.objectContaining({ id: "stock" }), role: "ops" }]);
+  it("lists specialist schedules with their role, and business schedules without", () => {
+    const withOwn = defineVertical({ ...v, schedules: [{ id: "wrap", cron: "0 21 * * *", prompt: "wrap" }] });
+    expect(schedulesOf(withOwn)).toEqual([{ schedule: expect.objectContaining({ id: "wrap" }) }, { schedule: expect.objectContaining({ id: "stock" }), role: "ops" }]);
   });
 
-  it("gives a vertical without roles an implicit lead (backward compatible)", () => {
-    const plain = defineVertical({ ...base, skills: ["brain-notes"] });
-    expect(plain.roles).toEqual([]);
-    expect(rolesOf(plain)).toHaveLength(1);
-    expect(leadOf(plain)).toMatchObject({ id: "lead", title: "Shop Lead", reportsTo: "chief-of-staff", skills: ["brain-notes"] });
-    expect(roleForIntent(plain, "order-status").id).toBe("lead");
-    expect(roleMcpServers(plain, leadOf(plain))).toEqual(["brain", "odoo"]);
+  it("lets a business have no specialists", () => {
+    const plain = defineVertical({ ...base, skills: ["brain-notes"], guidance: "# How we work" });
+    expect(rolesOf(plain)).toEqual([]);
+    expect(findRole(plain, "lead")).toBeUndefined();
+    expect(plain.guidance).toBe("# How we work");
   });
 
   it("re-parses a parsed manifest unchanged", () => {
@@ -121,7 +87,7 @@ describe("roles at runtime", () => {
   });
 
   it("defines the org root", () => {
-    const root = defineOrgRoot({ id: "chief-of-staff", title: "Chief of Staff", mission: "m", homeVertical: "personal" });
+    const root = defineOrgRoot({ id: "chief-of-staff", title: "Assistant", mission: "m", homeVertical: "personal" });
     expect(root).toMatchObject({ skills: [], schedules: [], homeVertical: "personal" });
     expect(() => defineOrgRoot({ id: "boss" as "chief-of-staff", title: "x", mission: "m", homeVertical: "personal" })).toThrow();
   });

@@ -1,14 +1,11 @@
-import { type Event, findRole, ROOT_ROLE_ID, roleForIntent, type TriageResult } from "@cc/core";
+import { type Event, findRole, ROOT_ROLE_ID, type TriageResult } from "@cc/core";
 import type { VerticalRegistry } from "./index";
 
 export interface RoleRoute {
   vertical: string;
   role: string;
-  /**
-   * Why this role: named explicitly, set by a schedule or handoff, owner of the intent, the lead by
-   * default, or the Chief of Staff as Dave's front door for a chat that named no business or role.
-   */
-  reason: "explicit" | "assigned" | "intent" | "lead" | "front-door";
+  /** Why this role: a specialist Dave named, one a schedule or handoff assigned, or the assistant, which takes everything else. */
+  reason: "explicit" | "assigned" | "assistant";
 }
 
 /** Sources whose `payload.role` is set by Dave or the server itself, so it is honoured. */
@@ -30,24 +27,13 @@ export function parseRolePrefix(text: string, verticalIds: readonly string[]): {
   return { role: prefix };
 }
 
-/** True when a chat starts with a business: "dms: ...", "Desktop Machine Shop: ...". */
-function startsWithVertical(text: string, registry: VerticalRegistry): boolean {
-  const m = /^\s*([^:\n]{1,60}):(?!\/)/.exec(text);
-  if (!m) return false;
-  const prefix = m[1]!.trim().toLowerCase();
-  return registry.all().some((v) => v.id.toLowerCase() === prefix || v.name.toLowerCase() === prefix);
-}
-
 /**
- * Picks the role for a new task, after triage:
- * 1. a role assigned in the payload by a trusted source (a schedule, a handoff, the chat API);
- * 2. a role named at the start of a chat ("support: ...");
- * 3. a chat that names no business (no vertical chosen, no "dms: ..." prefix) goes to the Chief
- *    of Staff, Dave's front door, who hands it to the right role;
- * 4. the role owning the triage intent;
- * 5. otherwise the vertical lead.
- * Steps 1 and 2 may move the task to the role's vertical (only Dave and the server set them).
- * A role name several verticals share goes to the triaged vertical's, else is ignored.
+ * Picks the role for a new task, after triage. Everything goes to the assistant (the root role)
+ * in the triaged business, except:
+ * 1. a specialist assigned in the payload by a trusted source (a schedule, a handoff, the chat API);
+ * 2. a specialist named at the start of a chat ("video: ...", "3dpandme/blog: ...").
+ * Either may move the task to the specialist's business (only Dave and the server set them).
+ * A name several businesses share goes to the triaged business's specialist, else is ignored.
  */
 export function routeRole(
   registry: VerticalRegistry,
@@ -55,12 +41,11 @@ export function routeRole(
   triage: Pick<TriageResult, "vertical" | "intent">,
 ): RoleRoute {
   const vertical = registry.require(triage.vertical);
+  const assistant: RoleRoute = { vertical: vertical.id, role: ROOT_ROLE_ID, reason: "assistant" };
   const named = (name: string, hint?: string, reason: RoleRoute["reason"] = "explicit"): RoleRoute | null => {
     const root = registry.root;
     const key = name.trim().toLowerCase();
-    if (key === ROOT_ROLE_ID || root.aliases.includes(key) || root.title.toLowerCase() === key) {
-      return { vertical: registry.rootVertical, role: ROOT_ROLE_ID, reason };
-    }
+    if (key === ROOT_ROLE_ID || root.aliases.includes(key) || root.title.toLowerCase() === key) return assistant;
     if (hint) {
       const v = registry.get(hint);
       const role = v && findRole(v, name);
@@ -84,10 +69,6 @@ export function routeRole(
     const prefix = parseRolePrefix(payload.text, registry.all().map((v) => v.id));
     const chosen = prefix && named(prefix.role, prefix.vertical);
     if (chosen) return chosen;
-    if (!event.vertical && !startsWithVertical(payload.text, registry)) {
-      return { vertical: registry.rootVertical, role: ROOT_ROLE_ID, reason: "front-door" };
-    }
   }
-  const owner = roleForIntent(vertical, triage.intent);
-  return { vertical: vertical.id, role: owner.id, reason: owner.intents.includes(triage.intent) ? "intent" : "lead" };
+  return assistant;
 }

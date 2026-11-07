@@ -1,5 +1,4 @@
 import {
-  leadOf,
   OrgRoot,
   ROOT_ROLE_ID,
   type Role,
@@ -18,7 +17,7 @@ import { chiefOfStaff } from "./org";
 import personal from "./personal";
 
 export { chiefOfStaff } from "./org";
-export { mergeOrgEdit } from "./org-merge";
+export { mergeOrgEdit, RETIRED_ROLES } from "./org-merge";
 export { INTERNAL_AUTO_POLICIES } from "./policies";
 export { parseRolePrefix, routeRole, type RoleRoute } from "./routing";
 
@@ -173,17 +172,24 @@ export class VerticalRegistry {
     return verticalId === this.rootVertical ? [this.root, ...rolesOf(v)] : rolesOf(v);
   }
 
-  /** The role a task in `verticalId` runs as. Unknown or unset role ids get the vertical lead. */
+  /**
+   * The role a task in `verticalId` runs as: the specialist it names, otherwise the assistant (the
+   * root role, whose tasks run in any business). Ids of roles that no longer exist get the assistant.
+   */
   roleFor(verticalId: string, roleId: string | null | undefined): OrgRole {
     const v = this.require(verticalId);
-    if (roleId === ROOT_ROLE_ID && verticalId === this.rootVertical) return this.root;
-    return rolesOf(v).find((r) => r.id === roleId) ?? leadOf(v);
+    return rolesOf(v).find((r) => r.id === roleId) ?? this.root;
   }
 
-  /** MCP servers a role's runs may use: the role's list, or the vertical's. */
+  /**
+   * MCP servers a run may use: a specialist's own list (or the business's), and for the assistant
+   * the business's. The assistant's runs of work Dave started get every business's servers through
+   * their run token instead (apps/server assistant.ts).
+   */
   mcpServersFor(verticalId: string, roleId: string | null | undefined): string[] {
     const v = this.state.byId.get(verticalId);
     if (!v) return [];
-    return this.roleFor(verticalId, roleId).mcpServers ?? v.mcpServers;
+    const role = this.roleFor(verticalId, roleId);
+    return role.id === ROOT_ROLE_ID ? v.mcpServers : (role.mcpServers ?? v.mcpServers);
   }
 }

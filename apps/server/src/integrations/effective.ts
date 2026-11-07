@@ -5,7 +5,7 @@ import { type CalendarAccount, GoogleCalendarAccount } from "@cc/pa";
 import { SendcloudAccount } from "@cc/sendcloud";
 import { parseElevenLabsVoices } from "@cc/voice";
 import type { Platform, SocialAccount } from "@cc/social";
-import { AGENT_MODES, AGENT_ROUTES, type AgentMode, type AgentRoute, type Config } from "../config";
+import { AGENT_ROUTES, type AgentRoute, type Config } from "../config";
 import { DEFAULT_ID, type Field, type Group, KINDS, type KindDef } from "./catalog";
 import type { Entry } from "./store";
 
@@ -274,7 +274,6 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
   }
   const agents = single(entries, "agents");
   if (agents) agent.route = AGENT_ROUTES.includes(agents.data.route as AgentRoute) ? (agents.data.route as AgentRoute) : "claude";
-  if (agents) agent.mode = AGENT_MODES.includes(agents.data.mode as AgentMode) ? (agents.data.mode as AgentMode) : "org";
 
   // --- triage ---
   const triage = { ...base.triage };
@@ -417,7 +416,6 @@ export function groupSection(config: Config, group: Group): unknown {
         fallbackApiKey: config.agent.fallbackApiKey,
         bin: config.agent.claudeBin,
         route: config.agent.route,
-        mode: config.agent.mode,
         codexAuth: config.agent.codexAuth,
         codexModel: config.agent.codexModel,
         codexBin: config.agent.codexBin,
@@ -469,7 +467,7 @@ export function railwayEntries(base: Config): EntryInput[] {
   const a = base.agent;
   if (a.oauthToken || a.runner === "echo") add("claude", DEFAULT_ID, { runner: a.runner }, { oauthToken: a.oauthToken });
   if (a.codexAuth) add("codex", DEFAULT_ID, { model: a.codexModel }, { authJson: a.codexAuth });
-  if (a.route !== "claude" || a.mode !== "org") add("agents", DEFAULT_ID, { route: a.route, mode: a.mode }, {});
+  if (a.route !== "claude") add("agents", DEFAULT_ID, { route: a.route }, {});
   if (a.fallbackApiKey || base.triage.anthropicApiKey) add("anthropic", DEFAULT_ID, {}, { fallbackApiKey: a.fallbackApiKey, triageApiKey: base.triage.anthropicApiKey });
   if (base.triage.jevApiKey) add("jev", DEFAULT_ID, { baseUrl: base.triage.jevBaseUrl, model: base.triage.jevModel }, { apiKey: base.triage.jevApiKey });
   const p = base.voice.providers;

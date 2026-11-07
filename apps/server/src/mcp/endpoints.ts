@@ -144,21 +144,21 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
     "list_pending",
     {
       description:
-        caller.kind === "run" && caller.scope.role !== ROOT_ROLE_ID
+        caller.kind === "run" && !caller.scope.anyVertical
           ? "List proposals waiting for Dave's approval in this run's vertical (read-only)."
           : "List proposals waiting for Dave's approval (read-only). All verticals unless one is given.",
       inputSchema: { vertical: z.string().optional() },
     },
     async ({ vertical }) => {
       // A run only sees its own vertical's approvals; the admin token and the Chief of Staff see all.
-      const crossVertical = caller.kind === "admin" || caller.scope.role === ROOT_ROLE_ID;
+      const crossVertical = caller.kind === "admin" || !!caller.scope.anyVertical;
       const pending = await actions.pending(crossVertical ? vertical : caller.scope.vertical);
       const lines = pending.map((p) => `- [${p.vertical}] ${p.actionType}: ${p.summary} (since ${p.createdAt.slice(0, 16)}Z, id ${p.id}${p.batchId ? `, batch ${p.batchId}` : ""})`);
       return { content: [{ type: "text", text: lines.length ? lines.join("\n") : "No pending approvals." }] };
     },
   );
   if (searchTranscripts) {
-    const crossVertical = caller.kind === "admin" || caller.scope.role === ROOT_ROLE_ID;
+    const crossVertical = caller.kind === "admin" || !!caller.scope.anyVertical;
     server.registerTool(
       "search_transcripts",
       {
@@ -195,7 +195,7 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
     server.registerTool(
       "handoff_to_role",
       {
-        description: `Hand this work to another role in your org: creates a task for it with your note and the original request. roleId is a role id from your system prompt, or "${ROOT_ROLE_ID}" to escalate. The Chief of Staff may use "<vertical>/<role>". When the work spans several roles, call this once per role, each with its own part, rather than asking one role to pass it on: each call is one step, so it stays within the chain limit. Calling it again for a role you already handed this task to sends that role a follow-up note, even while it is still working. Stop once every part is handed off. Chains are limited in depth and never go back to a role already in them.`,
+        description: `Hand specialist work to a specialist (the assistant), or hand it back to the assistant (a specialist): creates a task for it with your note, the original request and this task's handover note, and its report comes back to this task. roleId is "<vertical>/<role>" for a specialist from your system prompt, or "${ROOT_ROLE_ID}" for the assistant. Calling it again for a role you already handed this task to sends that role a follow-up note, even while it is still working. Chains are limited in depth and never go back to a role already in them.`,
         inputSchema: {
           roleId: z.string().min(1),
           note: z.string().min(1).describe("What you found, what is needed and anything the next role must not miss"),

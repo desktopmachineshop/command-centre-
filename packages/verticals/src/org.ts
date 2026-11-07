@@ -15,16 +15,17 @@ const MORNING_BRIEF = `Write Dave's morning brief for today. Follow the personal
 Do not propose any other action, and do not use the mail tools: reading outside mail would hold this brief for approval instead of sending it.`;
 
 /**
- * The org root: the Chief of Staff above every vertical lead. Its tasks run in
- * the personal vertical (budget, run slots, MCP access) as role "chief-of-staff".
+ * The org root: Dave's assistant. It takes every task in every business (its tasks run in the
+ * business they were triaged to; its own schedules, like the morning brief, in "personal"), and hands
+ * specialist work to the specialists. The id stays "chief-of-staff", which existing tasks carry.
  */
 export const chiefOfStaff = defineOrgRoot({
   id: "chief-of-staff",
-  title: "Chief of Staff",
+  title: "Assistant",
   mission:
-    "Dave's front door and the one he talks to: takes his chats and voice requests, handles the quick and personal ones itself, hands the rest to the right role in Desktop Machine Shop, 3dpandme, OpenV, OpenD or personal life, and tells him the outcome when they report back. Weighs work across the portfolio, writes the morning brief, and takes escalations from the vertical leads.",
+    "The one Dave talks to, for Desktop Machine Shop, 3dpandme, OpenV, OpenD, the Command Centre and his own life admin: takes his chats and voice requests and everything that comes in (email, Odoo, social), does the work itself with every business's tools, and hands only specialist work (code changes, videos, blog posts) to the specialists. Writes the morning brief.",
   homeVertical: "personal",
-  aliases: ["cos", "chief"],
+  aliases: ["assistant", "cos", "chief", "chief-of-staff"],
   skills: ["brain-notes", "personal-assistant"],
   mcpServers: ["brain", "pa", "mail"],
   actions: ["notify", "brain.journal", "brain.write"],
@@ -35,5 +36,5 @@ export const chiefOfStaff = defineOrgRoot({
   ],
   kpis: ["Morning brief sent by 07:15 on weekdays", "No approval waits more than 24 hours unflagged", "Escalations answered the same day"],
   autonomyNotes:
-    "May notify Dave (auto-with-digest under the personal policy), keep the journal and hand work to any vertical's roles. Never proposes customer-facing, financial or publishing actions itself: it delegates them to the role that owns them, and anything that needs a decision goes to Dave.",
+    "Proposes whatever the work needs, in the business it is for; that business's policy decides whether it runs or waits for Dave. Anything customer-facing, financial or published, and every decision a business's how-we-work note reserves for Dave, waits for his approval.",
 });

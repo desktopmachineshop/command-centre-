@@ -505,12 +505,12 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
     <section ref={sectionRef} className="chat">
       <PageHead
         title="Chat"
-        sub="You're talking to the Chief of Staff, who hands work to the right role and tells you the outcome here. Follow-ups continue the chat until you start a new one."
+        sub="You're talking to your assistant, which works across all your businesses and hands specialist work (code, videos, blog posts) to the specialists. Follow-ups continue the chat until you start a new one."
       />
       <div className="turns">
         {turns.length === 0 && (
           <Empty icon="chat">
-            Ask anything: the Chief of Staff answers, or passes it to the right role and reports back here. To go straight to a
+            Ask anything, about any business: the assistant looks it up and answers, or brings in a specialist and reports back here. To go straight to a
             business, start with its name ("dms: …") or pick it below.
           </Empty>
         )}
@@ -633,7 +633,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
             aria-label="Send to"
             data-help-key="chat.send-to"
           >
-            <option value="">Chief of Staff</option>
+            <option value="">Assistant</option>
             {verticals.map((v) => (
               <option key={v.id} value={v.id}>
                 {v.name}
