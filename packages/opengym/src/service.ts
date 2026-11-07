@@ -9,6 +9,7 @@ import {
   type GymState,
   type GymWorkout,
   goalWeight,
+  measurementsOf,
   setLabel,
   setsDone,
   setsPlanned,
@@ -180,6 +181,37 @@ export class GymService {
       change_7d: latest ? change(all, latest, 7) : null,
       change_30d: latest ? change(all, latest, 30) : null,
       entries,
+    };
+  }
+
+  /**
+   * Body measurements in [from, to], oldest first, and for each field its latest value and the
+   * change since the first reading in the range.
+   */
+  async measurements(opts: { from?: string; to?: string; timeZone?: string } = {}) {
+    const state = await this.state();
+    const to = opts.to ?? this.today(opts.timeZone);
+    const days = measurementsOf(state).filter((m) => (!opts.from || m.date >= opts.from) && m.date <= to);
+    const trend = new Map<string, { field: string; unit: string; first: { date: string; value: number }; latest: { date: string; value: number } }>();
+    for (const day of days) {
+      for (const r of day.readings) {
+        const key = `${r.field}|${r.unit}`;
+        const point = { date: day.date, value: r.value };
+        const t = trend.get(key);
+        if (t) t.latest = point;
+        else trend.set(key, { field: r.field, unit: r.unit, first: point, latest: point });
+      }
+    }
+    return {
+      note: "Lengths are in cm, masses in kg, whatever the app displays.",
+      fields: [...trend.values()].map((t) => ({
+        field: t.field,
+        unit: t.unit,
+        latest: t.latest,
+        change: t.first.date !== t.latest.date ? round1(t.latest.value - t.first.value) : null,
+        since: t.first.date !== t.latest.date ? t.first.date : null,
+      })),
+      days,
     };
   }
 
