@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@cc/core";
+import { type AgentMessage, isStopped } from "@cc/core";
 import { useEffect, useState } from "react";
 import { latestCommand } from "../progress";
 import type { Api, ChatFile } from "../api";
@@ -43,7 +43,19 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   const { task, runs, proposals } = data;
   const liveOnly = Object.keys(live).filter((runId) => !runs.some((r) => r.id === runId));
   const canRetry = task.status === "failed" || task.status === "deferred";
+  const canStop = task.status === "running" || task.status === "queued" || task.status === "deferred";
   const pending = proposals.filter((p) => p.status === "pending").length;
+  const stop = async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await api.stopTask(task.id);
+    } catch (e) {
+      setRetryError((e as Error).message);
+    } finally {
+      setRetrying(false);
+    }
+  };
   const retry = async () => {
     setRetrying(true);
     setRetryError(null);
@@ -99,7 +111,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           <span>{ago(task.createdAt)}</span>
         </div>
         {task.note &&
-          (task.status === "failed" ? (
+          (task.status === "failed" && !isStopped(task) ? (
             <ErrorReport title="Task failed" error={task.note} facts={taskFacts(task)} />
           ) : (
             <p className={`small note status ${task.status}`}>{task.note}</p>
@@ -108,6 +120,14 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           <p className="small">
             <a href={`#/task/${task.duplicateOf}`}>Open the original task</a>
           </p>
+        )}
+        {canStop && (
+          <div className="row wrap" style={{ marginTop: 12 }}>
+            <button className="danger" disabled={retrying} onClick={stop} title="Stop this task, and the work it handed on">
+              <Icon name="stop" size={16} />
+              Stop
+            </button>
+          </div>
         )}
         {canRetry && (
           <div className="row wrap" style={{ marginTop: 12 }}>

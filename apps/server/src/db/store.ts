@@ -237,6 +237,22 @@ export class Store {
     return rows[0].n;
   }
 
+  /** The tasks this task handed off that haven't finished yet (queued, running or held by the budget). */
+  async openHandoffTasks(taskId: string): Promise<Task[]> {
+    const { rows } = await this.pool.query(
+      `select t.* from tasks t join events e on e.id = t.event_id
+       where e.source = 'system' and e.kind = 'handoff' and e.payload->>'fromTaskId' = $1 and t.status in ('queued', 'running', 'deferred')`,
+      [taskId],
+    );
+    return rows.map(toTask);
+  }
+
+  /** Every task with work in flight or waiting to run: queued, running or held by the budget. */
+  async listOpenTasks(): Promise<Task[]> {
+    const { rows } = await this.pool.query("select * from tasks where status in ('queued', 'running', 'deferred') order by created_at");
+    return rows.map(toTask);
+  }
+
   async setTaskStatusIf(id: string, from: TaskStatus[], status: TaskStatus, note: string | null = null): Promise<Task | null> {
     const { rows } = await this.pool.query(
       "update tasks set status = $3, note = $4, updated_at = now() where id = $1 and status = any($2::text[]) returning *",

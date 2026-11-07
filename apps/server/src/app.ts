@@ -761,6 +761,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     mcpServers: () => ["brain", ...Object.keys(extraMcpServers())],
     voice: voiceConversations,
     chatFilesReadRule: chatFiles.readRule(),
+    chatFileImages: (files) => chatFiles.images(files),
   });
 
   const app = new Hono();

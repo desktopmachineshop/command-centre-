@@ -4519,3 +4519,40 @@ a.button-link.call-button {
   max-width: 11rem;
   min-width: 0;
 }
+
+/* Stopping agents: Stop on a working chat turn, "Stop & edit" on its message, Stop all in the top bar. */
+.bubble.me .turn-edit {
+  justify-content: flex-end;
+  margin-top: var(--sp-2);
+  white-space: normal;
+}
+.bubble.me .turn-edit button {
+  color: inherit;
+  padding: 4px 10px;
+  gap: 6px;
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.bubble.me .turn-edit button:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.bubble.agent .turn-stop {
+  padding: 2px 8px;
+  gap: 4px;
+  min-height: 0;
+}
+.editing-note {
+  margin: 0 0 var(--sp-2);
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.editing-note .muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.topbar-end .stop-all {
+  gap: 6px;
+  padding: 6px 12px;
+  min-height: 0;
+}

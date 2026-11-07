@@ -93,6 +93,12 @@ describe("CodexRunner", () => {
     expect(setting(args, "mcp_servers.local")).toBe('{ command = "node", args = ["s.js"], env = { A = "1" }, tool_timeout_sec = 600 }');
   });
 
+  it("attaches images to the prompt, before the session id and the stdin marker", () => {
+    const args = new CodexRunner().buildArgs({ prompt: "p", images: ["/data/chat-files/a.png", "/data/chat-files/b.jpg"], resumeSessionId: "thread-1" });
+    expect(args.slice(-4)).toEqual(["--image=/data/chat-files/a.png", "--image=/data/chat-files/b.jpg", "thread-1", "-"]);
+    expect(new CodexRunner().buildArgs({ prompt: "p" }).some((a) => a.startsWith("--image"))).toBe(false);
+  });
+
   it("resumes a session, and ignores a Claude model name", () => {
     const args = new CodexRunner({ model: "gpt-5-codex" }).buildArgs({ prompt: "p", resumeSessionId: "thread-1", model: "sonnet" }); // run() strips the codex: prefix
     expect(args.slice(0, 2)).toEqual(["exec", "resume"]);

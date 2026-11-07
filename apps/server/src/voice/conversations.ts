@@ -3,7 +3,7 @@ import type { AgentRunResult } from "@cc/agent-runtime";
 import type { Task, TaskStatus, VoiceResponse } from "@cc/core";
 import { parseVoiceResponse, voiceResponseInstructions } from "@cc/voice";
 import { voicePrompt } from "../agent-context";
-import type { ChatFilesContext } from "../chat-files";
+import type { ChatFile, ChatFilesContext } from "../chat-files";
 import type { Store } from "../db/store";
 import type { Hub } from "../hub";
 import type { TaskQueue } from "../queue";
@@ -19,6 +19,8 @@ export interface ReplyTurn {
   /** With `resumeSessionId`: the prompt with the context spelled out, for a runner that can't resume it. */
   promptWithoutResume?: string;
   voice: boolean;
+  /** Files Dave attached to the reply (images go to the runner with the prompt). */
+  files?: ChatFile[];
 }
 
 export interface TaskReply {
@@ -85,6 +87,17 @@ export class VoiceConversations {
   async followUps(taskId: string): Promise<string[]> {
     const { rows } = await this.store.pool.query("select text from task_replies where task_id = $1 and kind = 'followup' order by created_at", [taskId]);
     return rows.map((r) => r.text as string);
+  }
+
+  /** Drops the replies and reports no run has taken yet (the task was stopped), so nothing re-runs it. */
+  async discardPending(taskId: string): Promise<void> {
+    await this.store.pool.query("update task_replies set consumed_at = now() where task_id = $1 and consumed_at is null", [taskId]);
+  }
+
+  /** The files Dave attached to his replies on a task, oldest first (a handoff passes them on). */
+  async replyFiles(taskId: string): Promise<ChatFile[]> {
+    const { rows } = await this.store.pool.query("select files from task_replies where task_id = $1 and files is not null order by created_at", [taskId]);
+    return rows.flatMap((r) => ((r.files as ChatFilesContext | null)?.files ?? []));
   }
 
   /** True when the task has replies or reports no run has taken yet. */
@@ -162,6 +175,7 @@ export class VoiceConversations {
     ]
       .filter(Boolean)
       .join("\n\n");
+    const files = fromDave && attached?.files.length ? { files: attached.files } : {};
     if (reply.resume_session_id) {
       return {
         replyId: reply.id,
@@ -169,9 +183,10 @@ export class VoiceConversations {
         resumeSessionId: reply.resume_session_id,
         promptWithoutResume: answer(context),
         voice: reply.voice,
+        ...files,
       };
     }
-    return { replyId: reply.id, prompt: answer(context), voice: reply.voice };
+    return { replyId: reply.id, prompt: answer(context), voice: reply.voice, ...files };
   }
 
   /** Marks the turn's reply answered and, for voice-mode runs, stores and broadcasts the spoken response. */

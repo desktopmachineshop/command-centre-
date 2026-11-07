@@ -325,6 +325,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
               </div>
             )}
             <div className="topbar-end">
+              <StopAll api={api} active={stats.data?.activeTasks ?? 0} onStopped={stats.reload} phone={phone} />
               <a
                 href="#/notifications"
                 className={`bell icon-link ${activeKey === "notifications" ? "active" : ""}`}
@@ -463,6 +464,33 @@ function MoreSheet({
   );
 }
 
+
+/**
+ * "Stop all" in the top bar, shown while agents are working (tasks running or queued): after a
+ * confirm it stops every running, queued and deferred task (POST /api/tasks/stop-all).
+ */
+function StopAll({ api, active, onStopped, phone }: { api: ReturnType<typeof createApi>; active: number; onStopped: () => void; phone: boolean }) {
+  const [busy, setBusy] = useState(false);
+  if (!active && !busy) return null;
+  const stop = async () => {
+    if (!window.confirm(`Stop all agents? ${active === 1 ? "The task that is running or queued" : `All ${active} tasks running or queued`} will stop. You can retry or reply to any of them later.`)) return;
+    setBusy(true);
+    try {
+      await api.stopAll();
+    } catch (e) {
+      window.alert(`Couldn't stop the agents: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+      onStopped();
+    }
+  };
+  return (
+    <button type="button" className="danger stop-all" onClick={stop} disabled={busy} aria-label={`Stop all agents (${active} working)`} title="Stop all agents">
+      <Icon name="stop" size={16} />
+      {!phone && <span>{busy ? "Stopping…" : `Stop all (${active})`}</span>}
+    </button>
+  );
+}
 
 // --- notifications ---
 /**

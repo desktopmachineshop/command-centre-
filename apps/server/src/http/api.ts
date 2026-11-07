@@ -236,6 +236,16 @@ export function apiRoutes(deps: ApiDeps) {
     return task ? c.json(task) : c.json({ error: "only failed or deferred tasks can be retried" }, 409);
   });
 
+  /** Stop: ends the task's run (or takes it off the queue) and the open work it handed off. */
+  app.post("/tasks/:id/stop", async (c) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    if (!id.success || !(await store.getTask(id.data))) return c.json({ error: "not found" }, 404);
+    return c.json({ stopped: await pipeline.stop(id.data) });
+  });
+
+  /** Stop all agents: every running, queued or deferred task. */
+  app.post("/tasks/stop-all", async (c) => c.json({ stopped: await pipeline.stopAll() }));
+
   app.get("/proposals", async (c) => {
     const status = c.req.query("status") ? ProposalStatus.parse(c.req.query("status")) : undefined;
     return c.json(await store.listProposals({ status, limit: limit.parse(c.req.query("limit")) }));
@@ -385,6 +395,8 @@ export function apiRoutes(deps: ApiDeps) {
       costTodayByVertical: await budget.spentToday(),
       budgets: budget.limits(),
       pendingApprovals: pending.length,
+      // Agent work under way or about to start: the top bar's "Stop all" shows while there is some.
+      activeTasks: (await store.listOpenTasks()).filter((t) => t.status === "running" || t.status === "queued").length,
     });
   });
 

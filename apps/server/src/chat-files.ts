@@ -134,7 +134,10 @@ export class ChatFiles {
         lines.push(`  It couldn't be copied for you to open: ${err.message}.`);
         return null;
       });
-      if (path) lines.push(`  On disk at ${path}${/^image\//.test(f.contentType) || attachmentFormat(f.name, f.contentType) === "pdf" ? ": open it with the Read tool to see it." : "."}`);
+      if (path) {
+        const how = isAgentImage(f) ? ": it is attached to this message if your runner takes images; otherwise open it with the Read tool to see it." : attachmentFormat(f.name, f.contentType) === "pdf" ? ": open it with the Read tool to see it." : ".";
+        lines.push(`  On disk at ${path}${how}`);
+      }
       const format = attachmentFormat(f.name, f.contentType);
       if (format && path && budget > 1000) {
         try {
@@ -154,6 +157,21 @@ export class ChatFiles {
       ...entries,
     ].join("\n");
     return { files, prompt };
+  }
+
+  /**
+   * The disk copies of a message's images, for runners that take images with the prompt (Codex
+   * has no Read tool, so this is the only way it sees them). A file that can't be copied is left out:
+   * the prompt already says why.
+   */
+  async images(files: readonly ChatFile[]): Promise<string[]> {
+    const paths: string[] = [];
+    for (const f of files) {
+      if (!isAgentImage(f) || !isBlobId(f.id)) continue;
+      const path = await this.copy(f).catch(() => null);
+      if (path) paths.push(path);
+    }
+    return paths;
   }
 
   /** The file's copy for the agent, made on first use. */
@@ -181,6 +199,12 @@ export class ChatFiles {
       if (s && now - s.mtimeMs > COPY_RETENTION_MS) await rm(path, { force: true });
     }
   }
+}
+
+/** Image types the agents' models take as pictures. */
+const AGENT_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]);
+export function isAgentImage(f: Pick<ChatFile, "contentType">): boolean {
+  return AGENT_IMAGE_TYPES.has(f.contentType.toLowerCase());
 }
 
 const tooLarge = (max: number) => `file is larger than ${Math.round(max / 1024 / 1024)} MB`;
