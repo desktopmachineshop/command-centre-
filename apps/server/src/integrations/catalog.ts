@@ -200,7 +200,7 @@ export const CATALOG: readonly KindDef[] = [
     label: "openGym",
     section: "personal",
     description:
-      "Your self-hosted openGym (gym tracker): the assistant can answer from your workouts, PRs and weigh-ins (how training is going, what you lifted last week, weight against your goal). Read-only: nothing is changed in openGym.",
+      "Your self-hosted openGym (gym tracker): the assistant can answer from your workouts, PRs, weigh-ins and body measurements (how training is going, what you lifted last week, weight and waist against your goals). Read-only: nothing is changed in openGym.",
     multi: false,
     fields: [
       { ...vertical, default: "personal", help: "Which area the gym data belongs to." },

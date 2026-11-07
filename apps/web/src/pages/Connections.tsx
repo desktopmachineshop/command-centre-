@@ -175,7 +175,7 @@ const cardId = (kind: string, id: string) => `acc-${kind}-${id}`;
 function groupErrors(view: IntegrationsView): Map<Section, [Group, string][]> {
   const seen = new Set<Group>();
   const out = new Map<Section, [Group, string][]>();
-  const order: Section[] = ["ai", "business", "google", "social", "settings", "apps"];
+  const order: Section[] = ["ai", "business", "personal", "google", "social", "settings", "apps"];
   for (const s of order) {
     const list: [Group, string][] = [];
     for (const k of view.kinds.filter((k) => k.section === s))
@@ -226,6 +226,14 @@ function Sections({ ctx, highlight, appsOpen, setAppsOpen }: { ctx: Ctx; highlig
           </div>
         ),
       )}
+
+      <SectionHead section="personal" title="Personal" />
+      {banners("personal")}
+      <div className="acc-grid">
+        {of("personal").map((def) => (
+          <SingleCard key={def.kind} ctx={ctx} def={def} highlight={highlight} />
+        ))}
+      </div>
 
       <SectionHead section="google" title="Google" />
       {banners("google")}
