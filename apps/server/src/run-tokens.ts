@@ -6,6 +6,10 @@ export interface RunScope {
   vertical: string;
   /** Org role of the run; narrows its MCP servers to the role's. */
   role?: string;
+  /** The MCP servers the run may reach, instead of its role's (the assistant gets every business's). */
+  servers?: string[];
+  /** The run may propose actions for any business (the assistant names one per proposal). */
+  anyVertical?: boolean;
 }
 
 /**

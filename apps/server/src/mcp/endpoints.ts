@@ -50,6 +50,15 @@ function transcriptLine(message: AgentMessage, query: string): string {
   return `${start > 0 ? "…" : ""}${flat.slice(start, at + query.length + 200)}${at + query.length + 200 < flat.length ? "…" : ""}`;
 }
 
+/**
+ * The business a proposal belongs to: the run's own, except for the assistant, which names one per
+ * proposal (its run's when it doesn't); outside a run, the one given.
+ */
+function proposalVertical(scope: RunScope | null, given: string | undefined): string {
+  if (!scope) return given ?? "personal";
+  return scope.anyVertical && given ? given : scope.vertical;
+}
+
 /** Writes a task's handover note (Store.setHandover). */
 export type SetHandover = (taskId: string, text: string) => Promise<void>;
 
@@ -79,7 +88,7 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
         actionType: z.string(),
         summary: z.string().describe("One line Dave can approve or reject from a phone notification"),
         payload: z.record(z.string(), z.unknown()).default({}),
-        vertical: z.string().optional().describe("Only needed outside an agent run"),
+        vertical: z.string().optional().describe("The business (vertical id) it is for. Only needed outside an agent run, or in the assistant's runs"),
       },
     },
     async ({ actionType, summary, payload, vertical }) => {
@@ -87,7 +96,7 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
       try {
         const proposal = await actions.propose({
           taskId: scope?.taskId ?? null,
-          vertical: scope?.vertical ?? vertical ?? "personal",
+          vertical: proposalVertical(scope, vertical),
           actionType,
           summary,
           payload,
@@ -116,13 +125,13 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
           )
           .min(1)
           .max(MAX_BATCH),
-        vertical: z.string().optional().describe("Only needed outside an agent run"),
+        vertical: z.string().optional().describe("The business (vertical id) it is for. Only needed outside an agent run, or in the assistant's runs"),
       },
     },
     async ({ summary, items, vertical }) => {
       const scope = caller.kind === "run" ? caller.scope : null;
       try {
-        const { batchId, proposals } = await actions.proposeBatch({ taskId: scope?.taskId ?? null, vertical: scope?.vertical ?? vertical ?? "personal", summary, items });
+        const { batchId, proposals } = await actions.proposeBatch({ taskId: scope?.taskId ?? null, vertical: proposalVertical(scope, vertical), summary, items });
         const pending = proposals.every((p) => p.status === "pending");
         const state = pending ? `waiting for Dave's approval as one batch` : proposals.map((p) => p.status).join(", ");
         return { content: [{ type: "text", text: `Batch ${batchId} of ${proposals.length}: ${state}.` }] };
@@ -236,7 +245,7 @@ export function mcpRoutes(deps: {
       const name = c.req.path.split("/").pop() ?? "";
       // The run's role narrows the vertical's other servers (no role: the vertical's).
       // actions and help (the app's own docs, read-only) are for every run.
-      const allowed = name === "actions" || name === "help" || deps.verticals.mcpServersFor(caller.scope.vertical, caller.scope.role).includes(name);
+      const allowed = name === "actions" || name === "help" || (caller.scope.servers ?? deps.verticals.mcpServersFor(caller.scope.vertical, caller.scope.role)).includes(name);
       if (!allowed) {
         const who = caller.scope.role ? `role ${caller.scope.role} in ${caller.scope.vertical}` : `vertical ${caller.scope.vertical}`;
         return c.json({ error: `${who} may not use ${name}` }, 403);

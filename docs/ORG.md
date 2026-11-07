@@ -93,6 +93,23 @@ manifests and on the Org page. The morning brief ships turned on; every other sc
 `dms-catalogue-pricing` and `dms-supplier-pricelists` are the skills added for the org. The other roles reuse the existing
 skills bank; their charter travels in the system prompt.
 
+## Agent mode: single assistant
+
+Accounts → Agents → **Agent mode** (or `AGENT_MODE`) switches Dave's chats from the org chart to
+one assistant (`apps/server/src/assistant.ts`). In `assistant` mode:
+
+- every chat goes to the root role, unless it names one of the specialists in `SPECIALISTS`
+  (Software Lead, Video Producer, Blog Writer), which still take it directly;
+- the root role's runs get every vertical's MCP servers and every skill, and a charter listing the
+  businesses as context instead of the org's roles (the run token carries the servers, so the MCP
+  endpoints allow them);
+- its proposals name their business (`vertical` on propose_action / propose_batch), whose policy
+  and budget apply;
+- it may hand off only to the specialists; the handoff carries the task's handover note.
+
+Events from outside input (email, Odoo, social, webhooks) and schedules still go to the org's roles
+in this mode.
+
 ## How a task gets its role
 
 When a task is created, after triage (`routeRole` in `packages/verticals/src/routing.ts`):
