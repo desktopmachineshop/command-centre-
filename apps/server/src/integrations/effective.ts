@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { EmailAccount } from "@cc/email";
 import { parseOdooEventsConfig } from "@cc/odoo";
+import { OpenGymAccount } from "@cc/opengym";
 import { type CalendarAccount, GoogleCalendarAccount } from "@cc/pa";
 import { SendcloudAccount } from "@cc/sendcloud";
 import { parseElevenLabsVoices } from "@cc/voice";
@@ -339,6 +340,14 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
     ),
   );
 
+  // --- gym (openGym): a single entry replaces the env account ---
+  const gymEntry = entries.find((e) => e.kind === "opengym");
+  const gymAccounts = gymEntry
+    ? (attempt(gymEntry, () => [
+        OpenGymAccount.parse({ id: DEFAULT_ID, vertical: gymEntry.data.vertical ?? "personal", url: str(gymEntry.data.url), token: str(gymEntry.secrets.token) }),
+      ]) ?? [])
+    : base.gym.accounts;
+
   // --- email ---
   const emailEntries = entries.filter((e) => e.kind === "email" || e.kind === "outlook" || e.kind === "gmail");
   const emailAccounts = mergeById(
@@ -392,6 +401,7 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
       odoo,
       odooEvents,
       shipping: { ...base.shipping, accounts: sendcloudAccounts },
+      gym: { ...base.gym, accounts: gymAccounts },
       email: { ...base.email, accounts: emailAccounts },
       social: { ...base.social, accounts: socialAccounts },
       pa: { ...base.pa, calendarAccounts },
@@ -428,6 +438,8 @@ export function groupSection(config: Config, group: Group): unknown {
       return { odoo: config.odoo, events: config.odooEvents };
     case "shipping":
       return config.shipping.accounts;
+    case "gym":
+      return config.gym.accounts;
     case "email":
       return config.email.accounts;
     case "social":
@@ -475,6 +487,7 @@ export function railwayEntries(base: Config): EntryInput[] {
   if (p.elevenlabsApiKey) add("elevenlabs", DEFAULT_ID, {}, { apiKey: p.elevenlabsApiKey });
   if (base.odoo) add("odoo", DEFAULT_ID, { url: base.odoo.url, db: base.odoo.db, username: base.odoo.username, api: base.odoo.api }, { apiKey: base.odoo.apiKey });
   for (const a of base.shipping.accounts) add("sendcloud", a.id, { vertical: a.vertical, publicKey: a.publicKey, odooNotes: a.odooNotes }, { secretKey: a.secretKey });
+  for (const g of base.gym.accounts) add("opengym", DEFAULT_ID, { vertical: g.vertical, url: g.url }, { token: g.token });
   for (const m of base.email.accounts) {
     if (m.oauth?.provider === "google") {
       add("gmail", m.id, { vertical: m.vertical, address: m.address, displayName: m.displayName, mailbox: m.mailbox, ignoreFrom: m.ignoreFrom }, { refreshToken: m.oauth.refreshToken });

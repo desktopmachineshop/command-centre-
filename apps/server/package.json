@@ -23,6 +23,7 @@
     "@cc/core": "workspace:*",
     "@cc/email": "workspace:*",
     "@cc/odoo": "workspace:*",
+    "@cc/opengym": "workspace:*",
     "@cc/pa": "workspace:*",
     "@cc/sendcloud": "workspace:*",
     "@cc/social": "workspace:*",

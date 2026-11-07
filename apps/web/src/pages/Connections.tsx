@@ -65,7 +65,7 @@ interface Ctx {
   reload: () => void;
 }
 
-const SECTION_ICONS: Record<Section, IconName> = { ai: "spark", business: "briefcase", google: "globe", social: "social", settings: "sliders", apps: "code" };
+const SECTION_ICONS: Record<Section, IconName> = { ai: "spark", business: "briefcase", personal: "pulse", google: "globe", social: "social", settings: "sliders", apps: "code" };
 
 const isUpdate = (m: { type: string }) => m.type === "integrations.updated";
 

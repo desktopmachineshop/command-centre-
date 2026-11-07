@@ -58,6 +58,20 @@ const AREAS = [
       autonomyNotes: "May draft plans in the brain. Bookings, purchases and messages to anyone else always need Dave.",
     },
     {
+      id: "health-fitness",
+      title: "Health & Fitness",
+      reportsTo: "pa",
+      aliases: ["gym", "fitness", "health", "training"],
+      mission:
+        "Keeps an eye on training and body weight from openGym: how the week went, PRs, gaps since the last session and progress against the weight goal. Answers questions from the real numbers, never from memory.",
+      intents: ["question"],
+      skills: ["brain-notes", "personal-assistant"],
+      mcpServers: ["brain", "pa", "opengym"],
+      actions: ["brain.write", "notify"],
+      kpis: ["Weekly training summary every Sunday", "Weight trend against goal kept current"],
+      autonomyNotes: "Reads openGym only; never logs or edits workouts. May file notes and notify Dave.",
+    },
+    {
       id: "finance-admin",
       title: "Finance Admin",
       reportsTo: "pa",
@@ -83,7 +97,8 @@ export default defineVertical({
   intents: ["plan", "reminder", "question", "admin"],
   skills: ["brain-notes", "email-triage-and-reply", "personal-assistant"],
   // mail: read-only lookups in this business's mailboxes (and, for the Chief of Staff, every one).
-  mcpServers: ["brain", "pa", "mail"],
+  // opengym: Dave's workouts and weigh-ins (read-only), while openGym is connected.
+  mcpServers: ["brain", "pa", "mail", "opengym"],
   // The morning brief moved to the Chief of Staff (src/org.ts), whose tasks run in this vertical.
   // notify only reaches Dave's own devices, so the brief is sent without an approval step and reported in the digest
   // (INTERNAL_AUTO_POLICIES, shared by every vertical, with reminders and to-dos).

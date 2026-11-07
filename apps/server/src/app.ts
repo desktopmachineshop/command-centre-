@@ -41,6 +41,7 @@ import { DigestService } from "./digest";
 import type { OdooLateNow, OdooStockNow } from "./odoo-digest";
 import { ShippingNotes } from "./shipping-notes";
 import { createSendcloudMcpServer, ShippingService } from "@cc/sendcloud";
+import { createOpenGymMcpServer, GymService } from "@cc/opengym";
 import { apiRoutes } from "./http/api";
 import { mediaRoutes } from "./http/social";
 import { storagePublicRoutes } from "./http/storage";
@@ -116,6 +117,9 @@ export interface Overrides {
   /** Sendcloud API stand-in (tests). */
   sendcloudFetch?: typeof fetch;
   sendcloudBaseUrl?: string;
+  /** openGym API and exercise catalogue (tests). */
+  openGymFetch?: typeof fetch;
+  openGymCatalogueUrl?: string;
   /** SMTP login check behind the Accounts page's Test (tests use a fake). */
   smtpVerify?: (account: EmailAccount) => Promise<void>;
   /** The CLI "Connect Claude" runs `setup-token` with (tests use a fake). */
@@ -466,6 +470,19 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     return c.shipping.accounts.length ? new ShippingService(c.shipping.accounts, { fetch: overrides.sendcloudFetch, baseUrl: overrides.sendcloudBaseUrl }) : null;
   };
   const shipping = new Live(buildShipping(config));
+  // openGym, when connected: Dave's workouts and weigh-ins as read tools at /mcp/opengym. A pairing
+  // code is swapped for a token on first use, and the token (renewed by openGym) is saved back.
+  const buildGym = (c: Config) => {
+    const account = c.gym.accounts[0];
+    if (!account) return null;
+    verticals.require(account.vertical);
+    return new GymService(account, {
+      fetch: overrides.openGymFetch,
+      catalogueUrl: overrides.openGymCatalogueUrl,
+      onToken: (id, token) => integrations.rotateSecret("opengym", id, "token", token).catch((err) => console.error("[opengym] saving the openGym token failed", err)),
+    });
+  };
+  const gym = new Live(buildGym(config));
   // Sendcloud tracking updates as internal notes on Odoo delivery orders, while both are connected.
   const shippingNotes = new ShippingNotes({
     shipping: () => shipping.current,
@@ -646,6 +663,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
               createSendcloudMcpServer(shipping.current!, caller.kind === "run" && !caller.scope.anyVertical ? caller.scope.vertical : null),
           }
         : {}),
+      ...(gym.current ? { opengym: () => createOpenGymMcpServer(gym.current!, config.timezone) } : {}),
       pa: paMcpServer,
       // How the agents and the server are doing (run stats, recorded warnings and errors), for the Software Lead.
       ops: () => createOpsMcpServer(pool),
@@ -865,6 +883,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     voice: (c) => voice.swap(() => buildVoice(c)),
     odoo: (c) => odoo.swap(() => buildOdoo(c)),
     shipping: (c) => shipping.swap(() => buildShipping(c)),
+    gym: (c) => gym.swap(() => buildGym(c)),
     email: (c) => email.swap(() => buildEmail(c)),
     social: (c) => social.swap(() => buildSocial(c)),
     calendar: (c) => calendar.swap(() => buildCalendar(c)),

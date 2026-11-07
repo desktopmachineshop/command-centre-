@@ -299,6 +299,45 @@ The first check only records where parcels are, so nothing old is posted. The sa
 than two days without a check (e.g. the server was down). Turn notes off for an account with **Log
 tracking updates in Odoo** on its Sendcloud card. The daily digest is unaffected either way.
 
+## Gym (openGym)
+
+[openGym](https://github.com/DuarteSantos8/openGym) is an open-source gym tracker (web app, iPhone,
+Android, watches) that Dave self-hosts. Connect it and the assistant can answer from his workouts,
+PRs and weigh-ins ("how did training go this week?", "what did I bench last Tuesday?", "how's my
+weight against my goal?"). Nothing is ever logged or changed in openGym.
+
+1. Run openGym somewhere with **https** (see "Hosting openGym on Railway" below). Sign in and log
+   a workout or a weigh-in so there is a profile to read.
+2. In openGym: **Settings → Pair the mobile app**. It shows an 8-character code that lasts 5 minutes.
+3. In the app: **Accounts → openGym**, enter the address (e.g. `https://gym.example.com`) and paste
+   the code, then **Save**. Command Centre swaps the code for a token the first time it reads
+   openGym and saves the token in place of the code. openGym renews the token while it is in use
+   (it lasts `SESSION_DAYS`, 90 by default), and the renewed one is saved too.
+
+**Sign out everywhere** in openGym revokes the token: pair again and paste the new code. With
+`OPENGYM_URL` and `OPENGYM_TOKEN` in Railway instead, the token must be a token, not a code
+(Railway variables can't be updated by the server), and it has to be replaced by hand before it
+expires, so prefer the Accounts page.
+
+The tools (`/mcp/opengym`, on Personal work and on any work Dave started): `training_summary`,
+`list_workouts`, `get_workout` and `get_bodyweight`. Exercise names come from the profile's own
+exercises, then openGym's public catalogue on GitHub (one small file per exercise, cached).
+
+### Hosting openGym on Railway
+
+openGym is two containers: `ghcr.io/duartesantos8/opengym-api` (Node, data in `/data`) and
+`ghcr.io/duartesantos8/opengym-web` (nginx: the app, proxying `/api` to the API). In a Railway
+project (it can be this one):
+
+1. **api** service from the image `ghcr.io/duartesantos8/opengym-api:latest`, with a volume at
+   `/data`, and variables `PORT=3000`, `DATA_DIR=/data`, `TRUST_PROXY=1`. No public domain.
+2. **web** service from `ghcr.io/duartesantos8/opengym-web:latest`, with `BACKEND=api.railway.internal`
+   (the api service's private name), `PORT=3000`, `NGINX_PORT=8080`, and `RESOLVER` set to Railway's
+   private-network DNS (`[fd12::10]` at the time of writing; openGym's docs/SELF_HOSTING.md explains
+   the setting). Not yet tried on Railway: check `/api/health` through the web domain first. Give it a public
+   domain on port 8080, ideally your own (e.g. `gym.desktopmachineshop.com`): passkeys are tied to it.
+3. Back up the `/data` volume: it holds every workout.
+
 ## Triage
 
 Every event goes through a chain of triagers, cheapest first. The first answer at or above

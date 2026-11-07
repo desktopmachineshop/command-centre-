@@ -4,10 +4,10 @@
  * a single entry with id "default". The page renders straight from this list, and saves are
  * checked against `fields` before effective.ts turns entries into server config.
  */
-export type Group = "runner" | "triage" | "voice" | "odoo" | "shipping" | "email" | "social" | "calendar" | "storage";
-export const GROUPS: readonly Group[] = ["runner", "triage", "voice", "odoo", "shipping", "email", "social", "calendar", "storage"];
+export type Group = "runner" | "triage" | "voice" | "odoo" | "shipping" | "gym" | "email" | "social" | "calendar" | "storage";
+export const GROUPS: readonly Group[] = ["runner", "triage", "voice", "odoo", "shipping", "gym", "email", "social", "calendar", "storage"];
 
-export type Section = "ai" | "business" | "google" | "social" | "apps" | "settings";
+export type Section = "ai" | "business" | "personal" | "google" | "social" | "apps" | "settings";
 
 export type OAuthProvider = "google" | "youtube" | "instagram" | "threads" | "x" | "reddit" | "microsoft" | "gmail";
 
@@ -193,6 +193,28 @@ export const CATALOG: readonly KindDef[] = [
     ],
     affects: ["shipping"],
     helpUrl: "https://app.sendcloud.com/v2/settings/integrations/manage",
+  },
+  // --- Personal ---
+  {
+    kind: "opengym",
+    label: "openGym",
+    section: "personal",
+    description:
+      "Your self-hosted openGym (gym tracker): the assistant can answer from your workouts, PRs and weigh-ins (how training is going, what you lifted last week, weight against your goal). Read-only: nothing is changed in openGym.",
+    multi: false,
+    fields: [
+      { ...vertical, default: "personal", help: "Which area the gym data belongs to." },
+      { key: "url", label: "openGym address", type: "url", required: true, placeholder: "https://gym.example.com", help: "The https address you open openGym at." },
+      {
+        key: "token",
+        label: "Pairing code or token",
+        type: "secret",
+        required: true,
+        help: "openGym: Settings → Pair the mobile app, then paste the 8-character code here and save within 5 minutes. Command Centre swaps it for a token, saves that, and keeps it renewed.",
+      },
+    ],
+    affects: ["gym"],
+    helpUrl: "https://github.com/DuarteSantos8/openGym/blob/main/docs/SELF_HOSTING.md",
   },
   {
     kind: "email",

@@ -50,6 +50,9 @@ importers:
       '@cc/odoo':
         specifier: workspace:*
         version: link:../../packages/odoo
+      '@cc/opengym':
+        specifier: workspace:*
+        version: link:../../packages/opengym
       '@cc/pa':
         specifier: workspace:*
         version: link:../../packages/pa
@@ -274,6 +277,15 @@ importers:
       '@cc/core':
         specifier: workspace:*
         version: link:../core
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.6.7)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
+  packages/opengym:
+    dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
