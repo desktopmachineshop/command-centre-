@@ -5,9 +5,11 @@ free tools rather than building trackers from scratch:
 
 1. gym tracking (openGym);
 2. food, weight and body measurements;
-3. spending, read-only from Nationwide, for analysis.
+3. spending, read-only from Nationwide, for analysis;
+4. a shopping list and a recipe book.
 
-Order agreed: gym first, then food and measurements, then finance.
+Order agreed: gym first, then food and measurements, then finance. Shopping and recipes fit
+alongside food (section 4).
 
 ## 1. Gym: openGym (done in this change)
 
@@ -61,8 +63,50 @@ Recommended path:
 3. Command Centre reads whichever lands through the same `/api/data` document: add
    `get_measurements` (and later `get_nutrition`) to `/mcp/opengym`.
 
-Working on openGym means forking it under Dave's GitHub account: that repository is outside
-this one, so it needs adding to the Claude session before any code is written.
+### Fork, deploy the fork, upstream later
+
+Changes are made in a fork under Dave's GitHub account, and Railway builds and runs the fork,
+so the features are usable straight away. Each feature is its own branch in the fork, and also
+goes upstream as its own PR. Once upstream has merged everything the fork carries, Railway goes
+back to the official `ghcr.io/duartesantos8/opengym-*` images and the fork is retired.
+
+- `main` in the fork = upstream `main` + the feature branches merged in. Railway deploys it,
+  building `api/Dockerfile` and `web/Dockerfile` instead of pulling images.
+- Pull upstream into the fork regularly (a scheduled GitHub Action or by hand), so the upstream
+  PRs stay mergeable and the fork doesn't drift.
+- Keep stored data compatible: new fields only, in a shape agreed on the upstream issue first.
+  Otherwise switching back to the official images could drop or misread data.
+- Licences: AGPL-3.0 is fine for a public fork run for Dave. The exercise media (Gym visual) may
+  stay in a non-commercial fork unmodified and with its notice; nothing here is commercial.
+- The fork is outside this repository, so it has to be added to the Claude session before any
+  code is written.
+
+## 4. Shopping list and recipe book
+
+The shopping list already exists: `pa` lists ("add milk to shopping"), on the phone through the
+app and by voice. What's missing is recipes, and getting from a recipe or a week's meal plan to
+the list.
+
+For recipes, use **[Mealie](https://github.com/mealie-recipes/mealie)** (open source, self-hosted, REST API):
+
+- imports a recipe from a URL (most recipe sites), or one typed in or photographed;
+- meal planner, and "add ingredients to shopping list", merging duplicates;
+- nutrition per serving when it is entered or imported, which feeds section 2;
+- one Docker image (SQLite or Postgres), so it is easy to host on Railway next to openGym.
+
+[Tandoor Recipes](https://github.com/TandoorRecipes/recipes) is the alternative (stronger on
+food and nutrition data, heavier to run). Mealie is simpler and enough for a family recipe book.
+
+Command Centre side (`packages/recipes`, read and write through Mealie's API, with an API token
+on the Accounts page):
+
+- tools at `/mcp/recipes`: `search_recipes`, `get_recipe`, `import_recipe` (from a URL Dave
+  sends), `meal_plan` (read and set the week), `ingredients_for` (a recipe or the week, scaled);
+- one shopping list, not two: either ingredients go onto the `pa` "shopping" list (what Dave
+  already uses), or `pa` reads and writes Mealie's list. Decide when this is built; the first is
+  less work and keeps voice and reminders as they are.
+- "What's for dinner this week?": the assistant plans from saved recipes, sets Mealie's meal
+  plan, and adds what's missing to the shopping list.
 
 ## 3. Finance: Nationwide, read-only
 
