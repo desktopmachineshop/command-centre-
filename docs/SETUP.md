@@ -325,18 +325,30 @@ exercises, then openGym's public catalogue on GitHub (one small file per exercis
 
 ### Hosting openGym on Railway
 
-openGym is two containers: `ghcr.io/duartesantos8/opengym-api` (Node, data in `/data`) and
-`ghcr.io/duartesantos8/opengym-web` (nginx: the app, proxying `/api` to the API). In a Railway
-project (it can be this one):
+Running now in the `command-centre` project at https://opengym-web-production-49d0.up.railway.app,
+built from Dave's fork `desktopmachineshop/openGym`, branch `railway` (see
+`docs/plans/health-and-money.md` for why a branch).
 
-1. **api** service from the image `ghcr.io/duartesantos8/opengym-api:latest`, with a volume at
-   `/data`, and variables `PORT=3000`, `DATA_DIR=/data`, `TRUST_PROXY=1`. No public domain.
-2. **web** service from `ghcr.io/duartesantos8/opengym-web:latest`, with `BACKEND=api.railway.internal`
-   (the api service's private name), `PORT=3000`, `NGINX_PORT=8080`, and `RESOLVER` set to Railway's
-   private-network DNS (`[fd12::10]` at the time of writing; openGym's docs/SELF_HOSTING.md explains
-   the setting). Not yet tried on Railway: check `/api/health` through the web domain first. Give it a public
-   domain on port 8080, ideally your own (e.g. `gym.desktopmachineshop.com`): passkeys are tied to it.
-3. Back up the `/data` volume: it holds every workout.
+- **opengym-api**: root directory `/api` (builds `api/Dockerfile`), volume `opengym-data` at
+  `/data`, no public domain. Variables: `PORT=3000`, `DATA_DIR=/data`, `TRUST_PROXY=1`,
+  `RP_NAME=openGym`, `RP_ID` and `ORIGIN` set to the web domain, `FIRST_USER_ADMIN=1`,
+  `PASSWORD_LOGIN=1`, `ALLOW_GUEST=0`. Health check `/api/health`.
+- **opengym-web**: repo root, Dockerfile `web/Dockerfile`, public domain on port 8080.
+  Variables: `NGINX_PORT=8080`, `PORT=3000` (the api's port, which openGym's nginx template
+  reads), `BACKEND=opengym-api.railway.internal`, `RESOLVER=[fd12::10]` (Railway's private DNS).
+  **No Railway health check**: Railway probes the port in `PORT`, which here is the api's port,
+  so a health check on this service always fails.
+
+Two Railway quirks the fork works around:
+
+1. Railway refuses any Dockerfile with a `VOLUME` instruction, and `api/Dockerfile` has one in its
+   optional coach stage. The fork's `railway` branch comments it out (one commit, not for upstream).
+2. openGym's web image uses `PORT` for the api's port, while Railway treats `PORT` as the
+   service's own port. Hence no health check on the web service, as above.
+
+Passkeys are tied to the domain (`RP_ID`). If openGym moves to a custom domain later, change
+`RP_ID` and `ORIGIN`; passkeys made on the old domain stop working, so set a password in
+openGym first (Settings), which keeps working.
 
 ## Triage
 

@@ -30,8 +30,8 @@ Command Centre reads it over its HTTP API (`packages/opengym`):
 
 Still to do:
 
-- **Host openGym on Railway** (two image services plus a volume, see `docs/SETUP.md`, "Hosting
-  openGym on Railway") on a domain of Dave's, then pair it.
+- **openGym is hosted** on Railway from the fork (SETUP.md, "Hosting openGym on Railway"). Left:
+  Dave creates his profile, then pairs it on the Accounts page.
 - **Weekly training summary**: a Sunday schedule in `personal` that calls `training_summary` and
   sends one `notify`. Easy once real data is flowing; left off until then so it can be tuned
   against real numbers.
@@ -71,8 +71,10 @@ so the features are usable straight away. Each feature is its own branch in the 
 goes upstream as its own PR. Once upstream has merged everything the fork carries, Railway goes
 back to the official `ghcr.io/duartesantos8/opengym-*` images and the fork is retired.
 
-- `main` in the fork = upstream `main` + the feature branches merged in. Railway deploys it,
-  building `api/Dockerfile` and `web/Dockerfile` instead of pulling images.
+- Branches in the fork: `main` mirrors upstream exactly (so upstream PRs start clean); one branch
+  per feature, each also opened as an upstream PR; `railway` = `main` + the deploy patch (see
+  SETUP.md, "Hosting openGym on Railway") + the feature branches, and is what Railway builds.
+- To update: sync `main` from upstream, merge `main` into `railway`, push; Railway redeploys.
 - Pull upstream into the fork regularly (a scheduled GitHub Action or by hand), so the upstream
   PRs stay mergeable and the fork doesn't drift.
 - How openGym wants contributions (CONTRIBUTING.md, CLAUDE.md): an issue or Discussions idea
