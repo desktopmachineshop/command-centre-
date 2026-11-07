@@ -111,7 +111,7 @@ export interface RoleBrief {
   team: { id: string; title: string; summary: string; owns: string[] }[];
   /** Handoffs left in this chain before the limit. */
   handoffsLeft: number;
-  /** Agent mode "assistant": the charter to use instead of the role's (../assistant.ts assistantCharter). */
+  /** The assistant's charter, used instead of a specialist's (../assistant.ts assistantCharter). */
   assistant?: string;
 }
 

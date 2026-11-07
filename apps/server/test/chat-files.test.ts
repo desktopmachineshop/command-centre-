@@ -87,7 +87,7 @@ describe.skipIf(!DB_URL)("files attached in the chat box (integration)", () => {
     const png = await upload("drawing.png", PNG, "image/png");
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "dms: quote this part", files: [png.body.id] } });
     await ctx.queue.drain();
-    const { task } = await ctx.server.pipeline.handoff(body.task.id, "chief-of-staff", "Over to you");
+    const { task } = await ctx.server.pipeline.handoff(body.task.id, "3dpandme/blog-writer", "Write up this part");
     await ctx.queue.drain();
     const request = runner.calls.find((c) => c.prompt.includes(`(task ${body.task.id})`) && c.prompt.startsWith("Handoff"))!;
     expect(request.images).toEqual([expect.stringMatching(new RegExp(`/chat-files/${png.body.id}$`))]);

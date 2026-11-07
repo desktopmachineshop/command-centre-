@@ -150,11 +150,14 @@ export class Pipeline {
       }
       to = { vertical: vertical.id, role: role.id, title: role.title };
     }
-    if (to.vertical === from.vertical && to.role === fromRole.id) throw new HandoffError("That is your own role: do the work yourself.");
+    // The assistant is one role whichever business its task is in.
+    if (to.role === fromRole.id && (to.role === ROOT_ROLE_ID || to.vertical === from.vertical)) throw new HandoffError("That is your own role: do the work yourself.");
 
     const payload = fromEvent?.payload ?? {};
-    const chain = [...(Array.isArray(payload.chain) ? (payload.chain as string[]) : []), `${from.vertical}/${fromRole.id}`];
-    const target_ = `${to.vertical}/${to.role}`;
+    // A chain names the assistant once, whichever business its task was in.
+    const link = (vertical: string, role: string) => (role === ROOT_ROLE_ID ? `${verticals.rootVertical}/${ROOT_ROLE_ID}` : `${vertical}/${role}`);
+    const chain = [...(Array.isArray(payload.chain) ? (payload.chain as string[]) : []), link(from.vertical, fromRole.id)];
+    const target_ = link(to.vertical, to.role);
     if (chain.includes(target_)) {
       throw new HandoffError(`The ${to.title} already worked on this chain (${chain.join(" -> ")}). Finish it yourself, or escalate to "${ROOT_ROLE_ID}".`);
     }

@@ -2,7 +2,7 @@
 <!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Concept//EN" "concept.dtd">
 <concept id="how-it-works">
   <title>How work flows through Command Centre</title>
-  <shortdesc>Every email, event or request becomes a task. A role works on it, and anything outward-facing waits for you unless the business's policy says otherwise.</shortdesc>
+  <shortdesc>Every email, event or request becomes a task. Your assistant works on it, and anything outward-facing waits for you unless the business's policy says otherwise.</shortdesc>
   <prolog>
     <resourceid appname="command-centre" appid="how-it-works"/>
   </prolog>
@@ -10,10 +10,10 @@
     <ol>
       <li><b>Something comes in.</b> An email, an Odoo order or helpdesk message, a social comment or DM, a schedule firing, or your own message in Chat or Converse.</li>
       <li><b>It is sorted.</b> Triage decides which business (DMS, 3dpandme, OpenV, OpenD, personal) and what kind of work it is: an order-status question, a supplier email, spam and so on. Spam and noise are filed without running an agent.</li>
-      <li><b>A role takes it.</b> The task goes to the role that owns that kind of work in the <xref href="../business/org.dita">org chart</xref>, or to the business's lead. Chat goes to the <term>Chief of Staff</term> first, which answers or hands it on.</li>
-      <li><b>An agent works on it.</b> It reads the <xref href="../knowledge/brain.dita">Brain</xref>, uses its skills and the tools its role may reach (Odoo, mail, calendar), and writes up what it did. You can follow every step in the task's <wintitle>Conversation</wintitle>.</li>
+      <li><b>Your assistant takes it.</b> Every task goes to the <term>assistant</term>, filed under the business triage picked. On work you started (chat, Converse, schedules) it can use every business's tools; on work from outside, only that business's. It reads the business's how-we-work note first, and hands only specialist work (a code change, a video, a blog post) to a <term>specialist</term>, which reports back to it. See <xref href="../business/org.dita">Businesses</xref>.</li>
+      <li><b>An agent works on it.</b> It reads the <xref href="../knowledge/brain.dita">Brain</xref>, uses its skills and tools (Odoo, mail, calendar), and writes up what it did. You can follow every step in the task's <wintitle>Conversation</wintitle>.</li>
       <li><b>It proposes actions.</b> Sending an email, posting, changing a price or producing a video is a <term>proposal</term>.</li>
-      <li><b>The policy decides.</b> Each business sets, per action type, one of three levels:
+      <li><b>The policy decides.</b> Each proposal belongs to a business, and each business sets, per action type, one of three levels:
         <dl>
           <dlentry><dt>Waits for approval</dt><dd>The default. It appears in <xref href="../work/approvals.dita">Approvals</xref> and, if you allow it, as a push notification.</dd></dlentry>
           <dlentry><dt>Runs, listed in the digest</dt><dd>It runs straight away and is reported in the daily digest.</dd></dlentry>

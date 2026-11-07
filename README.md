@@ -9,7 +9,7 @@ Desktop Machine Shop, 3dpandme, OpenV, OpenD and personal.
 - Agents read and write a markdown **brain** and use a shared **skills bank**.
 - Anything outward-facing becomes a **proposal**, which runs straight away or waits for approval
   depending on policy.
-- A **PWA** (phone and desktop) shows the inbox, approvals, chat (type, dictate, or attach, paste and drop files for the agent), brain (edit notes there), the org chart (edit roles and policies there) and worker devices.
+- A **PWA** (phone and desktop) shows the inbox, approvals, chat (type, dictate, or attach, paste and drop files for the agent), brain (edit notes there), businesses (edit policies and specialists there) and worker devices.
 
 ```
 apps/server            API, WebSocket hub, pipeline, scheduler, MCP endpoints (/mcp/brain, /mcp/actions)
@@ -46,13 +46,13 @@ and `NAV` in `apps/web/src/App.tsx`. More screenshots are in [docs/screenshots](
 </p>
 
 ![Inbox on a PC, light](docs/screenshots/inbox-desktop-light.png)
-![Org chart on a PC, dark](docs/screenshots/org-desktop-dark.png)
+![Businesses page on a PC, dark](docs/screenshots/org-desktop-dark.png)
 
 ## Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): architecture and phased plan
 - [docs/SETUP.md](docs/SETUP.md): running locally and deploying to Railway
-- [docs/ORG.md](docs/ORG.md): the org chart of agent roles (Chief of Staff, leads, specialists), routing, handoffs and editing it from the app
+- [docs/ORG.md](docs/ORG.md): the assistant and the specialists, routing, each business's how-we-work note, handoffs and editing them from the app
 - [docs/VIDEO.md](docs/VIDEO.md): the video pipeline for OpenV and OpenD content
 - The user guide: [command-centre.opend.app](https://command-centre.opend.app), from the OpenD project in [docs/](docs/opend.config.yaml).
   In the app, **?** in the top bar (or F1) opens it on the page in use. See [docs/SETUP.md](docs/SETUP.md), "In-app help".

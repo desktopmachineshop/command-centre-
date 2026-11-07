@@ -286,36 +286,43 @@ describe.skipIf(!DB_URL)("org roles (integration)", () => {
     expect((await ctx.api("/api/tasks?vertical=nope&role=x")).status).toBe(404);
   });
 
-  it("hands work on, with a depth limit", async () => {
-    // The assistant (in dms) -> Video Producer -> Blog Writer -> the assistant (personal) -> refused.
+  it("hands work on and reports back, never back to the assistant that started the chain, with a depth limit", async () => {
+    // The assistant (in dms) -> Video Producer -> Blog Writer -> the assistant: refused, it is already in the chain.
     runner.plan = {
       [`dms/${ROOT_ROLE_ID}`]: [handoff("3dpandme/video-producer", "a video about the S00042 kit")],
       "3dpandme/video-producer": [handoff("blog")],
       "3dpandme/blog-writer": [handoff(ROOT_ROLE_ID)],
-      [COS]: [handoff("command-centre/software-lead")],
     };
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "dms: please sort out the S00042 thread" } });
     expect(body.task).toMatchObject({ vertical: "dms", role: ROOT_ROLE_ID });
     await ctx.queue.drain();
 
     const chain = (await tasks()).filter((t) => t.prompt.includes("S00042 thread") && t.id !== body.task.id);
-    expect(chain.map((t) => `${t.vertical}/${t.role}`).sort()).toEqual(["3dpandme/blog-writer", "3dpandme/video-producer", COS]);
+    expect(chain.map((t) => `${t.vertical}/${t.role}`).sort()).toEqual(["3dpandme/blog-writer", "3dpandme/video-producer"]);
     const first = chain.find((t) => t.role === "video-producer")!;
     expect(first.prompt).toContain("Handoff to you from the Assistant (Desktop Machine Shop).");
     expect(first.prompt).toContain("a video about the S00042 kit");
     expect(runner.results[`dms/${ROOT_ROLE_ID}`]![0]).toContain(`Handed off to video-producer in 3dpandme: task ${first.id}`);
     expect(first.prompt).toContain("your final summary goes back to the Assistant automatically");
     expect(chain.find((t) => t.role === "blog-writer")!.prompt).toContain("Handoff to you from the Video Producer (3dpandme).");
-    expect(chain.find((t) => t.vertical === "personal")!.prompt).toContain("Handoff to you from the Blog Writer (3dpandme).");
+    expect(runner.results["3dpandme/blog-writer"]!.at(-1)).toContain("already worked on this chain");
     // Each role reported back up the chain, so the assistant ran again with the Video Producer's report.
     const assistantRuns = runner.requests.filter((r) => r.cwd!.endsWith(`dms/${ROOT_ROLE_ID}`));
     expect(assistantRuns).toHaveLength(2);
     expect(assistantRuns[1]!.prompt).toContain("Report back from the Video Producer (3dpandme), who took the work you handed off");
     expect((await ctx.api(`/api/tasks/${body.task.id}`)).body.task.status).toBe("done");
-    // The third handoff in the chain was the last allowed; the fourth is refused.
-    expect(runner.results[COS]!.at(-1)).toContain("Handoff limit reached (3 in a chain)");
-    const last = runner.requests.find((r) => r.cwd!.endsWith(COS))!;
-    expect(last.systemPrompt).toContain("The handoff limit for this chain is reached");
+
+    // A task already three handoffs down a chain may not hand on again.
+    runner.plan = {};
+    const deep = await ctx.server.pipeline.ingest({
+      source: "system",
+      vertical: "3dpandme",
+      kind: "handoff",
+      title: "Deep in a chain",
+      payload: { prompt: "deep", role: "video-producer", depth: 3, chain: [], originSource: "chat" },
+    });
+    await ctx.queue.drain();
+    await expect(ctx.server.pipeline.handoff(deep!.task.id, "blog", "more")).rejects.toThrow("Handoff limit reached (3 in a chain)");
   });
 
   it("refuses loops, self-handoffs, unknown and retired roles and cross-vertical handoffs below the assistant", async () => {

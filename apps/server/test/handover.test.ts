@@ -59,7 +59,7 @@ describe.skipIf(!DB_URL)("handover notes (integration)", () => {
     expect(runner.requests.at(-1)!.systemPrompt).toContain(`The current note:\n<<<\n${note}\n>>>`);
 
     // Work handed on carries it too.
-    const { task } = await ctx.server.pipeline.handoff(body.task.id, "chief-of-staff", "Check the margin");
+    const { task } = await ctx.server.pipeline.handoff(body.task.id, "3dpandme/blog-writer", "Write up the quote");
     expect(task.prompt).toContain("Where their task had got to (its handover note):");
     expect(task.prompt).toContain("Waiting on Dave's price");
     await ctx.queue.drain();
