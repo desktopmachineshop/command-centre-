@@ -26,11 +26,31 @@ describe("the assistant and its specialists", () => {
 
   it("moves the retired roles' schedules to their business", () => {
     const of = (id: string) => verticals.find((v) => v.id === id)!.schedules.map((s) => `${s.id}:${s.enabled}`);
-    expect(of("dms")).toEqual(["low-stock-check:false"]);
+    expect(of("dms")).toEqual(["low-stock-check:false", "reddit-scout:true", "competitor-watch:true"]);
     expect(of("personal")).toEqual(["evening-wrap:false"]);
-    expect(of("openv")).toEqual(["reddit-scout:true"]);
-    expect(of("opend")).toEqual(["reddit-scout:true"]);
+    expect(of("openv")).toEqual(["reddit-scout:true", "competitor-watch:true"]);
+    expect(of("opend")).toEqual(["reddit-scout:true", "competitor-watch:true"]);
+    expect(of("3dpandme")).toEqual(["reddit-scout:true", "competitor-watch:true"]);
     expect(chiefOfStaff.schedules.map((s) => s.id)).toEqual(["morning-brief"]);
+  });
+
+  it("gives every business that markets itself the Reddit and research tools, the scout and the competitor watch", () => {
+    for (const id of ["dms", "3dpandme", "openv", "opend"]) {
+      const v = verticals.find((x) => x.id === id)!;
+      expect(v.mcpServers, id).toEqual(expect.arrayContaining(["reddit", "research"]));
+      expect(v.skills, id).toEqual(expect.arrayContaining(["reddit-marketing", "competitor-analysis", "social-platform-guide"]));
+      const scout = v.schedules.find((s) => s.id === "reddit-scout")!;
+      // The scout reads with the reddit tools, checks the rules and its own record, and proposes one batch.
+      for (const tool of ["search_posts", "subreddit_info", "user_history", "propose_batch"]) expect(scout.prompt, `${id} ${tool}`).toContain(tool);
+      const watch = v.schedules.find((s) => s.id === "competitor-watch")!;
+      expect(watch.prompt).toContain(`${v.brainFolder}/competitors.md`);
+      expect(watch.prompt).toMatch(/lists no competitors, stop here/);
+      // Every outward social action still waits for Dave.
+      for (const action of ["social.reply", "social.post", "social.dm", "social.campaign"]) expect(v.policies[action] ?? v.defaultPolicy, `${id} ${action}`).toBe("draft");
+    }
+    // The scouts don't all read Reddit in the same minute.
+    const crons = ["dms", "3dpandme", "openv"].map((id) => verticals.find((x) => x.id === id)!.schedules.find((s) => s.id === "reddit-scout")!.cron);
+    expect(new Set(crons).size).toBe(3);
   });
 
   it("only lists skills that exist in the skills bank", () => {
@@ -59,7 +79,7 @@ describe("the assistant and its specialists", () => {
     expect(reg.roleFor("dms", null).id).toBe(ROOT_ROLE_ID);
     expect(reg.roleFor("dms", "customer-support").id).toBe(ROOT_ROLE_ID); // retired
     expect(reg.roleFor("dms", ROOT_ROLE_ID).id).toBe(ROOT_ROLE_ID);
-    expect(reg.mcpServersFor("dms", ROOT_ROLE_ID)).toEqual(["brain", "odoo", "pa", "mail", "sendcloud"]);
+    expect(reg.mcpServersFor("dms", ROOT_ROLE_ID)).toEqual(["brain", "odoo", "pa", "mail", "sendcloud", "reddit", "research"]);
     expect(reg.mcpServersFor("3dpandme", "video-producer")).toEqual(["brain", "odoo"]);
   });
 });

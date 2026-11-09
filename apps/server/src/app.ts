@@ -12,12 +12,18 @@ import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
   createSocialExecutors,
+  isRedditSessionAccount,
+  parseSessionCookie,
   platformLabel,
   publishDueScheduledPosts,
+  sendDueSubmissions,
+  sendQueuedSubmission,
+  sessionCookieHeader,
   SocialInbound,
   type SocialAccount,
   validateSocialCredentials,
 } from "@cc/social";
+import { createRedditMcpServer, createResearchMcpServer, RedditReader, type SafeFetchOptions } from "@cc/research";
 import type { Triager } from "@cc/triage";
 import { VerticalRegistry } from "@cc/verticals";
 import { createGoogleTokenProvider, type GoogleTokenProvider, mediaIdsIn } from "@cc/storage";
@@ -82,6 +88,9 @@ import { CodexSetup } from "./integrations/codex-setup";
 import { CodexHome } from "./codex-home";
 import { integrationOAuth } from "./integrations/oauth"; // --- integrations oauth ---
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
+import { kindOfAccount, platformOfKind } from "./integrations/effective";
+import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
+import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 
 export interface Overrides {
@@ -96,6 +105,12 @@ export interface Overrides {
   imap?: ImapConnector;
   /** Social platform adapters (tests use fakes). */
   socialAdapters?: AdapterMap;
+  /** fetch the social adapters call their platforms with (tests use a fake platform). */
+  socialFetch?: typeof fetch;
+  /** fetch for the reddit read tools (tests use a fake reddit.com). */
+  redditFetch?: typeof fetch;
+  /** Transport and DNS for the research tools' page fetches (tests use an in-memory web). */
+  researchFetch?: SafeFetchOptions;
   /** Cheaper password hashing for tests. */
   scrypt?: ScryptParams;
   /** Server speech providers (tests use fakes); default from VOICE_* config. */
@@ -255,7 +270,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     tests: credentialTests({ fetch: overrides.integrationsFetch, imap: overrides.imap, smtpVerify: overrides.smtpVerify }), // --- integrations oauth ---
     // A social account the platform adapter would reject: refused on save, and left out (not the whole group) on reload.
     check: (c, e) => {
-      const account = c.social.accounts.find((a) => a.id === e.id && a.platform === e.kind);
+      const account = c.social.accounts.find((a) => a.id === e.id && a.platform === platformOfKind(e.kind));
       return account ? socialProblem(account) : undefined;
     },
   });
@@ -330,6 +345,28 @@ export function createServer(config: Config, overrides: Overrides = {}) {
             },
       ]),
     );
+  /**
+   * A social sign-in the platform no longer accepts (a Reddit session cookie that expired): shown on
+   * the account's card and pushed once a day, pointing at the Accounts page, like an expired Meta token.
+   */
+  const socialAuthAlerted = new Set<string>();
+  const socialAuthAlert = (account: SocialAccount, message: string) => {
+    const key = `${account.id}:${new Date().toISOString().slice(0, 10)}`;
+    if (socialAuthAlerted.has(key)) return;
+    socialAuthAlerted.add(key);
+    const kind = kindOfAccount(account);
+    void integrations.patchMeta(kind, account.id, { lastTest: { at: new Date().toISOString(), ok: false, message: message.slice(0, 300) } }).catch(() => {});
+    void notifier
+      .notify({
+        title: `${platformLabel(account.platform)} sign-in expired`,
+        body: `${account.handle ?? account.id}: ${message.slice(0, 220)}`,
+        url: "/accounts",
+        category: "alert",
+        tag: `integration-expiry-${kind}-${account.id}`,
+        vertical: account.vertical,
+      })
+      .catch(() => {});
+  };
   const buildSocial = (c: Config, strict = false) => {
     // On reload, one unusable account (shown on the Accounts page) mustn't take the others down with it.
     const usable = strict ? c.social.accounts : c.social.accounts.filter((a) => {
@@ -341,9 +378,19 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (strict) for (const a of accounts) verticals.require(a.vertical);
     return {
       accounts,
-      executors: accounts.length ? releasingWork(createSocialExecutors(accounts, { adapters: socialAdapters, scheduled: store, timeZone: config.timezone })) : {},
+      executors: accounts.length ? releasingWork(createSocialExecutors(accounts, { adapters: socialAdapters, scheduled: store, submissions: store, fetch: overrides.socialFetch, onAuthError: socialAuthAlert, timeZone: config.timezone })) : {},
       inbound: accounts.length
-        ? new SocialInbound({ accounts, adapters: socialAdapters, store, ingest: (e) => pipeline.ingest(e), defaultPollSeconds: c.social.defaultPollSeconds })
+        ? new SocialInbound({
+            accounts,
+            adapters: socialAdapters,
+            store,
+            ingest: (e) => pipeline.ingest(e),
+            defaultPollSeconds: c.social.defaultPollSeconds,
+            fetch: overrides.socialFetch,
+            onError: (account, err) => {
+              if ((err as { reconnect?: unknown } | null)?.reconnect === true) socialAuthAlert(account, (err as Error).message);
+            },
+          })
         : undefined,
     };
   };
@@ -352,8 +399,30 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const publishScheduledPosts = async () => {
     const accounts = social.current.accounts;
     if (!accounts.length) return { published: 0, failed: 0 };
+    // Paced accounts (Reddit session mode): approved replies, posts and DMs waiting for their slot.
+    await sendDueSubmissions({
+      store,
+      accounts,
+      adapters: socialAdapters,
+      send: sendQueuedSubmission,
+      fetch: overrides.socialFetch,
+      onFailure: async (entry, error) => {
+        const account = accounts.find((a) => a.id === entry.accountId);
+        if (account && /reconnect reddit/i.test(error)) socialAuthAlert(account, error);
+        await notifier.notify({
+          title: "Queued social reply failed",
+          body: `${entry.actionType} on ${entry.accountId}: ${error}`.slice(0, 400),
+          url: "/social",
+          category: "alert",
+          priority: "high",
+          vertical: entry.vertical,
+        });
+      },
+    }).catch((err) => console.error("[social] sending queued submissions failed", err));
     return publishDueScheduledPosts({
       store,
+      submissions: store,
+      fetch: overrides.socialFetch,
       accounts,
       adapters: socialAdapters,
       onPublished: (post) => releaseWork(post.content, post.vertical),
@@ -666,10 +735,57 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // help: the Command Centre's own docs (in-app help and setup notes), for every run. Read once.
   const helpDocs = HelpDocs.load(config.docsDir);
   if (!helpDocs.size) console.warn(`[help] no docs at ${config.docsDir}: agents can't look up how the app works (DOCS_DIR)`);
+  // reddit: read-only Reddit (threads, rules, histories) from its public pages, with no Reddit app;
+  // one reader for the whole server, so every run shares its cache and its pace. A connected Reddit
+  // session account's cookie goes with the reads. research: safe page fetches, shop catalogues and
+  // competitor snapshots. Both return outside content, so a run that reads through them has its
+  // later proposals held for approval, as after reading mail; and a task that itself came from
+  // outside input can't fetch pages at all (as with WebFetch), only read what is stored.
+  const redditReader = new RedditReader({
+    fetch: overrides.redditFetch,
+    cookie: () => {
+      const account = social.current.accounts.find(isRedditSessionAccount);
+      if (!account) return undefined;
+      try {
+        return sessionCookieHeader(parseSessionCookie(account.credentials.sessionCookie!, account.credentials.tokenV2));
+      } catch {
+        return undefined;
+      }
+    },
+  });
+  const redditMcpServer = (caller: Caller) => {
+    const scope = caller.kind === "run" ? caller.scope : null;
+    return createRedditMcpServer({
+      reader: redditReader,
+      ownUsernames: () =>
+        social.current.accounts
+          .filter((a) => a.platform === "reddit" && a.handle && (!scope || scope.anyVertical || a.vertical === scope.vertical))
+          .map((a) => a.handle!.replace(/^@/, "").replace(/^\/?u\//i, "")),
+      onRead: scope ? () => actions.markOutsideInput(scope.taskId, "reddit") : undefined,
+    });
+  };
+  const snapshots = new PgSnapshotStore(pool);
+  const researchMcpServer = (caller: Caller) => {
+    const scope = caller.kind === "run" ? caller.scope : null;
+    return createResearchMcpServer({
+      store: snapshots,
+      vertical: scope && !scope.anyVertical ? scope.vertical : null,
+      fetch: overrides.researchFetch,
+      onRead: scope ? () => actions.markOutsideInput(scope.taskId, "web") : undefined,
+      refuseFetch: scope
+        ? async () => {
+            const origin = await actions.originSource(scope.taskId);
+            return origin ? `Fetching pages is off for this task because it came from outside input (${origin}). You can still read stored snapshots (competitor_products, competitor_changes, list_snapshots); tell Dave what needs looking up.` : null;
+          }
+        : undefined,
+    });
+  };
   /** The servers at /mcp/<name> besides brain and actions; odoo only while Odoo is configured, mail while a mailbox is. */
   const extraMcpServers = (): Record<string, (caller: Caller) => McpServer> => {
     const client = odoo.current.client;
     return {
+      reddit: redditMcpServer,
+      research: researchMcpServer,
       ...(client ? { odoo: () => createOdooMcpServer(client) } : {}),
       ...(email.current.accounts.length ? { mail: mailMcpServer } : {}),
       ...(shipping.current
@@ -931,7 +1047,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (!started || !config.schedulesEnabled) return;
     // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
     const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
-    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root);
+    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, (v, s) => scheduleShouldFire(brain, v, s.id));
   };
   org.onChange(() => {
     restartSchedules();
@@ -992,6 +1108,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await store.markAllNodesOffline();
       await brain.init(); // brain: seed the starter notes
       await seedHowWeWork(brain, pool, verticals); // each business's how-we-work note, from the old org chart (./how-we-work.ts)
+      await seedCompetitorRegistries(brain, pool, verticals); // each business's empty competitor registry (./competitors.ts)
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       await storage.init(); // storage: index media from before the index, load the cache
       void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical

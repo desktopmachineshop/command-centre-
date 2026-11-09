@@ -3,7 +3,7 @@ import { OdooClient } from "@cc/odoo";
 import { isPairingCode, OpenGymClient, openGymBase } from "@cc/opengym";
 import { createGoogleTokenProvider } from "@cc/pa";
 import { SENDCLOUD_API, SendcloudClient } from "@cc/sendcloud";
-import { IG_GRAPH_BASE, REDDIT_API, REDDIT_TOKEN_URL, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
+import { IG_GRAPH_BASE, REDDIT_API, REDDIT_OLD, REDDIT_TOKEN_URL, redditSessionWhoami, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
 import nodemailer from "nodemailer";
 import { codexAuthInfo, codexAuthProblem } from "../codex-home";
 import { emailAccountOf, type EntryInput } from "./effective";
@@ -24,6 +24,8 @@ export interface TestEndpoints {
   xApi: string;
   redditToken: string;
   redditApi: string;
+  /** old.reddit.com, for the session (cookie) sign-in. */
+  redditOld: string;
   discord: string;
   sendcloud: string;
 }
@@ -38,6 +40,7 @@ export const DEFAULT_TEST_ENDPOINTS: TestEndpoints = {
   xApi: X_API_BASE,
   redditToken: REDDIT_TOKEN_URL,
   redditApi: REDDIT_API,
+  redditOld: REDDIT_OLD,
   discord: "https://discord.com/api/v10",
   sendcloud: SENDCLOUD_API,
 };
@@ -370,7 +373,23 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       return ok(`X accepted the sign-in${handle ? ` (${handle})` : ""}`, handle);
     },
 
-    async reddit(entry, _config, ctx) {
+    // Reddit with the account's own session cookie: who it signs in as, and their karma.
+    async "reddit-session"(entry) {
+      const { sessionCookie, tokenV2 } = entry.secrets;
+      if (!sessionCookie) return fail("No reddit_session cookie saved");
+      try {
+        const me = await redditSessionWhoami({ sessionCookie, tokenV2 }, { fetch: (input, init) => f(input, { ...init, signal: AbortSignal.timeout(timeoutMs) }), now: () => new Date(), log: { info: () => {}, error: () => {} } }, urls.redditOld);
+        if (me.suspended) return fail(`Reddit signs this cookie in as u/${me.name}, but the account is suspended: it can't post`);
+        const karma = (me.linkKarma + me.commentKarma).toLocaleString("en-GB");
+        return ok(`Signed in to Reddit as u/${me.name} (${karma} karma: ${me.linkKarma.toLocaleString("en-GB")} post, ${me.commentKarma.toLocaleString("en-GB")} comment)`, `u/${me.name}`);
+      } catch (err) {
+        return fail(redact((err as Error).message, [sessionCookie, tokenV2]));
+      }
+    },
+
+    async reddit(entry, config, ctx) {
+      // A session cookie from Railway's SOCIAL_ACCOUNTS shows as a Reddit account: test it as one.
+      if (entry.secrets.sessionCookie) return tests["reddit-session"]!(entry, config, ctx);
       const c = { ...(await ctx.app("reddit-app")), ...entry.secrets };
       if (!c.clientId || !c.clientSecret) return fail("Add the Reddit app keys first (Developer apps → Reddit app)");
       const userAgent = c.userAgent ?? "web:command-centre:1.0";

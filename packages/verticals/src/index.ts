@@ -18,6 +18,7 @@ import personal from "./personal";
 
 export { chiefOfStaff } from "./org";
 export { mergeOrgEdit, RETIRED_ROLES } from "./org-merge";
+export { COMPETITOR_WATCH_ID, competitorRegistryPath } from "./marketing";
 export { INTERNAL_AUTO_POLICIES } from "./policies";
 export { parseRolePrefix, routeRole, type RoleRoute } from "./routing";
 

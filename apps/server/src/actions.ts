@@ -308,9 +308,21 @@ export class ActionService {
    */
   async untrustedSource(taskId: string | null | undefined): Promise<string | null> {
     if (!taskId) return null;
-    // A run that looked mail up itself (the mail MCP server) has read outside input too.
+    // A run that looked mail up itself (the mail MCP server), or read Reddit or a web page through
+    // the reddit and research servers, has read outside input too.
     const read = this.readMail.get(taskId);
     if (read) return read;
+    return this.originSource(taskId);
+  }
+
+  /**
+   * Like `untrustedSource`, but only what started the task (or its handoff chain), ignoring what
+   * its runs have read since: null for work Dave started. The research server asks this before
+   * fetching a page, so a task that began with an email can't be talked into fetching a URL,
+   * while a research task Dave asked for can read page after page.
+   */
+  async originSource(taskId: string | null | undefined): Promise<string | null> {
+    if (!taskId) return null;
     const task = await this.store.getTask(taskId);
     const event = task ? await this.store.getEvent(task.eventId) : null;
     if (!event) return "unknown";

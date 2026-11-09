@@ -17,8 +17,11 @@ export interface ResearchMcpOptions {
   fetch?: SafeFetchOptions;
   /** Called when a tool returns page content, so the server can treat the task as having read outside input. */
   onRead?: () => void;
-  /** Set (to the reason) when this task may not fetch pages: one that came from outside input. Stored snapshots stay readable. */
-  refuseFetch?: string;
+  /**
+   * Why this task may not fetch pages (one that came from outside input), or a function that says
+   * so per call; unset or null lets it. Stored snapshots stay readable either way.
+   */
+  refuseFetch?: string | (() => Promise<string | null>);
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -46,6 +49,7 @@ export function createResearchMcpServer(options: ResearchMcpOptions): McpServer 
     if (typeof given !== "string" || !given) throw new Error("Say which business this is for: vertical (e.g. dms)");
     return given;
   };
+  const refused = async (): Promise<string | null> => (typeof options.refuseFetch === "function" ? options.refuseFetch() : (options.refuseFetch ?? null));
   const read = <T>(value: T): T => {
     options.onRead?.();
     return value;
@@ -64,7 +68,8 @@ export function createResearchMcpServer(options: ResearchMcpOptions): McpServer 
       },
     },
     async ({ url, maxChars, links }) => {
-      if (options.refuseFetch) return fail(options.refuseFetch);
+      const no = await refused();
+      if (no) return fail(no);
       try {
         const res = await get(url);
         const fetchedAt = now().toISOString();
@@ -112,7 +117,8 @@ export function createResearchMcpServer(options: ResearchMcpOptions): McpServer 
       },
     },
     async ({ site, query, limit, enrich, show }) => {
-      if (options.refuseFetch) return fail(options.refuseFetch);
+      const no = await refused();
+      if (no) return fail(no);
       try {
         const catalogue = await discoverProducts(site, get, { limit: limit ?? 500, enrich: enrich ?? 0, sleep: options.sleep });
         const q = query?.trim().toLowerCase();
@@ -152,7 +158,8 @@ export function createResearchMcpServer(options: ResearchMcpOptions): McpServer 
       },
     },
     async (args) => {
-      if (options.refuseFetch) return fail(options.refuseFetch);
+      const no = await refused();
+      if (no) return fail(no);
       try {
         const vertical = verticalOf(args.vertical);
         const competitor = slugOf(args.competitor);
