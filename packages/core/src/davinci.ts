@@ -50,6 +50,15 @@ export const DavinciRenderPayload = z
     outputName: DavinciOutputName,
     /** Only applied to a project the job creates (Resolve fixes the frame rate once media is in). */
     fps: z.enum(DAVINCI_FPS).optional(),
+    /**
+     * An edited timeline to open instead of laying the clips end to end: an FCPXML document that
+     * refers to the clips by file name (tracks, offsets and levels as an editor would have left
+     * them; see @cc/video edit.ts). The worker points it at the downloaded clips and has Resolve
+     * import it as the timeline. Drafts only.
+     */
+    timelineFile: z.object({ url: z.url({ protocol: /^https?$/ }), name: DavinciFileName.refine((n) => /\.fcpxml$/i.test(n), "an .fcpxml file") }).optional(),
+    /** Files downloaded beside the clips but not put in the media pool (e.g. captions.srt, imported by hand as a subtitle track). */
+    extras: z.array(z.object({ url: z.url({ protocol: /^https?$/ }), name: DavinciFileName })).max(20).default([]),
     /** Upload the render to Command Centre storage and return its URL (the result's `upload`). */
     upload: z.boolean().default(true),
     uploadFolder: z.enum(["renders", "media", "footage", "assets"]).default("renders"),
@@ -61,7 +70,8 @@ export const DavinciRenderPayload = z
   .refine((p) => p.clips.length > 0 || p.project, { path: ["clips"], message: "add clips, or name an existing project to re-render" })
   .refine((p) => p.mode === "render" || p.clips.length > 0, { path: ["clips"], message: "a draft needs clips" })
   .refine((p) => !p.keepProject || p.project, { path: ["project"], message: "keepProject needs a project name" })
-  .refine((p) => p.mode === "render" || p.project, { path: ["project"], message: "a draft needs a project name" });
+  .refine((p) => p.mode === "render" || p.project, { path: ["project"], message: "a draft needs a project name" })
+  .refine((p) => !p.timelineFile || p.mode === "draft", { path: ["timelineFile"], message: "a timeline file is opened as a draft" });
 export type DavinciRenderPayload = z.infer<typeof DavinciRenderPayload>;
 export type DavinciRenderPayloadInput = z.input<typeof DavinciRenderPayload>;
 
@@ -76,5 +86,7 @@ export const DavinciRenderResult = z.object({
   outputPath: z.string().nullable(),
   bytes: z.number().default(0),
   url: z.string().nullish(),
+  /** Where the clips (and extras such as captions) are on that PC, for a draft built from a timeline file. */
+  mediaDir: z.string().nullish(),
 });
 export type DavinciRenderResult = z.infer<typeof DavinciRenderResult>;

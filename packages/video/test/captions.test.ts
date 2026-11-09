@@ -16,13 +16,13 @@ describe("timeline", () => {
       },
       { demo: 6.01 },
     );
-    // hook: max(2.5 min, 0.3+1.2+0.4=1.9) = 2.5; demo: clip 6.01 → 6.033 (frame); cta: minimum 3
+    // hook: max(2.5 min, 0.3+1.2+0.4=1.9) = 2.5; demo: clip 6.01 → 6.033 (frame); cta: minimum 4 (the end card is held long enough to read)
     expect(t.scenes.map((s) => [s.id, s.start, s.duration])).toEqual([
       ["hook", 0, 2.5],
       ["demo", 2.5, 6.033],
-      ["cta", 8.533, 3],
+      ["cta", 8.533, 4],
     ]);
-    expect(t.total).toBe(11.533);
+    expect(t.total).toBe(12.533);
     expect(t.scenes[1]!.voiceStart).toBe(2.8);
     expect(t.words[0]).toEqual({ word: "Ship", start: 0.3, end: 0.6 });
     expect(t.words[3]).toEqual({ word: "Here", start: 2.8, end: 3.2 });

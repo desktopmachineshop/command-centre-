@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { DavinciRenderPayload } from "@cc/core";
+import { fileUrl, relinkFcpxml } from "@cc/video";
 import { defineHandler, type JobContext, JobError } from "./registry";
 import { RESOLVE_JOB_PY } from "./resolve-script";
 import { download } from "./video";
@@ -53,6 +54,8 @@ interface ScriptRequest {
   timeline: string;
   render: boolean;
   clips: string[];
+  /** An FCPXML (already pointing at the clips on this PC) to import as the timeline instead of appending the clips. */
+  timelineFile?: string;
   preset: string;
   fps?: string;
   outDir: string;
@@ -93,6 +96,17 @@ export function davinciRenderHandler(options: DavinciOptions) {
         await download(clip.url, dest, ctx.signal, http);
         clips.push(dest);
       }
+      for (const extra of payload.extras) await download(extra.url, join(media, extra.name), ctx.signal, http);
+      // An edited timeline: the document names the clips; here they become paths on this PC.
+      let timelineFile: string | undefined;
+      if (payload.timelineFile) {
+        timelineFile = join(media, payload.timelineFile.name);
+        await download(payload.timelineFile.url, timelineFile, ctx.signal, http);
+        const names = new Map(payload.clips.map((c, i) => [c.name, clips[i]!]));
+        const document = await readFile(timelineFile, "utf8");
+        if (document.length > 5_000_000 || !/<fcpxml\b/.test(document)) throw new JobError("The timeline file is not an FCPXML document");
+        await writeFile(timelineFile, relinkFcpxml(document, (file) => (names.has(file) ? fileUrl(names.get(file)!) : undefined)));
+      }
 
       let script = options.script;
       if (!script) {
@@ -106,6 +120,7 @@ export function davinciRenderHandler(options: DavinciOptions) {
         timeline: payload.timeline,
         render,
         clips,
+        ...(timelineFile ? { timelineFile } : {}),
         preset: payload.preset,
         ...(payload.fps ? { fps: payload.fps } : {}),
         outDir,
@@ -115,7 +130,7 @@ export function davinciRenderHandler(options: DavinciOptions) {
       const done = await runResolveScript(options, script, request, ctx);
       const about = { mode: payload.mode, project: done.project, timeline: done.timeline, existing: done.existing };
 
-      if (!render) return { ...about, outputPath: null, bytes: 0 };
+      if (!render) return { ...about, outputPath: null, bytes: 0, ...(timelineFile ? { mediaDir: media } : {}) };
       if (!done.file) throw new JobError("DaVinci Resolve finished the render but reported no file");
       const output = join(outDir, done.file);
       const bytes = (await stat(output)).size;

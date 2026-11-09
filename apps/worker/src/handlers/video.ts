@@ -57,7 +57,7 @@ function extFrom(url: string, fallback: string): string {
   return /^\.[a-z0-9]{1,5}$/.test(ext) ? ext : fallback;
 }
 
-const CONTENT_TYPES: Record<string, string> = { ".mp4": "video/mp4", ".webm": "video/webm", ".srt": "application/x-subrip" };
+const CONTENT_TYPES: Record<string, string> = { ".mp4": "video/mp4", ".webm": "video/webm", ".srt": "application/x-subrip", ".wav": "audio/wav", ".mp3": "audio/mpeg" };
 
 async function upload(path: string, target: Upload, signal: AbortSignal, http: typeof fetch): Promise<string> {
   const size = (await stat(path)).size;
@@ -175,7 +175,8 @@ export function videoRenderHandler(options: VideoHandlerOptions) {
       let tts: TextToSpeech | undefined;
       if (needsVoice) {
         if (spec.voice.provider === "silent") tts = silentProvider();
-        else if (spec.voice.provider === "flite") {
+        // "auto" reaching a worker means the server had no voice of its own: the keyless fallback.
+        else if (spec.voice.provider === "flite" || spec.voice.provider === "auto") {
           tts = (await ffmpegHas(options.ffmpegBin, "filters", "flite")) ? fliteProvider({ ffmpegBin: options.ffmpegBin, dir: join(dir, "tts") }) : silentProvider();
         } else {
           throw new JobError(`Voice provider "${spec.voice.provider}" runs on the server: send the narration in payload.voice`);
@@ -197,6 +198,7 @@ export function videoRenderHandler(options: VideoHandlerOptions) {
           encoder,
           preset: encoder === "libx264" ? payload.preset : undefined,
           outputName: payload.outputName,
+          stems: payload.stemUploads ? (payload.stemsOnly ? "only" : true) : false,
           signal: ctx.signal,
           onProgress: (f, m) => ctx.progress(0.1 + 0.85 * f, m),
         });
@@ -213,8 +215,25 @@ export function videoRenderHandler(options: VideoHandlerOptions) {
         throw new JobError((err as Error).message);
       }
 
-      const url = payload.upload ? await upload(out.outputPath, payload.upload, ctx.signal, http) : undefined;
+      const url = payload.upload && !payload.stemsOnly ? await upload(out.outputPath, payload.upload, ctx.signal, http) : undefined;
+      // What the project keeps besides the video: narration made here, the captions, per-scene clips.
+      const voice: NonNullable<VideoRenderResult["voice"]> = {};
+      for (const [id, target] of Object.entries(payload.voiceUploads ?? {})) {
+        const v = out.voices[id];
+        if (!v || payload.voice[id]) continue;
+        voice[id] = { url: await upload(join(dir, v.file), target, ctx.signal, http), format: v.file.endsWith(".mp3") ? "mp3" : "wav", durationSec: v.durationSec, words: v.words };
+      }
+      const captionsUrl = payload.captionsUpload && out.srtPath ? await upload(out.srtPath, payload.captionsUpload, ctx.signal, http) : undefined;
+      const stems: NonNullable<VideoRenderResult["stems"]> = {};
+      for (const [id, target] of Object.entries(payload.stemUploads ?? {})) {
+        const stem = out.stems?.[id];
+        if (stem) stems[id] = { url: await upload(stem.path, target, ctx.signal, http), durationSec: stem.durationSec };
+      }
       return {
+        ...(Object.keys(voice).length ? { voice } : {}),
+        ...(captionsUrl ? { captionsUrl } : {}),
+        ...(Object.keys(stems).length ? { stems } : {}),
+        timeline: { total: out.timeline.total, scenes: out.timeline.scenes.map((s) => ({ id: s.id, start: s.start, duration: s.duration, voiceStart: s.voiceStart })) },
         outputPath: out.outputPath,
         bytes: out.bytes,
         durationSec: out.durationSec,

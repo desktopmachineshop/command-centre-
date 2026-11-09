@@ -155,6 +155,8 @@ const Env = z.object({
   STORAGE_MIN_FREE_MB: z.coerce.number().min(0).default(500),
   /** Rendered videos on the volume are deleted after this many days, unless an approval still waits on them. 0 keeps them. */
   STORAGE_RENDER_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+  /** A video project nobody has changed for this many days is archived (its recordings and narration deleted). 0 keeps projects until video.archive. */
+  VIDEO_PROJECT_RETENTION_DAYS: z.coerce.number().int().min(0).default(90),
   /** Google OAuth client and refresh token (shared with Calendar; `google:auth` grants drive.file too). */
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -430,6 +432,7 @@ function storageConfig(e: z.infer<typeof Env>) {
     uploadMaxBytes: Math.round(e.STORAGE_UPLOAD_MAX_MB * 1024 * 1024),
     minFreeBytes: Math.round(e.STORAGE_MIN_FREE_MB * 1024 * 1024),
     renderRetentionDays: e.STORAGE_RENDER_RETENTION_DAYS,
+    videoProjectRetentionDays: e.VIDEO_PROJECT_RETENTION_DAYS,
   };
 }
 // --- end storage ---

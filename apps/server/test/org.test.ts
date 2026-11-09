@@ -184,7 +184,7 @@ describe("org tree", () => {
     expect(pandme.specialists[0]).toMatchObject({
       vertical: "3dpandme",
       aliases: ["video", "youtube"],
-      mcpServers: ["brain", "odoo"],
+      mcpServers: ["brain", "odoo", "video"],
       stats: { openTasks: 2, doneTasks: 5, costUsd: 0.5, pendingApprovals: 1 },
     });
     expect(pandme.specialists[1]).toMatchObject({ id: "blog-writer", stats: { openTasks: 0, doneTasks: 0, costUsd: 0, pendingApprovals: 0 } });

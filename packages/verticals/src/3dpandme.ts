@@ -42,7 +42,7 @@ export default defineVertical({
   color: "#cf4f8f",
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
   skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
-  mcpServers: ["brain", "odoo", "pa", "mail"],
+  mcpServers: ["brain", "odoo", "pa", "mail", "video"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   guidance: howWeWork("3dpandme", AREAS),
   // The specialists: the assistant hands them producing a video and writing a blog post.
@@ -56,9 +56,9 @@ export default defineVertical({
         "Takes a video from plan to published: outline and shot list, title, description and chapters, then the announcement across every 3dpandme account. Heavy edits and renders run as jobs on Dave's PCs.",
       intents: ["publishing"],
       skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
-      // odoo for blog posts and DMS products the reels mention.
-      mcpServers: ["brain", "odoo"],
-      actions: ["social.campaign", "video.produce", "brain.write"],
+      // odoo for blog posts and DMS products the reels mention; video for the projects already made.
+      mcpServers: ["brain", "odoo", "video"],
+      actions: ["social.campaign", "video.produce", "video.revise", "video.export", "brain.write"],
       kpis: ["One video a fortnight", "Announcement campaign ready on publish day"],
       autonomyNotes: "May write outlines and metadata in the brain. Uploads, publishing and announcement campaigns wait for Dave.",
     },

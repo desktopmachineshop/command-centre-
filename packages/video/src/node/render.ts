@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { buildCues, cardEvents, DEFAULT_MAX_CHARS, toAss, toSrt } from "../captions";
 import { buildComposePlan, type ComposePlan, type VideoEncoder, type VisualAsset } from "../compose";
 import { FRAME, type VideoSpec } from "../spec";
-import { estimateWordTimings, planTimeline, type SceneVoice, type Timeline, type WordTiming } from "../timeline";
+import { clipWindow, estimateWordTimings, planTimeline, type SceneVoice, type Timeline, type WordTiming } from "../timeline";
 import { speechExt, type TextToSpeech } from "../tts/types";
 import { runFfmpeg } from "./ffmpeg";
 
@@ -31,6 +31,11 @@ export interface RenderOptions {
   /** CRF (x264) or CQ (NVENC); lower is better and bigger. */
   quality?: number;
   outputName?: string;
+  /**
+   * Also render each scene as its own clip (`scene-NN-<id>.mp4`: the picture with any card text,
+   * no captions, no sound) for an editable timeline. "only" skips the finished video.
+   */
+  stems?: boolean | "only";
   signal?: AbortSignal;
   onProgress?: (fraction: number, message: string) => void;
 }
@@ -46,6 +51,10 @@ export interface RenderOutput {
   captionsPath: string | null;
   srtPath: string | null;
   plan: ComposePlan;
+  /** Every scene's narration as used (given or synthesised here), so a caller can keep it. */
+  voices: Record<string, VoiceFile>;
+  /** Per-scene clips, when asked for. */
+  stems?: Record<string, { file: string; path: string; durationSec: number }>;
 }
 
 /**
@@ -70,10 +79,19 @@ export async function renderVideo(options: RenderOptions): Promise<RenderOutput>
   }
 
   // --- timeline and captions ---
-  const clipDurations = Object.fromEntries(Object.entries(options.visuals).map(([id, v]) => [id, v.durationSec]));
+  // A capture scene's `clip` cuts its recording: where the file starts playing and for how long.
+  const visuals: Record<string, VisualAsset> = {};
+  const clipDurations: Record<string, number | undefined> = {};
+  for (const [id, v] of Object.entries(options.visuals)) {
+    const scene = spec.scenes.find((s) => s.id === id);
+    const window = scene && v.kind === "video" ? clipWindow(scene, v) : { startSec: v.trimStartSec ?? 0, durationSec: v.durationSec };
+    const cut = scene?.kind === "capture" && scene.clip?.endSec !== undefined;
+    visuals[id] = { kind: v.kind, file: v.file, trimStartSec: window.startSec, ...(cut && window.durationSec ? { maxDurationSec: window.durationSec } : {}) };
+    clipDurations[id] = window.durationSec;
+  }
   const timeline = planTimeline(spec, voices, clipDurations);
   const cues = spec.captions.enabled ? buildCues(timeline.words as WordTiming[], { maxChars: spec.captions.maxChars ?? DEFAULT_MAX_CHARS[spec.format] }) : [];
-  const ass = toAss(cues, cardEvents(spec, timeline), { format: spec.format, brand: spec.brand, style: spec.captions.style });
+  const ass = toAss(cues, cardEvents(spec, timeline), { format: spec.format, brand: spec.brand, style: spec.captions.style, background: spec.captions.background });
   const assFile = "captions.ass";
   await writeFile(join(dir, assFile), ass);
   let srtPath: string | null = null;
@@ -88,7 +106,7 @@ export async function renderVideo(options: RenderOptions): Promise<RenderOutput>
   const plan = buildComposePlan({
     spec,
     timeline,
-    visuals: options.visuals,
+    visuals,
     narration: Object.fromEntries(Object.entries(voices).map(([id, v]) => [id, v.file])),
     subtitles: assFile,
     fontsDir: options.fontsDir,
@@ -99,6 +117,28 @@ export async function renderVideo(options: RenderOptions): Promise<RenderOutput>
     quality: options.quality,
     output: outputName,
   });
+  // --- per-scene clips for an editor: each scene composed on its own, cards drawn, captions left out ---
+  let stems: RenderOutput["stems"];
+  if (options.stems) {
+    stems = {};
+    for (const [i, scene] of spec.scenes.entries()) {
+      const slot = timeline.scenes[i]!;
+      const alone = { ...spec, scenes: [scene], music: undefined, transition: { style: "cut" as const, durationSec: 0.2 } };
+      const aloneTimeline: Timeline = { fps: timeline.fps, total: slot.duration, scenes: [{ ...slot, start: 0, voiceStart: null }], words: [] };
+      const cards = `cards-${i}.ass`;
+      await writeFile(join(dir, cards), toAss([], cardEvents(alone, aloneTimeline), { format: spec.format, brand: spec.brand, style: spec.captions.style }));
+      const file = `scene-${String(i + 1).padStart(2, "0")}-${scene.id}.mp4`;
+      const stemPlan = buildComposePlan({ spec: alone, timeline: aloneTimeline, visuals, narration: {}, subtitles: cards, fontsDir: options.fontsDir, logo: options.logoFile, encoder, preset: options.preset, quality: options.quality, videoOnly: true, output: file });
+      progress((options.stems === "only" ? 0.2 + 0.79 * (i / spec.scenes.length) : 0.2 * (i / spec.scenes.length)), `scene clip ${i + 1} of ${spec.scenes.length}`);
+      await runFfmpeg(options.ffmpegBin, stemPlan.args, { cwd: dir, signal: options.signal, durationSec: slot.duration });
+      stems[scene.id] = { file, path: join(dir, file), durationSec: slot.duration };
+    }
+  }
+
+  const { width, height } = FRAME[spec.format];
+  if (options.stems === "only") {
+    return { outputPath: dir, bytes: 0, durationSec: timeline.total, width, height, encoder, timeline, captionsPath: join(dir, assFile), srtPath, plan, voices, stems };
+  }
   progress(0.2, "rendering");
   await runFfmpeg(options.ffmpegBin, plan.args, {
     cwd: dir,
@@ -107,7 +147,6 @@ export async function renderVideo(options: RenderOptions): Promise<RenderOutput>
     onProgress: (f, s) => progress(0.2 + 0.79 * f, `rendered ${s.toFixed(1)}s of ${timeline.total.toFixed(1)}s`),
   });
   const outputPath = join(dir, outputName);
-  const { width, height } = FRAME[spec.format];
   return {
     outputPath,
     bytes: (await stat(outputPath)).size,
@@ -119,5 +158,7 @@ export async function renderVideo(options: RenderOptions): Promise<RenderOutput>
     captionsPath: join(dir, assFile),
     srtPath,
     plan,
+    voices,
+    ...(stems ? { stems } : {}),
   };
 }

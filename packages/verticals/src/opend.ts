@@ -11,7 +11,7 @@ export default defineVertical({
   color: "#1f9a8a",
   intents: ["support", "bug", "feature-request", "billing"],
   skills: ["brain-notes", "email-triage-and-reply", "video-reel", "social-platform-guide", "reddit-marketing"],
-  mcpServers: ["brain", "pa", "mail"],
+  mcpServers: ["brain", "pa", "mail", "video"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   schedules: saasSchedules("OpenD"),
   guidance: howWeWork("OpenD", saasAreas("OpenD", { docsWriter: true })),

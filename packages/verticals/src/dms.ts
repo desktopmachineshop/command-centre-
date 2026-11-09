@@ -70,8 +70,8 @@ const AREAS = [
       mission:
         "Gets the shop in front of hobbyist machinists: product posts, launch announcements and shop blog posts built from real Odoo facts. Keeps a steady, never pushy cadence across the DMS social accounts.",
       skills: ["brain-notes", "social-voice-dms", "social-platform-guide", "video-reel"],
-      mcpServers: ["brain", "odoo"],
-      actions: ["social.post", "social.campaign", "video.produce", "odoo.blog.draft"],
+      mcpServers: ["brain", "odoo", "video"],
+      actions: ["social.post", "social.campaign", "video.produce", "video.revise", "video.export", "odoo.blog.draft"],
       kpis: ["2 to 3 posts a week", "Every post grounded in live product data"],
       autonomyNotes: "All posts, campaigns and blog drafts wait for Dave. Paid ads and promotions are never proposed without his ask.",
     },
@@ -110,7 +110,7 @@ export default defineVertical({
   ],
   skills: ["brain-notes", "email-triage-and-reply", "dms-customer-reply", "dms-order-status", "dms-ops", "dms-supplier-pricelists", "odoo-daily", "social-voice-dms", "social-platform-guide", "video-reel"],
   // mail: read-only search and attachments of the DMS mailboxes, for work that didn't start from that email.
-  mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud"],
+  mcpServers: ["brain", "odoo", "pa", "mail", "sendcloud", "video"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   schedules: [
     // Turn on once the Odoo low_stock threshold is agreed.

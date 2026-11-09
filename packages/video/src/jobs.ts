@@ -62,6 +62,20 @@ export const VideoRenderPayload = z.object({
   encoder: z.enum(["auto", "cpu", "gpu"]).default("auto"),
   preset: z.enum(["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow"]).optional(),
   upload: Upload.optional(),
+  /**
+   * Where to put narration the worker synthesises itself (flite), per scene, so the project keeps
+   * it and the next render doesn't make it again.
+   */
+  voiceUploads: z.record(SceneId, Upload).optional(),
+  /** Where to put the captions (SRT). */
+  captionsUpload: Upload.optional(),
+  /**
+   * Also render each scene as its own clip (picture only, card text included, no captions) and
+   * upload it here: the clips of an editable timeline (video.export).
+   */
+  stemUploads: z.record(SceneId, Upload).optional(),
+  /** With stemUploads: only the per-scene clips, no finished video. */
+  stemsOnly: z.boolean().default(false),
   meta: Meta,
 });
 export type VideoRenderPayload = z.infer<typeof VideoRenderPayload>;
@@ -76,5 +90,17 @@ export const VideoRenderResult = z.object({
   encoder: z.string(),
   captionsPath: z.string().nullable(),
   url: HttpUrl.optional(),
+  /** Narration the worker made and uploaded (voiceUploads), per scene. */
+  voice: z.record(z.string(), z.object({ url: HttpUrl, format: z.enum(["wav", "mp3"]), durationSec: z.number().positive(), words: z.array(Word).max(5000) })).optional(),
+  captionsUrl: HttpUrl.optional(),
+  /** Per-scene clips (stemUploads). */
+  stems: z.record(z.string(), z.object({ url: HttpUrl, durationSec: z.number().positive() })).optional(),
+  /** Where each scene sits in the render, for building an editable timeline from it. */
+  timeline: z
+    .object({
+      total: z.number(),
+      scenes: z.array(z.object({ id: z.string(), start: z.number(), duration: z.number(), voiceStart: z.number().nullable() })),
+    })
+    .optional(),
 });
 export type VideoRenderResult = z.infer<typeof VideoRenderResult>;

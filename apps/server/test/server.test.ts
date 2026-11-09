@@ -45,12 +45,12 @@ describe.skipIf(!DB_URL)("server (integration)", () => {
     expect(request.prompt).toBe("dms: what sold yesterday?");
     expect(request.systemPrompt).toContain("Desktop Machine Shop");
     // The assistant: every business's servers mounted here (no Odoo or mail in this test).
-    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "help", "brain", "pa", "ops"]);
+    expect(Object.keys(request.mcpServers!)).toEqual(["actions", "help", "brain", "pa", "video", "ops"]);
     // Plus read-only access to files attached in the chat box, read and write in this task's own scratch
     // folder, and read access to the role's own skill folders (their supporting files live in the bank).
     const scratch = realpathSync(join(request.cwd!, "scratch", body.task.id));
     expect(request.allowedTools).toEqual([
-      "Skill", "mcp__actions", "mcp__help", "mcp__brain", "mcp__pa", "mcp__ops", "WebSearch", "WebFetch",
+      "Skill", "mcp__actions", "mcp__help", "mcp__brain", "mcp__pa", "mcp__video", "mcp__ops", "WebSearch", "WebFetch",
       expect.stringMatching(/^Read\(\/\/.*\/chat-files\/\*\*\)$/),
       `Read(/${scratch}/**)`,
       `Write(/${scratch}/**)`,

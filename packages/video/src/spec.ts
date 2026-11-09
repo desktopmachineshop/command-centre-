@@ -128,6 +128,11 @@ export const CaptureScene = z.object({
   authProfile: z.string().regex(/^[\w-]{1,40}$/).optional(),
   /** Show a pointer that glides to each element before it is clicked. */
   cursor: z.boolean().default(true),
+  /**
+   * Use only part of the recording: seconds from its (already trimmed) start. An edit, not a
+   * re-recording: the same recording is cut differently when the video is composed.
+   */
+  clip: z.object({ startSec: z.number().min(0).max(600).default(0), endSec: z.number().min(0.5).max(600).optional() }).optional(),
 });
 export const SlideScene = z.object({
   ...SceneBase,
@@ -144,8 +149,13 @@ export type SceneInput = z.input<typeof Scene>;
 export type CaptureScene = z.infer<typeof CaptureScene>;
 
 export const VoiceConfig = z.object({
-  /** TTS provider id: "silent" and "flite" run on the worker; "local" is the server's own voices (the ones chat speaks with, voiceId e.g. "piper:cori"); "elevenlabs" and "openai" need keys on the server. */
-  provider: z.string().regex(/^[a-z0-9-]{1,32}$/).default("silent"),
+  /**
+   * TTS provider id. "auto" (the default) is resolved by the server to the most natural voice it
+   * has: "elevenlabs" or "openai" when their key is set, else "local" (the server's own voices, the
+   * ones chat speaks with, voiceId e.g. "piper:cori"), else "flite" (robotic, drafts only).
+   * "silent" and "flite" run on the worker.
+   */
+  provider: z.string().regex(/^[a-z0-9-]{1,32}$/).default("auto"),
   voiceId: z.string().max(100).optional(),
   /** 0.7–1.3; providers that support it apply it. */
   speed: z.number().min(0.7).max(1.3).default(1),
@@ -157,6 +167,14 @@ export const CaptionConfig = z.object({
   style: z.enum(["word", "plain"]).default("word"),
   /** Characters per caption line; defaults by format (narrow for 9:16). */
   maxChars: z.number().int().min(10).max(80).optional(),
+  /** "outline": text with a dark stroke and shadow. "box": on a dark rounded-looking box, for busy footage. */
+  background: z.enum(["outline", "box"]).default("outline"),
+});
+
+/** How one scene gives way to the next: a hard cut, or a short dip through the brand background. */
+export const TransitionConfig = z.object({
+  style: z.enum(["cut", "fade"]).default("fade"),
+  durationSec: z.number().min(0.05).max(1).default(0.2),
 });
 
 /** Where a claim in the script came from, so the reviewer can check it (an MCP tool call). */
@@ -174,8 +192,9 @@ export const VideoSpec = z
     format: Format,
     fps: z.union([z.literal(24), z.literal(25), z.literal(30), z.literal(60)]).default(30),
     brand: Brand,
-    voice: VoiceConfig.default({ provider: "silent", speed: 1 }),
-    captions: CaptionConfig.default({ enabled: true, style: "word" }),
+    voice: VoiceConfig.default({ provider: "auto", speed: 1 }),
+    captions: CaptionConfig.default({ enabled: true, style: "word", background: "outline" }),
+    transition: TransitionConfig.default({ style: "fade", durationSec: 0.2 }),
     music: z.object({ url: HttpUrl, volumeDb: z.number().min(-40).max(0).default(-20), credit: z.string().max(200).optional() }).optional(),
     scenes: z.array(Scene).min(1).max(40),
     sources: z.array(Source).max(50).default([]),
@@ -230,7 +249,45 @@ export function lintSpec(spec: VideoSpec): string[] {
   }
   if (spec.scenes.at(-1)?.kind !== "outro") warnings.push("no outro/CTA scene at the end");
   if (spec.sources.length === 0) warnings.push("no sources: list the MCP lookups that verify each feature shown");
+  warnings.push(...lintQuality(spec));
   return warnings;
+}
+
+/** Voices that sound synthetic or say nothing: fine for a draft, not for a video that gets posted. */
+export const DRAFT_VOICES = new Set(["flite", "silent"]);
+
+/**
+ * The cheap tells of an amateur video, caught before anything is rendered: a robot voice, no
+ * logo, walls of text, scenes that sit still too long, captions off on a short, loud music.
+ */
+export function lintQuality(spec: VideoSpec): string[] {
+  const w: string[] = [];
+  const narrated = spec.scenes.some((s) => s.narration);
+  if (narrated && spec.voice.provider === "flite") w.push("the flite voice is robotic: fine for a draft, but use a natural voice (elevenlabs, openai or the server's local voices) for anything that gets posted");
+  if (narrated && spec.voice.provider === "silent") w.push("voice is silent: the video will have captions but nobody speaking");
+  if (!narrated) w.push("no narration in any scene");
+  if (!spec.brand.logoUrl) w.push("no brand logo (brand.logoUrl): the title and end cards will be text only");
+  if (!spec.captions.enabled && (spec.type === "short" || spec.format !== "16:9")) w.push("captions are off: most short-form video is watched muted");
+  const narrow = spec.format !== "16:9";
+  const outro = spec.scenes.at(-1);
+  if (outro?.kind === "outro" && (outro.minDurationSec ?? 99) < 3) w.push("the end card is held under 3s: too short to read the call to action");
+  spec.scenes.forEach((s, i) => {
+    const words = s.narration ? countWords(s.narration) : 0;
+    const seconds = words / WORDS_PER_SECOND;
+    const limit = spec.type === "short" ? 9 : 20;
+    if ((s.kind === "title" || s.kind === "slide" || s.kind === "image" || s.kind === "outro") && seconds > limit) {
+      w.push(`scene "${s.id}" holds one ${s.kind === "image" ? "still" : "card"} for about ${seconds.toFixed(0)}s of narration: split it or show the product`);
+    }
+    if ((s.kind === "title" || s.kind === "outro") && s.heading.length > (narrow ? 36 : 60)) w.push(`scene "${s.id}": the heading is long for a ${spec.format} card (${s.heading.length} characters); keep it to a few words`);
+    if (s.kind === "slide" && s.bullets.length > (narrow ? 3 : 5)) w.push(`scene "${s.id}": ${s.bullets.length} bullets is a wall of text on ${spec.format}`);
+    if (s.kind === "slide" && s.bullets.some((b) => b.length > (narrow ? 36 : 70))) w.push(`scene "${s.id}": a bullet is too long to read at a glance`);
+    if (s.kind === "capture" && !s.narration && i > 0) w.push(`scene "${s.id}" is a silent screen recording: say what the viewer is looking at`);
+    if (s.kind === "image" && !s.kenBurns && (s.minDurationSec ?? seconds) > 4) w.push(`scene "${s.id}": a still held this long without movement looks frozen (kenBurns)`);
+  });
+  if (spec.music && spec.music.volumeDb > -14) w.push(`music at ${spec.music.volumeDb} dB will fight the voice; -18 to -24 dB sits under it`);
+  if (spec.music && !spec.music.credit) w.push("music has no credit/licence note: keep where the track came from");
+  if (spec.type !== "short" && spec.scenes.length >= 3 && spec.scenes.every((s) => s.kind !== "capture" && s.kind !== "image")) w.push("no screen recording or image in any scene: the video is only text cards");
+  return w.filter(Boolean);
 }
 
 export function parseSpec(input: unknown): VideoSpec {

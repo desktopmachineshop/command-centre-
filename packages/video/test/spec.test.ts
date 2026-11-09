@@ -8,7 +8,7 @@ import { minimalSpec } from "./helpers";
 describe("VideoSpec", () => {
   it("fills defaults", () => {
     const spec = parseSpec(minimalSpec());
-    expect(spec).toMatchObject({ version: 1, fps: 30, voice: { provider: "silent", speed: 1 }, captions: { enabled: true, style: "word" }, sources: [] });
+    expect(spec).toMatchObject({ version: 1, fps: 30, voice: { provider: "auto", speed: 1 }, captions: { enabled: true, style: "word", background: "outline" }, transition: { style: "fade", durationSec: 0.2 }, sources: [] });
     expect(spec.scenes[1]).toMatchObject({ kind: "capture", fit: "contain", cursor: true, leadInSec: 0.3, tailSec: 0.4 });
   });
 
@@ -55,7 +55,8 @@ describe("VideoSpec", () => {
     expect(warnings.join("\n")).toMatch(/hook/);
     expect(warnings.join("\n")).toMatch(/no outro/);
     expect(warnings.join("\n")).toMatch(/no sources/);
-    expect(lintSpec(parseSpec(sampleSpec("http://x.test")))).toEqual([]);
+    // The sample is a keyless draft: only the quality warnings a draft earns.
+    expect(lintSpec(parseSpec(sampleSpec("http://x.test")))).toEqual([expect.stringMatching(/flite voice is robotic/), expect.stringMatching(/no brand logo/)]);
   });
 
   it("validates render payloads", () => {

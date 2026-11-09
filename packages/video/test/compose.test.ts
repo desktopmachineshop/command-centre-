@@ -32,7 +32,7 @@ describe("compositor", () => {
       "color=c=0x0d1b2a:s=1080x1920:r=30:d=2.5",
       "demo.webm",
       "shot.png",
-      "color=c=0x0d1b2a:s=1080x1920:r=30:d=3",
+      "color=c=0x0d1b2a:s=1080x1920:r=30:d=4",
       "anullsrc=r=48000:cl=stereo",
       "voice-hook.wav",
       "voice-demo.mp3",
@@ -61,7 +61,7 @@ describe("compositor", () => {
     const { args, filterGraph } = buildComposePlan({ ...base, logo: "logo.png", music: "music.mp3", encoder: "h264_nvenc" });
     expect(args.slice(args.indexOf("music.mp3") - 3, args.indexOf("music.mp3") + 1)).toEqual(["-stream_loop", "-1", "-i", "music.mp3"]);
     expect(filterGraph).toMatch(/overlay=x=W-w-32:y=48:enable='between\(t,2\.5,6\.5\)\+between\(t,6\.5,9\.5\)'/);
-    expect(filterGraph).toMatch(/overlay=x=\(W-w\)\/2:y=346:enable='between\(t,0,2\.5\)\+between\(t,9\.5,12\.5\)'/);
+    expect(filterGraph).toMatch(/overlay=x=\(W-w\)\/2:y=346:enable='between\(t,0,2\.5\)\+between\(t,9\.5,13\.5\)'/);
     expect(filterGraph).toContain("volume=-22dB");
     expect(filterGraph).toContain("[music][voiceSC]sidechaincompress");
     expect(args).toEqual(expect.arrayContaining(["-c:v", "h264_nvenc", "-cq", "21"]));
