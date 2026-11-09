@@ -27,6 +27,8 @@ describe("generic write policy", () => {
     for (const f of ["password", "new_password", "api_key", "api_key_ids", "openai_api_key", "x_apikey", "client_secret", "totp_secret", "groups_id", "group_ids", "signup_token", "access_token"]) expect(deniedField(f), f).toBeDefined();
     for (const f of ["name", "email", "company_id", "user_id", "keyword", "token_count"]) expect(deniedField(f), f).toBeUndefined();
     expect(deniedField("x_groups", "res.groups")?.rule).toBe("protected-relations");
+    expect(deniedField("partner_bank_id", "res.partner.bank")?.rule).toBe("protected-relations");
+    expect(deniedField("user_id", "res.users")).toBeUndefined(); // assigning a salesperson is ordinary data
   });
 
   it("only lets workflow buttons be pressed, and nothing that deletes", () => {
@@ -129,7 +131,7 @@ describe.each(["jsonrpc", "json2"] as const)("generic records (%s)", (api) => {
       const q = (await call("describe_model", { model: "res.partner", query: "company" })).json;
       expect(q.fields.map((f: any) => f.name).sort()).toEqual(["is_company", "parent_id"]);
       const w = (await call("describe_model", { model: "res.partner", types: ["many2one"], writable_only: true })).json;
-      expect(w.fields.map((f: any) => f.name)).toEqual(["country_id", "parent_id"]);
+      expect(w.fields.map((f: any) => [f.name, f.protected ?? false])).toEqual([["country_id", false], ["parent_id", false], ["x_bank_id", true]]);
       expect((await call("describe_model", { model: "res.partner", fields: ["signup_token", "nope"] })).json).toMatchObject({ fields: [{ name: "signup_token", protected: true }], unknown_fields: ["nope"] });
       expect((await call("describe_model", { model: "res.users" })).json.write_protected).toMatch(/user accounts/);
       expect((await call("describe_model", { model: "no.such" })).text).toMatch(/no no\.such model/);
@@ -188,7 +190,7 @@ describe.each(["jsonrpc", "json2"] as const)("generic records (%s)", (api) => {
 
     it("refuses unknown, read-only, mistyped and protected values, all at once", async () => {
       await expect(prepare("odoo.record.create", { model: "res.partner", values: { name: "X", phon: "1", commercial_partner_id: 3, credit_limit: "lots", type: "home", parent_id: 999, signup_token: "t", bank_ids: [[0, 0, { acc_number: "GB00" }]] } })).rejects.toThrow(
-        /7 problems: res\.partner has no field "phon" \(did you mean phone, phone_sanitized\?\); commercial_partner_id is read-only.*credit_limit \(float\) takes a number.*type \(selection\) takes one of "contact".*parent_id: no res\.partner with id 999.*signup_token can't be changed.*rule "secret-fields".*bank_ids \(a list of res\.partner\.bank\).*rule "bank-accounts"/s,
+        /7 problems: res\.partner has no field "phon" \(did you mean phone, phone_sanitized\?\); commercial_partner_id is read-only.*credit_limit \(float\) takes a number.*type \(selection\) takes one of "contact".*parent_id: no res\.partner with id 999.*signup_token can't be changed.*rule "secret-fields".*bank_ids can't be changed.*rule "protected-relations"/s,
       );
       await expect(run("odoo.record.create", { model: "res.partner", values: { name: "X", phon: "1" } })).rejects.toThrow(/no field "phon"/);
       await expect(prepare("odoo.record.create", { model: "res.partner", values: {} })).rejects.toThrow(/has no fields/);
@@ -253,6 +255,24 @@ describe.each(["jsonrpc", "json2"] as const)("generic records (%s)", (api) => {
       await expect(prepare("odoo.record.update", { model: "res.partner", ids: [], values: { city: "York" } })).rejects.toThrow(/Invalid payload/);
       await expect(prepare("odoo.record.update", { model: "res.partner; drop", ids: [1], values: { city: "York" } })).rejects.toThrow(/Invalid payload/);
       expect(writes()).toEqual([]);
+    });
+
+    it("leaves an Odoo user's contact email and archiving alone, and never reads files back", async () => {
+      await expect(prepare("odoo.record.update", { model: "res.partner", ids: [10, 7], values: { email: "someone@else.example" } })).rejects.toThrow(/email of Command Centre, who is an Odoo user, can't be changed.*rule "user-contacts".*password resets/);
+      await expect(run("odoo.record.update", { model: "res.partner", ids: [7], values: { email: "someone@else.example" } })).rejects.toThrow(/user-contacts/);
+      await expect(prepare("odoo.record.archive", { model: "res.partner", ids: [7] })).rejects.toThrow(/user-contacts/);
+      await expect(run("odoo.record.archive", { model: "res.partner", ids: [7] })).rejects.toThrow(/user-contacts/);
+      // Other fields of that contact, and the email of anyone who isn't a user, are ordinary data.
+      expect((await prepare("odoo.record.update", { model: "res.partner", ids: [7], values: { city: "Leeds" } })).note).toBe("[Contact Command Centre: City: empty → Leeds.]");
+      expect((await prepare("odoo.record.update", { model: "res.partner", ids: [10], values: { email: "jane@new.example" } })).note).toMatch(/Email: jane@example.com → jane@new.example/);
+      await expect(prepare("odoo.record.update", { model: "res.partner", ids: [10], values: { x_bank_id: 1 } })).rejects.toThrow(/x_bank_id can't be changed.*rule "protected-relations"/);
+      await expect(prepare("odoo.record.update", { model: "res.partner", ids: [10], values: { user_ids: [7] } })).rejects.toThrow(/user_ids \(a list of res\.users\).*rule "users"/);
+
+      const picture = await prepare("odoo.record.update", { model: "res.partner", ids: [10], values: { image_1920: "aGVsbG8=" } });
+      expect(picture.payload.recordPreview.changes).toEqual([{ field: "image_1920", label: "Image", from: "(the current file)", to: "(new file)", changes: 1 }]);
+      expect(odoo.callsTo("search_read").at(-1)!.params.fields).not.toContain("image_1920");
+      expect(await run("odoo.record.update", picture.payload)).toMatchObject({ id: 10, from: {}, to: { image_1920: "(file)" } });
+      expect(record("res.partner", 10).image_1920).toBe("aGVsbG8=");
     });
 
     it("edits only a draft invoice, and only its simple fields", async () => {

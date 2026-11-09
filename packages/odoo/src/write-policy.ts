@@ -47,9 +47,16 @@ export const GENERIC_WRITE_DENYLIST: readonly WriteDenyRule[] = [
   { rule: "website-pages", models: /^(website\.page|website\.controller\.page|theme\..+)$/, why: "website pages and themes, which are templates" },
   // Secrets and access on any model, whatever it is.
   { rule: "secret-fields", fields: /^(password|new_password|passwd|new_passwd|totp_secret|signup_token|access_token|.*api_?key.*|.*secret.*|groups_id|group_ids|implied_ids)$/, why: "passwords, keys, tokens and group membership" },
-  // A field that points at users' groups, or creates records in a protected model through an x2many.
-  { rule: "protected-relations", relations: /^res\.groups$/, why: "access groups" },
+  // A field that points at users' groups or at a bank account (which account an invoice or journal pays into),
+  // on any model; list fields pointing at any protected model are refused in code as well.
+  { rule: "protected-relations", relations: /^(res\.groups|res\.partner\.bank)$/, why: "access groups and which bank account is used" },
+  // Odoo sends password resets to a user's contact email: changing it (or the login-like fields) is an account takeover.
+  // Applied in code to res.partner records that belong to an Odoo user (USER_CONTACT_FIELDS).
+  { rule: "user-contacts", why: "the email of a contact who is an Odoo user, where password resets are sent" },
 ];
+
+/** Fields of a res.partner the generic update refuses when the contact is an Odoo user's (rule "user-contacts"). */
+export const USER_CONTACT_FIELDS: readonly string[] = ["email", "active", "parent_id"];
 
 /**
  * The fields of a DRAFT customer invoice or vendor bill the generic update may change: its

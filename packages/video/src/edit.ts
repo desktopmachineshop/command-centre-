@@ -109,7 +109,9 @@ export function toFcpxml(edit: EditTimeline, options: FcpxmlOptions = {}): strin
   const total = edit.scenes.reduce((n, s) => n + frames(s.durationSec), 0);
   const totalT = `${total}/${fps}s`;
 
-  const resources: string[] = [`    <format id="r1" name="FFVideoFormat${edit.height}p${fps}" frameDuration="1/${fps}s" width="${edit.width}" height="${edit.height}" colorSpace="1-1-1 (Rec. 709)"/>`];
+  // Only 1080p has a standard format name; vertical and square frames are custom formats (size and rate say it all).
+  const named = edit.width === 1920 && edit.height === 1080 ? ` name="FFVideoFormat1080p${fps}"` : "";
+  const resources: string[] = [`    <format id="r1"${named} frameDuration="1/${fps}s" width="${edit.width}" height="${edit.height}" colorSpace="1-1-1 (Rec. 709)"/>`];
   let next = 2;
   const ids = new Map<string, string>();
   const asset = (file: string, duration: string, kind: "video" | "audio") => {

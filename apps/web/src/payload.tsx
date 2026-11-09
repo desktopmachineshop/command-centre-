@@ -435,6 +435,8 @@ export function stepText(step: Obj): string {
 /** "kokoro:bm_george" → "George (server voice, most natural)". */
 export function voiceText(provider: string, voiceId?: string): string {
   if (provider === "silent") return "None (captions only)";
+  if (provider === "auto") return "The best voice the server has";
+  if (provider === "flite") return "Robot voice (flite, drafts only)";
   if (provider === "local") {
     if (!voiceId) return "Server default voice";
     const [family, name = family] = voiceId.split(":");

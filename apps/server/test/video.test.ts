@@ -164,6 +164,35 @@ describe("video.produce chain", () => {
     await f.productions.onJobSettled({ id: "x", kind: "video.render", requires: [], payload: {}, status: "succeeded", nodeId: null, progress: 1, result: null, createdAt: "", updatedAt: "" });
   });
 
+  it("picks the most natural voice it has for voice 'auto', and finishes jobs queued before projects existed", async () => {
+    const withKey = fakes();
+    expect(withKey.productions.resolveVoice(VideoSpec.parse(spec)).voice.provider).toBe("elevenlabs");
+    const local = fakeLocal();
+    const noKeys = new VideoProductions({ submit: async () => ({ id: "j" }) as Job, propose: async () => {}, notify: async () => {}, hasAction: () => false, media: { createUpload: async (n) => ({ putUrl: `https://m.test/put/${n}`, publicUrl: `https://m.test/${n}` }), put: async (n) => `https://m.test/${n}` }, local });
+    expect(noKeys.resolveVoice(VideoSpec.parse(spec)).voice.provider).toBe("local");
+    // No media store to carry server-made audio, or no voice at all: the keyless fallback on the worker.
+    expect(fakes({ media: false }).productions.resolveVoice(VideoSpec.parse(spec)).voice.provider).toBe("flite");
+    const explicit = VideoSpec.parse({ ...spec, voice: { provider: "silent" } });
+    expect(withKey.productions.resolveVoice(explicit)).toBe(explicit);
+    const started = (await withKey.productions.start({ spec: { ...spec, voice: { provider: "flite" } } })) as { warnings: string[] };
+    expect(started.warnings.join(" ")).toMatch(/flite voice is robotic/);
+
+    // A render that was queued by the previous version: no project, its request in the job itself.
+    await withKey.productions.onJobSettled({
+      id: "old",
+      kind: "video.render",
+      requires: ["ffmpeg"],
+      payload: { spec, meta: { production: { id: "5f0b2c0e-0000-4000-8000-000000000000", stage: "render", targets, encoder: "auto", voice: {} } } },
+      status: "succeeded",
+      nodeId: "pc",
+      progress: 1,
+      result: { outputPath: "x", bytes: 1, durationSec: 9, width: 1080, height: 1920, encoder: "libx264", captionsPath: null, url: "https://media.test/m/old.mp4" },
+      createdAt: "",
+      updatedAt: "",
+    });
+    expect(withKey.proposals.at(-1)!.proposal).toMatchObject({ actionType: "social.campaign", payload: { posts: [{ accountId: "openv-x" }] } });
+  });
+
   it("voices with the server's own voices (the ones chat uses), in exactly the voice asked for", async () => {
     const local = fakeLocal();
     const f = fakes({ local });

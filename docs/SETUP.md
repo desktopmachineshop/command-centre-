@@ -1541,7 +1541,8 @@ few more:
   | `company-settings` | `res.company`, `res.config.*` | the company record and the settings screens |
   | `website-pages` | `website.page`, themes | pages are templates (code); blog posts and products are fine |
   | `secret-fields` | fields named `password`, `*api_key*`, `*secret*`, `totp_secret`, `signup_token`, `access_token`, `groups_id` / `group_ids` on any model | secrets and group membership |
-  | `protected-relations` | any field pointing at `res.groups`, and list fields pointing at a protected model | no back door through a related record |
+  | `protected-relations` | any field pointing at `res.groups` or at a bank account (`res.partner.bank`), and list fields pointing at a protected model | no back door through a related record |
+  | `user-contacts` | the `email`, `active` and `parent_id` of a contact (`res.partner`) that belongs to an Odoo user | Odoo sends password resets to that email |
   | (code) | wizards (transient models), list commands that delete (2 and 5), button methods containing unlink/delete/uninstall | not data; no delete |
 
   Lifting a rule is a code change there (with its test in `packages/odoo/test/records.test.ts`),

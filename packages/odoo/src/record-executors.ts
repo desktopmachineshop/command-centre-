@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type OdooFieldDef, type OdooFieldDefs, OdooError, type OdooRecord, OdooRpcError } from "./client";
 import type { OdooActionExecutor, OdooWriter } from "./executors";
 import { parse } from "./payload";
-import { denial, deniedField, deniedMethod, deniedModel, DRAFT_INVOICE_FIELDS } from "./write-policy";
+import { denial, deniedField, deniedMethod, deniedModel, DRAFT_INVOICE_FIELDS, GENERIC_WRITE_DENYLIST, USER_CONTACT_FIELDS } from "./write-policy";
 
 /**
  * The generic Odoo writes: create, update, archive/unarchive and press a workflow button on any
@@ -269,6 +269,14 @@ export function createRecordExecutors(client: OdooWriter): Record<string, OdooAc
     if (locked.length) throw new OdooError(`${String(locked[0]!.display_name || `Invoice ${locked[0]!.id}`)} is ${String(locked[0]!.state || "not a draft")}: only a draft invoice can be edited (rule "accounting-entries"). A posted one is corrected in Odoo (reset to draft or a credit note).`);
   }
 
+  /** A contact that is an Odoo user's: its email (where password resets go) and its archiving are the user's, not data. */
+  function guardUserContacts(model: string, rows: OdooRecord[], fields: string[]) {
+    if (model !== "res.partner") return;
+    const touched = fields.filter((f) => USER_CONTACT_FIELDS.includes(f));
+    const user = touched.length ? rows.find((r) => Array.isArray(r.user_ids) && r.user_ids.length > 0) : undefined;
+    if (user) throw new OdooError(denial(`${touched.join(", ")} of ${String(user.display_name || `contact ${user.id}`)}, who is an Odoo user,`, GENERIC_WRITE_DENYLIST.find((r) => r.rule === "user-contacts")!));
+  }
+
   const nameOf = (r: OdooRecord) => String(r.display_name || `#${r.id}`);
   const sample = (rows: OdooRecord[], state?: string) => rows.slice(0, SAMPLE).map((r) => ({ id: r.id, name: nameOf(r), ...(state && r[state] ? { state: show(undefined, r[state]) } : {}) }));
   const listed = (rows: OdooRecord[]) => `${rows.slice(0, 3).map(nameOf).join(", ")}${rows.length > 3 ? ` and ${rows.length - 3} more` : ""}`;
@@ -284,10 +292,14 @@ export function createRecordExecutors(client: OdooWriter): Record<string, OdooAc
     const p = parse(RecordUpdate, payload);
     const { defs, label } = await modelFor(p.model, "update");
     const { send, names } = await checkValues(p.model, defs, p.values);
-    const rows = await recordsOf(p.model, p.ids, [...Object.keys(send), ...(p.model === "account.move" ? ["state", "move_type"] : [])], defs);
+    // Files aren't read back for the preview (they can be megabytes of base64).
+    const isFile = (f: string) => defs[f]?.type === "binary" || defs[f]?.type === "image";
+    const rows = await recordsOf(p.model, p.ids, [...Object.keys(send).filter((f) => !isFile(f)), ...(p.model === "account.move" ? ["state", "move_type"] : []), ...(p.model === "res.partner" ? ["user_ids"] : [])], defs);
     guardInvoices(p.model, rows);
+    guardUserContacts(p.model, rows, Object.keys(send));
     const changes: RecordChange[] = Object.entries(send).map(([field, to]) => {
       const def = defs[field]!;
+      if (isFile(field)) return { field, label: def.string || field, from: "(the current file)", to: to === false ? "empty" : "(new file)", changes: rows.length };
       const counts = new Map<string, number>();
       for (const r of rows) counts.set(show(def, r[field]), (counts.get(show(def, r[field])) ?? 0) + 1);
       const from = [...counts].sort((a, b) => b[1] - a[1]);
@@ -356,11 +368,13 @@ export function createRecordExecutors(client: OdooWriter): Record<string, OdooAc
         return withPreview(payload, { model: p.model, label, count: rows.length, records: sample(rows), changes }, `${what}: ${text}.`);
       },
       async execute(payload) {
-        const { p, send, rows } = await updatePlan(payload);
+        const { p, defs, send, rows } = await updatePlan(payload);
         await client.write(p.model, p.ids, send);
-        const before = rows.map((r) => ({ id: r.id, name: nameOf(r), from: Object.fromEntries(Object.keys(send).map((f) => [f, r[f] ?? false])) }));
-        if (before.length === 1) return { model: p.model, id: before[0]!.id, name: before[0]!.name, from: before[0]!.from, to: send };
-        return { model: p.model, ids: p.ids, count: p.ids.length, to: send, records: before.slice(0, 50) };
+        const kept = Object.keys(send).filter((f) => defs[f]?.type !== "binary" && defs[f]?.type !== "image");
+        const before = rows.map((r) => ({ id: r.id, name: nameOf(r), from: Object.fromEntries(kept.map((f) => [f, r[f] ?? false])) }));
+        const to = Object.fromEntries(Object.entries(send).map(([f, v]) => [f, kept.includes(f) ? v : "(file)"]));
+        if (before.length === 1) return { model: p.model, id: before[0]!.id, name: before[0]!.name, from: before[0]!.from, to };
+        return { model: p.model, ids: p.ids, count: p.ids.length, to, records: before.slice(0, 50) };
       },
     },
 
@@ -409,7 +423,8 @@ export function createRecordExecutors(client: OdooWriter): Record<string, OdooAc
       const { defs, label } = await modelFor(p.model, "archive");
       if (!defs.active) throw new OdooError(`${p.model} records can't be archived: the model has no "active" field. Close or cancel it through its own workflow (odoo.record.action), or delete it in Odoo.`);
       if (defs.active.readonly) throw new OdooError(`${p.model}.active is read-only: this model is archived through its parent record`);
-      const rows = await recordsOf(p.model, p.ids, ["active"], defs);
+      const rows = await recordsOf(p.model, p.ids, ["active", ...(p.model === "res.partner" ? ["user_ids"] : [])], defs);
+      guardUserContacts(p.model, rows, ["active"]);
       const todo = rows.filter((r) => (r.active !== false) !== active);
       return { p, label, rows, todo };
     };

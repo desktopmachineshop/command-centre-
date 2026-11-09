@@ -70,6 +70,8 @@ describe("readable proposal details", () => {
     expect(voiceText("local", "kokoro:bm_george")).toBe("George (server voice, most natural)");
     expect(voiceText("local", "piper:jenny_dioco")).toBe("Jenny (server voice, fast)");
     expect(voiceText("local")).toBe("Server default voice");
+    expect(voiceText("auto")).toBe("The best voice the server has");
+    expect(voiceText("flite")).toMatch(/drafts only/);
   });
 });
 

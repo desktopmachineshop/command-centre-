@@ -174,6 +174,10 @@ const Production = z.object({
   exportFormat: z.enum(["fcpxml", "resolve-draft"]).optional(),
   /** Narration made on the server for this revision, by scene (also in the project's pool). */
   voice: z.record(z.string(), z.unknown()).default({}),
+  /** Jobs submitted before projects existed carried the request themselves: still honoured when they finish. */
+  targets: Targets.optional(),
+  publishAt: z.string().optional(),
+  encoder: Encoder.optional(),
 });
 type Production = z.infer<typeof Production>;
 
@@ -492,7 +496,7 @@ export class VideoProductions {
     }
     if (job.status !== "succeeded") return;
     const assetsOf = revision?.assets ?? planRevision({ spec, pool: [] }).assets;
-    const request: RevisionRequest = revision?.request ?? { targets: [], encoder: "auto" };
+    const request: RevisionRequest = revision?.request ?? { targets: production.targets ?? [], encoder: production.encoder ?? "auto", ...(production.publishAt ? { publishAt: production.publishAt } : {}) };
     const at = this.now().toISOString();
 
     if (job.kind === "video.capture") {

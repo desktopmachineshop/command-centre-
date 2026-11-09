@@ -86,6 +86,11 @@ describe("FCPXML", () => {
     expect(stack).toEqual([]);
   });
 
+  it("describes vertical and square frames as custom formats", () => {
+    const vertical = toFcpxml({ ...edit, width: 1080, height: 1920 });
+    expect(vertical).toContain('<format id="r1" frameDuration="1/30s" width="1080" height="1920" colorSpace="1-1-1 (Rec. 709)"/>');
+  });
+
   it("is deterministic, and works without music or narration", () => {
     expect(toFcpxml(edit)).toBe(doc);
     const bare = toFcpxml(buildEditTimeline({ ...spec, music: undefined }, FRAME[spec.format], timeline, { scenes: files.scenes, voices: {} }), { mediaPrefix: "" });

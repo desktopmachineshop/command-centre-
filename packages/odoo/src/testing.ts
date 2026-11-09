@@ -963,10 +963,14 @@ export function recordModels(): Record<string, FakeModel> {
     category_id: { type: "many2many", string: "Tags", relation: "res.partner.category" },
     bank_ids: { type: "one2many", string: "Banks", relation: "res.partner.bank" },
     child_ids: { type: "one2many", string: "Contacts", relation: "res.partner" },
+    user_ids: { type: "one2many", string: "Users", relation: "res.users" },
+    image_1920: { type: "image", string: "Image" },
+    x_bank_id: { type: "many2one", string: "Pays into", relation: "res.partner.bank" },
     commercial_partner_id: { type: "many2one", string: "Commercial Entity", relation: "res.partner", readonly: true },
     signup_token: char("Signup Token"),
     date: { type: "date", string: "Date" },
   };
+  m["res.partner"]!.records!.push({ id: 7, name: "Command Centre", email: "bot@example.com", is_company: false, parent_id: false, active: true, user_ids: [7] });
   m["res.partner"]!.records!.push({ id: 31, name: "Old Supplier Co", email: "old@supplier.example", is_company: true, parent_id: false, customer_rank: 0, active: false });
   m["res.partner.category"] = { fields: ["name"], records: [{ id: 1, name: "Trade" }, { id: 2, name: "School" }] };
   m["res.partner.bank"] = { fields: ["acc_number", "partner_id"], records: [] };

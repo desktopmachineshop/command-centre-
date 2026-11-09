@@ -97,7 +97,8 @@ why. Different changes to different records go in one `propose_batch`.
 **Not possible here, on purpose** (the refusal names the rule; tell Dave it is done in Odoo):
 deleting anything (archive instead); users, passwords, API keys and access groups; system
 settings, scheduled or server actions, automation rules, attachments, website pages; the company
-and settings screens; payment providers; bank accounts; payments and journal entries (an invoice
+and settings screens; payment providers; bank accounts (and which one a record pays into); the
+email of a contact who is an Odoo user; payments and journal entries (an invoice
 only while it is a **draft**, and only its reference, dates, payment terms and notes: everything
 else is `odoo.invoice.*`); emails, templates and mass mailings (`odoo.message.post` instead). If
 a button opens a wizard in Odoo (it needs more input), `odoo.record.action` stops and says which.
