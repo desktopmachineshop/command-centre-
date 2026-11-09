@@ -119,7 +119,8 @@ recording are stored, the outputs and exports, lint warnings, the revision histo
 work in progress). `video.archive`, or `VIDEO_PROJECT_RETENTION_DAYS` (default 90) without a
 change, deletes the pool and export clips; the nightly render clean-up never deletes a file an
 active project still refers to. Rendered videos follow `STORAGE_RENDER_RETENTION_DAYS` once
-their project is archived.
+their project is archived. Only the latest revision's MP4 is protected: an older revision's
+render ages out like any other, and rolling back to it re-composes it from the pool.
 
 **Without a media store** (no `PUBLIC_BASE_URL`) projects are still recorded, but nothing can be
 kept between renders, so every revision captures and voices again on one PC.
