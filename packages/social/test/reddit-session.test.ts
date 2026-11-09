@@ -149,7 +149,7 @@ describe("Reddit adapter in session mode", () => {
     const { ctx } = context(reddit.fetch);
     const adapter = createRedditAdapter();
     const post = await adapter.publish(account(), { text: "Body", title: "A title", target: "r/hobbycnc" }, ctx);
-    expect(post).toEqual({ id: "t3_new1", url: "https://old.reddit.com/r/hobbycnc/comments/new1/title/" });
+    expect(post).toEqual({ id: "t3_new1", url: "https://www.reddit.com/r/hobbycnc/comments/new1/title/" });
     expect(reddit.posts[0]).toMatchObject({ sr: "hobbycnc", title: "A title", kind: "self", text: "Body", uh: MODHASH });
     const dm = await adapter.sendDm!(account({ handle: undefined }), "u/maker1", "Hello", ctx);
     expect(dm.id).toBe("t4_sent1");

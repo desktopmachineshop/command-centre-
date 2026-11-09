@@ -235,18 +235,40 @@ describe.skipIf(!DB_URL)("reddit and research (integration)", () => {
     await systemJobs().socialPublish!();
     await systemJobs().socialPublish!();
     expect(oldReddit.state.comments.map((c) => c.text)).toEqual(["ER11 is the size you want. I run Desktop Machine Shop.", "Second reply."]);
-    expect(((await ctx.api("/api/social/outbox")).body as { status: string }[]).map((e) => e.status)).toEqual(["sent"]);
+    const sent = (await ctx.api("/api/social/outbox")).body as { id: string; status: string; result: { url: string } }[];
+    expect(sent).toEqual([expect.objectContaining({ status: "sent", result: expect.objectContaining({ ok: true, id: "t1_c2" }) })]);
+    // Too late to cancel something that has gone out.
+    expect((await ctx.api(`/api/social/outbox/${sent[0]!.id}/cancel`, { method: "POST" })).status).toBe(409);
+  });
+
+  it("lets Dave cancel an approved reply that is still waiting for its slot", async () => {
+    // Two more: the day's cap of 3 is then reached, so the second waits a day.
+    const a = await ctx.server.actions.propose({ vertical: "dms", taskId: null, ...reply("Reply three.") });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect((await ctx.api(`/api/proposals/${a.id}/approve`, { method: "POST" })).body.result.result).toMatchObject({ id: "t1_c3" });
+    const b = await ctx.server.actions.propose({ vertical: "dms", taskId: null, ...reply("Reply four.") });
+    const queued = (await ctx.api(`/api/proposals/${b.id}/approve`, { method: "POST" })).body.result.result as { status: string; outboxId: string; sendAt: string };
+    expect(queued.status).toBe("scheduled");
+    expect(Date.parse(queued.sendAt) - Date.now()).toBeGreaterThan(23 * 3_600_000);
+    const cancelled = await ctx.api(`/api/social/outbox/${queued.outboxId}/cancel`, { method: "POST" });
+    expect(cancelled.body).toMatchObject({ id: queued.outboxId, status: "cancelled" });
+    await systemJobs().socialPublish!();
+    expect(oldReddit.state.comments.map((c) => c.text)).not.toContain("Reply four.");
+    expect((await ctx.api("/api/social/outbox/not-a-uuid/cancel", { method: "POST" })).status).toBe(404);
   });
 
   it("tells Dave to reconnect on the Accounts page when the session has expired", async () => {
+    // A loose daily cap for this test, so the reply is tried now rather than queued for tomorrow.
+    await ctx.api("/api/integrations/reddit-session/dms-reddit", { method: "PUT", json: { data: { dailyCap: 20 } } });
     oldReddit.state.signedIn = false;
-    await new Promise((r) => setTimeout(r, 1300));
-    const proposed = await ctx.server.actions.propose({ vertical: "dms", taskId: null, ...reply("Third reply.") });
+    await new Promise((r) => setTimeout(r, 1600));
+    const before = oldReddit.state.comments.length;
+    const proposed = await ctx.server.actions.propose({ vertical: "dms", taskId: null, ...reply("Reply five.") });
     expect(proposed.status).toBe("pending");
     const approved = await ctx.api(`/api/proposals/${proposed.id}/approve`, { method: "POST" });
     expect(approved.body.status).toBe("failed");
     expect(JSON.stringify(approved.body.result)).toMatch(/Reconnect Reddit on the Accounts page/);
-    expect(oldReddit.state.comments).toHaveLength(2);
+    expect(oldReddit.state.comments).toHaveLength(before);
     const alert = ctx.notifier.sent.find((n) => n.title === "Reddit sign-in expired");
     expect(alert?.body).toMatch(/u\/dave_dms: Reddit no longer accepts the saved session/);
     const entry = (await ctx.api("/api/integrations")).body.entries.find((e: { kind: string }) => e.kind === "reddit-session");
@@ -271,7 +293,8 @@ describe.skipIf(!DB_URL)("reddit and research (integration)", () => {
   });
 
   it("keeps competitor snapshots in the database and reports what changed, per business", async () => {
-    const snapshot = { server: "research", tool: "competitor_snapshot", args: { competitor: "Rival Tools", site: "rival.example.com", vertical: "dms" } };
+    // No `vertical`: the task is filed under dms, so that is whose competitor it is.
+    const snapshot = { server: "research", tool: "competitor_snapshot", args: { competitor: "Rival Tools", site: "rival.example.com" } };
     const first = await chat("dms: snapshot Rival", [snapshot]);
     expect(JSON.parse(toolResult(first.last.result, 0))).toMatchObject({ snapshot: { competitor: "rival-tools", products: 1, currency: "GBP" }, changes: { first: true } });
 

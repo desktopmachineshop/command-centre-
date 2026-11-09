@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react";
-import type { Api, MediaRef, PostContent, ScheduledPost, SocialAccount } from "../api";
+import type { Api, MediaRef, PostContent, ScheduledPost, SocialAccount, SocialOutboxEntry } from "../api";
 import { ago } from "../format";
 import { type LiveFeed, useLoad } from "../live";
 import { CharCount, charCount, handleLabel, MediaThumbs, platformLabel } from "../social";
@@ -24,6 +24,7 @@ export function Social({ api, feed }: { api: Api; feed: LiveFeed }) {
           <Composer api={api} accounts={accounts.data} />
           <div>
             <Scheduled api={api} feed={feed} accounts={accounts.data} />
+            <Outbox api={api} feed={feed} accounts={accounts.data} />
             <Recent api={api} feed={feed} />
             <Accounts accounts={accounts.data} />
           </div>
@@ -338,6 +339,85 @@ function Scheduled({ api, feed, accounts }: { api: Api; feed: LiveFeed; accounts
                 )}
               </div>
               {p.result && !p.result.ok && <div className="error small">{p.result.error}</div>}
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+const OUTBOX_KIND: Record<SocialOutboxEntry["actionType"], string> = { "social.reply": "Reply", "social.post": "Post", "social.dm": "Message" };
+
+/** Where an outbox entry is going, e.g. "r/hobbycnc" or "to u/maker1". */
+function outboxTarget(e: SocialOutboxEntry): string {
+  const p = e.payload;
+  if (e.actionType === "social.dm") return p.userId ? `to ${p.userId}` : "";
+  const sub = (p.target?.subreddit ?? p.content?.target ?? "").replace(/^r\//, "");
+  return sub ? `r/${sub}` : "";
+}
+
+/**
+ * Approved replies, posts and messages of a paced account (Reddit with your own login) that are
+ * waiting for their slot, and how the recent ones went. Hidden when there is nothing to show.
+ */
+function Outbox({ api, feed, accounts }: { api: Api; feed: LiveFeed; accounts: SocialAccount[] }) {
+  const { data, error, reload } = useLoad(api.socialOutbox, feed, (m) => m.type === "proposal.updated");
+  const [busy, setBusy] = useState<string | null>(null);
+  const cancel = async (e: SocialOutboxEntry) => {
+    if (!confirm("Cancel this one? It was approved, but it won't be sent.")) return;
+    setBusy(e.id);
+    try {
+      await api.cancelOutbox(e.id);
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setBusy(null);
+      void reload();
+    }
+  };
+  if (!data?.length && !error) return null;
+  return (
+    <>
+      <div className="section-title">
+        <h3>Waiting to send</h3>
+        <button type="button" className="ghost small" onClick={() => void reload()}>
+          <Icon name="refresh" size={14} />
+          Refresh
+        </button>
+      </div>
+      <p className="muted small">Approved, and going out one at a time so the account keeps a person's pace.</p>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      <ul className="list">
+        {data?.map((e) => {
+          const a = accounts.find((x) => x.id === e.accountId);
+          const text = e.payload.text ?? e.payload.content?.text ?? "";
+          return (
+            <li key={e.id} className="card">
+              <div className="row between small">
+                <span>
+                  <strong>{OUTBOX_KIND[e.actionType]}</strong> <span className="muted">{a ? `${platformLabel(a.platform)} ${handleLabel(a)}` : e.accountId} {outboxTarget(e)}</span>
+                </span>
+                <Status value={e.status === "sent" ? "done" : e.status === "cancelled" ? "rejected" : e.status === "queued" ? "pending" : e.status} label={e.status === "queued" ? "waiting" : e.status} />
+              </div>
+              {e.payload.content?.title && <div className="title">{e.payload.content.title}</div>}
+              <div className="small prewrap clip">{text}</div>
+              <div className="row between small">
+                <span className="muted">
+                  <Icon name="clock" size={14} /> {new Date(e.notBefore).toLocaleString()}
+                </span>
+                {e.status === "queued" && (
+                  <button className="danger-text small" disabled={busy === e.id} onClick={() => void cancel(e)}>
+                    Cancel
+                  </button>
+                )}
+                {e.result?.url && (
+                  <a href={e.result.url} target="_blank" rel="noreferrer">
+                    view on Reddit
+                  </a>
+                )}
+              </div>
+              {e.result && !e.result.ok && <div className="error small">{e.result.error}</div>}
             </li>
           );
         })}

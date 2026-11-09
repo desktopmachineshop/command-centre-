@@ -195,7 +195,9 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
     );
     const thing = res.json.data?.things?.[0]?.data;
     if (!thing) throw new RedditApiError("Reddit accepted the comment but returned no id", 200);
-    return { id: thing.name ?? `t1_${thing.id}`, url: thing.permalink ? `https://www.reddit.com${thing.permalink}` : undefined };
+    // old.reddit.com's form endpoint may give the fullname as `id` and no `name`.
+    const id = thing.name ?? (/^t\d_/.test(thing.id) ? thing.id : `t1_${thing.id}`);
+    return { id, url: thing.permalink ? `https://www.reddit.com${thing.permalink}` : undefined };
   };
 
   return {
@@ -250,7 +252,7 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
       const id = data.name ?? (data.id ? `t3_${data.id}` : undefined);
       if (!id) throw new RedditApiError("Reddit accepted the post but returned no id", 200);
       const shortId = id.replace(/^t3_/, "");
-      const url = data.url?.includes("/comments/") ? data.url : `https://www.reddit.com/r/${sr}/comments/${shortId}/`;
+      const url = data.url?.includes("/comments/") ? data.url.replace(/^https?:\/\/old\.reddit\.com/, "https://www.reddit.com") : `https://www.reddit.com/r/${sr}/comments/${shortId}/`;
 
       if (link && text.trim()) {
         try {

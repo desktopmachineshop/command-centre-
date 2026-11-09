@@ -13,6 +13,8 @@ export interface ResearchMcpOptions {
   store: SnapshotStore;
   /** The run's business: its snapshots are the only ones it sees. null (Dave, or the assistant on work he started): `vertical` is a tool argument. */
   vertical: string | null;
+  /** With `vertical` null: the business used when a call doesn't name one (the task's own, for the assistant). */
+  defaultVertical?: string;
   /** Transport and limits for every fetch (tests inject a transport and lookup). */
   fetch?: SafeFetchOptions;
   /** Called when a tool returns page content, so the server can treat the task as having read outside input. */
@@ -43,11 +45,12 @@ export function createResearchMcpServer(options: ResearchMcpOptions): McpServer 
   const now = options.now ?? (() => new Date());
   const get = (url: string, extra: SafeFetchOptions = {}) => safeFetch(url, { ...options.fetch, ...extra });
   // A run in one business never names another: the argument only counts when `options.vertical` is null.
-  const verticalArg = { vertical: z.string().regex(/^[a-z0-9-]+$/).optional().describe("The business (vertical id) whose competitor this is, e.g. dms. Only needed outside an agent run, or in the assistant's runs") };
+  const verticalArg = { vertical: z.string().regex(/^[a-z0-9-]+$/).optional().describe("The business (vertical id) whose competitor this is, e.g. dms. Only needed outside an agent run, or in the assistant's runs when it isn't the task's own business") };
   const verticalOf = (given: unknown): string => {
     if (options.vertical) return options.vertical;
-    if (typeof given !== "string" || !given) throw new Error("Say which business this is for: vertical (e.g. dms)");
-    return given;
+    if (typeof given === "string" && given) return given;
+    if (options.defaultVertical) return options.defaultVertical;
+    throw new Error("Say which business this is for: vertical (e.g. dms)");
   };
   const refused = async (): Promise<string | null> => (typeof options.refuseFetch === "function" ? options.refuseFetch() : (options.refuseFetch ?? null));
   const read = <T>(value: T): T => {

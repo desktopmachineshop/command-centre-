@@ -917,13 +917,26 @@ export class Store {
     return rows.map(toOutboxEntry);
   }
 
-  /** Queued and recently finished submissions of paced accounts, soonest first (for the Social page and tests). */
-  async listSubmissions(options: { status?: OutboxEntry["status"]; limit?: number } = {}): Promise<OutboxEntry[]> {
-    const { rows } = await this.pool.query("select * from social_outbox where ($1::text is null or status = $1) and (status <> 'sent' or payload <> '{}') order by not_before limit $2", [
-      options.status ?? null,
-      options.limit ?? 100,
-    ]);
+  /**
+   * What the Social page shows of paced accounts' submissions: those waiting for their slot
+   * (soonest first), then the ones that were queued and went out, failed or were cancelled in the
+   * last three days. Submissions that went straight out are only pacing records, and are left out.
+   */
+  async listSubmissions(options: { limit?: number } = {}): Promise<OutboxEntry[]> {
+    const { rows } = await this.pool.query(
+      `select * from social_outbox
+       where status in ('queued', 'sending') or (payload <> '{}' and updated_at > now() - interval '3 days')
+       order by (status in ('queued', 'sending')) desc, case when status in ('queued', 'sending') then not_before end asc, updated_at desc
+       limit $1`,
+      [options.limit ?? 100],
+    );
     return rows.map(toOutboxEntry);
+  }
+
+  /** Cancels a submission still waiting for its slot; null when it has already gone (or is going) out. */
+  async cancelSubmission(id: string): Promise<OutboxEntry | null> {
+    const { rows } = await this.pool.query("update social_outbox set status = 'cancelled', updated_at = now() where id = $1 and status = 'queued' returning *", [id]);
+    return rows[0] ? toOutboxEntry(rows[0]) : null;
   }
 
   /** Upcoming posts first (soonest first), then the rest, newest first. */

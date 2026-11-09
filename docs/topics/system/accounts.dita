@@ -57,6 +57,7 @@
     <prolog><resourceid appname="command-centre" appid="accounts.social"/></prolog>
     <body>
       <p>In <wintitle>Social</wintitle>, choose <uicontrol>Add account</uicontrol>, pick the <uicontrol>Platform</uicontrol> and the business, give it a short <uicontrol>Name</uicontrol> the agents refer to it by (such as <userinput>dms-instagram</userinput>), and continue to the platform's sign-in. Add one per platform per business. Accounts are grouped by business.</p>
+      <p><uicontrol>Reddit (your own login)</uicontrol> connects Reddit without a developer app: instead of a sign-in button, paste the <codeph>reddit_session</codeph> cookie from a browser where you are signed in to Reddit (developer tools, then the site's cookies), and choose <uicontrol>Test</uicontrol> to see the username and karma it signs in as. Posts and replies still wait in <xref href="../work/approvals.dita">Approvals</xref>, and go out a few a day, spaced out. This automates your own account outside Reddit's official API, which Reddit's terms may not allow; the account can be rate limited or banned. When the session expires you get a <systemoutput>Reddit sign-in expired</systemoutput> alert: paste a fresh cookie.</p>
     </body>
   </topic>
   <topic id="developer-apps">

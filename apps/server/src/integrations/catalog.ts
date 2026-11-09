@@ -357,7 +357,7 @@ export const CATALOG: readonly KindDef[] = [
     multi: true,
     fields: [
       vertical,
-      { ...handle, placeholder: "u/name", help: "Filled in by Test connection." },
+      { ...handle, placeholder: "u/name", help: "Your Reddit username, so agents can check your own history before replying." },
       displayName,
       inbound,
       {

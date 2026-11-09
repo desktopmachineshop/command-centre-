@@ -350,13 +350,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
    * the account's card and pushed once a day, pointing at the Accounts page, like an expired Meta token.
    */
   const socialAuthAlerted = new Set<string>();
-  const socialAuthAlert = (account: SocialAccount, message: string) => {
+  const socialAuthAlert = async (account: SocialAccount, message: string): Promise<void> => {
     const key = `${account.id}:${new Date().toISOString().slice(0, 10)}`;
     if (socialAuthAlerted.has(key)) return;
     socialAuthAlerted.add(key);
     const kind = kindOfAccount(account);
-    void integrations.patchMeta(kind, account.id, { lastTest: { at: new Date().toISOString(), ok: false, message: message.slice(0, 300) } }).catch(() => {});
-    void notifier
+    await integrations.patchMeta(kind, account.id, { lastTest: { at: new Date().toISOString(), ok: false, message: message.slice(0, 300) } }).catch(() => {});
+    await notifier
       .notify({
         title: `${platformLabel(account.platform)} sign-in expired`,
         body: `${account.handle ?? account.id}: ${message.slice(0, 220)}`,
@@ -388,7 +388,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
             defaultPollSeconds: c.social.defaultPollSeconds,
             fetch: overrides.socialFetch,
             onError: (account, err) => {
-              if ((err as { reconnect?: unknown } | null)?.reconnect === true) socialAuthAlert(account, (err as Error).message);
+              if ((err as { reconnect?: unknown } | null)?.reconnect === true) void socialAuthAlert(account, (err as Error).message);
             },
           })
         : undefined,
@@ -406,9 +406,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       adapters: socialAdapters,
       send: sendQueuedSubmission,
       fetch: overrides.socialFetch,
+      // A queued post releases its work in progress when it actually goes out, like a scheduled one.
+      onSent: async (entry) => {
+        if (entry.actionType === "social.post") await releaseWork(entry.payload, entry.vertical);
+      },
       onFailure: async (entry, error) => {
         const account = accounts.find((a) => a.id === entry.accountId);
-        if (account && /reconnect reddit/i.test(error)) socialAuthAlert(account, error);
+        if (account && /reconnect reddit/i.test(error)) await socialAuthAlert(account, error);
         await notifier.notify({
           title: "Queued social reply failed",
           body: `${entry.actionType} on ${entry.accountId}: ${error}`.slice(0, 400),
@@ -770,6 +774,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     return createResearchMcpServer({
       store: snapshots,
       vertical: scope && !scope.anyVertical ? scope.vertical : null,
+      defaultVertical: scope?.vertical,
       fetch: overrides.researchFetch,
       onRead: scope ? () => actions.markOutsideInput(scope.taskId, "web") : undefined,
       refuseFetch: scope

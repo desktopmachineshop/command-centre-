@@ -206,6 +206,19 @@ export type ScheduledPost = {
   updatedAt: string;
 };
 
+/** An approved reply, post or DM of a paced account (Reddit with your own login) waiting for its slot, or how it went. */
+export type SocialOutboxEntry = {
+  id: string;
+  accountId: string;
+  vertical: string;
+  actionType: "social.post" | "social.reply" | "social.dm";
+  payload: { text?: string; userId?: string; target?: { id?: string; subreddit?: string }; content?: PostContent };
+  notBefore: string;
+  status: "queued" | "sending" | "sent" | "failed" | "cancelled";
+  result: { ok: boolean; id?: string; url?: string | null; error?: string } | null;
+  createdAt: string;
+};
+
 export type SocialEvent = Event & { taskId: string | null; taskStatus: string | null };
 
 // --- pa: the Today page (GET /api/pa/today etc.) ---
@@ -464,6 +477,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     socialEvents: () => call<SocialEvent[]>("/social/events"),
     socialScheduled: () => call<ScheduledPost[]>("/social/scheduled"),
     cancelScheduled: (id: string) => post<ScheduledPost>(`/social/scheduled/${id}/cancel`),
+    socialOutbox: () => call<SocialOutboxEntry[]>("/social/outbox"),
+    cancelOutbox: (id: string) => post<SocialOutboxEntry>(`/social/outbox/${id}/cancel`),
     compose: (campaign: Campaign) => post<Proposal>("/social/compose", campaign),
     // --- pa ---
     today: (day?: string) => call<TodayView>(`/pa/today${day ? `?day=${day}` : ""}`),

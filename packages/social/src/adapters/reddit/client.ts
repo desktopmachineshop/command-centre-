@@ -204,6 +204,10 @@ function describeError(code: string, message: string, field?: string): string {
   switch (code) {
     case "RATELIMIT":
       return `rate limited by Reddit (${message}); the account is posting too often, wait before retrying`;
+    case "BAD_CAPTCHA":
+      return "Reddit asked for a captcha, which the Command Centre never solves; post this one by hand on Reddit";
+    case "USER_REQUIRED":
+      return "Reddit says the account isn't signed in; reconnect Reddit on the Accounts page";
     case "SUBREDDIT_NOEXIST":
       return "that subreddit doesn't exist (check content.target, without the r/)";
     case "SUBREDDIT_NOTALLOWED":

@@ -29,6 +29,10 @@ except notes you write to the brain. That is by design; don't try to work round 
 | `search_posts`, `get_thread` (reddit) | What people say about a competitor, and about us |
 | `WebSearch` | Finding competitors and review pages you don't have a URL for yet |
 
+The snapshot tools keep each business's competitors apart. They use the business this task is
+filed under; when you (the assistant) are working for a different one, pass its id as `vertical`
+(e.g. `"dms"`).
+
 Use `fetch_page` rather than `WebFetch` for competitor pages: it reads structured prices, says
 exactly which URL answered and when, and refuses unsafe addresses.
 
