@@ -48,6 +48,24 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
     runner.requests.length = 0;
   });
 
+  it("resolves card references live, and tells agents with odoo which cards they can show", async () => {
+    const { body } = await ctx.api(`/api/cards?refs=${encodeURIComponent("odoo.product:SP-300W,odoo.order:S00042,odoo.product:NOPE,nope,sendcloud.parcel:1")}`);
+    expect(body.cards.map((c: any) => c.ref)).toEqual(["odoo.product:SP-300W", "odoo.order:S00042", "odoo.product:NOPE", "nope", "sendcloud.parcel:1"]);
+    expect(body.cards[0].card).toMatchObject({ ref: "odoo.product:SP-300W", kind: "odoo.product", title: "300W spindle", subtitle: "SP-300W", badges: [{ text: "In stock", tone: "good" }, { text: "On website", tone: "neutral" }] });
+    expect(body.cards[0].card.url).toBe(`${odoo.url}/web#id=2&model=product.product&view_type=form`);
+    expect(body.cards[1].card).toMatchObject({ title: "S00042", subtitle: "Jane Doe" });
+    expect(body.cards[2].error).toBe("Nothing found for odoo.product:NOPE");
+    expect(body.cards[3].error).toMatch(/Not a card reference/);
+    expect(body.cards[4].error).toMatch(/No sendcloud.parcel cards/);
+    expect((await ctx.server.app.request("/api/cards?refs=odoo.product:1")).status).toBe(401);
+
+    await ctx.api("/api/chat", { method: "POST", json: { text: "dms: show me the 300W spindle" } });
+    await ctx.queue.drain();
+    const prompt = runner.requests[0]!.systemPrompt!;
+    expect(prompt).toContain("## Cards");
+    expect(prompt).toContain("- `odoo.product:<id>`:");
+  });
+
   it("gives the assistant odoo tools on Dave's chats, whatever the business", async () => {
     calls.push({ server: "odoo", tool: "get_order", args: { name: "S00042" } });
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "dms: where is order S00042?" } });

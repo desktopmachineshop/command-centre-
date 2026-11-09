@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { RecordCard } from "../src/cards";
 import { Markdown } from "../src/markdown";
 
 const html = (text: string) => renderToStaticMarkup(createElement(Markdown, { text }));
@@ -25,6 +26,15 @@ describe("Markdown", () => {
 
   it("renders fenced code verbatim", () => {
     expect(html("```ts\nconst a = **1**;\n```")).toContain('<pre><code class="lang-ts">const a = **1**;</code></pre>');
+  });
+
+  it("draws a card block as cards, not code", () => {
+    const out = html("Here it is:\n\n```card\nodoo.product:42\nodoo.order:S00042\n```\n\nAnything else?");
+    expect(out).not.toContain("<pre>");
+    expect(out).toContain('<div class="record-cards">');
+    expect(out).toContain('<code class="record-card-ref">odoo.product:42</code>');
+    expect(out).toContain('<code class="record-card-ref">odoo.order:S00042</code>');
+    expect(out).toContain("<p>Anything else?</p>");
   });
 
   it("renders tables", () => {
@@ -80,5 +90,18 @@ describe("what the app shows of a voice-mode task", () => {
   it("leaves URLs, plain words and non-note code alone", () => {
     expect(html("https://example.com/docs/a.md")).toContain('href="https://example.com/docs/a.md" target="_blank"');
     expect(html("README.md and `src/app.ts`")).not.toContain("<a");
+  });
+
+  it("draws a card with its picture, badges, facts and a safe link", () => {
+    const card = { ref: "odoo.product:1", kind: "odoo.product", title: "ER11 collet set", subtitle: "ER11-7", image: "data:image/png;base64,AAAA", url: "https://x.odoo.com/web#id=1", badges: [{ text: "In stock", tone: "good" as const }], facts: [{ label: "On hand", value: "3" }], footnote: "Live from Odoo" };
+    const out = renderToStaticMarkup(createElement(RecordCard, { card }));
+    expect(out).toContain('<img class="record-card-image" src="data:image/png;base64,AAAA"');
+    expect(out).toContain('<span class="record-badge tone-good">In stock</span>');
+    expect(out).toContain("<dt>On hand</dt><dd>3</dd>");
+    expect(out).toContain('href="https://x.odoo.com/web#id=1"');
+    expect(out).toContain("Open in Odoo");
+    const unsafe = renderToStaticMarkup(createElement(RecordCard, { card: { ...card, url: "javascript:alert(1)", image: "data:image/svg+xml;base64,AAAA" } }));
+    expect(unsafe).not.toContain("javascript:");
+    expect(unsafe).not.toContain("svg+xml");
   });
 });

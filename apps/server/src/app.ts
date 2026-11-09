@@ -3,10 +3,10 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AgentRunner, type AgentRunResult, ClaudeCodeRunner, CodexRunner, FallbackRunner, isUsageLimit, ScriptedRunner } from "@cc/agent-runtime";
 import { auditIssues, ISSUES_README, PgBrain } from "@cc/brain";
-import { ROOT_ROLE_ID } from "@cc/core";
+import { type CardProvider, ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
 import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
-import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller } from "@cc/odoo";
+import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller, odooCardProviders } from "@cc/odoo";
 import { CalendarService, ContactsService, createCalendarExecutors, createContactsExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
 import {
   type AdapterMap,
@@ -32,6 +32,7 @@ import { DmsIdSignIn } from "./accounts/dmsid";
 import { AuthService } from "./accounts/service";
 import { type ActionExecutor, ActionService, builtinExecutors } from "./actions";
 import { BudgetService } from "./budget";
+import { cardGuide, CardService } from "./cards";
 import type { Config } from "./config";
 import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
@@ -453,16 +454,18 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Odoo, when configured: read tools at /mcp/odoo, writes only as (draft-policy) actions.
   // Its event poller (orders, messages, stock, deliveries, reviews) starts in start().
   const buildOdoo = (c: Config) => {
-    if (!c.odoo) return { client: undefined, executors: {}, events: undefined, db: undefined };
+    if (!c.odoo) return { client: undefined, executors: {}, events: undefined, db: undefined, cards: {} as Record<string, CardProvider> };
     const client = new OdooClient(c.odoo);
     const eventsConfig = c.odooEvents;
     if (eventsConfig) for (const v of [eventsConfig.defaultVertical, ...Object.values(eventsConfig.websites)]) verticals.require(v);
     const events = eventsConfig?.sources.length
       ? new OdooEventPoller({ client, store, config: eventsConfig, instance: c.odoo.db, baseUrl: c.odoo.url, ingest: (e) => pipeline.ingest(e) })
       : undefined;
-    return { client, executors: createOdooExecutors(client), events, db: c.odoo.db };
+    return { client, executors: createOdooExecutors(client), events, db: c.odoo.db, cards: odooCardProviders(client, c.odoo.url) };
   };
   const odoo = new Live(buildOdoo(config), { start: (v) => v.events?.start(), stop: (v) => v.events?.stop() });
+  // Cards (./cards.ts, docs/CARDS.md): each connected integration's card kinds, resolved live for the app.
+  const cards: CardService = new CardService((): Record<string, CardProvider> => ({ ...odoo.current.cards }));
 
   // Sendcloud, when an account is set: the digest's Shipping section and read tools at /mcp/sendcloud.
   const buildShipping = (c: Config) => {
@@ -783,6 +786,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     dataDir: config.dataDir,
     skillsDir: config.skillsDir,
     appGuide: helpDocs.pageGuide(),
+    cardGuide: (servers: string[]): string => cardGuide(cards.kinds(servers)),
     internalBaseUrl: config.internalBaseUrl,
     maxTurns: config.agent.maxTurns,
     notifier, // pushes for filed events that ask for one (incoming RFQs, supplier replies)
@@ -853,7 +857,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards }));
   app.route(
     "/mcp",
     mcpRoutes({
