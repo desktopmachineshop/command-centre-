@@ -148,7 +148,9 @@ offsets and volume. OTIO would need its Python library on the server or the PC.
 
 Limits, stated plainly: this is **not tested against a real Resolve** (the Resolve script runs
 against a stand-in in tests, and the document is checked for structure, frame-exact lengths and
-that every file exists, not by an NLE). The SRT is not placed on a subtitle track for him
+that every file exists, not by an NLE; a generated document was also read back once with
+OpenTimelineIO's FCPX adapter, which found the video track, the narration lane at the right
+offsets and the music lane). The SRT is not placed on a subtitle track for him
 (Resolve: File → Import → Subtitle, then drag it on). The music clip is as long as the video;
 a shorter track is looped in the render but not in the timeline. Edits made in Resolve do not
 come back into the project.
