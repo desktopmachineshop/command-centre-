@@ -9,13 +9,22 @@ import {
   type SocialAccount,
   validateAgainstCapabilities,
 } from "../types";
-import { type RedditCredentials as Creds, RedditApiError, RedditClient, type Sleep } from "./reddit/client";
+import { type RedditCredentials as ApiCreds, RedditApiError, RedditClient, type Sleep } from "./reddit/client";
+import { parseSessionCookie, RedditSessionClient, type RedditSessionCredentials, type RedditSessionUser } from "./reddit/session";
 
 /**
- * Reddit: Dave's own account, signed in on the Accounts page through a "web app" (refresh-token
- * grant: credentials {clientId, clientSecret, refreshToken, userAgent?}, the username from the
- * account's handle), or through a "script" app (password grant: {clientId, clientSecret,
- * username, password, userAgent}).
+ * Reddit: Dave's own account, in one of two modes.
+ * - API mode: signed in on the Accounts page through a "web app" (refresh-token grant:
+ *   credentials {clientId, clientSecret, refreshToken, userAgent?}, the username from the
+ *   account's handle), or through a "script" app (password grant: {clientId, clientSecret,
+ *   username, password, userAgent}). Calls go to Reddit's Data API.
+ * - Session mode, for when Reddit won't grant an API app: credentials {sessionCookie, tokenV2?,
+ *   username?, userAgent?}, the `reddit_session` cookie of Dave's own browser sign-in, used
+ *   against old.reddit.com (./reddit/session.ts, with what that means and what it never does).
+ *   A `sessionCookie` wins over app keys. Session accounts are paced by default (`pacing`):
+ *   10 minutes between submissions and 8 a day, which the executors enforce.
+ * Everything below is the same in both modes.
+ *
  *
  * Publish (`POST /api/submit`) to the subreddit in `content.target` (with or without "r/"):
  * - `content.link` -> link post. If `text` is also given it is added as the author's first
@@ -41,23 +50,46 @@ const USER_AGENT_HINT = "userAgent must look like '<platform>:<app id>:<version>
 
 export const RedditCredentials = z
   .object({
-    clientId: z.string().min(1, "clientId is required"),
-    clientSecret: z.string().min(1, "clientSecret is required"),
+    /** Session mode: the `reddit_session` cookie (its value, `reddit_session=<value>`, or a pasted Cookie header). */
+    sessionCookie: z.string().min(1).optional(),
+    /** Session mode: the `token_v2` cookie, sent alongside when given. */
+    tokenV2: z.string().min(1).optional(),
+    clientId: z.string().min(1).optional(),
+    clientSecret: z.string().min(1).optional(),
     /** Refresh-token grant (Accounts page sign-in). Without it, username + password (script app). */
     refreshToken: z.string().min(1).optional(),
     username: z.string().min(1).optional(),
     password: z.string().min(1).optional(),
-    /** Required for the password grant; defaults to "web:command-centre:1.0 (by /u/<name>)" with a refresh token. */
+    /** Required for the password grant; defaults to "web:command-centre:1.0 (by /u/<name>)" otherwise. */
     userAgent: z.string().min(1).optional(),
   })
   .superRefine((c, ctx) => {
+    if (c.userAgent && !USER_AGENT.test(c.userAgent)) ctx.addIssue({ code: "custom", path: ["userAgent"], message: USER_AGENT_HINT });
+    if (c.sessionCookie) {
+      try {
+        parseSessionCookie(c.sessionCookie, c.tokenV2);
+      } catch (err) {
+        ctx.addIssue({ code: "custom", path: ["sessionCookie"], message: (err as Error).message });
+      }
+      return;
+    }
+    if (!c.clientId) ctx.addIssue({ code: "custom", path: ["clientId"], message: "clientId is required" });
+    if (!c.clientSecret) ctx.addIssue({ code: "custom", path: ["clientSecret"], message: "clientSecret is required" });
     if (!c.refreshToken) {
       if (!c.username) ctx.addIssue({ code: "custom", path: ["username"], message: "username is required" });
       if (!c.password) ctx.addIssue({ code: "custom", path: ["password"], message: "password is required" });
       if (!c.userAgent) ctx.addIssue({ code: "custom", path: ["userAgent"], message: "userAgent is required" });
     }
-    if (c.userAgent && !USER_AGENT.test(c.userAgent)) ctx.addIssue({ code: "custom", path: ["userAgent"], message: USER_AGENT_HINT });
   });
+
+type Creds = (ApiCreds & { mode: "api" }) | RedditSessionCredentials;
+
+/** True for an account whose credentials are a browser session cookie, not an API app. */
+export const isRedditSessionAccount = (account: Pick<SocialAccount, "platform" | "credentials">) => account.platform === "reddit" && !!account.credentials.sessionCookie;
+
+/** Default pacing of session accounts: a person's rhythm. Overridden per account in `options`. */
+export const SESSION_MIN_GAP_MINUTES = 10;
+export const SESSION_DAILY_CAP = 8;
 
 export const RedditOptions = z.object({
   /** Subject for DMs sent with sendDm. */
@@ -124,8 +156,20 @@ interface InfoData {
 const stripSub = (s: string) => s.trim().replace(/^\/?r\//i, "");
 const stripUser = (s: string) => s.trim().replace(/^\/?u(ser)?\//i, "");
 
+type CallOptions = { form?: Record<string, string | undefined>; query?: Record<string, string | undefined> };
+interface Caller {
+  call<T>(ctx: AdapterContext, c: Creds, path: string, opts?: CallOptions): Promise<T>;
+}
+
 export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapter {
-  const client = new RedditClient(deps.sleep);
+  const api = new RedditClient(deps.sleep);
+  const session = new RedditSessionClient(deps.sleep);
+  /** One call, to the Data API or to old.reddit.com with the session cookie. */
+  const client: Caller = {
+    call<T>(ctx: AdapterContext, c: Creds, path: string, opts: CallOptions = {}): Promise<T> {
+      return c.mode === "session" ? session.call<T>(ctx, c, path, opts) : api.call<T>(ctx, c, path, opts);
+    },
+  };
   const creds = (account: SocialAccount): Creds => {
     const parsed = RedditCredentials.safeParse(account.credentials);
     if (!parsed.success) {
@@ -135,15 +179,12 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
     const c = parsed.data;
     // Signed in with Connect: the name comes from the account's handle ("u/name").
     const username = c.username ?? stripUser((account.handle ?? "").replace(/^@/, ""));
-    return {
-      clientId: c.clientId,
-      clientSecret: c.clientSecret,
-      username,
-      password: c.password,
-      refreshToken: c.refreshToken,
-      userAgent: c.userAgent ?? `web:command-centre:1.0 (by /u/${username || "command-centre"})`,
-    };
+    const userAgent = c.userAgent ?? `web:command-centre:1.0 (by /u/${username || "command-centre"})`;
+    if (c.sessionCookie) return { mode: "session", ...parseSessionCookie(c.sessionCookie, c.tokenV2), username, userAgent };
+    return { mode: "api", clientId: c.clientId!, clientSecret: c.clientSecret!, username, password: c.password, refreshToken: c.refreshToken, userAgent };
   };
+  /** The account's own name: from its credentials or handle, else (session mode) from Reddit. */
+  const self = async (ctx: AdapterContext, c: Creds): Promise<string> => c.username || (c.mode === "session" ? (await session.me(ctx, c)).name : "");
 
   const comment = async (ctx: AdapterContext, c: Creds, thingId: string, text: string): Promise<PublishResult> => {
     const res = await client.call<{ json: { data?: { things?: Thing<{ id: string; name: string; permalink?: string }>[] } } }>(
@@ -233,7 +274,7 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
       if (!text.trim()) throw new Error("Reddit message text is empty");
       if ([...text].length > COMMENT_LIMIT) throw new Error(`Reddit messages are limited to ${COMMENT_LIMIT} characters`);
       const opts = RedditOptions.safeParse(account.options ?? {});
-      const subject = (opts.success && opts.data.dmSubject) || `Message from u/${c.username}`;
+      const subject = (opts.success && opts.data.dmSubject) || `Message from u/${await self(ctx, c)}`;
       const to = stripUser(userId);
       await client.call(ctx, c, "/api/compose", { form: { to, subject, text } });
       // /api/compose returns no id; look it up in the sent box (best effort).
@@ -245,6 +286,10 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
         ctx.log.error("[reddit] sent a message but couldn't look up its id", err);
       }
       return { id: `compose:${to}:${ctx.now().getTime()}` };
+    },
+
+    pacing(account) {
+      return isRedditSessionAccount(account) ? { minGapMinutes: SESSION_MIN_GAP_MINUTES, dailyCap: SESSION_DAILY_CAP } : null;
     },
 
     inbound: {
@@ -295,8 +340,9 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
         if (!fresh.length) return { items: [], cursor };
 
         const parents = await fetchParents(ctx, c, fresh, client);
+        const own = (await self(ctx, c)).toLowerCase();
         const items = fresh
-          .filter((d) => (d.author ?? "").toLowerCase() !== c.username.toLowerCase())
+          .filter((d) => (d.author ?? "").toLowerCase() !== own)
           .map((d) => toInboundItem(d, parents));
         const newest = fresh[fresh.length - 1]!;
         return { items, cursor: encodeCursor({ before: newest.name, since: Math.max(state.since, newest.created_utc) }) };
@@ -319,7 +365,7 @@ function decodeCursor(raw: string): Cursor {
 }
 
 /** Parent comments/posts of the inbox comments, in one /api/info call. */
-async function fetchParents(ctx: AdapterContext, c: Creds, items: InboxData[], client: RedditClient): Promise<Map<string, InfoData>> {
+async function fetchParents(ctx: AdapterContext, c: Creds, items: InboxData[], client: Caller): Promise<Map<string, InfoData>> {
   const ids = [...new Set(items.filter((d) => d.was_comment !== false && d.parent_id).map((d) => d.parent_id!))].slice(0, 100);
   const out = new Map<string, InfoData>();
   if (!ids.length) return out;
@@ -371,6 +417,16 @@ function toInboundItem(d: InboxData, parents: Map<string, InfoData>): InboundIte
   };
 }
 
+/**
+ * Who a session cookie signs in as (the Accounts page's "Test"): the username and karma, from
+ * old.reddit.com's /api/me.json. Throws RedditSessionExpiredError when it doesn't sign in.
+ */
+export async function redditSessionWhoami(credentials: { sessionCookie: string; tokenV2?: string; userAgent?: string }, ctx: AdapterContext, baseUrl?: string): Promise<RedditSessionUser> {
+  const c: RedditSessionCredentials = { mode: "session", ...parseSessionCookie(credentials.sessionCookie, credentials.tokenV2), username: "", userAgent: credentials.userAgent ?? "web:command-centre:1.0 (by /u/command-centre)" };
+  return new RedditSessionClient(undefined, baseUrl).me(ctx, c, { fresh: true });
+}
+
 export { RedditApiError } from "./reddit/client";
+export { parseSessionCookie, REDDIT_OLD, RedditSessionExpiredError, sessionCookieHeader } from "./reddit/session";
 export const redditAdapter: PlatformAdapter = createRedditAdapter();
 

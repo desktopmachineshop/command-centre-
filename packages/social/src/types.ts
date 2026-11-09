@@ -158,6 +158,12 @@ export interface PlatformAdapter {
   validate(account: SocialAccount, content: PostContent): string[];
   publish(account: SocialAccount, content: PostContent, ctx: AdapterContext): Promise<PublishResult>;
   reply(account: SocialAccount, target: ReplyTarget, text: string, ctx: AdapterContext): Promise<PublishResult>;
+  /**
+   * Limits on how often this account may submit (post, reply, DM), when the platform or the way
+   * the account is signed in calls for a person's rhythm; null for none. `account.options`
+   * (`minGapMinutes`, `dailyCap`) override it. Enforced by the executors (../pacing.ts).
+   */
+  pacing?(account: SocialAccount): { minGapMinutes: number; dailyCap: number } | null;
   /** Send a direct message to a user (where `capabilities.dm`). */
   sendDm?(account: SocialAccount, userId: string, text: string, ctx: AdapterContext): Promise<PublishResult>;
   inbound?: InboundSource;

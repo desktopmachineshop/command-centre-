@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AdapterMap } from "./accounts";
+import { describeLimits, MemorySubmissionStore, type OutboxEntry, Pacer, type PacedActionType, pacingFor, type SubmissionStore } from "./pacing";
 import { clip, oneLine, platformLabel } from "./prompt";
 import type { AdapterContext, AdapterLogger, PlatformAdapter, PostContent, PublishResult, ReplyTarget, SocialAccount } from "./types";
 import { Platform } from "./types";
@@ -59,6 +60,13 @@ export interface SocialExecutorOptions {
   adapters: AdapterMap;
   /** Needed for `social.campaign` with `publishAt`. */
   scheduled?: ScheduledPostStore;
+  /**
+   * Where paced accounts' submissions are recorded and queued (./pacing.ts). Without it the limits
+   * are still enforced, from memory, and a submission that can't go yet fails with the time it could.
+   */
+  submissions?: SubmissionStore;
+  /** Called when a platform says an account's sign-in no longer works (the server alerts Dave to reconnect it). */
+  onAuthError?: (account: SocialAccount, message: string) => void | Promise<void>;
   fetch?: typeof fetch;
   logger?: AdapterLogger;
   now?: () => Date;
@@ -220,6 +228,49 @@ export function createSocialExecutors(
 
   const result = (r: PublishResult) => ({ id: r.id, url: r.url ?? null });
 
+  const pacer = new Pacer(options.submissions ?? new MemorySubmissionStore(), now);
+  /** An expired sign-in is reported once more to the server, which tells Dave where to reconnect. */
+  const reportAuth = async (a: SocialAccount, err: unknown) => {
+    if ((err as { reconnect?: unknown } | null)?.reconnect !== true) return;
+    await Promise.resolve(options.onAuthError?.(a, (err as Error).message)).catch((e) => log.error("could not report an expired sign-in", e));
+  };
+  /**
+   * Sends one approved post, reply or DM. A paced account (./pacing.ts) that may not submit yet
+   * has it queued for its next free slot instead, and the result says when.
+   */
+  const submit = async (type: PacedActionType, a: SocialAccount, adapter: PlatformAdapter, payload: Record<string, unknown>, send: () => Promise<PublishResult>) => {
+    const limits = pacingFor(a, adapter);
+    try {
+      if (!limits) return result(await send());
+      if (!options.submissions) return result(await pacer.guarded(a, limits, type, send));
+      const store = options.submissions;
+      return await pacer.serial(a.id, async () => {
+        const slot = await pacer.slot(a, limits);
+        if (slot.getTime() <= now().getTime()) {
+          const r = await send();
+          await store.recordSubmission({ accountId: a.id, vertical: a.vertical, actionType: type, at: now() });
+          return result(r);
+        }
+        const entry = await store.queueSubmission({ accountId: a.id, vertical: a.vertical, actionType: type, payload, notBefore: slot });
+        log.info(`${a.id}: ${type} queued for ${slot.toISOString()} (${describeLimits(limits)})`);
+        return { status: "scheduled", outboxId: entry.id, sendAt: slot.toISOString(), when: formatWhen(slot, timeZone), reason: `${label(a)} is paced: ${describeLimits(limits)}` };
+      });
+    } catch (err) {
+      await reportAuth(a, err);
+      throw err;
+    }
+  };
+  /** A campaign post on a paced account goes now or not at all (the error says when it could). */
+  const publishNow = async (a: SocialAccount, adapter: PlatformAdapter, content: PostContent) => {
+    const limits = pacingFor(a, adapter);
+    try {
+      return await (limits ? pacer.guarded(a, limits, "social.campaign", () => adapter.publish(a, content, context())) : adapter.publish(a, content, context()));
+    } catch (err) {
+      await reportAuth(a, err);
+      throw err;
+    }
+  };
+
   return {
     "social.post": {
       description:
@@ -227,7 +278,7 @@ export function createSocialExecutors(
       validate: (payload, ctx) => void validatePost(payload, ctx.vertical),
       execute: async (payload) => {
         const { p, a, adapter } = validatePost(payload);
-        return result(await adapter.publish(a, p.content, context()));
+        return submit("social.post", a, adapter, payload, () => adapter.publish(a, p.content, context()));
       },
     },
     "social.reply": {
@@ -236,7 +287,7 @@ export function createSocialExecutors(
       validate: (payload, ctx) => void validateReply(payload, ctx.vertical),
       execute: async (payload) => {
         const { p, a, adapter } = validateReply(payload);
-        return result(await adapter.reply(a, p.target as ReplyTarget, p.text, context()));
+        return submit("social.reply", a, adapter, payload, () => adapter.reply(a, p.target as ReplyTarget, p.text, context()));
       },
     },
     "social.dm": {
@@ -244,7 +295,7 @@ export function createSocialExecutors(
       validate: (payload, ctx) => void validateDm(payload, ctx.vertical),
       execute: async (payload) => {
         const { p, a, adapter } = validateDm(payload);
-        return result(await adapter.sendDm(a, p.userId, p.text, context()));
+        return submit("social.dm", a, adapter, payload, () => adapter.sendDm(a, p.userId, p.text, context()));
       },
     },
     "social.campaign": {
@@ -281,7 +332,7 @@ export function createSocialExecutors(
         const settled = await Promise.allSettled(
           c.posts.map(async (post) => {
             const { account: a, adapter } = account(post.accountId);
-            return { a, r: await adapter!.publish(a, post.content, context()) };
+            return { a, r: await publishNow(a, adapter!, post.content) };
           }),
         );
         const published: { accountId: string; platform: string; id: string; url: string | null }[] = [];
@@ -304,8 +355,30 @@ export function createSocialExecutors(
   };
 }
 
+/**
+ * Sends one queued submission (./pacing.ts `sendDueSubmissions`): the payload Dave approved, parsed
+ * and checked again as it was when proposed, through its account's adapter.
+ */
+export async function sendQueuedSubmission(entry: OutboxEntry, account: SocialAccount, adapter: PlatformAdapter, ctx: AdapterContext): Promise<PublishResult> {
+  if (entry.actionType === "social.post") {
+    const p = parse(PostPayload, entry.actionType, entry.payload);
+    const problems = checkPost(account, adapter, p.content);
+    if (problems.length) throw new Error(problems.join("; "));
+    return adapter.publish(account, p.content, ctx);
+  }
+  if (entry.actionType === "social.reply") {
+    const p = parse(ReplyPayload, entry.actionType, entry.payload);
+    return adapter.reply(account, p.target as ReplyTarget, p.text, ctx);
+  }
+  const p = parse(DmPayload, entry.actionType, entry.payload);
+  if (!adapter.sendDm) throw new Error(`${platformLabel(account.platform)} direct messages are not supported`);
+  return adapter.sendDm(account, p.userId, p.text, ctx);
+}
+
 export interface PublishDueOptions {
   store: ScheduledPostStore;
+  /** Paced accounts (./pacing.ts): a scheduled post that would break the account's limits fails with the time it could go. */
+  submissions?: SubmissionStore;
   accounts: SocialAccount[];
   adapters: AdapterMap;
   /** Called once per failed post (the server pushes a notification). */
@@ -347,6 +420,7 @@ export async function publishDueScheduledPosts(options: PublishDueOptions): Prom
     await fail(post, interrupted);
   }
 
+  const pacer = options.submissions ? new Pacer(options.submissions, now) : null;
   const due = await options.store.claimDueScheduledPosts(now(), options.limit ?? 50);
   for (const post of due) {
     try {
@@ -355,7 +429,8 @@ export async function publishDueScheduledPosts(options: PublishDueOptions): Prom
       const adapter = options.adapters[account.platform];
       const problems = checkPost(account, adapter, post.content);
       if (problems.length) throw new Error(problems.join("; "));
-      const r = await adapter!.publish(account, post.content, ctx);
+      const limits = pacingFor(account, adapter);
+      const r = await (limits && pacer ? pacer.guarded(account, limits, "social.campaign", () => adapter!.publish(account, post.content, ctx)) : adapter!.publish(account, post.content, ctx));
       await options.store.finishScheduledPost(post.id, "published", { ok: true, id: r.id, url: r.url ?? null });
       published++;
       await options.onPublished?.(post).catch((err) => log.error(`after publishing ${post.id}`, err));

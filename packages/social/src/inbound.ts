@@ -20,6 +20,8 @@ export interface SocialInboundOptions {
   backoff?: { initialMs: number; maxMs: number };
   /** ± fraction of the poll interval added at random, so accounts don't poll in lockstep. Default 0.1. */
   jitter?: number;
+  /** Called for each failed poll or connection (the server alerts Dave when it is an expired sign-in). */
+  onError?: (account: SocialAccount, err: unknown) => void;
   fetch?: typeof fetch;
   logger?: AdapterLogger;
   now?: () => Date;
@@ -163,6 +165,11 @@ export class SocialInbound {
         if (this.stopped) return;
         wait = backoff.next();
         this.log.error(`${account.id}: poll failed: ${(err as Error).message}; retrying in ${Math.round(wait / 1000)}s`, err);
+        try {
+          this.options.onError?.(account, err);
+        } catch {
+          // Reporting is best effort.
+        }
       }
       await sleep(wait, this.abort.signal);
     }
