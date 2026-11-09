@@ -142,6 +142,53 @@ describe.skipIf(!DB_URL)("odoo (integration)", () => {
     await ctx.api(`/api/proposals/${pending.id}/reject`, { method: "POST" });
   });
 
+  it("holds generic record changes as one batch, with the server's preview, and runs them on one approval", async () => {
+    const update = (id: number, city: string) => ({ actionType: "odoo.record.update", summary: `Move contact ${id} to ${city}`, payload: { model: "res.partner", ids: [id], values: { city }, recordPreview: "looks fine" } });
+    calls.push({
+      server: "actions",
+      tool: "propose_batch",
+      args: {
+        summary: "Tidy the contacts: two cities and one archive",
+        items: [update(10, "York"), update(11, "Bristol"), { actionType: "odoo.record.archive", summary: "Archive the shipping product", payload: { model: "product.product", ids: [4] } }],
+      },
+    });
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "dms: tidy the contacts" } });
+    await ctx.queue.drain();
+
+    const proposals = ((await ctx.api(`/api/tasks/${body.task.id}`)).body.proposals as any[]).sort((a, b) => a.summary.localeCompare(b.summary));
+    expect(proposals.map((p) => [p.actionType, p.status, p.policy])).toEqual([
+      ["odoo.record.archive", "pending", "draft"],
+      ["odoo.record.update", "pending", "draft"],
+      ["odoo.record.update", "pending", "draft"],
+    ]);
+    expect(proposals[1].summary).toBe("Move contact 10 to York [res.partner Jane Doe: city: Leeds → York.]");
+    expect(proposals[1].payload.recordPreview).toMatchObject({ records: [{ id: 10, name: "Jane Doe" }], changes: [{ field: "city", from: "Leeds", to: "York", changes: 1 }] });
+    expect(odoo.callsTo("write")).toHaveLength(0);
+
+    const approved = await ctx.api(`/api/batches/${proposals[0].batchId}/approve`, { method: "POST" });
+    expect(approved.body.map((p: any) => p.status)).toEqual(["executed", "executed", "executed"]);
+    expect(odoo.models["res.partner"]!.records.find((r) => r.id === 11)!.city).toBe("Bristol");
+    expect(odoo.models["product.product"]!.records.find((r) => r.id === 4)!.active).toBe(false);
+  });
+
+  it("refuses a batch with a protected model before anything is proposed", async () => {
+    calls.push({
+      server: "actions",
+      tool: "propose_batch",
+      args: {
+        summary: "Two changes",
+        items: [
+          { actionType: "odoo.record.update", summary: "Move Jane", payload: { model: "res.partner", ids: [10], values: { city: "Hull" } } },
+          { actionType: "odoo.record.update", summary: "Rename the bot", payload: { model: "res.users", ids: [7], values: { name: "Admin" } } },
+        ],
+      },
+    });
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "dms: two changes" } });
+    await ctx.queue.drain();
+    expect((await ctx.api(`/api/tasks/${body.task.id}`)).body.proposals).toEqual([]);
+    expect(odoo.models["res.partner"]!.records.find((r) => r.id === 10)!.city).toBe("York");
+  });
+
   it("serves /mcp/odoo only with a valid token", async () => {
     const res = await ctx.server.app.request("/mcp/odoo", { method: "POST", headers: { authorization: "Bearer nope" } });
     expect(res.status).toBe(401);

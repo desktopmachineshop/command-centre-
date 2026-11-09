@@ -71,7 +71,7 @@ export default defineVertical({
         "Writes 3dpandme blog posts in Dave's maker voice: build logs, how-tos and write-ups of each video. Drafts go into Odoo unpublished, with the facts checked against the brain.",
       skills: ["brain-notes", "social-voice-3dpandme"],
       mcpServers: ["brain", "odoo"],
-      actions: ["odoo.blog.draft", "brain.write"],
+      actions: ["odoo.blog.draft", "odoo.record.update", "brain.write"],
       kpis: ["A blog post for every video", "Drafts needing only light edits"],
       autonomyNotes: "Blog posts are always created unpublished, for Dave to review and publish in Odoo.",
     },

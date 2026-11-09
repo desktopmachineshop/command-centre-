@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type Domain, type OdooClient, OdooError, type OdooRecord, OdooRpcError } from "./client";
 import { createDailyExecutors } from "./daily-executors";
+import { createRecordExecutors } from "./record-executors";
 import { defined, parse, setMany } from "./payload";
 import { previewExistingQuote, previewNewQuote, type QuotePreview, QuoteLookupError, quoteNote } from "./quote-preview";
 
@@ -16,7 +17,7 @@ export interface OdooActionExecutor {
   execute(payload: Record<string, unknown>, ctx?: unknown): Promise<unknown>;
 }
 
-export type OdooWriter = Pick<OdooClient, "call" | "create" | "write" | "read" | "searchRead" | "searchCount" | "fields">;
+export type OdooWriter = Pick<OdooClient, "call" | "create" | "write" | "read" | "searchRead" | "searchCount" | "fields" | "fieldDefs">;
 
 const MessagePost = z.object({
   model: z.string().regex(/^[a-z0-9_.]+$/, "an Odoo model name, e.g. sale.order"),
@@ -274,6 +275,7 @@ export async function postMessage(client: Pick<OdooWriter, "call">, model: strin
 export function createOdooExecutors(client: OdooWriter): Record<string, OdooActionExecutor> {
   return {
     ...createDailyExecutors(client),
+    ...createRecordExecutors(client),
     "odoo.message.post": {
       description:
         "Post on an Odoo record's chatter. payload: { model, id, body, internal? }. internal=true logs a note only staff see; otherwise it is a message emailed to the record's followers, i.e. the customer.",

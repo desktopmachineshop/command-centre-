@@ -37,7 +37,7 @@ const AREAS = [
       actions: [
         "email.reply", "email.label", "odoo.message.post", "odoo.customer.create", "odoo.customer.update", "odoo.quote.create", "odoo.quote.update",
         "odoo.quote.send", "odoo.order.confirm", "odoo.invoice.send", "odoo.delivery.set_tracking", "odoo.activity.schedule", "odoo.activity.done",
-        "odoo.lead.create", "odoo.lead.update", "odoo.ticket.update", "social.reply", "social.dm", "brain.write",
+        "odoo.lead.create", "odoo.lead.update", "odoo.ticket.update", "odoo.record.create", "odoo.record.update", "social.reply", "social.dm", "brain.write",
       ],
       kpis: ["First reply drafted within 1 hour", "Approval rate of drafted replies", "Returns resolved within policy"],
       autonomyNotes:
@@ -53,7 +53,11 @@ const AREAS = [
       skills: ["brain-notes", "dms-catalogue-pricing", "odoo-daily"],
       // Supplier costs come from the price lists Ops & Admin files under dms/pricelists/ in the brain.
       mcpServers: ["brain", "odoo"],
-      actions: ["odoo.product.update_price", "odoo.product.update", "odoo.product.create", "odoo.loyalty.create", "odoo.loyalty.archive", "brain.write"],
+      actions: [
+        "odoo.product.update_price", "odoo.product.update", "odoo.product.create", "odoo.loyalty.create", "odoo.loyalty.archive",
+        // Everything else in the catalogue (pricelist rules, categories, retiring a product): the generic record actions.
+        "odoo.record.create", "odoo.record.update", "odoo.record.archive", "odoo.record.unarchive", "brain.write",
+      ],
       kpis: ["Price review of top sellers each month", "Catalogue facts with no gaps (SKU, weight, HS code)"],
       autonomyNotes:
         "Every price change, new discount or loyalty deal and archived deal is a draft with what changes, the margin effect and the reason. Never edits product records directly.",
@@ -85,7 +89,7 @@ const AREAS = [
         "email.reply", "email.label", "email.send", "odoo.message.post", "odoo.order.confirm", "odoo.order.cancel", "odoo.invoice.create",
         "odoo.invoice.post", "odoo.invoice.send", "odoo.invoice.register_payment", "odoo.delivery.validate", "odoo.delivery.set_tracking",
         "odoo.stock.adjust", "odoo.purchase.create", "odoo.purchase.send", "odoo.purchase.confirm", "odoo.purchase.bill", "odoo.activity.schedule",
-        "odoo.activity.done", "notify", "brain.write",
+        "odoo.activity.done", "odoo.record.create", "odoo.record.update", "odoo.record.archive", "odoo.record.unarchive", "odoo.record.action", "notify", "brain.write",
       ],
       kpis: ["No stock-out without warning", "Every invoice filed within a day", "Every supplier price list in the brain within a day"],
       autonomyNotes:

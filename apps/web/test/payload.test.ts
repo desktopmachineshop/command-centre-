@@ -1,5 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { customerFacts, fieldsOf, hasReadable, labelOf, moneyText, quotePreviewOf, readable, specFacts, stepText, stockText, videoSpecOf, voiceText } from "../src/payload";
+import { customerFacts, fieldsOf, hasReadable, labelOf, moneyText, quotePreviewOf, readable, recordPreviewOf, specFacts, stepText, stockText, videoSpecOf, voiceText } from "../src/payload";
+
+describe("generic Odoo record previews", () => {
+  it("reads as which records and what changes", () => {
+    expect(
+      recordPreviewOf({
+        model: "product.pricelist.item",
+        label: "Pricelist Rule",
+        count: 12,
+        records: [{ id: 1, name: "Spindle: 79.00" }, { id: 2, name: "Collets: 21.00" }],
+        changes: [
+          { field: "min_quantity", label: "Min. Quantity", from: "1", to: "5", changes: 12 },
+          { field: "fixed_price", label: "Fixed Price", from: [{ value: "79", records: 7 }, { value: "21", records: 5 }], to: "79", changes: 5 },
+          { field: "active", label: "Active", from: "yes", to: "yes", changes: 0 },
+        ],
+      }),
+    ).toEqual({
+      title: "12 records of Pricelist Rule (product.pricelist.item)",
+      lines: ["Spindle: 79.00, Collets: 21.00 and 10 more", "Min. Quantity: 1 → 5 (changes 12 of 12)", "Fixed Price: 79 (7), 21 (5) → 79 (changes 5 of 12)", "Active: already yes"],
+    });
+  });
+
+  it("reads a new record with its duplicates, and a button press", () => {
+    expect(recordPreviewOf({ model: "res.partner", label: "Contact", values: { Name: "Jane" }, duplicates: [{ id: 10, name: "Jane Doe", same: "Name", archived: true }] })).toEqual({
+      title: "New Contact (res.partner)",
+      lines: ["Name: Jane", "Possible duplicate: Jane Doe #10 (archived), same Name"],
+    });
+    expect(recordPreviewOf({ model: "sale.order", label: "Sales Order", count: 1, records: [{ id: 41, name: "S00041", state: "draft" }], method: "action_confirm" })).toEqual({ title: "Press action_confirm on Sales Order (sale.order)", lines: ["S00041 (draft)"] });
+    expect(recordPreviewOf("looks fine")).toBeNull();
+  });
+});
 
 describe("readable proposal details", () => {
   it("labels keys in plain words", () => {

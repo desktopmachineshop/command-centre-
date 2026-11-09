@@ -9,9 +9,25 @@ import type { AddressInfo } from "node:net";
 
 type Rec = Record<string, unknown> & { id: number };
 
+/** What fields_get says about a field, for models whose tests need real metadata. */
+export interface FakeField {
+  type: string;
+  string?: string;
+  required?: boolean;
+  readonly?: boolean;
+  relation?: string;
+  selection?: [string | number, string][];
+  store?: boolean;
+}
+
 export interface FakeModel {
   fields: string[];
   records?: Rec[];
+  /**
+   * Typed definitions for some fields (they needn't be repeated in `fields`). Fields without
+   * one get a type guessed from the records' values (char when there is nothing to go on).
+   */
+  defs?: Record<string, FakeField>;
 }
 
 export interface FakeOdooOptions {
@@ -52,7 +68,7 @@ export class FakeOdoo {
   readonly login: string;
   readonly apiKey: string;
   readonly uid: number;
-  readonly models: Record<string, { fields: Set<string>; records: Rec[] }>;
+  readonly models: Record<string, { fields: Set<string>; records: Rec[]; defs?: Record<string, FakeField> }>;
   readonly calls: FakeCall[] = [];
   /** Delay every response, to test timeouts. */
   delayMs = 0;
@@ -69,7 +85,7 @@ export class FakeOdoo {
     this.models = Object.fromEntries(
       Object.entries(options.models).map(([name, m]) => [
         name,
-        { fields: new Set(["id", "display_name", ...m.fields]), records: (m.records ?? []).map((r) => ({ ...r })) },
+        { fields: new Set(["id", "display_name", ...m.fields, ...Object.keys(m.defs ?? {})]), records: (m.records ?? []).map((r) => ({ ...r })), defs: m.defs },
       ]),
     );
   }
@@ -180,13 +196,21 @@ export class FakeOdoo {
         if (!model.fields.has(f)) throw new FakeOdooException("builtins.ValueError", `Invalid field '${f}' on model '${modelName}'`);
       }
     };
+    // display_name is computed in Odoo: fall back to the name when a dataset doesn't spell it out.
+    const cell = (r: Rec, f: string) => r[f] ?? (f === "display_name" ? (r.name ?? false) : false);
     const project = (r: Rec, fields: string[] | undefined) =>
-      fields?.length ? Object.fromEntries([["id", r.id], ...fields.map((f) => [f, r[f] ?? false])]) : { ...r };
+      fields?.length ? Object.fromEntries([["id", r.id], ...fields.map((f) => [f, cell(r, f)])]) : { ...r };
     const byIds = (ids: unknown) => (ids as number[]).map((id) => model.records.find((r) => r.id === id)).filter((r): r is Rec => !!r);
 
     switch (method) {
       case "fields_get":
-        return Object.fromEntries([...model.fields].map((f) => [f, { type: "char" }]));
+        return Object.fromEntries(
+          [...model.fields].map((f) => {
+            const def = fieldDef(f, model);
+            const wanted = params.attributes as string[] | undefined;
+            return [f, wanted ? Object.fromEntries(Object.entries(def).filter(([k]) => wanted.includes(k))) : def];
+          }),
+        );
       case "search_read":
       case "search":
       case "search_count": {
@@ -194,6 +218,8 @@ export class FakeOdoo {
         const fields = params.fields as string[] | undefined;
         if (fields) checkFields(fields);
         let rows = model.records.filter(compileDomain(domain, modelName, model.fields));
+        // As Odoo: archived records are left out unless the domain mentions `active` or active_test is off.
+        if (model.fields.has("active") && contextOf(params).active_test !== false && !JSON.stringify(domain).includes('["active"')) rows = rows.filter((r) => r.active !== false);
         if (method === "search_count") return rows.length;
         rows = sortRows(rows, params.order as string | undefined);
         const offset = (params.offset as number) ?? 0;
@@ -401,6 +427,26 @@ export class FakeOdoo {
       invoice_ids: [],
     });
   }
+}
+
+/** A field's fields_get entry: its typed definition, or one guessed from the name and the records' values. */
+function fieldDef(field: string, model: { records: Rec[]; defs?: Record<string, FakeField> }): FakeField {
+  const def = model.defs?.[field];
+  if (def) return { string: field, required: false, readonly: false, store: true, ...def };
+  if (field === "id") return { type: "integer", string: "ID", required: false, readonly: true, store: true };
+  if (field === "display_name") return { type: "char", string: "Display Name", required: false, readonly: true, store: false };
+  const sample = model.records.map((r) => r[field]).find((v) => v !== undefined && v !== false && v !== null);
+  const type =
+    typeof sample === "boolean" || field === "active"
+      ? "boolean"
+      : typeof sample === "number"
+        ? "float"
+        : Array.isArray(sample)
+          ? sample.length === 2 && typeof sample[1] === "string"
+            ? "many2one"
+            : "many2many"
+          : "char";
+  return { type, string: field, required: false, readonly: false, store: true };
 }
 
 /** One2many fields FakeOdoo can create lines for, and the line model. */
@@ -887,6 +933,86 @@ export function dailyModels(): Record<string, FakeModel> {
       { id: 1, name: "New", team_ids: [1] },
       { id: 2, name: "In Progress", team_ids: [1] },
       { id: 3, name: "Solved", team_ids: [1] },
+    ],
+  };
+  return m;
+}
+
+/**
+ * `dailyModels` with real field metadata on the models the generic tools and actions
+ * (describe_model, get_record, odoo.record.*) are tested on, plus pricelists, tags and the
+ * protected models the denylist refuses.
+ */
+export function recordModels(): Record<string, FakeModel> {
+  const m = dailyModels();
+  const char = (string: string, more: Partial<FakeField> = {}): FakeField => ({ type: "char", string, ...more });
+  m["res.partner"]!.defs = {
+    name: char("Name", { required: true }),
+    email: char("Email"),
+    phone: char("Phone"),
+    city: char("City"),
+    ref: char("Reference"),
+    comment: { type: "html", string: "Notes" },
+    active: { type: "boolean", string: "Active" },
+    is_company: { type: "boolean", string: "Is a Company" },
+    parent_id: { type: "many2one", string: "Related Company", relation: "res.partner" },
+    country_id: { type: "many2one", string: "Country", relation: "res.country" },
+    customer_rank: { type: "integer", string: "Customer Rank" },
+    credit_limit: { type: "float", string: "Credit Limit" },
+    type: { type: "selection", string: "Address Type", selection: [["contact", "Contact"], ["invoice", "Invoice Address"], ["delivery", "Delivery Address"]] },
+    category_id: { type: "many2many", string: "Tags", relation: "res.partner.category" },
+    bank_ids: { type: "one2many", string: "Banks", relation: "res.partner.bank" },
+    child_ids: { type: "one2many", string: "Contacts", relation: "res.partner" },
+    commercial_partner_id: { type: "many2one", string: "Commercial Entity", relation: "res.partner", readonly: true },
+    signup_token: char("Signup Token"),
+    date: { type: "date", string: "Date" },
+  };
+  m["res.partner"]!.records!.push({ id: 31, name: "Old Supplier Co", email: "old@supplier.example", is_company: true, parent_id: false, customer_rank: 0, active: false });
+  m["res.partner.category"] = { fields: ["name"], records: [{ id: 1, name: "Trade" }, { id: 2, name: "School" }] };
+  m["res.partner.bank"] = { fields: ["acc_number", "partner_id"], records: [] };
+  m["res.groups"] = { fields: ["name"], records: [{ id: 1, name: "Administrator" }] };
+  m["ir.config_parameter"] = { fields: ["key", "value"], records: [] };
+  m["product.template"] = {
+    fields: ["name", "list_price", "active"],
+    records: [{ id: 11, name: "ER11 collet set (7 pcs)", list_price: 24.5, active: true }, { id: 12, name: "300W spindle", list_price: 89, active: true }, { id: 13, name: "Milo v2 CNC kit", list_price: 1250, active: true }],
+  };
+  m["product.pricelist"] = { fields: ["name", "active"], records: [{ id: 1, name: "Trade (GBP)", active: true }] };
+  m["product.pricelist.item"] = {
+    fields: [],
+    defs: {
+      pricelist_id: { type: "many2one", string: "Pricelist", relation: "product.pricelist", required: true },
+      product_tmpl_id: { type: "many2one", string: "Product", relation: "product.template" },
+      applied_on: { type: "selection", string: "Apply On", required: true, selection: [["3_global", "All Products"], ["2_product_category", "Product Category"], ["1_product", "Product"], ["0_product_variant", "Product Variant"]] },
+      compute_price: { type: "selection", string: "Compute Price", selection: [["fixed", "Fixed Price"], ["percentage", "Discount"], ["formula", "Formula"]] },
+      fixed_price: { type: "float", string: "Fixed Price" },
+      min_quantity: { type: "float", string: "Min. Quantity" },
+      date_start: { type: "datetime", string: "Start Date" },
+      date_end: { type: "datetime", string: "End Date" },
+      price: char("Price", { readonly: true, store: false }),
+    },
+    records: [
+      { id: 1, display_name: "300W spindle: 79.00", pricelist_id: [1, "Trade (GBP)"], product_tmpl_id: [12, "300W spindle"], applied_on: "1_product", compute_price: "fixed", fixed_price: 79, min_quantity: 1 },
+      { id: 2, display_name: "ER11 collet set (7 pcs): 21.00", pricelist_id: [1, "Trade (GBP)"], product_tmpl_id: [11, "ER11 collet set (7 pcs)"], applied_on: "1_product", compute_price: "fixed", fixed_price: 21, min_quantity: 1 },
+      { id: 3, display_name: "Milo v2 CNC kit: 1150.00", pricelist_id: [1, "Trade (GBP)"], product_tmpl_id: [13, "Milo v2 CNC kit"], applied_on: "1_product", compute_price: "fixed", fixed_price: 1150, min_quantity: 1 },
+    ],
+  };
+  m["crm.stage"]!.defs = { name: char("Stage Name", { required: true }), sequence: { type: "integer", string: "Sequence" } };
+  m["account.move"]!.defs = {
+    state: { type: "selection", string: "Status", selection: [["draft", "Draft"], ["posted", "Posted"], ["cancel", "Cancelled"]], readonly: true },
+    ref: char("Reference"),
+    invoice_date: { type: "date", string: "Invoice Date" },
+    invoice_date_due: { type: "date", string: "Due Date" },
+  };
+  m["sale.order"]!.defs = { state: { type: "selection", string: "Status", selection: [["draft", "Quotation"], ["sent", "Quotation Sent"], ["sale", "Sales Order"], ["cancel", "Cancelled"]], readonly: true } };
+  m["ir.model"] = {
+    fields: ["model", "name", "transient"],
+    records: [
+      { id: 101, model: "sale.order", name: "Sales Order", transient: false },
+      { id: 102, model: "res.partner", name: "Contact", transient: false },
+      { id: 103, model: "product.pricelist.item", name: "Pricelist Rule", transient: false },
+      { id: 104, model: "product.pricelist", name: "Pricelist", transient: false },
+      { id: 105, model: "sale.order.cancel", name: "Sales Order Cancel", transient: true },
+      { id: 106, model: "res.users", name: "User", transient: false },
     ],
   };
   return m;
