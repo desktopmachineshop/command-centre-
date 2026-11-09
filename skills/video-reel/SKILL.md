@@ -1,6 +1,6 @@
 ---
 name: video-reel
-description: The master skill for every marketing video, reel and short (Instagram Reels, Shorts, TikTok-style 9:16 clips, demos, walkthroughs, announcements and 16:9 YouTube explainers) for any brand: OpenV, OpenD, Desktop Machine Shop or 3dpandme. Covers writing the VideoSpec, hooks, length targets, scene and Playwright step design, sources, and proposing it with video.produce. Brand-specific rules (voice, what may be shown, where facts come from, brand kit, CTA) live in brands/<brand>.md beside this file; always read the brand's file first. Use whenever you are asked for a video, reel, short, demo, walkthrough or explainer.
+description: The master skill for every marketing video, reel and short (Instagram Reels, Shorts, TikTok-style 9:16 clips, demos, walkthroughs, announcements and 16:9 YouTube explainers) for any brand: OpenV, OpenD, Desktop Machine Shop or 3dpandme. Covers writing the VideoSpec, hooks, length targets, scene and Playwright step design, sources, proposing it with video.produce, changing an existing video with video.revise (never by producing it again), exporting it for Dave to edit in DaVinci Resolve with video.export, and the quality rules. Brand-specific rules (voice, what may be shown, where facts come from, brand kit, CTA) live in brands/<brand>.md beside this file; always read the brand's file first. Use whenever you are asked for a video, reel, short, demo, walkthrough or explainer.
 ---
 
 # Video reels (all brands)
@@ -80,7 +80,7 @@ the brand's voice. Say what the viewer sees as it happens. Spell out what TTS wo
   "type": "short",
   "format": "9:16",
   "brand": { "...": "copied from the brand file" },
-  "voice": { "provider": "silent" },
+  "voice": { "provider": "auto" },
   "scenes": [
     { "id": "hook", "kind": "title", "heading": "Fix a doc without leaving the browser", "narration": "Spotted a mistake in your docs? Fix it right here." },
     { "id": "edit", "kind": "capture", "narration": "Open the topic and edit it on the Visual tab.",
@@ -104,6 +104,9 @@ steps), `slide` (heading + up to 6 bullets that appear in turn), `image` (an htt
 slow zoom, plus `alt`), `outro` (heading, cta, url). Every scene can have `narration`; its
 length sets the scene's duration, so don't write timings. `minDurationSec` only when a scene
 must hold longer. Optional `music` needs a `url`; leave it out unless Dave gave you a track.
+A capture scene can use part of its recording with `clip: { startSec, endSec }` (an edit: nothing
+is recorded again). Top-level `captions: { style: "word" | "plain", background: "outline" | "box" }`
+(use `box` over busy footage) and `transition: { style: "fade" | "cut" }` are optional.
 
 Capture steps (Playwright, run on Dave's PC): `goto` (http/https only, must be first), `click`,
 `hover`, `type` (text, delayMs), `press` (a key), `select` (value), `scroll` (selector or y),
@@ -116,8 +119,10 @@ Capture steps (Playwright, run on Dave's PC): `goto` (http/https only, must be f
 - 9:16 records a phone-width viewport (540×960), so pick pages that work narrow, or set
   `fit: "cover"` and a `viewport`.
 
-`voice` picks the voice-over. Leave `{ "provider": "silent" }` for drafts (captions still work).
-For a spoken voice-over, use the same voices chat reads replies aloud with: `"provider": "local"`
+`voice` picks the voice-over. Leave it out, or `{ "provider": "auto" }`: the server uses the most
+natural voice it has (ElevenLabs or OpenAI when their key is set, else its own voices, else the
+robotic `flite`, which is for drafts only). `{ "provider": "silent" }` gives captions and no voice.
+To choose a voice yourself, use the same voices chat reads replies aloud with: `"provider": "local"`
 plus a `voiceId`:
 
 | voiceId | Voice |
@@ -142,3 +147,83 @@ lists the voices that are, so pick one of those and propose again.
   YouTube-only video and say so in the summary.
 - The summary says what the video shows, its type and estimated length, and lists the sources.
 - One video per proposal. For a series, propose the first and describe the rest.
+
+The result has `warnings`: fix the ones about quality (see below) before Dave sees a render.
+
+## Changing a video that exists: revise, never recreate
+
+Every produced video is a **project**: its spec, its recordings and narration are kept. When Dave
+(or you) wants a change to a video that already exists ("make the hook shorter on last week's
+OpenD reel", "square version for LinkedIn", "new CTA"), **do not write a new spec and do not
+propose `video.produce` again**: that re-records the browser and re-voices everything. Instead:
+
+1. `list_video_projects` (video tools) to find it, then `get_video_project` for its current
+   spec, scenes (with which narration and recordings are stored) and history.
+2. Propose `video.revise` with a **patch**, the smallest edit that makes the change:
+
+```json
+{
+  "projectId": "<id from list_video_projects>",
+  "patch": {
+    "set": { "format": "1:1", "captions": { "background": "box" } },
+    "scenes": [
+      { "op": "update", "id": "hook", "set": { "narration": "Spotted a typo? Fix it here.", "heading": "Fix it in the browser" } },
+      { "op": "remove", "id": "extra-slide" },
+      { "op": "add", "scene": { "id": "why", "kind": "slide", "heading": "Why", "bullets": ["No build step"] }, "after": "hook" },
+      { "op": "move", "id": "preview", "before": "edit" }
+    ]
+  },
+  "keepCaptures": true
+}
+```
+
+- `set` changes top-level settings (`title`, `format`, `brand`, `captions`, `music`, `voice`,
+  `transition`, `fps`); nested objects merge, `null` removes (e.g. `"music": null`).
+- `scenes` operations run in order: `update` (fields of one scene; `null` removes an optional
+  field; not its `id` or `kind`), `remove`, `add` (a whole scene, with `after` / `before` /
+  `at: "start" | "end"`), `move`. `order: [ids]` reorders everything at once.
+- `fromRevision: n` edits (or, with an empty patch, goes back to) an earlier revision.
+- `keepCaptures: true` on a format change fits the existing recordings into the new frame
+  instead of recording the pages again at the new shape. Use it for a quick 9:16 ↔ 16:9 ↔ 1:1
+  cut; leave it off when the page should be laid out for the new shape.
+- `targets` / `publishAt` as for `video.produce`, if the new cut should be posted.
+
+**What is re-used** (the approval says so, e.g. "new voice for hook; re-uses 5 of 6 narrations
+and 3 of 3 recordings"): only a scene whose `narration` (or the `voice`) changed is voiced again;
+only a capture scene whose `steps`, viewport, cursor or profile changed is recorded again;
+headings, bullets, CTA, captions, order, `clip` trims, timing, music, brand colours and fonts,
+format with `keepCaptures`, and removed scenes only re-compose. So change the words you must and
+leave the rest of a scene alone. `video.rerender { projectId }` renders the same spec again
+(another encoder, or after a failed render).
+
+## Handing a video to Dave to edit
+
+When Dave wants to cut it himself, or the change is a matter of taste (pacing, music, a custom
+shot), propose `video.export { projectId, format: "resolve-draft" }`: DaVinci Resolve on his PC
+opens the video as a draft timeline, one clip per scene (title and end cards included), each
+scene's narration on its own audio track under it, the music on another, and `captions.srt`
+beside it, for him to edit and render. `format: "fcpxml"` only stores the timeline file (FCPXML,
+which Resolve, Final Cut and Premiere import) and its media. An edit Dave makes in Resolve stays
+in Resolve: it does not come back into the project, so say so if he later asks for a `video.revise`.
+
+`video.archive { projectId }` deletes a finished project's stored recordings and narration.
+Only propose it when Dave asks: an archived project can't be revised.
+
+## Quality rules (what makes a video look amateur)
+
+- **A natural voice** for anything that gets posted: never `flite` or `silent` on a public video.
+- **Hook in the first 3 seconds**, one idea per scene, and no card held longer than about 9 s on
+  a short (20 s on long-form): split it or show the product.
+- **Few words on screen**: a heading of a few words, at most 3 bullets on 9:16 / 1:1 (5 on
+  16:9), each short enough to read at a glance. The narration carries the detail.
+- **Captions on** for every short and every 9:16 / 1:1 video; `background: "box"` when the
+  footage behind them is busy. Captions and card text are placed inside the safe margins for
+  each format: don't fight them with long lines.
+- **A proper end card**: an `outro` with the heading, a CTA and the URL, and the brand's
+  `logoUrl` in the brand kit (the logo is drawn on the title and end cards and in the corner of
+  content scenes). It is held for at least 4 s.
+- **Stills move**: leave `kenBurns` on for `image` scenes.
+- **Music under the voice, not over it**: -18 to -24 dB, with a `credit`. It is ducked under
+  the narration, faded in and out, and the mix is levelled to -14 LUFS for you.
+- **Say what the viewer is looking at** in every capture scene, and trim dead time with `clip`
+  rather than leaving the viewer watching a page load.

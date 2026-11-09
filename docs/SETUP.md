@@ -612,10 +612,15 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   queued jobs only).
 - `video.capture` `{spec, scenes?, uploads?}` (needs `browser`): records a VideoSpec's capture
   scenes with Playwright. The result is `{clips: {<scene>: {path, trimStartSec, durationSec, url?}}}`.
-- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?}` (needs `ffmpeg`;
-  NVENC on `gpu` nodes): voices, captions and composes the video. The result is
-  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?}`.
-  See [VIDEO.md](VIDEO.md).
+- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?, voiceUploads?,
+  captionsUpload?, stemUploads?, stemsOnly?}` (needs `ffmpeg`; NVENC on `gpu` nodes): voices,
+  captions and composes the video. The result is
+  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?, voice?, captionsUrl?, stems?, timeline?}`.
+  `stemUploads` also renders each scene as its own clip, for an editable timeline
+  (`video.export`). See [VIDEO.md](VIDEO.md).
+- `davinci.render` also takes `timelineFile` `{url, name}` (an FCPXML document, drafts only)
+  and `extras`: the clips are put in the media pool and the document is imported as the
+  timeline, tracks and offsets as written, instead of laying the clips end to end.
 
 ### Try it
 
@@ -939,8 +944,11 @@ Railway volume. A Hobby volume holds 5 GB, so the server looks after it
   installer) keeps working.
 - **Old renders:** every night at 03:43, rendered videos older than
   `STORAGE_RENDER_RETENTION_DAYS` (default 30; `0` keeps them) are deleted from the volume. A
-  render that a pending approval still points at is kept, however old. Posted videos are already
-  on the platforms.
+  render that a pending approval still points at is kept, however old, and so is everything an
+  active video project is made of (below). Posted videos are already on the platforms.
+- **Old video projects:** the same job archives a video project nobody has changed for
+  `VIDEO_PROJECT_RETENTION_DAYS` (default 90; `0` keeps projects until `video.archive`): its
+  stored recordings, narration and export clips are deleted, its spec and history stay.
 - **Warning:** after the clean-up, a push ("Server storage nearly full") goes out while the
   volume is 80% full or more.
 
@@ -990,12 +998,13 @@ folder, creation time and **vertical**.
 ### Work in progress
 
 A piece of work's intermediate files are kept only until its final version is published:
-- A video production tags its screen captures and narration as work in progress (`wip`) and its
-  render as the final file, all with the same `work` (`video:<production id>`). When a post with the
-  render goes out (`social.post` or `social.campaign` on approval, or a scheduled post when it
-  publishes), the production's work-in-progress files are deleted, from Drive too. The render
-  stays, since the post links to it. Work that is never published is cleared by the nightly
-  render clean-up after `RENDER_RETENTION_DAYS` (local files).
+- A video production is a **project** ([VIDEO.md](VIDEO.md), "Projects"): its screen captures,
+  narration, captions and renders all carry the same `work` (`video:<project id>`) and are
+  **not** work in progress, because the next edit (`video.revise`) is made from them without
+  recording or voicing again. They are kept after the video is posted, and deleted when the
+  project is archived: by the `video.archive` action, or automatically after
+  `VIDEO_PROJECT_RETENTION_DAYS` without a change. (Files of productions made before projects
+  existed keep their old `wip` tag and are still released on publishing.)
 - The Storage page marks work-in-progress files **WIP**.
 - The Software Lead's task checkouts are its work in progress: when `github.pr.merge` merges a PR,
   the checkout that built it is removed, and each night any checkout whose branch is already in the

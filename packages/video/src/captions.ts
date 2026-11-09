@@ -148,12 +148,14 @@ export function toAss(cues: Cue[], cards: CardEvent[], options: AssOptions): str
   const marginH = Math.round(width * (options.format === "9:16" ? 0.09 : 0.06));
   const box = options.background === "box";
   const styles: AssStyle[] = [
+    // The box is opaque: libass draws one per coloured run, and see-through boxes would show where they overlap.
     box
-      ? { name: "Caption", font: brand.fonts.body, size: cap.size, colour: text, outline: assColour("#000000", 0x40), bold: true, align: cap.align, marginV: cap.marginV, borderStyle: 3, outlineSize: Math.round(cap.size / 5), shadow: 0, spacing: 1, marginH }
+      ? { name: "Caption", font: brand.fonts.body, size: cap.size, colour: text, outline: assColour("#0b0b0f"), bold: true, align: cap.align, marginV: cap.marginV, borderStyle: 3, outlineSize: Math.round(cap.size / 5), shadow: 0, spacing: 1, marginH }
       : { name: "Caption", font: brand.fonts.body, size: cap.size, colour: text, outline: assColour("#000000"), bold: true, align: cap.align, marginV: cap.marginV, outlineSize: Math.max(3, Math.round(cap.size / 14)), shadow: 2, spacing: 1, marginH },
     { name: "Heading", font: brand.fonts.heading, size: Math.round(unit * 0.085), colour: text, outline: assColour("#000000"), bold: true, align: 5, marginV: 0 },
-    { name: "Sub", font: brand.fonts.body, size: Math.round(unit * 0.042), colour: accent, outline: assColour("#000000"), bold: false, align: 5, marginV: 0 },
-    { name: "Bullet", font: brand.fonts.body, size: Math.round(unit * 0.045), colour: text, outline: assColour("#000000"), bold: false, align: 4, marginV: 0 },
+    // Secondary text is a size up on vertical and square video, which is watched on a phone.
+    { name: "Sub", font: brand.fonts.body, size: Math.round(unit * (options.format === "16:9" ? 0.042 : 0.05)), colour: accent, outline: assColour("#000000"), bold: false, align: 5, marginV: 0 },
+    { name: "Bullet", font: brand.fonts.body, size: Math.round(unit * (options.format === "16:9" ? 0.045 : 0.055)), colour: text, outline: assColour("#000000"), bold: false, align: 4, marginV: 0 },
     { name: "Cta", font: brand.fonts.heading, size: Math.round(unit * 0.05), colour: accent, outline: assColour("#000000"), bold: true, align: 5, marginV: 0 },
   ];
 
