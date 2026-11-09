@@ -119,7 +119,11 @@ export class RedditReader {
       try {
         return await this.json<T>(path, query);
       } catch (err) {
-        if (!(err instanceof Refused) || !feed) throw err;
+        if (!(err instanceof Refused)) throw err;
+        if (!feed) {
+          const hint = this.signedIn ? "" : " Connecting a Reddit session account on the Accounts page makes reads more reliable.";
+          throw new RedditReadError(`${err.message}. Reddit is blocking this server right now: try again later.${hint}`, err.status);
+        }
         const entries = await this.atom(path, query, err);
         return feed(entries);
       }

@@ -168,7 +168,8 @@ export class Pacer {
         throw new PacingError(`${platformLabel(account.platform)} account "${account.id}" is paced (${describeLimits(limits)}): the next submission can go at ${slot.toISOString()}`, slot);
       }
       const result = await send();
-      await this.store.recordSubmission({ accountId: account.id, vertical: account.vertical, actionType, at: this.now() });
+      // It has gone out: a failure to note it down mustn't make the action look failed (and get sent again).
+      await this.store.recordSubmission({ accountId: account.id, vertical: account.vertical, actionType, at: this.now() }).catch((err) => console.error(`[social] ${account.id}: sent, but could not record it for pacing`, err));
       return result;
     });
   }

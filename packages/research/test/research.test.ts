@@ -2,9 +2,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   assertPublicUrl,
+  createPinnedTransport,
   buildSnapshot,
   type Catalogue,
   createResearchMcpServer,
@@ -16,6 +18,7 @@ import {
   isProductUrl,
   MemorySnapshotStore,
   parsePublicUrl,
+  parseRobots,
   pinnedTransport,
   type ResearchMcpOptions,
   safeFetch,
@@ -139,6 +142,80 @@ const PRODUCT_PAGE = `<!doctype html><html lang="en-GB"><head>
 <a href="mailto:hi@rival.example.com">Email</a><a href="javascript:void(0)">x</a>
 </main><footer><p>Company no. 123</p></footer></body></html>`;
 
+describe("the default transport", () => {
+  it("connects through its own DNS check, decodes gzip, and hands back redirects unfollowed", async () => {
+    const server = createServer((req, res) => {
+      if (req.url === "/moved") return void res.writeHead(302, { location: "/page" }).end();
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-encoding": "gzip" });
+      res.end(gzipSync(`<html><title>Zipped</title><body>hello ${req.headers["user-agent"]}</body></html>`));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const seen: string[] = [];
+      // The address check is replaced, only so the test can reach its own local server through the real code path.
+      const transport = createPinnedTransport((address) => {
+        seen.push(address);
+        return false;
+      });
+      const init = { headers: { "user-agent": "test-agent" }, signal: AbortSignal.timeout(5000) };
+      const hop = await transport(new URL(`http://localhost:${port}/page`), init);
+      expect(hop.status).toBe(200);
+      const chunks: Buffer[] = [];
+      for await (const chunk of hop.body!) chunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(chunks).toString()).toBe("<html><title>Zipped</title><body>hello test-agent</body></html>");
+      expect(seen.length).toBeGreaterThan(0); // every resolved address went through the check
+      const moved = await transport(new URL(`http://localhost:${port}/moved`), init);
+      expect([moved.status, moved.headers.get("location")]).toEqual([302, "/page"]);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("parseRobots", () => {
+  const robots = parseRobots(
+    `# comment
+User-agent: *
+Disallow: /cart
+Disallow: /search
+Allow: /search/help
+Disallow: /*?sort_by=
+Disallow: /private/*.json$
+Sitemap: https://shop.example.com/sitemap.xml
+
+User-agent: BadBot
+User-agent: CommandCentreResearch
+Disallow: /products.json
+`,
+    "OtherBot",
+  );
+  it("applies the * group: longest match wins, with wildcards and end anchors", () => {
+    expect(robots.sitemaps).toEqual(["https://shop.example.com/sitemap.xml"]);
+    for (const [path, ok] of [
+      ["/", true],
+      ["/products.json", true],
+      ["/cart", false],
+      ["/cart/add", false],
+      ["/search?q=x", false],
+      ["/search/help", true],
+      ["/collections/all?sort_by=price", false],
+      ["/private/a.json", false],
+      ["/private/a.json.bak", true],
+    ] as const) {
+      expect(robots.allowed(path), path).toBe(ok);
+    }
+  });
+  it("prefers the robot's own group, and allows everything when there are no rules", () => {
+    const own = parseRobots("User-agent: *\nDisallow: /\n\nUser-agent: commandcentreresearch\nDisallow: /products.json\n", "CommandCentreResearch");
+    expect(own.allowed("/products.json?limit=250")).toBe(false);
+    expect(own.allowed("/pages/shipping")).toBe(true);
+    expect(parseRobots("User-agent: *\nDisallow: /\n", "CommandCentreResearch").allowed("/anything")).toBe(false);
+    expect(parseRobots("", "x").allowed("/anything")).toBe(true);
+    expect(parseRobots("User-agent: *\nDisallow:\n", "x").allowed("/anything")).toBe(true);
+  });
+});
+
 describe("extractPage", () => {
   it("reads title, description, headings, main text, links and the JSON-LD product", () => {
     const page = extractPage(PRODUCT_PAGE, "https://rival.example.com/products/er11-collet-set?variant=1");
@@ -251,6 +328,24 @@ describe("discoverProducts", () => {
       { key: "/product/edge-finder", name: "Edge finder", url: "https://plain.example.com/product/edge-finder/", available: null },
     ]);
     expect(isProductUrl("https://x.example.com/collections/collets")).toBe(false);
+  });
+
+  it("skips a source the shop's robots.txt closes to robots, and says so", async () => {
+    const web = fakeWeb({
+      "polite.example.com/robots.txt": "User-agent: *\nDisallow: /products.json\nDisallow: /product/secret-item\nSitemap: https://polite.example.com/sitemap.xml\n",
+      "polite.example.com/products.json": { products: shopifyProducts(3) },
+      "polite.example.com/sitemap.xml": `<?xml version="1.0"?><urlset><url><loc>https://polite.example.com/product/secret-item</loc></url><url><loc>https://polite.example.com/product/er11-collet-set</loc></url></urlset>`,
+      "polite.example.com/product/er11-collet-set": PRODUCT_PAGE,
+      "polite.example.com/product/secret-item": PRODUCT_PAGE,
+    });
+    const c = await discoverProducts("polite.example.com", (url) => safeFetch(url, web.options), { sleep: noSleep, enrich: 5 });
+    expect(c.source).toBe("sitemap");
+    expect(c.notes[0]).toMatch(/Shopify \/products\.json: not read, the shop's robots\.txt asks robots to stay out/);
+    const requested = web.requests.map((r) => new URL(r.url).pathname);
+    expect(requested).not.toContain("/products.json");
+    expect(requested).not.toContain("/product/secret-item");
+    expect(c.products.find((p) => p.key === "/product/er11-collet-set")).toMatchObject({ price: 24.95 });
+    expect(c.products.find((p) => p.key === "/product/secret-item")).toMatchObject({ available: null });
   });
 
   it("says so when a site publishes no catalogue", async () => {
@@ -429,6 +524,22 @@ describe("research MCP server", () => {
     expect(res.isError).toBe(true);
     expect(res.text).toMatch(/could not be read this time.*No snapshot was stored/s);
     expect(t.store.snapshots).toHaveLength(1);
+  });
+
+  it("leaves out a watched page that robots.txt closes to robots", async () => {
+    const t = await connect({
+      "rival.example.com/robots.txt": "User-agent: *\nDisallow: /account\n",
+      "rival.example.com/products.json": { products: [{ title: "A", handle: "a", variants: [{ price: "1.00" }] }] },
+      "rival.example.com/meta.json": { currency: "GBP" },
+      "rival.example.com/pages/shipping": "<html><body><main>Shipping</main></body></html>",
+      "rival.example.com/account/prices": "<html><body><main>Trade prices</main></body></html>",
+    });
+    const res = JSON.parse((await t.call("competitor_snapshot", { competitor: "rival", site: "rival.example.com", pages: ["https://rival.example.com/pages/shipping", "https://rival.example.com/account/prices"] })).text);
+    expect(res.snapshot).toMatchObject({ products: 1, pages: 1 });
+    expect(res.notes.join("\n")).toMatch(/Page not read: https:\/\/rival\.example\.com\/account\/prices: the site's robots\.txt asks robots to stay out/);
+    expect(t.web.requests.map((r) => new URL(r.url).pathname)).not.toContain("/account/prices");
+    // robots.txt was read once for the whole snapshot.
+    expect(t.web.requests.filter((r) => r.url.endsWith("/robots.txt"))).toHaveLength(1);
   });
 
   it("keeps each business's snapshots apart", async () => {

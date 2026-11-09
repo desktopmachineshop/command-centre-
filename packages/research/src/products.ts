@@ -1,4 +1,5 @@
 import { decodeEntities, extractPage } from "./html";
+import { ALLOW_ALL, parseRobots, type RobotsRules } from "./robots";
 import type { SafeFetchResult } from "./safe-fetch";
 
 /**
@@ -7,8 +8,9 @@ import type { SafeFetchResult } from "./safe-fetch";
  * 2. WooCommerce's Store API (`/wp-json/wc/store/v1/products`, paged);
  * 3. `sitemap.xml` (and the sitemaps `robots.txt` names): product page URLs, optionally read one
  *    by one for their structured data (`enrich`).
- * Each is a plain GET of a page the shop publishes for anyone. Nothing is guessed: a price or
- * stock state the source doesn't give is left out.
+ * Each is a plain GET of a page the shop publishes for anyone, and only where the shop's
+ * robots.txt lets robots read it: a source it disallows is skipped, and the notes say so.
+ * Nothing is guessed: a price or stock state the source doesn't give is left out.
  */
 
 export interface CatalogueProduct {
@@ -52,7 +54,24 @@ export interface DiscoverOptions {
   /** Pause between requests to the same shop. Default 400 ms. */
   delayMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  /** The shop's robots.txt rules, when the caller has already read them; otherwise they are fetched. */
+  robots?: RobotsRules;
 }
+
+/** The product token robots.txt groups are matched against (it is in the User-Agent the fetches send). */
+export const ROBOTS_AGENT = "CommandCentreResearch";
+
+/** A site's robots.txt rules. A site without one (or whose robots.txt can't be read) allows everything. */
+export async function loadRobots(get: Get, origin: string): Promise<RobotsRules> {
+  try {
+    const res = await get(`${origin}/robots.txt`);
+    return res.status === 200 && !/<html/i.test(res.text.slice(0, 500)) ? parseRobots(res.text, ROBOTS_AGENT) : ALLOW_ALL;
+  } catch {
+    return ALLOW_ALL;
+  }
+}
+
+type Internal = Required<Pick<DiscoverOptions, "limit" | "delayMs" | "sleep" | "enrich" | "robots">>;
 
 const num = (v: unknown): number | undefined => {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
@@ -121,7 +140,11 @@ export function shopifyProduct(p: ShopifyProduct, origin: string, currency: stri
   return out;
 }
 
-async function shopify(get: Get, origin: string, o: Required<Pick<DiscoverOptions, "limit" | "delayMs" | "sleep">>, notes: string[]): Promise<Catalogue | null> {
+async function shopify(get: Get, origin: string, o: Internal, notes: string[]): Promise<Catalogue | null> {
+  if (!o.robots.allowed("/products.json?limit=250&page=1")) {
+    notes.push("Shopify /products.json: not read, the shop's robots.txt asks robots to stay out of it");
+    return null;
+  }
   const products: CatalogueProduct[] = [];
   let currency: string | null = null;
   let truncated = false;
@@ -196,7 +219,11 @@ export function wooProduct(p: WooProduct): CatalogueProduct | null {
   return out;
 }
 
-async function woocommerce(get: Get, origin: string, o: Required<Pick<DiscoverOptions, "limit" | "delayMs" | "sleep">>, notes: string[]): Promise<Catalogue | null> {
+async function woocommerce(get: Get, origin: string, o: Internal, notes: string[]): Promise<Catalogue | null> {
+  if (!o.robots.allowed("/wp-json/wc/store/v1/products?per_page=100&page=1")) {
+    notes.push("WooCommerce Store API: not read, the shop's robots.txt asks robots to stay out of it");
+    return null;
+  }
   const products: CatalogueProduct[] = [];
   let truncated = false;
   for (let page = 1; page <= 30; page++) {
@@ -250,14 +277,8 @@ const titleFromPath = (url: string) => {
   return words ? words[0]!.toUpperCase() + words.slice(1) : url;
 };
 
-async function sitemap(get: Get, origin: string, o: Required<Pick<DiscoverOptions, "limit" | "delayMs" | "sleep" | "enrich">>, notes: string[]): Promise<Catalogue | null> {
-  const queue: string[] = [];
-  try {
-    const robots = await get(`${origin}/robots.txt`);
-    if (robots.status === 200) for (const m of robots.text.matchAll(/^\s*sitemap:\s*(\S+)/gim)) queue.push(m[1]!);
-  } catch {
-    // No robots.txt: fall through to the default name.
-  }
+async function sitemap(get: Get, origin: string, o: Internal, notes: string[]): Promise<Catalogue | null> {
+  const queue: string[] = [...o.robots.sitemaps];
   if (!queue.length) queue.push(`${origin}/sitemap.xml`);
   const host = new URL(origin).hostname.replace(/^www\./, "");
   const seenMaps = new Set<string>();
@@ -303,6 +324,8 @@ async function sitemap(get: Get, origin: string, o: Required<Pick<DiscoverOption
   notes.push(`Sitemap: ${products.length} product page URLs (names are from the URLs; prices and stock only for pages read with enrich)`);
   let read = 0;
   for (const p of products.slice(0, o.enrich)) {
+    const at = new URL(p.url);
+    if (!o.robots.allowed(`${at.pathname}${at.search}`)) continue;
     await o.sleep(o.delayMs);
     try {
       const page = await get(p.url);
@@ -328,11 +351,12 @@ async function sitemap(get: Get, origin: string, o: Required<Pick<DiscoverOption
 /** The shop's catalogue, from the first source that answers. Never throws for a shop that has none: `source` is "none". */
 export async function discoverProducts(site: string, get: Get, options: DiscoverOptions = {}): Promise<Catalogue> {
   const origin = siteOrigin(site);
-  const o = {
+  const o: Internal = {
     limit: options.limit ?? 500,
     enrich: options.enrich ?? 0,
     delayMs: options.delayMs ?? 400,
     sleep: options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
+    robots: options.robots ?? (await loadRobots(get, origin)),
   };
   const notes: string[] = [];
   const found = (await shopify(get, origin, o, notes)) ?? (await woocommerce(get, origin, o, notes)) ?? (await sitemap(get, origin, o, notes));

@@ -2320,6 +2320,12 @@ so the URL must not be able to reach anything private:
 - 20 seconds and 2 MB at most, text content only, no cookies or credentials sent, and a
   User-Agent that says what it is (`CommandCentreResearch/1.0`).
 
+**robots.txt.** The catalogue readers (`site_products`, `competitor_snapshot` and its watched
+pages) visit a shop on a schedule, as a robot does, so they follow the shop's `robots.txt`: a
+catalogue source or page it closes to robots is skipped, and the result's notes say so. A single
+page you ask about (`fetch_page`) is read as a person's browser would read it. Requests to one
+shop are spaced out (400 ms), and a catalogue read stops at 1,000 products by default.
+
 A blocked or failed read is reported as that. A snapshot that suddenly can't read a catalogue it
 read before is **not stored** and not reported as "they removed everything"; smaller oddities
 come back as `warnings` the agent must pass on.

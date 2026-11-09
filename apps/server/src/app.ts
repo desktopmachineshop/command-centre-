@@ -761,9 +761,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     const scope = caller.kind === "run" ? caller.scope : null;
     return createRedditMcpServer({
       reader: redditReader,
+      // The task's own business's account first; the assistant (on Dave's work) can fall back to any.
       ownUsernames: () =>
         social.current.accounts
           .filter((a) => a.platform === "reddit" && a.handle && (!scope || scope.anyVertical || a.vertical === scope.vertical))
+          .sort((a, b) => Number(b.vertical === scope?.vertical) - Number(a.vertical === scope?.vertical))
           .map((a) => a.handle!.replace(/^@/, "").replace(/^\/?u\//i, "")),
       onRead: scope ? () => actions.markOutsideInput(scope.taskId, "reddit") : undefined,
     });

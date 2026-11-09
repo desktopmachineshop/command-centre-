@@ -21,8 +21,10 @@ products directly: a price change is an `odoo.product.update_price` proposal tha
 
 ## 2. Compare and decide
 
-- Competitors: use the competitor notes in the brain (`dms/competitors*`). If there are none, say
-  so and base the suggestion on cost and margin only. Never invent a competitor price.
+- Competitors: use the competitor registry and reports in the brain (`dms/competitors.md`,
+  `dms/competitors/reports/`), and for current prices the `competitor-analysis` skill (the
+  research tools read a competitor's catalogue and say when each price was read). If there are
+  none, say so and base the suggestion on cost and margin only. Never invent a competitor price.
 - Compare like for like: same pack size, same spec (e.g. ER11 vs ER16, collet accuracy), and
   include shipping if the competitor charges it separately.
 - Show every price both ways, for example `£24.17 net / £29.00 inc VAT`.

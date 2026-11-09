@@ -144,8 +144,13 @@ export interface Hop {
 }
 export type Transport = (url: URL, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<Hop>;
 
-/** The default transport: node's http(s) with a DNS lookup that refuses private addresses at connect time. */
-export const pinnedTransport: Transport = (url, init) =>
+/**
+ * The default transport: node's http(s) with a DNS lookup that refuses private addresses at
+ * connect time. `isBlocked` is the address check (tests replace it to reach a local server).
+ */
+export const createPinnedTransport =
+  (isBlocked: (address: string) => boolean = isPrivateAddress): Transport =>
+  (url, init) =>
   new Promise<Hop>((resolve, reject) => {
     const request = url.protocol === "https:" ? httpsRequest : httpRequest;
     const req = request(
@@ -160,7 +165,7 @@ export const pinnedTransport: Transport = (url, init) =>
             const cb = callback as (e: Error | null, address?: unknown, family?: number) => void;
             if (err) return cb(err);
             const list = addresses as unknown as { address: string; family: number }[];
-            if (!list.length || list.some((a) => isPrivateAddress(a.address))) {
+            if (!list.length || list.some((a) => isBlocked(a.address))) {
               return cb(new UnsafeUrlError(`${hostname} resolves to a private or reserved address`));
             }
             if (all) return cb(null, list);
@@ -184,6 +189,8 @@ export const pinnedTransport: Transport = (url, init) =>
     req.on("error", reject);
     req.end();
   });
+
+export const pinnedTransport: Transport = createPinnedTransport();
 
 /** A transport over a `fetch` (tests inject one). */
 export function fetchTransport(f: typeof fetch): Transport {

@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { extractPage } from "./html";
-import { discoverProducts, siteOrigin } from "./products";
+import { discoverProducts, loadRobots, siteOrigin } from "./products";
+import type { RobotsRules } from "./robots";
 import { FetchFailedError, safeFetch, type SafeFetchOptions, UnsafeUrlError } from "./safe-fetch";
 import { buildSnapshot, diffSnapshots, type SnapshotPage, type SnapshotStore, slugOf, summariseDiff, textHash } from "./snapshot";
 
@@ -110,7 +111,7 @@ export function createResearchMcpServer(options: ResearchMcpOptions): McpServer 
     "site_products",
     {
       description:
-        "List an online shop's catalogue from its own public endpoints: Shopify's /products.json, WooCommerce's Store API, or its sitemap's product pages (in that order; `source` says which answered). Each product has a name, URL and, where the shop gives them, price, currency, SKU and whether it is in stock. With a sitemap source only URLs are known: set `enrich` to read that many product pages for price and stock. `source: \"none\"` means the shop publishes no catalogue this can read: use fetch_page on its category pages.",
+        "List an online shop's catalogue from its own public endpoints: Shopify's /products.json, WooCommerce's Store API, or its sitemap's product pages (in that order; `source` says which answered; a source the shop's robots.txt closes to robots is skipped, and `notes` says so). Each product has a name, URL and, where the shop gives them, price, currency, SKU and whether it is in stock. With a sitemap source only URLs are known: set `enrich` to read that many product pages for price and stock. `source: \"none\"` means the shop publishes no catalogue this can read: use fetch_page on its category pages.",
       inputSchema: {
         site: z.string().min(3).max(300).describe("The shop's address, e.g. rival-tools.co.uk"),
         query: z.string().max(100).optional().describe("Only products whose name or SKU contains this"),
@@ -167,11 +168,19 @@ export function createResearchMcpServer(options: ResearchMcpOptions): McpServer 
         const vertical = verticalOf(args.vertical);
         const competitor = slugOf(args.competitor);
         if (!competitor) return fail("competitor must be a name or slug");
-        const catalogue = await discoverProducts(args.site, get, { limit: args.limit ?? 1000, enrich: args.enrich ?? 0, sleep: options.sleep });
+        // A scheduled watch is a robot's visit: each site's robots.txt decides what it may read.
+        const robots = new Map<string, Promise<RobotsRules>>();
+        const robotsOf = (origin: string) => robots.get(origin) ?? robots.set(origin, loadRobots(get, origin)).get(origin)!;
+        const catalogue = await discoverProducts(args.site, get, { limit: args.limit ?? 1000, enrich: args.enrich ?? 0, sleep: options.sleep, robots: await robotsOf(siteOrigin(args.site)) });
         const pages: SnapshotPage[] = [];
         const pageErrors: string[] = [];
         for (const url of args.pages ?? []) {
           try {
+            const at = new URL(url);
+            if (!(await robotsOf(at.origin)).allowed(`${at.pathname}${at.search}`)) {
+              pageErrors.push(`${url}: the site's robots.txt asks robots to stay out of it`);
+              continue;
+            }
             const res = await get(url);
             if (res.status !== 200) {
               pageErrors.push(`${url}: HTTP ${res.status}`);

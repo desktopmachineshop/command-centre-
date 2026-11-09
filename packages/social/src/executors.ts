@@ -248,7 +248,8 @@ export function createSocialExecutors(
         const slot = await pacer.slot(a, limits);
         if (slot.getTime() <= now().getTime()) {
           const r = await send();
-          await store.recordSubmission({ accountId: a.id, vertical: a.vertical, actionType: type, at: now() });
+          // It has gone out: a failure to note it down mustn't make the action look failed (and get sent again).
+          await store.recordSubmission({ accountId: a.id, vertical: a.vertical, actionType: type, at: now() }).catch((err) => log.error(`${a.id}: sent, but could not record it for pacing`, err));
           return result(r);
         }
         const entry = await store.queueSubmission({ accountId: a.id, vertical: a.vertical, actionType: type, payload, notBefore: slot });
