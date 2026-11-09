@@ -101,7 +101,9 @@ you what to fix.
 
 Scene kinds (the field is `kind`): `title` (heading, subheading), `capture` (scripted browser
 steps), `slide` (heading + up to 6 bullets that appear in turn), `image` (an https image with a
-slow zoom, plus `alt`), `outro` (heading, cta, url). Every scene can have `narration`; its
+slow zoom, plus `alt`), `outro` (heading, cta, url), `logo` (the brand's logo alone on its
+background for about 1.5 s: an optional intro sting as the very first scene of a long-form video,
+never on a short, where the hook comes first; needs `logoUrl` in the brand kit). Every scene can have `narration`; its
 length sets the scene's duration, so don't write timings. `minDurationSec` only when a scene
 must hold longer. Optional `music` needs a `url`; leave it out unless Dave gave you a track.
 A capture scene can use part of its recording with `clip: { startSec, endSec }` (an edit: nothing

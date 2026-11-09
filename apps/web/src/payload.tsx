@@ -400,7 +400,7 @@ export function videoSpecOf(value: unknown): Obj | null {
   return isObj(value) && Array.isArray(value.scenes) && value.scenes.length > 0 ? value : null;
 }
 
-const SCENE_KINDS: Record<string, string> = { title: "Title card", slide: "Slide", capture: "Screen recording", image: "Image", outro: "Closing card" };
+const SCENE_KINDS: Record<string, string> = { title: "Title card", slide: "Slide", capture: "Screen recording", image: "Image", outro: "Closing card", logo: "Logo card" };
 const TYPES: Record<string, string> = { short: "Short", demo: "Demo", walkthrough: "Walkthrough", announcement: "Announcement", explainer: "Explainer" };
 
 /** One browser step of a screen recording, in words. */

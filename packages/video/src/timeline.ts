@@ -32,7 +32,7 @@ export interface Timeline {
 }
 
 /** Default floor for a scene's length when its narration is short or missing. */
-const MIN_DURATION: Record<Scene["kind"], number> = { title: 2.5, capture: 3, slide: 3, image: 3, outro: 4 };
+const MIN_DURATION: Record<Scene["kind"], number> = { title: 2.5, capture: 3, slide: 3, image: 3, outro: 4, logo: 1.5 };
 
 /**
  * How much of a recording a capture scene uses once its `clip` is applied: where to start in

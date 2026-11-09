@@ -143,6 +143,7 @@ describe.skipIf(!HAS_FFMPEG || !CHROMIUM || !HAS_PLAYWRIGHT)("end-to-end sample 
       format: "9:16",
       music: { url: "https://example.com/music.wav", volumeDb: -18, credit: "test tone" },
       scenes: [
+        { id: "sting", kind: "logo" },
         { id: "hook", kind: "title", heading: "Docs that ship", narration: "Fix your docs in under a minute." },
         { id: "shot", kind: "image", url: "https://example.com/still.png", alt: "The editor", narration: "Edit the page, preview it, and publish." },
         { id: "cta", kind: "outro", heading: "OpenD", cta: "Try it free", url: "opend.app" },
@@ -151,6 +152,8 @@ describe.skipIf(!HAS_FFMPEG || !CHROMIUM || !HAS_PLAYWRIGHT)("end-to-end sample 
     const out = await renderVideo({ spec: vertical, dir: short, ffmpegBin: FFMPEG, tts, visuals: { shot: { kind: "image", file: "still.png" } }, logoFile: "logo.png", musicFile: "music.wav", preset: "ultrafast" });
     const info = await probe(ffprobeFor(FFMPEG), out.outputPath);
     expect(info.streams.find((s) => s.codecType === "video")).toMatchObject({ width: 1080, height: 1920 });
+    expect(out.timeline.scenes[0]).toMatchObject({ id: "sting", kind: "logo", duration: 1.5 });
+    expect(out.plan.filterGraph).toContain("overlay=x=(W-w)/2:y=(H-h)/2:enable='between(t,0,1.5)'");
     // The end card is held long enough to read.
     expect(out.timeline.scenes.at(-1)!.duration).toBeGreaterThanOrEqual(4);
     const meter = spawnSync(FFMPEG, ["-hide_banner", "-i", out.outputPath, "-af", "ebur128=peak=true", "-vn", "-f", "null", "-"], { encoding: "utf8" }).stderr;

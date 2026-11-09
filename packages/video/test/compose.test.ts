@@ -67,6 +67,38 @@ describe("compositor", () => {
     expect(args).toEqual(expect.arrayContaining(["-c:v", "h264_nvenc", "-cq", "21"]));
   });
 
+  it("draws a logo scene as the logo alone, joins scenes with a dip to the brand colour, and cuts when asked", () => {
+    const sting = parseSpec(minimalSpec({ scenes: [{ id: "sting", kind: "logo" }, { id: "hook", kind: "title", heading: "Docs that ship" }, { id: "cta", kind: "outro", heading: "OpenD", cta: "Try it" }] }));
+    const stingTimeline = planTimeline(sting, {});
+    expect(stingTimeline.scenes.map((s) => s.duration)).toEqual([1.5, 2.5, 4]);
+    const { filterGraph } = buildComposePlan({ ...base, spec: sting, timeline: stingTimeline, narration: {}, visuals: {}, logo: "logo.png" });
+    expect(filterGraph).toContain("format=rgba,split=3[logoS0][logoL0][logoX0]");
+    expect(filterGraph).toContain("[logoX0]scale=w='min(756,iw*281/ih)':h=-1[logoX]");
+    expect(filterGraph).toContain("[vcat][logoX]overlay=x=(W-w)/2:y=(H-h)/2:enable='between(t,0,1.5)'[vlogo0]");
+    // The first scene only fades out, the last only fades in, the middle one both: no hard jumps.
+    expect(filterGraph).toContain("setpts=PTS-STARTPTS,fade=t=out:st=1.3:d=0.2:color=0x0d1b2a,format=yuv420p[v0]");
+    expect(filterGraph).toContain("fade=t=in:st=0:d=0.2:color=0x0d1b2a,fade=t=out:st=2.3:d=0.2:color=0x0d1b2a,format=yuv420p[v1]");
+    expect(filterGraph).toContain("setpts=PTS-STARTPTS,fade=t=in:st=0:d=0.2:color=0x0d1b2a,format=yuv420p[v2]");
+
+    const cut = buildComposePlan({ ...base, spec: { ...sting, transition: { style: "cut", durationSec: 0.2 } }, timeline: stingTimeline, narration: {}, visuals: {} });
+    expect(cut.filterGraph).not.toContain("color=0x0d1b2a,format");
+  });
+
+  it("makes a picture-only clip for an editor: no sound, no fades from black", () => {
+    const plan = buildComposePlan({ ...base, videoOnly: true });
+    expect(plan.args).toContain("-an");
+    expect(plan.args).not.toContain("[aout]");
+    expect(plan.filterGraph).not.toContain("anullsrc");
+    expect(plan.filterGraph).toContain("concat=n=4:v=1:a=0[vcat]");
+  });
+
+  it("cuts a recording to its clip window and never clips the mix", () => {
+    const { args, filterGraph } = buildComposePlan({ ...base, visuals: { ...base.visuals, demo: { kind: "video", file: "demo.webm", trimStartSec: 1.25, maxDurationSec: 2 } } });
+    expect(args.slice(args.indexOf("demo.webm") - 5, args.indexOf("demo.webm") + 1)).toEqual(["-ss", "1.25", "-t", "2", "-i", "demo.webm"]);
+    expect(filterGraph).toContain("loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.84:level=false");
+    expect(filterGraph).toMatch(/afade=t=out:st=13\.1:d=0\.4\[aout\]$/);
+  });
+
   it("uses cover-fit when a capture scene asks for it", () => {
     const cover = parseSpec(minimalSpec({ format: "16:9", scenes: [{ id: "demo", kind: "capture", fit: "cover", steps: [{ action: "goto", url: "https://x.test/" }] }] }));
     const { filterGraph } = buildComposePlan({ ...base, spec: cover, timeline: planTimeline(cover, {}), narration: {} });

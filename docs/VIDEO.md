@@ -179,8 +179,12 @@ local render in `packages/video/test/e2e.test.ts`):
   or still held too long, long headings and walls of bullets for the format, silent screen
   recordings, loud or uncredited music, a video of only text cards, a short end card.
 
-Not built: an intro sting (a logo animation before the first scene), true crossfades, brand
-fonts shipped to the PC, and anything a designer would call motion graphics.
+- **Intro sting (optional):** a `logo` scene shows the brand's logo alone on its background for
+  about 1.5 s; put first, it fades up from black and dips into the first scene. It is a still
+  logo, not an animation.
+
+Not built: an animated logo sting, true crossfades, brand fonts shipped to the PC, and anything
+a designer would call motion graphics.
 
 ## Stack choices
 

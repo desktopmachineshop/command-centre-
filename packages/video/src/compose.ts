@@ -144,9 +144,19 @@ export function buildComposePlan(input: ComposeInput): ComposePlan {
         .join("+");
     const cardRanges = ranges(["title", "outro"]);
     const contentRanges = ranges(["capture", "image", "slide"]);
+    const stingRanges = ranges(["logo"]);
     const small = Math.round(H * (spec.format === "16:9" ? 0.06 : 0.04));
     const large = Math.round(Math.min(W, H) * 0.16);
-    graph.push(`[${idx}:v]format=rgba,split=2[logoS0][logoL0]`, `[logoS0]scale=-1:${small}[logoS]`, `[logoL0]scale=-1:${large}[logoL]`);
+    graph.push(
+      `[${idx}:v]format=rgba,split=${stingRanges ? 3 : 2}[logoS0][logoL0]${stingRanges ? "[logoX0]" : ""}`,
+      `[logoS0]scale=-1:${small}[logoS]`,
+      `[logoL0]scale=-1:${large}[logoL]`,
+    );
+    if (stingRanges) {
+      // A logo scene: the logo alone, centred and large (never wider than 70% of the frame).
+      graph.push(`[logoX0]scale=w='min(${Math.round(W * 0.7)},iw*${Math.round(Math.min(W, H) * 0.26)}/ih)':h=-1[logoX]`, `[${videoOut}][logoX]overlay=x=(W-w)/2:y=(H-h)/2:enable='${stingRanges}'[vlogo0]`);
+      videoOut = "vlogo0";
+    }
     if (contentRanges) {
       graph.push(`[${videoOut}][logoS]overlay=x=W-w-${Math.round(W * 0.03)}:y=${Math.round(H * 0.025)}:enable='${contentRanges}'[vlogo1]`);
       videoOut = "vlogo1";

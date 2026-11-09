@@ -141,9 +141,11 @@ export const SlideScene = z.object({
   bullets: z.array(ScreenText(90)).max(6).default([]),
 });
 export const ImageScene = z.object({ ...SceneBase, kind: z.literal("image"), url: HttpUrl, alt: z.string().max(200), kenBurns: z.boolean().default(true) });
+/** The brand's logo alone on its background: an intro sting before the first scene (or a breather between parts). Needs brand.logoUrl. */
+export const LogoScene = z.object({ ...SceneBase, kind: z.literal("logo") });
 export const OutroScene = z.object({ ...SceneBase, kind: z.literal("outro"), heading: ScreenText(80), cta: ScreenText(80), url: ScreenText(80).optional() });
 
-export const Scene = z.discriminatedUnion("kind", [TitleScene, CaptureScene, SlideScene, ImageScene, OutroScene]);
+export const Scene = z.discriminatedUnion("kind", [TitleScene, CaptureScene, SlideScene, ImageScene, OutroScene, LogoScene]);
 export type Scene = z.infer<typeof Scene>;
 export type SceneInput = z.input<typeof Scene>;
 export type CaptureScene = z.infer<typeof CaptureScene>;
@@ -282,8 +284,12 @@ export function lintQuality(spec: VideoSpec): string[] {
     if (s.kind === "slide" && s.bullets.length > (narrow ? 3 : 5)) w.push(`scene "${s.id}": ${s.bullets.length} bullets is a wall of text on ${spec.format}`);
     if (s.kind === "slide" && s.bullets.some((b) => b.length > (narrow ? 36 : 70))) w.push(`scene "${s.id}": a bullet is too long to read at a glance`);
     if (s.kind === "capture" && !s.narration && i > 0) w.push(`scene "${s.id}" is a silent screen recording: say what the viewer is looking at`);
+    if (s.kind === "logo" && !spec.brand.logoUrl) w.push(`scene "${s.id}" is a logo card, but the brand kit has no logoUrl: it would be an empty card`);
+    if (s.kind === "logo" && (s.minDurationSec ?? 0) > 3) w.push(`scene "${s.id}": a logo sting over 3s is a long wait before anything happens`);
     if (s.kind === "image" && !s.kenBurns && (s.minDurationSec ?? seconds) > 4) w.push(`scene "${s.id}": a still held this long without movement looks frozen (kenBurns)`);
   });
+  const perLine = { "9:16": 18, "1:1": 26, "16:9": 42 }[spec.format];
+  if (spec.captions.enabled && (spec.captions.maxChars ?? 0) > perLine * 2) w.push(`captions.maxChars ${spec.captions.maxChars} will run over two lines on ${spec.format}; keep it to ${perLine * 2} or leave it out`);
   if (spec.music && spec.music.volumeDb > -14) w.push(`music at ${spec.music.volumeDb} dB will fight the voice; -18 to -24 dB sits under it`);
   if (spec.music && !spec.music.credit) w.push("music has no credit/licence note: keep where the track came from");
   if (spec.type !== "short" && spec.scenes.length >= 3 && spec.scenes.every((s) => s.kind !== "capture" && s.kind !== "image")) w.push("no screen recording or image in any scene: the video is only text cards");
