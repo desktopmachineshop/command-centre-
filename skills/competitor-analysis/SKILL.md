@@ -122,7 +122,13 @@ never fill a gap from memory or guesswork.
    (ER11 is not ER16; a 13-piece set is not a 7-piece set), same condition. If the nearest thing
    they sell differs, put it in the table and say how it differs in the Notes column. A wrong
    match is worse than a gap.
-4. **Compare on the same basis**: both inclusive of VAT, in the same currency. Don't convert
+4. **Check where the page thinks you are.** Shops redirect by the visitor's location, and the
+   server may not be in the UK: a UK shop's product page can come back as its US page, in
+   dollars (`fetch_page` shows the final `url`, `redirectedFrom` and the `currency`). If the
+   currency or the region in the URL isn't the one our customers see, don't use that price:
+   take it from `site_products` (a shop's catalogue is in its base currency) or ask for the
+   shop's UK address (for example its `/en-gb/` path), and say which you used.
+5. **Compare on the same basis**: both inclusive of VAT, in the same currency. Don't convert
    currencies yourself unless you read a rate this run, and then state the rate and its source.
    Add delivery where it changes the answer (a £3 cheaper item with £6 postage isn't cheaper).
 
@@ -142,7 +148,9 @@ The table, one row per matched product:
 - **Quote, don't embellish.** Claims a competitor makes about itself are reported as its claims
   ("says it dispatches same day"), not as facts.
 - **Heed the tools' warnings.** `status` 403 or 404, `truncated`, `partial`, a snapshot's
-  `warnings`, `source: "none"`: each means you have less than the whole picture. Say so next to
+  `warnings`, `source: "none"`, a note that robots.txt closed a source: each means you have less
+  than the whole picture. Some shops refuse every visitor that isn't a browser (403 on
+  everything): say the shop couldn't be read automatically, and leave it at that. Say so next to
   the affected facts. A failed or blocked read is **never** reported as "they removed their
   products" or "they are out of stock".
 - **Check surprises.** A price that halved, a catalogue that doubled: read the product page

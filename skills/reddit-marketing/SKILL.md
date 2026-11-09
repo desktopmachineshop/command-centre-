@@ -28,6 +28,15 @@ Reddit sometimes refuses or rate-limits the server. The tools say so plainly; wh
 with what you have and say in the report what you couldn't read. Don't hammer them, and don't go
 round them. Once you have read Reddit in a task, everything you propose from it waits for Dave.
 
+**"Feeds only".** When no Reddit account is connected, Reddit usually gives the server only its
+public feeds: results carry `access: "Feeds only…"` and `partial: true`, there are no scores,
+comment nesting, locked flags or **subreddit rules**, and each read can take up to a minute.
+Then: make few calls (one search, the two or three best threads), and because you can't read
+the rules, **don't propose replies**. Put your drafts in one `notify` titled "Reddit drafts"
+(thread link, what it asks for, the text, and "rules not checked") so Dave can check and post
+them himself, and say in the report that connecting his Reddit account on the Accounts page
+(Reddit, your own login) gives full reads.
+
 Read `social-platform-guide` first, especially its Reddit section. Everything there still
 applies here. A banned account can't be unbanned, and an approval Dave has to reject still costs
 him time, so one good reply is worth more than five weak ones.

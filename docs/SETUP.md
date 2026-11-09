@@ -1838,12 +1838,14 @@ form token), `POST /api/comment`, `/api/submit` and `/api/compose` with that mod
 `GET /message/inbox.json` for replies and messages. Code: `packages/social/src/adapters/reddit/session.ts`
 (the client), `packages/social/src/pacing.ts` (limits and the outbox, table `social_outbox`).
 
-**Not verified against the live site.** This was built from Reddit's documented endpoint shapes
-and tested against a stand-in that speaks the same protocol; it has not been run against
-reddit.com (the build machine can't reach it). Expect the first real **Test** to be the proof.
-If Reddit refuses the server outright (it blocks many data-centre addresses), session mode can't
-work from Railway, and the fallback is the desktop-worker browser job in
-`docs/plans/reddit-browser-worker.md` (designed, not built).
+**Not verified with a real account.** This was built from Reddit's endpoint shapes and tested
+against a stand-in that speaks the same protocol. No real session cookie was available, so
+signing in, posting and reading the inbox have not been run against reddit.com. What was checked
+live (2026-11-09, signed out): `old.reddit.com/api/me.json` answers a signed-out request with a
+redirect to its login page, which the adapter reads as "session expired". Expect the first real
+**Test** to be the proof. If Reddit refuses the server outright even with your cookie (it blocks
+many data-centre addresses), session mode can't work from Railway, and the fallback is the
+desktop-worker browser job in `docs/plans/reddit-browser-worker.md` (designed, not built).
 
 As Railway JSON instead of the Accounts page (`SOCIAL_ACCOUNTS`):
 
@@ -1870,13 +1872,22 @@ businesses that market themselves (DMS, 3dpandme, OpenV, OpenD) and for the assi
 
 - They use Reddit's public pages: `https://www.reddit.com/r/<sub>/new.json`, `/search.json`,
   `/comments/<id>.json`, `/r/<sub>/about.json` and `/about/rules.json`, `/user/<name>/overview.json`.
-  When the JSON is refused with a 403 or a block page, the matching `.rss` feed is read instead,
-  once; those answers are marked `partial` (no scores, no comment nesting).
+  When the JSON is refused with a 403 or a block page, the matching `.rss` feed is read instead;
+  those answers are marked `partial` (no scores, no comment nesting, no locked flag).
 - **Manners:** an honest User-Agent, one request at a time at least 1.5 s apart, a 2-minute
   cache, Reddit's `X-Ratelimit-*` and `Retry-After` headers honoured, and no retries: after a
   429 nothing more is asked until Reddit's window has passed, and the agent is told how long.
+- **Without a Reddit account connected, expect the slow lane.** Tried from a data-centre address
+  on 2026-11-09: Reddit refused every `.json` page (403) and served the feeds at about **one
+  request a minute**. The tools cope: once the JSON has been refused they read the feeds directly
+  for the next 15 minutes, wait out each rate-limit window (up to 50 s a call), and tell the
+  agent it is on `Feeds only`. Finding threads and reading a thread or a user's history works
+  that way, slowly. **Subreddit rules do not** (they have no feed), and the skills tell agents not
+  to propose a reply in a subreddit whose rules they couldn't read: without an account the scout
+  sends you its drafts in a notification to post by hand, rather than proposals.
 - With a session account connected (above), reads carry its cookie, which Reddit treats as you
-  reading while signed in. That is usually what makes reads reliable from a server.
+  reading while signed in: that is what should give full reads (JSON, rules, scores) at a normal
+  pace. Not yet verified against the live site; the first scout run after connecting will show it.
 - **Everything Reddit returns is outside content.** Results are labelled as such, and a task
   that has read Reddit has every later proposal held for your approval (see "Outside content and
   approvals" under Research below).
@@ -2325,6 +2336,15 @@ pages) visit a shop on a schedule, as a robot does, so they follow the shop's `r
 catalogue source or page it closes to robots is skipped, and the result's notes say so. A single
 page you ask about (`fetch_page`) is read as a person's browser would read it. Requests to one
 shop are spaced out (400 ms), and a catalogue read stops at 1,000 products by default.
+
+**What to expect from real shops** (tried on 2026-11-09): a Shopify shop's whole catalogue and a
+WooCommerce shop's came back with prices, SKUs and stock in a few seconds. Some shops refuse any
+visitor that isn't a browser (HTTP 403 for everything, or for product pages only); the tools
+report that and do not pretend to be a browser, so for those shops there is nothing to compare
+automatically. Shops also redirect by where the visitor is: from a server abroad, a UK shop's
+product page may come back as its US page in dollars. The catalogue tools read the shop's base
+currency; for single pages the result gives the final URL and the currency, and the skill tells
+agents not to compare across currencies.
 
 A blocked or failed read is reported as that. A snapshot that suddenly can't read a catalogue it
 read before is **not stored** and not reported as "they removed everything"; smaller oddities

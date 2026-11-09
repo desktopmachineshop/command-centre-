@@ -44,7 +44,7 @@ const message = (err: unknown) => (err instanceof UnsafeUrlError ? `Refused: ${e
 export function createResearchMcpServer(options: ResearchMcpOptions): McpServer {
   const server = new McpServer({ name: "research", version: "0.1.0" });
   const now = options.now ?? (() => new Date());
-  const get = (url: string, extra: SafeFetchOptions = {}) => safeFetch(url, { ...options.fetch, ...extra });
+  const get = (url: string, extra: { maxBytes?: number } = {}) => safeFetch(url, { ...options.fetch, ...(extra.maxBytes ? { maxBytes: extra.maxBytes } : {}) });
   // A run in one business never names another: the argument only counts when `options.vertical` is null.
   const verticalArg = { vertical: z.string().regex(/^[a-z0-9-]+$/).optional().describe("The business (vertical id) whose competitor this is, e.g. dms. Only needed outside an agent run, or in the assistant's runs when it isn't the task's own business") };
   const verticalOf = (given: unknown): string => {

@@ -9,6 +9,13 @@
  * - no retries beyond the single feed fallback: when Reddit says no, the caller is told so.
  * With a session cookie (a connected Reddit session account, see @cc/social's adapter) requests
  * carry it, which Reddit treats as that signed-in user reading. Nothing here writes.
+ *
+ * What Reddit actually allows an anonymous server (seen from a data-centre address, November
+ * 2026): the JSON is refused outright (403 with a block page), and the feeds answer at about one
+ * request a minute (`X-Ratelimit-Remaining: 0` after each). So once the JSON has been refused, it
+ * isn't asked for again for a while (the feed is read straight away), and a call waits out a
+ * rate-limit window of up to `maxWaitMs` rather than failing. Anonymous reading is therefore slow
+ * and has no scores, comment nesting or subreddit rules; a signed-in session is the remedy.
  */
 
 export const REDDIT_WWW = "https://www.reddit.com";
@@ -40,8 +47,10 @@ export interface RedditReaderOptions {
   cacheMs?: number;
   /** Least time between two requests. Default 1.5 s. */
   minIntervalMs?: number;
-  /** Longest wait for a rate-limit window inside one call; beyond it the call fails with the wait. Default 8 s. */
+  /** Longest wait for a rate-limit window inside one call; beyond it the call fails with the wait. Default 50 s. */
   maxWaitMs?: number;
+  /** How long the JSON isn't asked for again after Reddit refused it. Default 15 minutes. */
+  jsonRetryMs?: number;
   baseUrl?: string;
 }
 
@@ -95,6 +104,9 @@ export class RedditReader {
   private chain: Promise<unknown> = Promise.resolve();
   private lastRequest = 0;
   private holdUntil = 0;
+  /** Reddit refused the JSON: until then, go straight to the feeds. */
+  private jsonRefusedUntil = 0;
+  private wasSignedIn = false;
 
   constructor(private readonly options: RedditReaderOptions = {}) {
     this.fetch = options.fetch ?? ((input, init) => fetch(input, init));
@@ -107,6 +119,11 @@ export class RedditReader {
     return !!this.options.cookie?.();
   }
 
+  /** True while Reddit is only letting this server read its feeds (the JSON was refused recently). */
+  get feedsOnly(): boolean {
+    return this.now().getTime() < this.jsonRefusedUntil;
+  }
+
   /**
    * GET `<path>.json`. When Reddit refuses the JSON and `feed` is given, the Atom feed at
    * `<path>.rss` is read instead and passed to `feed` to shape the same kind of answer.
@@ -116,17 +133,28 @@ export class RedditReader {
     const hit = this.cache.get(key);
     if (hit && this.now().getTime() - hit.at < (this.options.cacheMs ?? 120_000)) return hit.value as T;
     const value = await this.serial(async () => {
-      try {
-        return await this.json<T>(path, query);
-      } catch (err) {
-        if (!(err instanceof Refused)) throw err;
-        if (!feed) {
-          const hint = this.signedIn ? "" : " Connecting a Reddit session account on the Accounts page makes reads more reliable.";
-          throw new RedditReadError(`${err.message}. Reddit is blocking this server right now: try again later.${hint}`, err.status);
-        }
-        const entries = await this.atom(path, query, err);
-        return feed(entries);
+      // A session connected (or dropped) since the refusal changes what Reddit will answer: ask again.
+      if (this.signedIn !== this.wasSignedIn) {
+        this.wasSignedIn = this.signedIn;
+        this.jsonRefusedUntil = 0;
       }
+      let refused: RedditReadError = new Refused("Reddit is refusing its JSON to this server (HTTP 403)", 403);
+      if (!this.feedsOnly) {
+        try {
+          return await this.json<T>(path, query);
+        } catch (err) {
+          if (!(err instanceof Refused)) throw err;
+          refused = err;
+          this.jsonRefusedUntil = this.now().getTime() + (this.options.jsonRetryMs ?? 15 * 60_000);
+        }
+      }
+      if (!feed) {
+        const hint = this.signedIn
+          ? " Reddit is blocking this server right now: try again later."
+          : " Reddit only lets this server read its public feeds, which don't carry this (subreddit rules and descriptions are among what they lack). Connect a Reddit session account on the Accounts page for full reads.";
+        throw new RedditReadError(`${refused.message}.${hint}`, refused.status);
+      }
+      return feed(await this.atom(path, query, refused));
     });
     if (this.cache.size > 300) this.cache.clear();
     this.cache.set(key, { at: this.now().getTime(), value });
@@ -142,7 +170,7 @@ export class RedditReader {
   private async request(url: string, accept: string): Promise<Response> {
     const now = this.now().getTime();
     const wait = Math.max(this.lastRequest + (this.options.minIntervalMs ?? 1500) - now, this.holdUntil - now, 0);
-    if (wait > (this.options.maxWaitMs ?? 8000)) {
+    if (wait > (this.options.maxWaitMs ?? 50_000)) {
       throw new RedditReadError(`Reddit's rate limit is used up; it resets in about ${Math.ceil(wait / 1000)}s. Carry on with what you have and try again later.`, 429);
     }
     if (wait > 0) await this.sleep(wait);

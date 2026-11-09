@@ -34,7 +34,11 @@ export function createRedditMcpServer(options: RedditMcpOptions): McpServer {
     try {
       const value = await fn();
       options.onRead?.();
-      return ok({ notice: REDDIT_CONTENT_NOTICE, fetchedAt: now().toISOString(), ...value });
+      // Tell the agent when it is reading the slow way, so it plans few calls and doesn't mistake a thin answer for a full one.
+      const limited = reader.feedsOnly
+        ? { access: `Feeds only: Reddit is refusing its full data to this server${reader.signedIn ? "" : " (no Reddit account is connected)"}, so answers have no scores, comment nesting, locked flags or subreddit rules, and Reddit allows about one read a minute. Make each call count.` }
+        : {};
+      return ok({ notice: REDDIT_CONTENT_NOTICE, fetchedAt: now().toISOString(), ...limited, ...value });
     } catch (err) {
       return fail((err as Error).message);
     }

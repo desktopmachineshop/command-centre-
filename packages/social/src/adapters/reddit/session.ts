@@ -7,7 +7,8 @@ import { realSleep, RedditApiError, type Sleep, throwJsonErrors } from "./client
  * He copies the `reddit_session` cookie from his browser once (docs/SETUP.md, "Reddit without a
  * developer app"); the server sends it to old.reddit.com's own endpoints, the ones the website's
  * forms use:
- * - `GET /api/me.json` -> the username, karma and the `modhash` (old Reddit's CSRF token);
+ * - `GET /api/me.json` -> the username, karma and the `modhash` (old Reddit's CSRF token); a
+ *   signed-out session is redirected to `/login` instead (seen November 2026), or gets `{}`;
  * - `POST /api/comment`, `/api/submit`, `/api/compose` with `uh=<modhash>` and `X-Modhash`;
  * - `GET /message/inbox.json`, `/message/sent.json`, `/api/info.json`.
  * The paths and bodies are the same as the Data API's, so the adapter is shared.
@@ -123,7 +124,8 @@ export class RedditSessionClient {
       if (hold > MAX_RATE_WAIT_MS) throw new RedditApiError(`Reddit rate limit reached; resets in ${Math.ceil(hold / 1000)}s`, 429, ["RATELIMIT"]);
       await this.sleep(hold);
     }
-    const res = await ctx.fetch(url, { ...init, headers: { ...this.headers(c), ...(init.headers as Record<string, string> | undefined) }, signal: ctx.signal });
+    // Redirects are not followed: old Reddit answers a signed-out session with a redirect to its login page.
+    const res = await ctx.fetch(url, { ...init, redirect: "manual", headers: { ...this.headers(c), ...(init.headers as Record<string, string> | undefined) }, signal: ctx.signal });
     const remaining = Number(res.headers.get("x-ratelimit-remaining"));
     const reset = Number(res.headers.get("x-ratelimit-reset"));
     if (res.headers.has("x-ratelimit-remaining") && remaining < 1 && Number.isFinite(reset)) this.holdUntil.set(key, ctx.now().getTime() + reset * 1000);
@@ -132,6 +134,12 @@ export class RedditSessionClient {
       const wait = Number(res.headers.get("retry-after")) || reset || 60;
       this.holdUntil.set(key, ctx.now().getTime() + wait * 1000);
       throw new RedditApiError(`Reddit rate limit reached; resets in ${Math.ceil(wait)}s`, 429, ["RATELIMIT"]);
+    }
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location") ?? "";
+      this.users.delete(key);
+      if (/\/login\b/.test(location)) throw new RedditSessionExpiredError(c.username || undefined);
+      throw new RedditApiError(`Reddit redirected the request (HTTP ${res.status}) instead of answering it, so it was not carried out`, res.status);
     }
     return res;
   }

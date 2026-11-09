@@ -285,7 +285,8 @@ export function extractPage(html: string, pageUrl: string, options: { maxText?: 
   let pageText = htmlToText(content);
   if (pageText.length > maxText) pageText = `${pageText.slice(0, maxText)}…`;
 
-  const headings = [...body.matchAll(/<h([1-3])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi)]
+  // Headings of the content, not of the menus around it.
+  const headings = [...content.matchAll(/<h([1-3])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi)]
     .map((m) => ({ level: Number(m[1]), text: clean(m[2]!).slice(0, 200) }))
     .filter((h) => h.text)
     .slice(0, 40);

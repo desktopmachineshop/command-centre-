@@ -348,6 +348,23 @@ describe("discoverProducts", () => {
     expect(c.products.find((p) => p.key === "/product/secret-item")).toMatchObject({ available: null });
   });
 
+  it("reads catalogue pages far bigger than an ordinary page, and sitemaps named relative to the site", async () => {
+    // Real Store API pages run to megabytes: every product carries its description and images.
+    const big = Array.from({ length: 100 }, (_, i) => ({ id: i, name: `P${i}`, permalink: `https://bigwoo.example.com/product/p${i}/`, is_in_stock: true, prices: { price: "100", currency_code: "GBP", currency_minor_unit: 2 }, description: "x".repeat(30_000) }));
+    const web = fakeWeb({
+      "bigwoo.example.com/wp-json/wc/store/v1/products?per_page=100&page=1": big,
+      "bigwoo.example.com/wp-json/wc/store/v1/products?per_page=100&page=2": [big[0]],
+      "relative.example.com/robots.txt": "User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n",
+      "relative.example.com/sitemap.xml": `<?xml version="1.0"?><urlset><url><loc>https://relative.example.com/product/a-vice</loc></url></urlset>`,
+    });
+    const get = (url: string, o?: { maxBytes?: number }) => safeFetch(url, { ...web.options, ...o });
+    const c = await discoverProducts("bigwoo.example.com", get, { sleep: noSleep });
+    expect(c).toMatchObject({ source: "woocommerce", truncated: false });
+    expect(c.products).toHaveLength(101);
+    const r = await discoverProducts("relative.example.com", get, { sleep: noSleep });
+    expect(r.products.map((p) => p.url)).toEqual(["https://relative.example.com/product/a-vice"]);
+  });
+
   it("says so when a site publishes no catalogue", async () => {
     const web = fakeWeb({ "nothing.example.com/": "<html></html>" });
     const c = await discoverProducts("nothing.example.com", (url) => safeFetch(url, web.options), { sleep: noSleep });

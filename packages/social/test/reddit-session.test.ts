@@ -37,7 +37,7 @@ type Call = { url: URL; method: string; headers: Record<string, string>; form: U
  * A fake old.reddit.com that speaks the cookie-session protocol: /api/me.json gives the modhash
  * only to the right cookie, and POSTs need both the cookie and the modhash.
  */
-function fakeOldReddit(state: { signedIn?: boolean; blocked?: boolean; rateLimit?: string; inbox?: Record<string, unknown>[]; suspended?: boolean } = {}) {
+function fakeOldReddit(state: { signedIn?: boolean; blocked?: boolean; rateLimit?: string; inbox?: Record<string, unknown>[]; suspended?: boolean; loginRedirect?: boolean } = {}) {
   const s = { signedIn: true, blocked: false, inbox: [] as Record<string, unknown>[], ...state };
   const calls: Call[] = [];
   const comments: { thing_id: string; text: string }[] = [];
@@ -51,6 +51,11 @@ function fakeOldReddit(state: { signedIn?: boolean; blocked?: boolean; rateLimit
     if (s.blocked) return new Response("<html><body>whoa there, pardner!</body></html>", { status: 403, headers: { "content-type": "text/html" } });
     const authed = s.signedIn && call.headers.Cookie?.includes(`reddit_session=${COOKIE}`);
     const path = call.url.pathname;
+    // What old.reddit.com does to a signed-out request (seen November 2026): off to the login page.
+    if (!authed && s.loginRedirect) {
+      if (init?.redirect !== "manual") throw new Error("the client followed a redirect to the login page");
+      return new Response(null, { status: 302, headers: { location: `https://old.reddit.com/login/?reason=lor2&dest=${encodeURIComponent(call.url.toString())}` } });
+    }
     if (path === "/api/me.json") return json(authed ? { kind: "t2", data: { name: "dave_dms", modhash: MODHASH, link_karma: 120, comment_karma: 3400, is_suspended: s.suspended === true } } : {});
     if (call.method === "POST") {
       if (!authed) return json({ json: { errors: [["USER_REQUIRED", "Please log in to do that.", null]] } });
@@ -170,6 +175,25 @@ describe("Reddit adapter in session mode", () => {
     expect(reddit.comments).toEqual([]);
     // The inbox poll reports the same thing.
     await expect(createRedditAdapter().inbound!.poll!(account(), null, ctx)).rejects.toBeInstanceOf(RedditSessionExpiredError);
+  });
+
+  it("reads a redirect to the login page as an expired session, without following it", async () => {
+    const reddit = fakeOldReddit({ signedIn: false, loginRedirect: true });
+    const { ctx } = context(reddit.fetch);
+    const adapter = createRedditAdapter();
+    await expect(adapter.reply(account(), target(), "hello", ctx)).rejects.toBeInstanceOf(RedditSessionExpiredError);
+    await expect(adapter.inbound!.poll!(account(), null, ctx)).rejects.toBeInstanceOf(RedditSessionExpiredError);
+    await expect(redditSessionWhoami({ sessionCookie: COOKIE }, ctx)).rejects.toThrow(/Reconnect Reddit on the Accounts page/);
+    expect(reddit.calls.every((c) => c.url.pathname !== "/login/")).toBe(true);
+    expect(reddit.comments).toEqual([]);
+
+    // Signed out between two submissions: the cached modhash doesn't hide it.
+    const later = fakeOldReddit({ loginRedirect: true });
+    const live = context(later.fetch).ctx;
+    await adapter.reply(account(), target(), "first", live);
+    later.state.signedIn = false;
+    await expect(adapter.reply(account(), target(), "second", live)).rejects.toBeInstanceOf(RedditSessionExpiredError);
+    expect(later.comments).toHaveLength(1);
   });
 
   it("notices a session that expires between submissions", async () => {

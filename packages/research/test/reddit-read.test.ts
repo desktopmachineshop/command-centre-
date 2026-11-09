@@ -90,6 +90,40 @@ describe("RedditReader", () => {
     expect(r.calls.map((c) => c.url.pathname)).toEqual(["/r/hobbycnc/new.json", "/r/hobbycnc/new.rss"]);
   });
 
+  it("stops asking for the JSON once it has been refused, until a while has passed or a session is connected", async () => {
+    let cookie: string | undefined;
+    const block = () => new Response("<html>blocked</html>", { status: 403, headers: { "retry-after": "0" } });
+    const r = fakeReddit({ "/r/hobbycnc/new.json": block, "/r/hobbycnc/new.rss": FEED, "/search.json": block, "/search.rss": FEED, "/r/hobbycnc/about.json": block }, { cookie: () => cookie });
+    await subredditPosts(r.reader, "hobbycnc");
+    expect(r.reader.feedsOnly).toBe(true);
+    // The next reads go straight to the feed: one request each, not two.
+    await searchPosts(r.reader, "collets");
+    expect(r.calls.map((c) => c.url.pathname)).toEqual(["/r/hobbycnc/new.json", "/r/hobbycnc/new.rss", "/search.rss"]);
+    // What has no feed is refused without asking again, and says what would help.
+    await expect(subredditInfo(r.reader, "hobbycnc")).rejects.toThrow(/only lets this server read its public feeds.*subreddit rules.*Connect a Reddit session account/s);
+    expect(r.calls).toHaveLength(3);
+    // A quarter of an hour later the JSON is tried again.
+    r.advance(16 * 60_000);
+    await searchPosts(r.reader, "vices");
+    expect(r.calls.slice(3).map((c) => c.url.pathname)).toEqual(["/search.json", "/search.rss"]);
+    // And at once when a session is connected.
+    cookie = "reddit_session=abc";
+    await searchPosts(r.reader, "clamps");
+    expect(r.calls.slice(5).map((c) => c.url.pathname)).toEqual(["/search.json", "/search.rss"]);
+  });
+
+  it("waits out the feed's one-a-minute window rather than failing", async () => {
+    const r = fakeReddit({
+      "/r/hobbycnc/new.json": () => new Response("<html>blocked</html>", { status: 403 }),
+      "/r/hobbycnc/new.rss": () => new Response(FEED, { headers: { "content-type": "application/atom+xml", "x-ratelimit-used": "1", "x-ratelimit-remaining": "0.0", "x-ratelimit-reset": "46" } }),
+      "/comments/abc12.rss": FEED,
+    });
+    await subredditPosts(r.reader, "hobbycnc");
+    const res = await thread(r.reader, "abc12");
+    expect(res.partial).toBe(true);
+    expect(r.slept).toEqual([1500, 46_000]);
+  });
+
   it("fails clearly, without retrying, when Reddit refuses both", async () => {
     const r = fakeReddit({ "/search.json": () => new Response("<html>blocked</html>", { status: 403 }), "/search.rss": () => new Response("<html>blocked</html>", { status: 403 }) });
     await expect(searchPosts(r.reader, "cnc collets")).rejects.toThrow(/refused the request \(HTTP 403\), and its feed too.*Accounts page/s);
@@ -259,5 +293,15 @@ describe("reddit MCP server", () => {
     expect(history).toMatchObject({ username: "dave_dms", summary: { total: 1, selfPromo: 0, selfPromoRatio: 0 } });
     const none = await (await connect({})).call("user_history");
     expect(none.text).toMatch(/No Reddit account is connected/);
+  });
+
+  it("says so when Reddit only gives this server its feeds", async () => {
+    const t = await connect({ "/r/hobbycnc/new.json": () => new Response("<html>blocked</html>", { status: 403 }), "/r/hobbycnc/new.rss": FEED });
+    const data = JSON.parse((await t.call("subreddit_posts", { subreddit: "hobbycnc" })).text);
+    expect(data.partial).toBe(true);
+    expect(data.access).toMatch(/Feeds only.*no Reddit account is connected.*about one read a minute/);
+    const rules = await t.call("subreddit_info", { subreddit: "hobbycnc" });
+    expect(rules.isError).toBe(true);
+    expect(rules.text).toMatch(/Connect a Reddit session account on the Accounts page/);
   });
 });

@@ -43,8 +43,11 @@ export interface Catalogue {
   notes: string[];
 }
 
-/** GET a URL as text: the research server passes `safeFetch` bound to its options. */
-export type Get = (url: string) => Promise<SafeFetchResult>;
+/** GET a URL as text: the research server passes `safeFetch` bound to its options. `maxBytes` raises the size cap for one call. */
+export type Get = (url: string, options?: { maxBytes?: number }) => Promise<SafeFetchResult>;
+
+/** A page of a shop's catalogue API runs to megabytes (every product carries its description and images). */
+const CATALOGUE_PAGE_BYTES = 16_000_000;
 
 export interface DiscoverOptions {
   /** Most products returned. Default 500. */
@@ -85,19 +88,22 @@ export function siteOrigin(site: string): string {
   return url.origin;
 }
 
-async function getJson(get: Get, url: string): Promise<{ status: number; data: unknown; finalUrl: string } | null> {
+async function getJson(get: Get, url: string): Promise<{ status: number; data: unknown; tooBig?: boolean } | null> {
   try {
-    const res = await get(url);
-    if (res.status !== 200) return { status: res.status, data: null, finalUrl: res.url };
+    const res = await get(url, { maxBytes: CATALOGUE_PAGE_BYTES });
+    if (res.status !== 200) return { status: res.status, data: null };
     try {
-      return { status: 200, data: JSON.parse(res.text), finalUrl: res.url };
+      return { status: 200, data: JSON.parse(res.text) };
     } catch {
-      return { status: 200, data: null, finalUrl: res.url };
+      return { status: 200, data: null, tooBig: res.truncated };
     }
   } catch {
     return null;
   }
 }
+
+/** Why a catalogue page couldn't be used, for the notes. */
+const why = (res: { status: number; tooBig?: boolean } | null) => (!res ? "no answer" : res.status !== 200 ? `HTTP ${res.status}` : res.tooBig ? "the answer was too large to read" : "not a product list");
 
 interface ShopifyVariant {
   sku?: string | null;
@@ -153,10 +159,10 @@ async function shopify(get: Get, origin: string, o: Internal, notes: string[]): 
     const list = (res?.data as { products?: ShopifyProduct[] } | null)?.products;
     if (!res || !Array.isArray(list)) {
       if (page === 1) {
-        notes.push(`Shopify /products.json: ${res ? (res.status === 200 ? "not a product list" : `HTTP ${res.status}`) : "no answer"}`);
+        notes.push(`Shopify /products.json: ${why(res)}`);
         return null;
       }
-      notes.push(`Shopify /products.json page ${page} failed; the list may be incomplete`);
+      notes.push(`Shopify /products.json page ${page} failed (${why(res)}); the list is incomplete`);
       truncated = true;
       break;
     }
@@ -182,7 +188,7 @@ async function shopify(get: Get, origin: string, o: Internal, notes: string[]): 
     if (list.length < 250) break;
     await o.sleep(o.delayMs);
   }
-  notes.push(`Shopify /products.json: ${products.length} products`);
+  notes.push(`Shopify /products.json: ${Math.min(products.length, o.limit)} products${truncated ? " (more exist: raise the limit to read them)" : ""}`);
   return { site: origin, source: "shopify", currency, products: products.slice(0, o.limit), truncated, notes };
 }
 
@@ -231,10 +237,10 @@ async function woocommerce(get: Get, origin: string, o: Internal, notes: string[
     const list = res?.data;
     if (!res || !Array.isArray(list)) {
       if (page === 1) {
-        notes.push(`WooCommerce Store API: ${res ? (res.status === 200 ? "not a product list" : `HTTP ${res.status}`) : "no answer"}`);
+        notes.push(`WooCommerce Store API: ${why(res)}`);
         return null;
       }
-      notes.push(`WooCommerce Store API page ${page} failed; the list may be incomplete`);
+      notes.push(`WooCommerce Store API page ${page} failed (${why(res)}); the list is incomplete`);
       truncated = true;
       break;
     }
@@ -253,7 +259,7 @@ async function woocommerce(get: Get, origin: string, o: Internal, notes: string[
     if (list.length < 100) break;
     await o.sleep(o.delayMs);
   }
-  notes.push(`WooCommerce Store API: ${products.length} products`);
+  notes.push(`WooCommerce Store API: ${Math.min(products.length, o.limit)} products${truncated ? " (more exist: raise the limit to read them)" : ""}`);
   return { site: origin, source: "woocommerce", currency: products.find((p) => p.currency)?.currency ?? null, products: products.slice(0, o.limit), truncated, notes };
 }
 
@@ -278,7 +284,15 @@ const titleFromPath = (url: string) => {
 };
 
 async function sitemap(get: Get, origin: string, o: Internal, notes: string[]): Promise<Catalogue | null> {
-  const queue: string[] = [...o.robots.sitemaps];
+  // robots.txt may name its sitemaps relative to the site ("Sitemap: /sitemap.xml").
+  const absolute = (ref: string): string | null => {
+    try {
+      return new URL(ref, `${origin}/`).toString();
+    } catch {
+      return null;
+    }
+  };
+  const queue: string[] = o.robots.sitemaps.map(absolute).filter((u): u is string => u !== null);
   if (!queue.length) queue.push(`${origin}/sitemap.xml`);
   const host = new URL(origin).hostname.replace(/^www\./, "");
   const seenMaps = new Set<string>();
@@ -300,7 +314,7 @@ async function sitemap(get: Get, origin: string, o: Internal, notes: string[]): 
     fetched++;
     if (xml.status !== 200) continue;
     const { sitemaps, urls: found } = sitemapLocs(xml.text);
-    queue.push(...sitemaps.filter((s) => !seenMaps.has(s)));
+    queue.push(...sitemaps.map(absolute).filter((s): s is string => s !== null && !seenMaps.has(s)));
     for (const u of found) {
       let h: string;
       try {
