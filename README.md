@@ -55,5 +55,6 @@ and `NAV` in `apps/web/src/App.tsx`. More screenshots are in [docs/screenshots](
 - [docs/SETUP.md](docs/SETUP.md): running locally and deploying to Railway
 - [docs/ORG.md](docs/ORG.md): the assistant and the specialists, routing, each business's how-we-work note, handoffs and editing them from the app
 - [docs/VIDEO.md](docs/VIDEO.md): the video pipeline for OpenV and OpenD content
+- [docs/CARDS.md](docs/CARDS.md): cards, the standard way an integration shows a record in chat
 - The user guide: [command-centre.opend.app](https://command-centre.opend.app), from the OpenD project in [docs/](docs/opend.config.yaml).
   In the app, **?** in the top bar (or F1) opens it on the page in use. See [docs/SETUP.md](docs/SETUP.md), "In-app help".

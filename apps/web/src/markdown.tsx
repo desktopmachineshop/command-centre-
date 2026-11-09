@@ -1,4 +1,6 @@
+import { cardRefs } from "@cc/core";
 import { Fragment, type ReactNode } from "react";
+import { CardGrid } from "./cards";
 
 /**
  * Agent replies are markdown. This renders the common subset (headings, lists, code, quotes,
@@ -44,6 +46,11 @@ function blocks(lines: string[]): ReactNode[] {
       const body: string[] = [];
       for (i++; i < lines.length && !close.test(lines[i]!); i++) body.push(lines[i]!);
       i++;
+      // A ```card block names records (odoo.product:42); the app draws each as a live card (docs/CARDS.md).
+      if (fence[2] === "card") {
+        out.push(<CardGrid key={key} refs={cardRefs(body.join("\n"))} />);
+        continue;
+      }
       out.push(
         <pre key={key}>
           <code className={fence[2] ? `lang-${fence[2]}` : undefined}>{body.join("\n")}</code>

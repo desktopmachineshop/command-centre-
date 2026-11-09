@@ -20,6 +20,7 @@ import { Social } from "./pages/Social";
 import { Storage } from "./pages/Storage";
 import { TaskView } from "./pages/TaskView";
 import { Today } from "./pages/Today";
+import { CardsContext } from "./cards";
 import { BrandMark, Icon, type IconName } from "./icons";
 import { routeQuery, useRoute } from "./router";
 import { useMedia, useTheme } from "./theme";
@@ -277,6 +278,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
 
   return (
     <VerticalsContext.Provider value={verticals}>
+     <CardsContext.Provider value={api.cards}>
       <div className={`shell ${phone ? "is-phone" : "is-desktop"} page-${page || "inbox"}`}>
         {!phone && (
           <aside className="sidebar">
@@ -417,6 +419,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
           </MoreSheet>
         )}
       </div>
+     </CardsContext.Provider>
     </VerticalsContext.Provider>
   );
 }

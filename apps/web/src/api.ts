@@ -1,5 +1,6 @@
 import type { Event, Job, SetupRoleId, OrgConfig, OrgConfigVersion, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
 import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
+import type { CardResult } from "@cc/core";
 import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
 
 /**
@@ -386,6 +387,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       const q = new URLSearchParams(Object.entries({ status, ...filter }).filter(([, v]) => v) as [string, string][]).toString();
       return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);
     },
+    /** Live records for the references in an agent's ```card block (docs/CARDS.md). */
+    cards: (refs: string[]) => call<{ cards: CardResult[] }>(`/cards?refs=${encodeURIComponent(refs.join(","))}`).then((r) => r.cards),
     org: () => call<OrgTree>("/org"),
     // Org editing: `unit` is a vertical id or "chief-of-staff"; each call returns the whole config again.
     orgConfig: () => call<OrgConfig>("/org/config"),

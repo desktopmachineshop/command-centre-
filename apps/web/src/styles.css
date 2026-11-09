@@ -4580,3 +4580,121 @@ a.button-link.call-button {
   margin: var(--sp-2) 0 0;
   padding-left: 1.2em;
 }
+
+/* Cards (docs/CARDS.md): live records from an integration, drawn the same whichever it is. */
+.record-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0;
+}
+.record-cards.single {
+  grid-template-columns: minmax(0, 26rem);
+}
+.record-card {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  min-width: 0;
+  padding: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+}
+.record-card-image {
+  flex: none;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: var(--r-md, 8px);
+  object-fit: contain;
+  background: var(--surface-2);
+}
+.record-card-image.placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+.record-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.record-card header h4 {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.record-card-subtitle {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.record-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1, 4px);
+}
+.record-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.record-badge.tone-good {
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: var(--success);
+}
+.record-badge.tone-warn {
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  color: var(--warn);
+}
+.record-badge.tone-bad {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+}
+.record-card-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+  margin: 0;
+}
+.record-card-facts dt {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.record-card-facts dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.record-card-facts .tone-bad dd {
+  color: var(--danger);
+}
+.record-card-facts .tone-warn dd {
+  color: var(--warn);
+}
+.record-card-facts .tone-good dd {
+  color: var(--success);
+}
+.record-card footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.record-card.loading,
+.record-card.missing {
+  border-style: dashed;
+  box-shadow: none;
+}
+.record-card-ref {
+  font-size: var(--fs-xs);
+}

@@ -33,6 +33,8 @@ export interface PipelineDeps {
   skillsDir: string;
   /** The app's pages and help topic ids, for the system prompt (HelpDocs.pageGuide). */
   appGuide?: string;
+  /** The "## Cards" prompt section for a run with these MCP servers ("" for none; see ./cards.ts). */
+  cardGuide?: (mcpServers: string[]) => string;
   internalBaseUrl: string;
   maxTurns: number;
   /** MCP servers mounted at /mcp/<name> that manifests may list, or a function giving them at run time (odoo comes and goes). Default: brain. */
@@ -384,6 +386,8 @@ export class Pipeline {
       // The task's handover note goes into every run, so any runner can carry on from it (./handover.ts).
       const handover = await store.getHandover(taskId);
       const workbench = await this.workbench(task, role, cwd);
+      const cardGuide = this.deps.cardGuide?.(Object.keys(mcpServers));
+      const cardNotes = cardGuide ? [cardGuide] : [];
       // --- voice: a reply from Dave continues the task, resuming the earlier session (./voice/conversations.ts) ---
       const turn = (await this.deps.voice?.beforeRun(task, run.id)) ?? null;
       // --- end voice ---
@@ -410,7 +414,7 @@ export class Pipeline {
         prompt: turn?.prompt ?? runPrompt(task, event),
         resumeSessionId: turn?.resumeSessionId,
         promptWithoutResume: turn?.promptWithoutResume,
-        systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief, this.deps.appGuide), ...workbench.notes, handoverSection(handover?.text ?? null)].join("\n\n"),
+        systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief, this.deps.appGuide), ...workbench.notes, ...cardNotes, handoverSection(handover?.text ?? null)].join("\n\n"),
         cwd,
         mcpServers,
         allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...skillReadRules(this.deps.skillsDir, vertical, skills)],

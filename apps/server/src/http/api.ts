@@ -1,5 +1,5 @@
 import { BrainConflictError, parseNote, type PgBrain, serializeNote } from "@cc/brain";
-import { Capability, ProposalStatus, ROOT_ROLE_ID, SetupRoleId, TaskStatus } from "@cc/core";
+import { Capability, cardRefs, ProposalStatus, ROOT_ROLE_ID, SetupRoleId, TaskStatus } from "@cc/core";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
@@ -20,6 +20,7 @@ import type { NotificationService } from "../notifications/service";
 import type { Pipeline } from "../pipeline";
 import type { Notifier } from "../push";
 import { SetupError, type WorkerService } from "../workers";
+import type { CardService } from "../cards";
 import { type DavinciRenders, DavinciRequestError } from "../davinci";
 import { type IntegrationService, integrationRoutes } from "../integrations";
 import type { ClaudeSetup } from "../integrations/claude-setup";
@@ -71,6 +72,8 @@ export interface ApiDeps {
   chatFiles?: ChatFiles;
   /** DaVinci Resolve renders on a desktop worker (see ../davinci.ts). */
   davinci?: DavinciRenders;
+  /** Cards: live records for the references in agents' ```card blocks (see ../cards.ts). */
+  cards?: CardService;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -122,6 +125,12 @@ export function apiRoutes(deps: ApiDeps) {
   // --- end auth ---
 
   app.get("/verticals", (c) => c.json(verticals.all()));
+
+  // Cards: GET /cards?refs=odoo.product:42,odoo.order:S00042 → one result per reference, in order.
+  app.get("/cards", async (c) => {
+    const refs = cardRefs(c.req.query("refs") ?? "");
+    return c.json({ cards: deps.cards ? await deps.cards.resolve(refs) : refs.map((ref) => ({ ref, error: "Cards are not set up" })) });
+  });
 
   app.post("/chat", async (c) => {
     // `role` (optional) asks a specific org role, as a "role: ..." prefix would.
