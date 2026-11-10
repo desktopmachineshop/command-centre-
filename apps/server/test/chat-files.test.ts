@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { ScriptedRunner } from "@cc/agent-runtime";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { ADMIN, DB_URL, makeServer, resetDatabase } from "./helpers";
+import { ADMIN, DB_URL, WEBHOOK, makeServer, resetDatabase } from "./helpers";
 
 // A 1×1 PNG.
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
@@ -93,6 +93,29 @@ describe.skipIf(!DB_URL)("files attached in the chat box (integration)", () => {
     expect(request.images).toEqual([expect.stringMatching(new RegExp(`/chat-files/${png.body.id}$`))]);
     expect(request.prompt).toContain("drawing.png");
     expect((await ctx.api(`/api/tasks/${task.id}`)).body.task.status).toBe("done");
+  });
+
+  it("lets a task from outside input open the files Dave attaches to his reply, and only those", async () => {
+    const res = await ctx.server.app.request("/api/ingress/webhook/dms", {
+      method: "POST",
+      headers: { "x-cc-webhook-secret": WEBHOOK, "content-type": "application/json" },
+      body: JSON.stringify({ title: "Reddit reply", message: "Thanks for the tip!" }),
+    });
+    expect(res.status).toBe(201);
+    const { task } = (await res.json()) as { task: { id: string } };
+    await ctx.queue.drain();
+    const shot = await upload("approval.png", PNG, "image/png");
+    expect((await ctx.api(`/api/tasks/${task.id}/reply`, { method: "POST", json: { text: "See this", files: [shot.body.id] } })).status).toBe(202);
+    await ctx.queue.drain();
+
+    const request = runner.calls.at(-1)!;
+    const path = /On disk at (\S+): it is attached/.exec(request.prompt)?.[1];
+    expect(path).toMatch(new RegExp(`/chat-files/${shot.body.id}$`));
+    expect(request.images).toEqual([path]);
+    expect(request.allowedTools).toContain(`Read(/${path})`);
+    // Not the folder: it holds the files of Dave's other chats.
+    expect(request.allowedTools).not.toContain(`Read(/${path!.slice(0, path!.lastIndexOf("/"))}/**)`);
+    expect(request.allowedTools).not.toContain("WebFetch");
   });
 
   it("refuses ids that aren't chat files", async () => {

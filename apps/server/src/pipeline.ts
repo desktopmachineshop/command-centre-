@@ -57,6 +57,8 @@ export interface PipelineDeps {
   chatFilesReadRule?: string;
   /** The disk copies of the images among a message's files (ChatFiles.images), passed to the runner with the prompt. */
   chatFileImages?: (files: ChatFile[]) => Promise<string[]>;
+  /** Read rules for just these files' copies (for a task from outside input, which lacks chatFilesReadRule). */
+  chatFileReadRules?: (files: ChatFile[]) => string[];
 }
 
 /** Default limit on handoffs in one chain, so roles can't pass work around forever. */
@@ -396,7 +398,10 @@ export class Pipeline {
       // --- end voice ---
       // Images Dave attached to this turn's message go with the prompt (Codex can't open them otherwise).
       const files = turn ? (turn.files ?? []) : filesOf(event);
-      const images = files.length && workbench.trusted && this.deps.chatFileImages ? await this.deps.chatFileImages(files) : [];
+      // They are Dave's own files, so a task from outside input gets them too: it may read just these
+      // copies (not the folder of his other chats' files).
+      const images = files.length && this.deps.chatFileImages ? await this.deps.chatFileImages(files) : [];
+      const fileRules = files.length && !workbench.trusted ? (this.deps.chatFileReadRules?.(files) ?? []) : [];
       // Stopped while it was being set up (or by another server process): don't start the agent.
       if ((await store.getTask(taskId))?.status !== "running") {
         this.stopping.add(taskId);
@@ -420,7 +425,7 @@ export class Pipeline {
         systemPrompt: [systemPrompt(vertical, this.deps.actions.executors, new Date(), brief, this.deps.appGuide), ...workbench.notes, ...cardNotes, handoverSection(handover?.text ?? null)].join("\n\n"),
         cwd,
         mcpServers,
-        allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...skillReadRules(this.deps.skillsDir, vertical, skills)],
+        allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...fileRules, ...skillReadRules(this.deps.skillsDir, vertical, skills)],
         maxTurns: role.maxTurns ?? this.deps.maxTurns,
         ...(images.length ? { images } : {}),
         signal: abort.signal,

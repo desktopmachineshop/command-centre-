@@ -984,6 +984,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     voice: voiceConversations,
     chatFilesReadRule: chatFiles.readRule(),
     chatFileImages: (files) => chatFiles.images(files),
+    chatFileReadRules: (files) => chatFiles.fileReadRules(files),
   });
 
   const app = new Hono();
