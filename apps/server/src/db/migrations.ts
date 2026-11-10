@@ -543,4 +543,45 @@ export const migrations: { id: string; sql: string }[] = [
       alter table tasks add column if not exists handover_at timestamptz;
     `,
   },
+  {
+    // Video projects (./video-projects.ts): each production's specs, asset manifest and history,
+    // so a video can be edited later without making it again. The files are in storage.
+    // (0026 is taken by the social outbox and competitor snapshots.)
+    id: "0027_video_projects",
+    sql: `
+      create table if not exists video_projects (
+        id uuid primary key,
+        vertical text not null,
+        spec_id text not null,
+        title text not null,
+        status text not null default 'active',
+        current_revision int not null default 0,
+        -- asset key (hash of the inputs that made it) -> {kind, url, sceneId, revision, ...}
+        pool jsonb not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        archived_at timestamptz
+      );
+      create index if not exists video_projects_list_idx on video_projects (status, updated_at desc);
+
+      create table if not exists video_revisions (
+        project_id uuid not null references video_projects(id) on delete cascade,
+        revision int not null,
+        based_on int,
+        spec jsonb not null,
+        -- scene id -> {voice?, capture?} asset keys
+        assets jsonb not null default '{}',
+        compose_key text not null,
+        changes jsonb not null default '[]',
+        plan text not null default '',
+        status text not null,
+        error text,
+        outputs jsonb not null default '{}',
+        request jsonb not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        primary key (project_id, revision)
+      );
+    `,
+  },
 ];

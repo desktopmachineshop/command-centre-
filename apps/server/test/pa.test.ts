@@ -65,7 +65,7 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     );
     await ctx.api("/api/chat", { method: "POST", json: { text: "remind me to call the garage and add milk and eggs to shopping", vertical: "personal" } });
     await ctx.queue.drain();
-    expect(Object.keys(runner.requests.at(-1)!.mcpServers!)).toEqual(["actions", "help", "brain", "pa", "ops"]);
+    expect(Object.keys(runner.requests.at(-1)!.mcpServers!)).toEqual(["actions", "help", "brain", "pa", "video", "ops"]);
     expect(runner.requests.at(-1)!.allowedTools).toContain("mcp__pa");
 
     const reminders = (await ctx.api("/api/pa/reminders")).body;

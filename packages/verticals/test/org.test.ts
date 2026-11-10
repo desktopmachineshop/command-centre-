@@ -59,8 +59,8 @@ describe("the assistant and its specialists", () => {
     expect(reg.roleFor("dms", null).id).toBe(ROOT_ROLE_ID);
     expect(reg.roleFor("dms", "customer-support").id).toBe(ROOT_ROLE_ID); // retired
     expect(reg.roleFor("dms", ROOT_ROLE_ID).id).toBe(ROOT_ROLE_ID);
-    expect(reg.mcpServersFor("dms", ROOT_ROLE_ID)).toEqual(["brain", "odoo", "pa", "mail", "sendcloud"]);
-    expect(reg.mcpServersFor("3dpandme", "video-producer")).toEqual(["brain", "odoo"]);
+    expect(reg.mcpServersFor("dms", ROOT_ROLE_ID)).toEqual(["brain", "odoo", "pa", "mail", "sendcloud", "video"]);
+    expect(reg.mcpServersFor("3dpandme", "video-producer")).toEqual(["brain", "odoo", "video"]);
   });
 });
 

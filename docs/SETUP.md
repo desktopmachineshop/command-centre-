@@ -612,10 +612,15 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   queued jobs only).
 - `video.capture` `{spec, scenes?, uploads?}` (needs `browser`): records a VideoSpec's capture
   scenes with Playwright. The result is `{clips: {<scene>: {path, trimStartSec, durationSec, url?}}}`.
-- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?}` (needs `ffmpeg`;
-  NVENC on `gpu` nodes): voices, captions and composes the video. The result is
-  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?}`.
-  See [VIDEO.md](VIDEO.md).
+- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?, voiceUploads?,
+  captionsUpload?, stemUploads?, stemsOnly?}` (needs `ffmpeg`; NVENC on `gpu` nodes): voices,
+  captions and composes the video. The result is
+  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?, voice?, captionsUrl?, stems?, timeline?}`.
+  `stemUploads` also renders each scene as its own clip, for an editable timeline
+  (`video.export`). See [VIDEO.md](VIDEO.md).
+- `davinci.render` also takes `timelineFile` `{url, name}` (an FCPXML document, drafts only)
+  and `extras`: the clips are put in the media pool and the document is imported as the
+  timeline, tracks and offsets as written, instead of laying the clips end to end.
 
 ### Try it
 
@@ -939,8 +944,11 @@ Railway volume. A Hobby volume holds 5 GB, so the server looks after it
   installer) keeps working.
 - **Old renders:** every night at 03:43, rendered videos older than
   `STORAGE_RENDER_RETENTION_DAYS` (default 30; `0` keeps them) are deleted from the volume. A
-  render that a pending approval still points at is kept, however old. Posted videos are already
-  on the platforms.
+  render that a pending approval still points at is kept, however old, and so is everything an
+  active video project is made of (below). Posted videos are already on the platforms.
+- **Old video projects:** the same job archives a video project nobody has changed for
+  `VIDEO_PROJECT_RETENTION_DAYS` (default 90; `0` keeps projects until `video.archive`): its
+  stored recordings, narration and export clips are deleted, its spec and history stay.
 - **Warning:** after the clean-up, a push ("Server storage nearly full") goes out while the
   volume is 80% full or more.
 
@@ -990,12 +998,13 @@ folder, creation time and **vertical**.
 ### Work in progress
 
 A piece of work's intermediate files are kept only until its final version is published:
-- A video production tags its screen captures and narration as work in progress (`wip`) and its
-  render as the final file, all with the same `work` (`video:<production id>`). When a post with the
-  render goes out (`social.post` or `social.campaign` on approval, or a scheduled post when it
-  publishes), the production's work-in-progress files are deleted, from Drive too. The render
-  stays, since the post links to it. Work that is never published is cleared by the nightly
-  render clean-up after `RENDER_RETENTION_DAYS` (local files).
+- A video production is a **project** ([VIDEO.md](VIDEO.md), "Projects"): its screen captures,
+  narration, captions and renders all carry the same `work` (`video:<project id>`) and are
+  **not** work in progress, because the next edit (`video.revise`) is made from them without
+  recording or voicing again. They are kept after the video is posted, and deleted when the
+  project is archived: by the `video.archive` action, or automatically after
+  `VIDEO_PROJECT_RETENTION_DAYS` without a change. (Files of productions made before projects
+  existed keep their old `wip` tag and are still released on publishing.)
 - The Storage page marks work-in-progress files **WIP**.
 - The Software Lead's task checkouts are its work in progress: when `github.pr.merge` merges a PR,
   the checkout that built it is removed, and each night any checkout whose branch is already in the
@@ -1457,8 +1466,10 @@ Read tools (no approval): products (`search_products`, `get_product`, `stock_by_
 `aged_balances`, `search_payments`), inventory (`search_deliveries`, `get_delivery`), purchasing
 (`search_purchase_orders`, `get_purchase_order`), CRM and helpdesk (`search_leads`,
 `search_tickets`), `search_activities`, chatter (`get_record_messages`), websites, blogs and
-discount programs (`list_websites`, `search_blog_posts`, `search_loyalty_programs`), and
-`search_records` to read any other model. A tool whose Odoo app isn't installed answers with a
+discount programs (`list_websites`, `search_blog_posts`, `search_loyalty_programs`), and for any
+other model `list_models` (find a model by name or label), `describe_model` (its fields: type,
+required, read-only, relation, selection values), `search_records` (`include_archived` for
+archived records) and `get_record` (one record by id). A tool whose Odoo app isn't installed answers with a
 short error; fields an Odoo version doesn't have are left out.
 
 Write actions, each waiting for Dave's approval apart from internal notes (many approvals also show what Odoo says
@@ -1484,7 +1495,63 @@ possible duplicates):
 - `odoo.activity.schedule`, `odoo.activity.done`: follow-ups on any record;
 - `odoo.lead.create`, `odoo.lead.update` (stage, won, lost), `odoo.ticket.update` (stage,
   assignee, priority);
-- `odoo.blog.draft`: an unpublished blog post.
+- `odoo.blog.draft`: an unpublished blog post;
+- **any other data**: `odoo.record.create` `{ model, values }`, `odoo.record.update`
+  `{ model, ids, values }` (up to 200 records in one approval), `odoo.record.archive` /
+  `odoo.record.unarchive` `{ model, ids }` and `odoo.record.action` `{ model, ids, method }` (a
+  form button named `action_…` or `button_…`, no arguments; if Odoo opens a wizard nothing is
+  done and the error names it). See "Maintaining any Odoo data" below.
+
+#### Maintaining any Odoo data
+
+The generic record actions let the agents create, edit and archive records of any model
+(pricelist rules, reordering rules, categories, tags, tickets, blog posts…), so nothing in Odoo
+needs a purpose-built action first. They are held to the same rule as every Odoo write, and a
+few more:
+
+- **Always approved.** Like every `odoo.*` action they wait for you whatever a business's policy
+  says; several go in one batch with one approval.
+- **Checked against Odoo's own field definitions** when proposed and again when run: the model
+  exists, every field exists (an unknown one is refused with the closest names), isn't read-only,
+  and the value fits its type (numbers, text, booleans, `YYYY-MM-DD` dates, a selection's own
+  values, record ids that exist). Odoo ≤16 marks some draft-editable fields read-only; those are
+  refused here and edited in Odoo.
+- **The approval shows what will happen**, looked up by the server (never taken from the agent):
+  the records by name and, per field, the value now → after (for many records, the commonest
+  current values and how many change); for a new record its values by name and any existing
+  record with the same name, internal reference, email, barcode or VAT number, archived ones
+  included.
+- **No delete.** Archive hides a record and can be undone (`odoo.record.unarchive`); deleting is
+  done in Odoo.
+- **Protected models and fields are refused outright**, with a message naming the rule, because
+  an approval tapped on a phone shouldn't be able to change who has access, run code or move
+  money. The list is `GENERIC_WRITE_DENYLIST` in `packages/odoo/src/write-policy.ts`:
+
+  | Rule | Refused | Why |
+  | --- | --- | --- |
+  | `users` | `res.users` and its sub-models, `change.password.*`, `auth*` | accounts, passwords, API keys, sign-in |
+  | `groups` | `res.groups` | access groups |
+  | `system` | every `ir.*` model | record rules, model access, system parameters (secrets), scheduled and server actions (code), views, attachments, modules |
+  | `automation` | `base.*` (e.g. `base.automation`) | automation rules and database tools run code |
+  | `payments` | `payment.*` | providers hold gateway credentials; tokens and transactions are money |
+  | `accounting-entries` | `account.move`, `account.move.line` | invoices go through `odoo.invoice.*`. One exception: a **draft** invoice or bill may have its reference, payment reference, dates, payment terms, notes, origin, salesperson and delivery address edited |
+  | `accounting-money` | `account.payment`, the payment wizard, bank statements, reconciliation | use `odoo.invoice.register_payment` |
+  | `bank-accounts` | `res.partner.bank`, `res.bank` | where payments are sent (invoice fraud) |
+  | `mail` | `mail.mail`, `mail.message`, the composer, `mail.template`, aliases, SMS, mass mailings | use `odoo.message.post` or the email actions, which show you the text |
+  | `company-settings` | `res.company`, `res.config.*` | the company record and the settings screens |
+  | `website-pages` | `website.page`, themes | pages are templates (code); blog posts and products are fine |
+  | `secret-fields` | fields named `password`, `*api_key*`, `*secret*`, `totp_secret`, `signup_token`, `access_token`, `groups_id` / `group_ids` on any model | secrets and group membership |
+  | `protected-relations` | any field pointing at `res.groups` or at a bank account (`res.partner.bank`), and list fields pointing at a protected model | no back door through a related record |
+  | `user-contacts` | the `email`, `active` and `parent_id` of a contact (`res.partner`) that belongs to an Odoo user | Odoo sends password resets to that email |
+  | (code) | wizards (transient models), list commands that delete (2 and 5), button methods containing unlink/delete/uninstall | not data; no delete |
+
+  Lifting a rule is a code change there (with its test in `packages/odoo/test/records.test.ts`),
+  not a setting.
+
+Not checked against a live Odoo yet: the checks run against Odoo's `fields_get` metadata and
+are tested on the in-memory fake for both API flavours, so expect the odd model where Odoo
+itself refuses a value the pre-check allowed (the approval then fails with Odoo's message and
+nothing is changed).
 
 The agents' guide to all of this is the `odoo-daily` skill.
 
@@ -1495,7 +1562,11 @@ Without the Odoo variables, all of this is simply left out.
    confirm quotations; Administrator, to create and archive discount and loyalty programs), Invoicing
    (Billing, to create, post and send invoices and register payments), Inventory (User, to validate
    deliveries; Administrator, for stock adjustments), Purchase (User), CRM and Helpdesk (User) if you
-   use them, and Website/Blog editor. Without a right, the action fails with Odoo's access error and
+   use them, and Website/Blog editor. The generic record actions need nothing special: they work with
+   whatever create/write rights the user has on each model, so widen an app's role (e.g. Sales
+   Administrator for pricelists, Inventory Administrator for reordering rules) only for what you want
+   maintained from here; reading the model list (`list_models`, and the model's label on approvals)
+   needs the user to be an internal user. Don't make the bot a Settings administrator. Without a right, the action fails with Odoo's access error and
    the rest keep working; the read tools only need read access. Discount and loyalty programs also need **Sales > Settings > Discounts, Loyalty & Gift
    Card** turned on. Every action it
    takes is logged in Odoo under that user. Odoo notes that the external API needs a **Custom**

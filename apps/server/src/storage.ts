@@ -67,5 +67,10 @@ export function videoMediaFromStorage(storage: Storage, baseUrl: string): VideoM
       const info = await storage.put(Buffer.from(bytes), { name, contentType, folder: "renders", ...verticalTags(tags) });
       return `${base}/media/${info.id}`;
     },
+    async remove(url) {
+      // Only our own files: a spec's music or image URL elsewhere is not ours to delete.
+      if (!url.startsWith(`${base}/media/`)) return false;
+      return storage.delete(decodeURIComponent(url.slice(`${base}/media/`.length)));
+    },
   };
 }

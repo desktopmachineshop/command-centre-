@@ -32,7 +32,25 @@ export interface SearchReadOptions {
 }
 
 /** What read-only consumers (the MCP server) may use. Writes go through executors. */
-export type OdooReader = Pick<OdooClient, "searchRead" | "read" | "searchCount" | "fields">;
+export type OdooReader = Pick<OdooClient, "searchRead" | "read" | "searchCount" | "fields" | "fieldDefs">;
+
+/** What `fields_get` says about one field (the attributes the generic tools and actions use). */
+export interface OdooFieldDef {
+  type: string;
+  /** The label Odoo shows. */
+  string?: string;
+  required?: boolean;
+  /** True for computed fields without an inverse and for fields Odoo sets itself. */
+  readonly?: boolean;
+  /** The other model of a many2one, one2many or many2many. */
+  relation?: string;
+  /** `[value, label]` pairs of a selection field. */
+  selection?: [string | number, string][];
+  /** False for fields that aren't columns (computed on read). */
+  store?: boolean;
+}
+export type OdooFieldDefs = Record<string, OdooFieldDef>;
+const FIELD_ATTRIBUTES = ["type", "string", "required", "readonly", "relation", "selection", "store"];
 
 export class OdooError extends Error {
   override name = "OdooError";
@@ -95,6 +113,7 @@ export class OdooClient {
   private readonly fetchFn: typeof fetch;
   private uid?: Promise<number>;
   private readonly fieldCache = new Map<string, Promise<Set<string> | null>>();
+  private readonly defCache = new Map<string, Promise<OdooFieldDefs | null>>();
   private nextId = 1;
 
   constructor(private readonly options: OdooClientOptions) {
@@ -167,6 +186,27 @@ export class OdooClient {
         },
       );
       this.fieldCache.set(model, cached);
+    }
+    return cached;
+  }
+
+  /**
+   * The model's fields with their type, label, required/readonly flags, relation and selection
+   * choices (cached), or null when the model isn't installed. Heavier than `fields`: only the
+   * generic tools and actions (describe_model, odoo.record.*) ask for it.
+   */
+  fieldDefs(model: string): Promise<OdooFieldDefs | null> {
+    let cached = this.defCache.get(model);
+    if (!cached) {
+      cached = (this.call(model, "fields_get", [], { attributes: FIELD_ATTRIBUTES }) as Promise<OdooFieldDefs>).then(
+        (defs) => defs,
+        (err) => {
+          this.defCache.delete(model);
+          if (err instanceof OdooRpcError && err.kind === "missing_model") return null;
+          throw err;
+        },
+      );
+      this.defCache.set(model, cached);
     }
     return cached;
   }

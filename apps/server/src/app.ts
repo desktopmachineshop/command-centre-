@@ -75,6 +75,8 @@ import { LocalSpeech } from "@cc/voice/local";
 import { voiceListenHandler } from "./http/voice-listen";
 import { type VoiceCalendar, VoiceService } from "./voice/service";
 import { type VideoMediaStore, VideoProductions, videoTtsFromConfig } from "./video";
+import { createVideoMcpServer } from "./video-mcp";
+import { PgVideoProjectStore } from "./video-projects";
 import { DavinciRenders } from "./davinci";
 import { WorkerService } from "./workers";
 import { type Group, IntegrationService, IntegrationStore, Live, SecretBox } from "./integrations";
@@ -584,6 +586,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     get local() {
       return localSpeech; // the voices chat speaks with; created further down, read per job
     },
+    projects: new PgVideoProjectStore(pool),
   });
   workers.onJobSettled((job) => video.onJobSettled(job));
   // --- end video ---
@@ -684,6 +687,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         : {}),
       ...(gym.current ? { opengym: () => createOpenGymMcpServer(gym.current!, config.timezone) } : {}),
       pa: paMcpServer,
+      // video: read-only view of the video projects (specs, stored assets, renders, history); a run sees its own business's.
+      video: (caller: Caller) => createVideoMcpServer(video.projects, caller.kind === "run" && !caller.scope.anyVertical ? caller.scope.vertical : null),
       // How the agents and the server are doing (run stats, recorded warnings and errors), for the Software Lead.
       ops: () => createOpsMcpServer(pool),
       ...(helpDocs.size ? { help: () => createHelpMcpServer(helpDocs) } : {}),
@@ -981,6 +986,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     /** Moves issue notes written outside the brain's issues/ into it (start-up and nightly). */
     issuesAudit: runIssuesAudit,
     storage,
+    /** Video productions and their projects (./video.ts). */
+    video,
     integrations,
     org,
     async start() {
@@ -1022,7 +1029,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
           await storageHousekeeping({
             storage,
             options: housekeeping,
-            pendingPayloads: async () => (await store.listProposals({ status: "pending", limit: 1000 })).map((p) => p.payload),
+            // Kept however old: renders an approval still waits on, and everything an active video project is made of.
+            pendingPayloads: async () => {
+              await video.archiveStale(config.storage.videoProjectRetentionDays).catch((err) => console.error("[video] archiving old projects:", (err as Error).message));
+              return [...(await store.listProposals({ status: "pending", limit: 1000 })).map((p) => p.payload), ...(await video.keptFiles())];
+            },
             notify: (n) => notifier.notify({ ...n, category: "alert", tag: "storage-full" }),
           });
           // Coding roles' work in progress: task checkouts whose branch has been merged.

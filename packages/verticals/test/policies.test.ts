@@ -22,6 +22,15 @@ const OUTWARD = [
   "calendar.create",
   "github.pr.merge",
   "video.produce",
+  "video.revise",
+  "video.rerender",
+  "video.export",
+  "video.archive",
+  "odoo.record.create",
+  "odoo.record.update",
+  "odoo.record.archive",
+  "odoo.record.unarchive",
+  "odoo.record.action",
 ];
 
 describe("action policies", () => {
@@ -50,7 +59,7 @@ describe("action policies", () => {
     // Without its own policy, an internal note waits like any other Odoo write.
     expect(proposalPolicy({ ...dms, policies: {} }, "odoo.message.post", { internal: true })).toBe("draft");
     const loose = { ...dms, defaultPolicy: "auto" as const, policies: { "odoo.invoice.post": "auto" as const, "odoo.message.post": "auto" as const } };
-    for (const type of ["odoo.invoice.post", "odoo.message.post", "odoo.order.confirm", "odoo.anything"]) {
+    for (const type of ["odoo.invoice.post", "odoo.message.post", "odoo.order.confirm", "odoo.anything", "odoo.record.create", "odoo.record.update", "odoo.record.archive", "odoo.record.action"]) {
       expect(proposalPolicy(loose, type, {}), type).toBe("draft");
     }
     // Other actions keep the business's policy.

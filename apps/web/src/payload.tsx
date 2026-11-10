@@ -138,11 +138,22 @@ const QUOTE_KEYS = ["quotePreview", "partner_id", "lines", "id"];
 export function PayloadView({ payload, skip = [] }: { payload: Record<string, unknown>; skip?: readonly string[] }) {
   const spec = videoSpecOf(payload.spec);
   const quote = quotePreviewOf(payload.quotePreview);
-  const fields = fieldsOf(payload, [...skip, ...(spec ? ["spec"] : []), ...(quote ? QUOTE_KEYS : [])]);
-  if (!spec && !quote && !fields.length) return null;
+  const record = recordPreviewOf(payload.recordPreview);
+  const fields = fieldsOf(payload, [...skip, ...(spec ? ["spec"] : []), ...(quote ? QUOTE_KEYS : []), ...(record ? RECORD_KEYS : [])]);
+  if (!spec && !quote && !record && !fields.length) return null;
   return (
     <div className="readable">
       {quote && <QuoteSummary quote={quote} />}
+      {record && (
+        <section>
+          <div className="small muted">{record.title}</div>
+          <ul className="readable-list">
+            {record.lines.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
       {spec && <Storyboard spec={spec} />}
       {fields.length > 0 && <FieldList fields={fields} />}
     </div>
@@ -152,6 +163,39 @@ export function PayloadView({ payload, skip = [] }: { payload: Record<string, un
 /** True when a payload has anything PayloadView would show. */
 export function hasReadable(payload: Record<string, unknown>, skip: readonly string[] = []): boolean {
   return videoSpecOf(payload.spec) != null || quotePreviewOf(payload.quotePreview) != null || fieldsOf(payload, skip).length > 0;
+}
+
+// ---- Generic Odoo record changes (odoo.record.*) ----
+
+/** Payload keys the record summary replaces: the preview itself and the raw ids and values it spells out. */
+const RECORD_KEYS = ["recordPreview", "ids", "values"];
+
+/**
+ * The server's preview of a generic Odoo change (packages/odoo record-executors.ts) as a title
+ * and plain lines: which records, each field's value now → after, a new record's values, and
+ * possible duplicates. Null for anything else (e.g. "Could not check Odoo").
+ */
+export function recordPreviewOf(value: unknown): { title: string; lines: string[] } | null {
+  if (!isObj(value) || typeof value.model !== "string") return null;
+  const label = typeof value.label === "string" && value.label !== value.model ? `${value.label} (${value.model})` : value.model;
+  const records = Array.isArray(value.records) ? value.records.filter(isObj) : [];
+  const count = typeof value.count === "number" ? value.count : records.length;
+  const lines: string[] = [];
+  if (records.length) {
+    const names = records.map((r) => `${String(r.name)}${typeof r.state === "string" ? ` (${r.state})` : ""}`).join(", ");
+    lines.push(count > records.length ? `${names} and ${count - records.length} more` : names);
+  }
+  for (const c of Array.isArray(value.changes) ? value.changes.filter(isObj) : []) {
+    const from = typeof c.from === "string" ? c.from : Array.isArray(c.from) ? c.from.filter(isObj).map((f) => `${String(f.value)} (${String(f.records)})`).join(", ") : "?";
+    const scope = count > 1 && typeof c.changes === "number" ? ` (changes ${c.changes} of ${count})` : "";
+    lines.push(c.changes === 0 ? `${String(c.label)}: already ${String(c.to)}` : `${String(c.label)}: ${from} → ${String(c.to)}${scope}`);
+  }
+  if (isObj(value.values)) for (const [k, v] of Object.entries(value.values)) lines.push(`${k}: ${String(v)}`);
+  if (Array.isArray(value.duplicates)) {
+    for (const d of value.duplicates.filter(isObj)) lines.push(`Possible duplicate: ${String(d.name)} #${String(d.id)}${d.archived ? " (archived)" : ""}, same ${String(d.same)}`);
+  } else if (typeof value.duplicates === "string") lines.push(`Duplicates: ${value.duplicates}`);
+  const what = typeof value.method === "string" ? `Press ${value.method} on` : isObj(value.values) ? "New" : count > 1 ? `${count} records of` : "";
+  return { title: `${what} ${label}`.trim(), lines };
 }
 
 // ---- Quotes (odoo.quote.create / odoo.quote.send) ----
@@ -356,7 +400,7 @@ export function videoSpecOf(value: unknown): Obj | null {
   return isObj(value) && Array.isArray(value.scenes) && value.scenes.length > 0 ? value : null;
 }
 
-const SCENE_KINDS: Record<string, string> = { title: "Title card", slide: "Slide", capture: "Screen recording", image: "Image", outro: "Closing card" };
+const SCENE_KINDS: Record<string, string> = { title: "Title card", slide: "Slide", capture: "Screen recording", image: "Image", outro: "Closing card", logo: "Logo card" };
 const TYPES: Record<string, string> = { short: "Short", demo: "Demo", walkthrough: "Walkthrough", announcement: "Announcement", explainer: "Explainer" };
 
 /** One browser step of a screen recording, in words. */
@@ -391,6 +435,8 @@ export function stepText(step: Obj): string {
 /** "kokoro:bm_george" → "George (server voice, most natural)". */
 export function voiceText(provider: string, voiceId?: string): string {
   if (provider === "silent") return "None (captions only)";
+  if (provider === "auto") return "The best voice the server has";
+  if (provider === "flite") return "Robot voice (flite, drafts only)";
   if (provider === "local") {
     if (!voiceId) return "Server default voice";
     const [family, name = family] = voiceId.split(":");

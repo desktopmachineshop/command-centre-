@@ -42,7 +42,7 @@ export default defineVertical({
   color: "#cf4f8f",
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
   skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
-  mcpServers: ["brain", "odoo", "pa", "mail"],
+  mcpServers: ["brain", "odoo", "pa", "mail", "video"],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   guidance: howWeWork("3dpandme", AREAS),
   // The specialists: the assistant hands them producing a video and writing a blog post.
@@ -56,9 +56,9 @@ export default defineVertical({
         "Takes a video from plan to published: outline and shot list, title, description and chapters, then the announcement across every 3dpandme account. Heavy edits and renders run as jobs on Dave's PCs.",
       intents: ["publishing"],
       skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
-      // odoo for blog posts and DMS products the reels mention.
-      mcpServers: ["brain", "odoo"],
-      actions: ["social.campaign", "video.produce", "brain.write"],
+      // odoo for blog posts and DMS products the reels mention; video for the projects already made.
+      mcpServers: ["brain", "odoo", "video"],
+      actions: ["social.campaign", "video.produce", "video.revise", "video.export", "brain.write"],
       kpis: ["One video a fortnight", "Announcement campaign ready on publish day"],
       autonomyNotes: "May write outlines and metadata in the brain. Uploads, publishing and announcement campaigns wait for Dave.",
     },
@@ -71,7 +71,7 @@ export default defineVertical({
         "Writes 3dpandme blog posts in Dave's maker voice: build logs, how-tos and write-ups of each video. Drafts go into Odoo unpublished, with the facts checked against the brain.",
       skills: ["brain-notes", "social-voice-3dpandme"],
       mcpServers: ["brain", "odoo"],
-      actions: ["odoo.blog.draft", "brain.write"],
+      actions: ["odoo.blog.draft", "odoo.record.update", "brain.write"],
       kpis: ["A blog post for every video", "Drafts needing only light edits"],
       autonomyNotes: "Blog posts are always created unpublished, for Dave to review and publish in Odoo.",
     },

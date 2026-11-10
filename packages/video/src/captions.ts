@@ -97,12 +97,14 @@ interface AssStyle {
   outlineSize?: number;
   shadow?: number;
   spacing?: number;
+  /** Left and right margin: the title-safe area text wraps inside. */
+  marginH?: number;
 }
 
 function styleLine(s: AssStyle): string {
   // Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic,
   // Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-  return `Style: ${s.name},${s.font},${s.size},${s.colour},${s.colour},${s.outline},&H96000000,${s.bold ? -1 : 0},0,0,0,100,100,${s.spacing ?? 0},0,${s.borderStyle ?? 1},${s.outlineSize ?? 0},${s.shadow ?? 0},${s.align},60,60,${s.marginV},1`;
+  return `Style: ${s.name},${s.font},${s.size},${s.colour},${s.colour},${s.outline},&H96000000,${s.bold ? -1 : 0},0,0,0,100,100,${s.spacing ?? 0},0,${s.borderStyle ?? 1},${s.outlineSize ?? 0},${s.shadow ?? 0},${s.align},${s.marginH ?? 60},${s.marginH ?? 60},${s.marginV},1`;
 }
 
 /** Caption block placement: vertical video keeps captions above the platform UI at the bottom. */
@@ -127,6 +129,8 @@ export interface AssOptions {
   brand: Brand;
   /** "word" colours the word being spoken in the accent colour. */
   style: "word" | "plain";
+  /** "box" puts captions on a dark box (legible over busy footage); default a dark outline. */
+  background?: "outline" | "box";
 }
 
 /**
@@ -140,11 +144,18 @@ export function toAss(cues: Cue[], cards: CardEvent[], options: AssOptions): str
   const accent = assColour(brand.colours.accent);
   const cap = captionPlacement(options.format, height);
   const unit = Math.min(width, height);
+  // Title-safe side margins: wider on vertical video, where platform buttons sit on the right edge.
+  const marginH = Math.round(width * (options.format === "9:16" ? 0.09 : 0.06));
+  const box = options.background === "box";
   const styles: AssStyle[] = [
-    { name: "Caption", font: brand.fonts.body, size: cap.size, colour: text, outline: assColour("#000000"), bold: true, align: cap.align, marginV: cap.marginV, outlineSize: Math.max(2, Math.round(cap.size / 18)), shadow: 1, spacing: 1 },
+    // The box is opaque: libass draws one per coloured run, and see-through boxes would show where they overlap.
+    box
+      ? { name: "Caption", font: brand.fonts.body, size: cap.size, colour: text, outline: assColour("#0b0b0f"), bold: true, align: cap.align, marginV: cap.marginV, borderStyle: 3, outlineSize: Math.round(cap.size / 5), shadow: 0, spacing: 1, marginH }
+      : { name: "Caption", font: brand.fonts.body, size: cap.size, colour: text, outline: assColour("#000000"), bold: true, align: cap.align, marginV: cap.marginV, outlineSize: Math.max(2, Math.round(cap.size / 16)), shadow: 2, spacing: 1, marginH },
     { name: "Heading", font: brand.fonts.heading, size: Math.round(unit * 0.085), colour: text, outline: assColour("#000000"), bold: true, align: 5, marginV: 0 },
-    { name: "Sub", font: brand.fonts.body, size: Math.round(unit * 0.042), colour: accent, outline: assColour("#000000"), bold: false, align: 5, marginV: 0 },
-    { name: "Bullet", font: brand.fonts.body, size: Math.round(unit * 0.045), colour: text, outline: assColour("#000000"), bold: false, align: 4, marginV: 0 },
+    // Secondary text is a size up on vertical and square video, which is watched on a phone.
+    { name: "Sub", font: brand.fonts.body, size: Math.round(unit * (options.format === "16:9" ? 0.042 : 0.05)), colour: accent, outline: assColour("#000000"), bold: false, align: 5, marginV: 0 },
+    { name: "Bullet", font: brand.fonts.body, size: Math.round(unit * (options.format === "16:9" ? 0.045 : 0.055)), colour: text, outline: assColour("#000000"), bold: false, align: 4, marginV: 0 },
     { name: "Cta", font: brand.fonts.heading, size: Math.round(unit * 0.05), colour: accent, outline: assColour("#000000"), bold: true, align: 5, marginV: 0 },
   ];
 

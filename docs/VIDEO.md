@@ -23,7 +23,7 @@ Sample output (rendered here with no paid APIs, flite voice, 42 s, 1920×1080, 2
 | Script → spec | Server, Claude Code agent | Reads the docs/product with the MCP tools, writes narration and scripted capture steps as a `VideoSpec`, lists its sources | `skills/video-reel` (master) + `skills/video-reel/brands/<brand>.md`, `packages/video/src/spec.ts` |
 | Storyboard check | Server | zod validation + `lintSpec` (length vs type, slow hook, missing CTA, no sources); warnings go back in the proposal result | `spec.ts` |
 | Approve script | Dave | `video.produce` proposal (draft) | `apps/server/src/video.ts` |
-| Voice | Server for cloud TTS (keys stay on the server); worker for `silent`/`flite` | Narration per scene + word timings; scene length = lead-in + voice + tail (or the recording, if longer) | `src/tts/*`, `src/timeline.ts` |
+| Voice | Server for cloud TTS and its own voices (keys stay on the server; `voice.provider: "auto"` picks the most natural one configured); worker for `silent`/`flite` | Narration per scene + word timings; scene length = lead-in + voice + tail (or the recording, if longer) | `src/tts/*`, `src/timeline.ts` |
 | Capture | Worker with `browser` | Playwright plays each capture scene's steps in Chromium and records the viewport (WebM). Cursor, highlight and zoom are drawn in the page | `src/node/capture.ts`, job `video.capture` |
 | Captions | Worker | Word timings → cues → ASS (burned in, word highlight) + SRT (sidecar for YouTube) | `src/captions.ts` |
 | Compose/render | Worker with `ffmpeg` (+ `gpu` → NVENC) | One ffmpeg filter graph: fit/freeze/trim each scene, brand-colour cards with libass text, logo, captions, voice at its offsets, ducked music, −14 LUFS | `src/compose.ts`, `src/node/render.ts`, job `video.render` |
@@ -42,15 +42,151 @@ Sample output (rendered here with no paid APIs, flite voice, 42 s, 1920×1080, 2
   `captureInline: true` (`requires: [ffmpeg, browser]`) does both on one PC, and Dave gets a
   notification with the file's path on that PC.
 
-The chain is driven by `WorkerService.onJobSettled`; state travels in each job's
-`payload.meta.production` (no new table). A failed job notifies Dave. Jobs requeue on worker
-disconnect like any other job.
+The chain is driven by `WorkerService.onJobSettled`; each job carries its project and revision
+in `payload.meta.production`, and the project itself (specs, asset manifest, history) is in
+Postgres (see "Projects" below). A failed job marks the revision failed and notifies Dave. Jobs
+requeue on worker disconnect like any other job.
 
 **Wiring still to do** (kept out of this change because the social core and media hosting are
 being built concurrently): pass the server's media store to `createServer` as
 `overrides.videoMedia` (or construct it there). `createUpload` returns a short-lived,
 unguessable PUT URL (so the worker uploads without holding a server token) plus the public URL;
 `put` stores bytes made on the server. Until then the chain stops at "video ready on PC X".
+
+## Projects: videos that can be edited later
+
+Every production is a **project**, so a video can be changed (by Dave or by an agent) without
+recording the browser again, voicing it again or writing it again from scratch.
+
+**What is kept.**
+- The **VideoSpec** is the editable source of truth. Each run is a **revision** holding the full
+  spec, what changed, what was re-used, and what it rendered (video, captions, scene timings,
+  exports). Table `video_revisions`.
+- The expensive **assets** made from it, in a pool on the project (table `video_projects`,
+  column `pool`): each scene's narration (audio + word timings) and each capture scene's screen
+  recording. An entry maps an **asset key** to the file in the media store.
+- Images, music and the logo are the spec's own URLs and are fetched at render time; captions
+  (ASS/SRT) are derived from the word timings on every render, which costs nothing.
+
+Why this design: the files were already in the media store with a `work` tag, and Postgres was
+already there, so two tables (one row per project with the manifest as JSON, one row per
+revision) are the least that survives a restart and can be listed, compared and rolled back. No
+new service, no project file format to keep in step with the code.
+
+**Asset keys and what gets redone** (`packages/video/src/project.ts`, all pure). A key is a hash
+of exactly the inputs that produce the asset:
+
+| Asset | Its key covers | So it is made again when |
+| --- | --- | --- |
+| Narration | the scene's text; voice provider, voice id, speed; the server's model/default voice | that scene's words or the voice change |
+| Screen recording | the steps; the viewport (the scene's, or the format's default); cursor; `authProfile`; the accent colour if a step highlights | that scene's steps, viewport, cursor or profile change |
+| The render | everything drawn or heard (the spec minus title, id, type and sources), every scene's asset keys, encoder/preset if set | anything visible or audible changes |
+
+`planRevision` compares a spec's keys with the pool: a key that is there is re-used, one that
+isn't is made, and two scenes with the same key share one asset. Because the pool is keyed by
+content rather than by scene, moving or renaming a scene, duplicating it, or going back to an
+earlier wording finds the asset again. Everything else (headings, bullets, CTA, captions,
+typography, brand colours, order, `clip` trims, timing, music, removing or adding card and image
+scenes) only re-composes: one ffmpeg run over the stored files. A change to nothing that is
+drawn (the title, the sources) renders nothing. The silent voice is never stored (the worker
+makes it for free); flite narration made on the worker is uploaded back into the pool.
+
+A **format change** (9:16 ↔ 16:9 ↔ 1:1) changes the default capture viewport, so by default the
+capture scenes are recorded again, laid out for the new shape. `keepCaptures: true` writes the
+old viewport into those scenes instead, and the existing recordings are fitted into the new frame.
+
+**Actions** (each approved like `video.produce`, by the vertical's policy):
+
+| Action | Payload | What it does |
+| --- | --- | --- |
+| `video.revise` | `{ projectId, patch, fromRevision?, keepCaptures?, targets?, publishAt?, encoder? }` | Applies the patch to the latest (or `fromRevision`) spec, records a new revision, makes only what the plan says, renders. The approval shows what changed and what is re-used |
+| `video.rerender` | `{ projectId, revision?, encoder?, preset? }` | The same spec rendered again |
+| `video.export` | `{ projectId, revision?, format: "fcpxml" \| "resolve-draft" }` | An editable timeline (below) |
+| `video.archive` | `{ projectId }` | Deletes the stored assets; the spec and history stay |
+
+A **patch** (`SpecPatch`): `set` merges top-level settings (brand, voice, captions, music and
+transition one level deep; `null` removes), `scenes` is a list of `update` / `remove` / `add` /
+`move` operations applied in order, `order` lists every scene id. The result must be a valid
+VideoSpec. Rolling back is `video.revise` with `fromRevision` and an empty patch; it costs one
+compose because the old assets are still in the pool.
+
+**Read tools** (the read-only `video` MCP server at `/mcp/video`, given to the businesses that
+make videos; a business's runs see only its own projects): `list_video_projects` (find one by
+words in the title) and `get_video_project` (the spec, each scene with whether its narration and
+recording are stored, the outputs and exports, lint warnings, the revision history).
+
+**Retention.** Project files are kept after the video is posted (they used to be deleted as
+work in progress). `video.archive`, or `VIDEO_PROJECT_RETENTION_DAYS` (default 90) without a
+change, deletes the pool and export clips; the nightly render clean-up never deletes a file an
+active project still refers to. Rendered videos follow `STORAGE_RENDER_RETENTION_DAYS` once
+their project is archived. Only the latest revision's MP4 is protected: an older revision's
+render ages out like any other, and rolling back to it re-composes it from the pool.
+
+**Without a media store** (no `PUBLIC_BASE_URL`) projects are still recorded, but nothing can be
+kept between renders, so every revision captures and voices again on one PC.
+
+### Editing by hand: export as a timeline
+
+`video.export` hands a revision to an editor as a timeline rather than a flattened MP4:
+
+- the worker renders **each scene as its own clip** (`video.render` with `stemsOnly`): the
+  picture only, card text drawn, no captions, no fades from black; H.264 at the video's size, so
+  title cards, slides, stills and screen recordings are all ordinary clips;
+- the server writes an **FCPXML 1.9** document (`packages/video/src/edit.ts`, pure): the scene
+  clips end to end on the video track, each scene's narration connected to its clip on an audio
+  lane below it (so it moves with the scene), the music on a second lane across the whole video
+  at the spec's level, the narration text as a marker on each clip; the captions travel as
+  `captions.srt` beside it;
+- `format: "fcpxml"` stores the document and lists its media on the project;
+  `format: "resolve-draft"` also submits a `davinci.render` draft job: Resolve on Dave's PC
+  downloads the clips, the document is pointed at them and imported as a new timeline
+  (`MediaPool.ImportTimelineFromFile`), and the project is left open for him.
+
+FCPXML rather than an EDL because an EDL carries one video track, no audio levels and no clip
+names worth having; FCPXML is imported by Resolve, Final Cut and Premiere and keeps tracks,
+offsets and volume. OTIO would need its Python library on the server or the PC.
+
+Limits, stated plainly: this is **not tested against a real Resolve** (the Resolve script runs
+against a stand-in in tests, and the document is checked for structure, frame-exact lengths and
+that every file exists, not by an NLE; a generated document was also read back once with
+OpenTimelineIO's FCPX adapter, which found the video track, the narration lane at the right
+offsets and the music lane). The SRT is not placed on a subtitle track for him
+(Resolve: File → Import → Subtitle, then drag it on). The music clip is as long as the video;
+a shorter track is looped in the render but not in the timeline. Edits made in Resolve do not
+come back into the project.
+
+## Quality pass
+
+What the compositor and linter now do so a render doesn't look home-made (each checked by a
+local render in `packages/video/test/e2e.test.ts`):
+
+- **Transitions:** scenes meet through a short dip to the brand background (`transition`,
+  default 0.2 s; `"cut"` for hard cuts) instead of jumping; the video still fades from and to
+  black. Real crossfades would overlap scenes and move every caption and voice offset, so they
+  are not used.
+- **Captions:** a heavier stroke and shadow, or `captions.background: "box"` for busy footage;
+  side margins inside the title-safe area for each format (wider on 9:16); secondary card text
+  a size larger on 9:16 and 1:1.
+- **Audio:** music ducks earlier and releases more slowly under the voice, the mix is levelled
+  to -14 LUFS and then limited (measured peak ≤ -1 dBFS in the tests), and the sound fades out
+  with the picture.
+- **End card:** an outro is held at least 4 s, with the logo above the heading when the brand
+  kit has one.
+- **Trims:** `clip: { startSec, endSec }` on a capture scene cuts dead time out of a recording
+  without recording again.
+- **Voice:** `voice.provider` defaults to `"auto"`: ElevenLabs, then OpenAI, when their key is
+  set, else the server's own voices, else flite. flite is only the keyless fallback, and the
+  lint says so.
+- **Lint** (`lintQuality`): robotic or silent voice, no logo, captions off on short-form, a card
+  or still held too long, long headings and walls of bullets for the format, silent screen
+  recordings, loud or uncredited music, a video of only text cards, a short end card.
+
+- **Intro sting (optional):** a `logo` scene shows the brand's logo alone on its background for
+  about 1.5 s; put first, it fades up from black and dips into the first scene. It is a still
+  logo, not an animation.
+
+Not built: an animated logo sting, true crossfades, brand fonts shipped to the PC, and anything
+a designer would call motion graphics.
 
 ## Stack choices
 
@@ -180,10 +316,15 @@ editor built from the "Edit and save a topic" and "Publish your changes" docs) o
 records four capture scenes, voices seven scenes, and prints ffprobe's duration, resolution
 and audio stream. `CC_CHROMIUM_BIN` / `CC_FFMPEG_BIN` override the binaries.
 
+`render:sample` and `docs/media/sample-opend-walkthrough.mp4` predate the quality pass (the
+committed file has hard cuts); run the script for a current one.
+
 ## Roadmap
 
-1. **Now (this change):** spec, TTS adapters, capture runner, captions, compositor, worker
-   jobs, `video.produce` with the job chain, skill, local e2e render.
+1. **Built:** spec, TTS adapters, capture runner, captions, compositor, worker
+   jobs, `video.produce` with the job chain, skill, local e2e render; projects with
+   `video.revise` / `video.rerender` / `video.export` / `video.archive`, the `video` read tools
+   and the quality pass (see "Projects" and "Quality pass").
 2. **Next:** wire the media store and `social.campaign` (attach the MP4 to Reels/Threads/X);
    brand kits confirmed by Dave (logo files,
    colours, fonts); demo accounts and storage-state profiles for OpenV and OpenD; wire the

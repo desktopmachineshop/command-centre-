@@ -32,7 +32,19 @@ export interface Timeline {
 }
 
 /** Default floor for a scene's length when its narration is short or missing. */
-const MIN_DURATION: Record<Scene["kind"], number> = { title: 2.5, capture: 3, slide: 3, image: 3, outro: 3 };
+const MIN_DURATION: Record<Scene["kind"], number> = { title: 2.5, capture: 3, slide: 3, image: 3, outro: 4, logo: 1.5 };
+
+/**
+ * How much of a recording a capture scene uses once its `clip` is applied: where to start in
+ * the file (after the blank lead trimmed at capture) and how long it then runs.
+ */
+export function clipWindow(scene: Scene, recording: { trimStartSec?: number; durationSec?: number }): { startSec: number; durationSec: number | undefined } {
+  const clip = scene.kind === "capture" ? scene.clip : undefined;
+  const from = clip?.startSec ?? 0;
+  const full = recording.durationSec;
+  const end = clip?.endSec !== undefined ? (full !== undefined ? Math.min(clip.endSec, full) : clip.endSec) : full;
+  return { startSec: round3((recording.trimStartSec ?? 0) + from), durationSec: end === undefined ? undefined : round3(Math.max(0.1, end - from)) };
+}
 
 const toFrame = (seconds: number, fps: number) => Math.ceil(seconds * fps - 1e-6) / fps;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
