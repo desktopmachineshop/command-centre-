@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { type Domain, OdooError, type OdooReader, type OdooRecord, OdooRpcError, type SearchReadOptions } from "./client";
+import { type Domain, OdooError, type OdooFieldDef, type OdooReader, type OdooRecord, OdooRpcError, type SearchReadOptions } from "./client";
+import { deniedField, deniedModel } from "./write-policy";
 
 export interface OdooMcpOptions {
   /** Longest text (message bodies, descriptions) returned before truncating. Default 600. */
@@ -82,8 +83,12 @@ class Reader {
     return this.client.read(model, ids as number[], wanted.filter((f) => fields.has(f)));
   }
 
-  count(model: string, domain: Domain) {
-    return this.client.searchCount(model, domain);
+  count(model: string, domain: Domain, context?: Record<string, unknown>) {
+    return this.client.searchCount(model, domain, context);
+  }
+
+  defs(model: string) {
+    return this.client.fieldDefs(model);
   }
 }
 
@@ -1155,7 +1160,7 @@ function registerDailyTools(server: McpServer, odoo: Reader, { tool, limit, mess
     "search_records",
     {
       description:
-        "Read any Odoo model the other tools don't cover (e.g. res.users, stock.lot, account.journal, product.pricelist, uom.uom, crm.stage, helpdesk.stage, mail.activity.type, product.category, delivery.carrier). domain is Odoo's, e.g. [[\"name\",\"ilike\",\"x\"]]; fields lists what to return (unknown ones are dropped). Returns the matching count and records. Read-only.",
+        "Read any Odoo model the other tools don't cover (e.g. res.users, stock.lot, account.journal, product.pricelist, uom.uom, crm.stage, helpdesk.stage, mail.activity.type, product.category, delivery.carrier). domain is Odoo's, e.g. [[\"name\",\"ilike\",\"x\"]]; fields lists what to return (unknown ones are dropped; describe_model lists a model's fields). Archived records are left out unless include_archived is true. Returns the matching count and records. Read-only.",
       inputSchema: {
         model: z.string().regex(/^[a-z0-9_.]+$/, "an Odoo model name, e.g. stock.lot"),
         domain: z.array(z.unknown()).default([]),
@@ -1163,20 +1168,127 @@ function registerDailyTools(server: McpServer, odoo: Reader, { tool, limit, mess
         order: z.string().optional(),
         limit: limit(20, 200),
         offset: z.number().int().min(0).default(0),
+        include_archived: z.boolean().default(false).describe("also return archived (inactive) records; ask for the active field to tell them apart"),
       },
     },
-    tool(async ({ model, domain, fields, order, limit, offset }) => {
+    tool(async ({ model, domain, fields, order, limit, offset, include_archived }) => {
+      const context = include_archived ? { active_test: false } : undefined;
       const available = await odoo.has(model);
       if (!available) throw new OdooRpcError(`Odoo has no ${model} model`, "missing_model", "KeyError");
       const unknown = fields.filter((f) => !available.has(f));
       const [count, rows] = await Promise.all([
-        odoo.count(model, domain as Domain),
-        odoo.find(model, domain as Domain, fields, { limit, offset, order }),
+        odoo.count(model, domain as Domain, context),
+        odoo.find(model, domain as Domain, fields, { limit, offset, order, context }),
       ]);
       return {
         count,
         records: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "string" && v.length > max * 2 ? `${v.slice(0, max * 2)}…` : value(v)]))),
         ...(unknown.length ? { unknown_fields: unknown } : {}),
+      };
+    }),
+  );
+
+  /** One field as an agent needs it: flags and choices only when they say something. */
+  const fieldInfo = (name: string, d: OdooFieldDef) => ({
+    name,
+    label: d.string ?? name,
+    type: d.type,
+    ...(d.required ? { required: true } : {}),
+    ...(d.readonly ? { readonly: true } : {}),
+    ...(d.relation ? { relation: d.relation } : {}),
+    ...(d.selection?.length ? { selection: d.selection.slice(0, 30).map(([v, label]) => (String(v) === label ? v : `${String(v)}: ${label}`)) } : {}),
+    ...(deniedField(name, d.relation) ? { protected: true } : {}),
+  });
+
+  server.registerTool(
+    "list_models",
+    {
+      description:
+        "Find Odoo models by technical name or label (e.g. \"pricelist\", \"reordering\", \"stock.lot\"): what this Odoo has installed. Returns { model, label } and, for models the generic odoo.record.* actions refuse, why. Then describe_model for its fields.",
+      inputSchema: { query: z.string().min(2), limit: limit(30, 100) },
+    },
+    tool(async ({ query, limit }) => {
+      await odoo.require("ir.model", "the API user can't read the model list");
+      const rows = await odoo.find("ir.model", ["|", ["model", "ilike", query], ["name", "ilike", query]], ["model", "name", "transient"], { limit, order: "model" });
+      return rows.map((r) => {
+        const rule = deniedModel(String(r.model));
+        return { model: r.model, label: value(r.name), ...(r.transient ? { wizard: true } : {}), ...(rule ? { write_protected: rule.why } : {}) };
+      });
+    }),
+  );
+
+  server.registerTool(
+    "describe_model",
+    {
+      description:
+        "The fields of any Odoo model: name, label, type, required, readonly, relation (the model a many2one/x2many points at) and selection values. Use it before search_records/get_record on an unfamiliar model and always before proposing odoo.record.create or odoo.record.update. Filter with query (matches name or label), fields (exact names), types, or writable_only; required fields come first. Read-only.",
+      inputSchema: {
+        model: z.string().regex(/^[a-z0-9_.]+$/, "an Odoo model name, e.g. product.pricelist.item"),
+        query: z.string().min(1).optional(),
+        fields: z.array(z.string()).max(60).optional(),
+        types: z.array(z.string()).optional().describe("e.g. [\"many2one\", \"selection\"]"),
+        writable_only: z.boolean().default(false),
+        limit: limit(60, 300),
+      },
+    },
+    tool(async ({ model, query, fields, types, writable_only, limit }) => {
+      const defs = await odoo.defs(model);
+      if (!defs) throw new OdooRpcError(`Odoo has no ${model} model (list_models finds models by name)`, "missing_model", "KeyError");
+      const q = query?.toLowerCase();
+      const all = Object.entries(defs);
+      const matching = all
+        .filter(([name]) => !fields || fields.includes(name))
+        .filter(([name, d]) => !q || name.includes(q) || (d.string ?? "").toLowerCase().includes(q))
+        .filter(([, d]) => !types || types.includes(d.type))
+        .filter(([, d]) => !writable_only || !d.readonly)
+        .sort((a, b) => Number(!!b[1].required) - Number(!!a[1].required) || a[0].localeCompare(b[0]));
+      const rule = deniedModel(model);
+      return {
+        model,
+        total_fields: all.length,
+        matching: matching.length,
+        archivable: !!defs.active,
+        ...(rule ? { write_protected: rule.why } : {}),
+        fields: matching.slice(0, limit).map(([name, d]) => fieldInfo(name, d)),
+        ...(fields ? { unknown_fields: fields.filter((f) => !defs[f]) } : {}),
+      };
+    }),
+  );
+
+  /** What get_record returns when no fields are named: the identifying and required ones first, then other stored scalars. */
+  const defaultFields = (defs: Record<string, OdooFieldDef>): string[] => {
+    const usable = Object.entries(defs).filter(([name, d]) => !["binary", "image", "one2many", "many2many", "json", "properties", "properties_definition"].includes(d.type) && d.store !== false && !deniedField(name, d.relation));
+    const rank = ([name, d]: [string, OdooFieldDef]) =>
+      ["name", "display_name", "state", "stage_id", "active"].includes(name) ? 0 : d.required ? 1 : /^(partner_id|email|phone|default_code|ref|code|date|amount|price|list_price|qty|user_id|company_id)/.test(name) ? 2 : /^(message_|activity_|website_message|access_|__|create_uid|write_uid)/.test(name) ? 9 : d.type === "html" || d.type === "text" ? 5 : 3;
+    return ["display_name", ...usable.sort((a, b) => rank(a) - rank(b) || a[0].localeCompare(b[0])).map(([n]) => n).filter((n) => n !== "display_name")].slice(0, 40);
+  };
+
+  server.registerTool(
+    "get_record",
+    {
+      description:
+        "One record of any Odoo model by id (archived ones too), with the fields you name or a sensible default set (identifying, required and common fields). many2one values come back as { id, name }; long text is cut. Use it to see what a record holds now before proposing odoo.record.update. Read-only.",
+      inputSchema: {
+        model: z.string().regex(/^[a-z0-9_.]+$/, "an Odoo model name, e.g. res.partner"),
+        id: z.number().int().positive(),
+        fields: z.array(z.string()).min(1).max(60).optional(),
+      },
+    },
+    tool(async ({ model, id, fields }) => {
+      const defs = await odoo.defs(model);
+      if (!defs) throw new OdooRpcError(`Odoo has no ${model} model (list_models finds models by name)`, "missing_model", "KeyError");
+      const wanted = (fields ?? defaultFields(defs)).filter((f) => defs[f]);
+      const withheld = wanted.filter((f) => deniedField(f) && /password|passwd|secret|token|key/.test(f));
+      const [r] = await odoo.find(model, [["id", "=", id]], wanted.filter((f) => !withheld.includes(f)), { limit: 1, context: { active_test: false } });
+      if (!r) throw new OdooError(`No ${model} with id ${id}`);
+      const unknown = (fields ?? []).filter((f) => !defs[f]);
+      return {
+        model,
+        id,
+        record: Object.fromEntries(Object.entries(r).filter(([k]) => k !== "id").map(([k, v]) => [k, typeof v === "string" && v.length > max * 2 ? `${(defs[k]?.type === "html" ? htmlToText(v, max * 2) : v.slice(0, max * 2)) ?? ""}…` : v === false && defs[k]?.type === "boolean" ? false : value(v)])),
+        ...(fields ? {} : { other_fields: Object.keys(defs).length - wanted.length }),
+        ...(unknown.length ? { unknown_fields: unknown } : {}),
+        ...(withheld.length ? { withheld_fields: withheld } : {}),
       };
     }),
   );

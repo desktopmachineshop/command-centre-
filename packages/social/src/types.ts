@@ -126,6 +126,8 @@ export interface InboundSource {
   poll?(account: SocialAccount, cursor: string | null, ctx: AdapterContext): Promise<PollResult>;
   /** Suggested poll interval for this platform, in seconds (rate limits differ a lot). */
   pollIntervalSeconds?: number;
+  /** A different interval for one account, when how it is signed in calls for it; wins over `pollIntervalSeconds`. */
+  pollIntervalFor?(account: SocialAccount): number | undefined;
   /** Open a live connection and call `emit` for each item. Resolves to a stop function. */
   listen?(
     account: SocialAccount,
@@ -158,6 +160,12 @@ export interface PlatformAdapter {
   validate(account: SocialAccount, content: PostContent): string[];
   publish(account: SocialAccount, content: PostContent, ctx: AdapterContext): Promise<PublishResult>;
   reply(account: SocialAccount, target: ReplyTarget, text: string, ctx: AdapterContext): Promise<PublishResult>;
+  /**
+   * Limits on how often this account may submit (post, reply, DM), when the platform or the way
+   * the account is signed in calls for a person's rhythm; null for none. `account.options`
+   * (`minGapMinutes`, `dailyCap`) override it. Enforced by the executors (../pacing.ts).
+   */
+  pacing?(account: SocialAccount): { minGapMinutes: number; dailyCap: number } | null;
   /** Send a direct message to a user (where `capabilities.dm`). */
   sendDm?(account: SocialAccount, userId: string, text: string, ctx: AdapterContext): Promise<PublishResult>;
   inbound?: InboundSource;

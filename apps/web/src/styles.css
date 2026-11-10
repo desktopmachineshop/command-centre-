@@ -3624,7 +3624,8 @@ a.button-link:hover {
 .acc-platform.p-instagram { --p: var(--p-instagram); }
 .acc-platform.p-threads { --p: var(--p-threads); }
 .acc-platform.p-x { --p: var(--p-x); }
-.acc-platform.p-reddit { --p: var(--p-reddit); }
+.acc-platform.p-reddit,
+.acc-platform.p-reddit-session { --p: var(--p-reddit); }
 .acc-platform.p-youtube { --p: var(--p-youtube); }
 .acc-platform.p-discord { --p: var(--p-discord); }
 

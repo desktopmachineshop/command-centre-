@@ -349,6 +349,32 @@ export const CATALOG: readonly KindDef[] = [
     affects: ["social"],
   },
   {
+    kind: "reddit-session",
+    label: "Reddit (your own login)",
+    section: "social",
+    description:
+      "Reddit without a developer app: your own account's session cookie, pasted once from your browser. Posts, replies and messages still wait for your approval, and go out slowly (one at a time, spaced out). This automates your account outside Reddit's official API, which Reddit's terms may not allow: the account can be rate limited or banned. Setup steps: docs/SETUP.md, \"Reddit without a developer app\".",
+    multi: true,
+    fields: [
+      vertical,
+      { ...handle, placeholder: "u/name", help: "Your Reddit username, so agents can check your own history before replying." },
+      displayName,
+      inbound,
+      {
+        key: "sessionCookie",
+        label: "reddit_session cookie",
+        type: "secret",
+        required: true,
+        help: "In your browser, signed in to reddit.com: open developer tools (F12), Application (Chrome, Edge) or Storage (Firefox), Cookies, https://www.reddit.com, and copy the Value of the cookie named reddit_session.",
+      },
+      { key: "tokenV2", label: "token_v2 cookie (optional)", type: "secret", help: "Only if Test connection fails with reddit_session alone: the Value of the cookie named token_v2. It expires more often." },
+      { key: "minGapMinutes", label: "Minutes between submissions", type: "number", default: 10, help: "The least time between two posts, replies or messages from this account. Approved ones queue up." },
+      { key: "dailyCap", label: "Most submissions in 24 hours", type: "number", default: 8 },
+      options,
+    ],
+    affects: ["social"],
+  },
+  {
     kind: "youtube",
     label: "YouTube",
     section: "social",

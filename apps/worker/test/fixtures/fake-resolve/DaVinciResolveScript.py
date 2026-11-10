@@ -57,6 +57,14 @@ class MediaPool:
         self.project.timelines.append(tl)
         self.project.current = tl
         return tl
+    def ImportTimelineFromFile(self, path, options):
+        with open(path) as f: doc = f.read()
+        log("ImportTimelineFromFile", os.path.basename(path), options, doc.count('src="file://'))
+        if MODE == "bad-timeline": return None
+        tl = Timeline(options["timelineName"], doc.count("<asset-clip"))
+        self.project.timelines.append(tl)
+        self.project.current = tl
+        return tl
     def AppendToTimeline(self, items):
         log("AppendToTimeline", self.project.current.name, len(items))
         self.project.current.clips += len(items)

@@ -62,7 +62,7 @@ export function assistantCharter(registry: VerticalRegistry, vertical: VerticalM
   ];
   if (trusted) {
     lines.push(
-      "You have every business's tools (Odoo, mail, parcels, calendar and reminders, the brain, the app's ops and docs) and every skill. Look things up rather than guessing, and answer Dave directly.",
+      "You have every business's tools (Odoo, mail, parcels, calendar and reminders, the brain, Reddit and web research, the app's ops and docs) and every skill. Look things up rather than guessing, and answer Dave directly.",
       'Every action you propose belongs to one business: pass its id as `vertical` to propose_action and propose_batch (e.g. "dms" for a reply to a shop customer). That business\'s approval policy and budget apply. Leave it out for this task\'s own business.',
     );
   } else {

@@ -25,6 +25,7 @@
     "@cc/odoo": "workspace:*",
     "@cc/opengym": "workspace:*",
     "@cc/pa": "workspace:*",
+    "@cc/research": "workspace:*",
     "@cc/sendcloud": "workspace:*",
     "@cc/social": "workspace:*",
     "@cc/storage": "workspace:*",

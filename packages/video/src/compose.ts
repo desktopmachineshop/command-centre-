@@ -23,12 +23,14 @@ export interface VisualAsset {
   file: string;
   /** Seconds to skip at the start of a recording (the blank page before the first load). */
   trimStartSec?: number;
+  /** Use at most this much of a recording (a clip's out-point); the last frame is held after it. */
+  maxDurationSec?: number;
 }
 
 export type VideoEncoder = "libx264" | "h264_nvenc";
 
 export interface ComposeInput {
-  spec: Pick<VideoSpec, "format" | "fps" | "brand" | "scenes" | "music">;
+  spec: Pick<VideoSpec, "format" | "fps" | "brand" | "scenes" | "music"> & Partial<Pick<VideoSpec, "transition">>;
   timeline: Timeline;
   /** Visual per capture and image scene id. */
   visuals: Record<string, VisualAsset>;
@@ -45,6 +47,8 @@ export interface ComposeInput {
   preset?: string;
   /** Quality: CRF for x264, CQ for NVENC. */
   quality?: number;
+  /** Picture only, with no fade from or to black: a clip for an editor's timeline rather than a finished video. */
+  videoOnly?: boolean;
   output: string;
 }
 
@@ -92,14 +96,21 @@ export function buildComposePlan(input: ComposeInput): ComposePlan {
     sceneLabels.push(`[${label}]`);
     const fitContain = `scale=${W}:${H}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${bg}`;
     const fitCover = `scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H}`;
-    const tail = `setsar=1,fps=${fps},tpad=stop_mode=clone:stop_duration=${D},trim=duration=${D},setpts=PTS-STARTPTS,format=yuv420p`;
+    // Scenes meet through a short dip to the brand background instead of a hard jump; the video's own
+    // fade from and to black covers the first scene's start and the last one's end.
+    const fadeSec = spec.transition?.style === "cut" ? 0 : Math.min(spec.transition?.durationSec ?? 0.2, slot.duration / 4);
+    const dip =
+      fadeSec > 0
+        ? `${i > 0 ? `,fade=t=in:st=0:d=${sec(fadeSec)}:color=${bg}` : ""}${i < spec.scenes.length - 1 ? `,fade=t=out:st=${sec(slot.duration - fadeSec)}:d=${sec(fadeSec)}:color=${bg}` : ""}`
+        : "";
+    const tail = `setsar=1,fps=${fps},tpad=stop_mode=clone:stop_duration=${D},trim=duration=${D},setpts=PTS-STARTPTS${dip},format=yuv420p`;
 
     if (scene.kind === "capture" || scene.kind === "image") {
       const visual = input.visuals[scene.id];
       if (!visual) throw new ComposeError(`no visual for ${scene.kind} scene "${scene.id}"`);
       const name = file(visual.file, `visual for "${scene.id}"`);
       if (visual.kind === "video") {
-        const idx = addInput(...(visual.trimStartSec ? ["-ss", sec(visual.trimStartSec)] : []), "-i", name);
+        const idx = addInput(...(visual.trimStartSec ? ["-ss", sec(visual.trimStartSec)] : []), ...(visual.maxDurationSec ? ["-t", sec(visual.maxDurationSec)] : []), "-i", name);
         const fit = scene.kind === "capture" && scene.fit === "cover" ? fitCover : fitContain;
         graph.push(`[${idx}:v]${fit},${tail}[${label}]`);
       } else {
@@ -120,7 +131,8 @@ export function buildComposePlan(input: ComposeInput): ComposePlan {
     }
   });
 
-  graph.push(`${sceneLabels.join("")}concat=n=${sceneLabels.length}:v=1:a=0,fade=t=in:st=0:d=0.3,fade=t=out:st=${sec(Math.max(0, T - 0.4))}:d=0.4[vcat]`);
+  const blackFades = input.videoOnly ? "" : `,fade=t=in:st=0:d=0.3,fade=t=out:st=${sec(Math.max(0, T - 0.4))}:d=0.4`;
+  graph.push(`${sceneLabels.join("")}concat=n=${sceneLabels.length}:v=1:a=0${blackFades}[vcat]`);
   let videoOut = "vcat";
 
   if (input.logo) {
@@ -132,9 +144,19 @@ export function buildComposePlan(input: ComposeInput): ComposePlan {
         .join("+");
     const cardRanges = ranges(["title", "outro"]);
     const contentRanges = ranges(["capture", "image", "slide"]);
+    const stingRanges = ranges(["logo"]);
     const small = Math.round(H * (spec.format === "16:9" ? 0.06 : 0.04));
     const large = Math.round(Math.min(W, H) * 0.16);
-    graph.push(`[${idx}:v]format=rgba,split=2[logoS0][logoL0]`, `[logoS0]scale=-1:${small}[logoS]`, `[logoL0]scale=-1:${large}[logoL]`);
+    graph.push(
+      `[${idx}:v]format=rgba,split=${stingRanges ? 3 : 2}[logoS0][logoL0]${stingRanges ? "[logoX0]" : ""}`,
+      `[logoS0]scale=-1:${small}[logoS]`,
+      `[logoL0]scale=-1:${large}[logoL]`,
+    );
+    if (stingRanges) {
+      // A logo scene: the logo alone, centred and large (never wider than 70% of the frame).
+      graph.push(`[logoX0]scale=w='min(${Math.round(W * 0.7)},iw*${Math.round(Math.min(W, H) * 0.26)}/ih)':h=-1[logoX]`, `[${videoOut}][logoX]overlay=x=(W-w)/2:y=(H-h)/2:enable='${stingRanges}'[vlogo0]`);
+      videoOut = "vlogo0";
+    }
     if (contentRanges) {
       graph.push(`[${videoOut}][logoS]overlay=x=W-w-${Math.round(W * 0.03)}:y=${Math.round(H * 0.025)}:enable='${contentRanges}'[vlogo1]`);
       videoOut = "vlogo1";
@@ -150,6 +172,17 @@ export function buildComposePlan(input: ComposeInput): ComposePlan {
     graph.push(`[${videoOut}]subtitles=filename=${file(input.subtitles, "subtitles")}${fonts}[vout]`);
   } else {
     graph.push(`[${videoOut}]null[vout]`);
+  }
+
+  const quality = input.quality ?? (input.encoder === "h264_nvenc" ? 21 : 20);
+  const video =
+    input.encoder === "h264_nvenc"
+      ? ["-c:v", "h264_nvenc", "-preset", input.preset ?? "p5", "-rc", "vbr", "-cq", String(quality), "-b:v", "0"]
+      : ["-c:v", "libx264", "-preset", input.preset ?? "medium", "-crf", String(quality)];
+  if (input.videoOnly) {
+    const filterGraph = graph.join(";\n");
+    args.push("-filter_complex", filterGraph, "-map", "[vout]", ...video, "-pix_fmt", "yuv420p", "-r", String(fps), "-an", "-t", sec(T), "-movflags", "+faststart", file(input.output, "output"));
+    return { args, filterGraph, durationSec: T };
   }
 
   // --- audio ---
@@ -173,19 +206,16 @@ export function buildComposePlan(input: ComposeInput): ComposePlan {
       `[${idx}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=duration=${sec(T)},volume=${spec.music.volumeDb}dB,` +
         `afade=t=in:d=1,afade=t=out:st=${sec(Math.max(0, T - 2))}:d=2[music]`,
       `[voice]asplit=2[voiceA][voiceSC]`,
-      `[music][voiceSC]sidechaincompress=threshold=0.03:ratio=6:attack=20:release=400[ducked]`,
+      // Duck early and let go slowly, so the music dips under each sentence instead of pumping between words.
+      `[music][voiceSC]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=600[ducked]`,
       `[voiceA][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]`,
     );
     audioOut = "mixed";
   }
-  graph.push(`[${audioOut}]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]`);
+  // -14 LUFS, then a limiter as the guard against clipping, and the sound leaves with the picture.
+  graph.push(`[${audioOut}]loudnorm=I=-14:TP=-1.5:LRA=11,alimiter=limit=0.84:level=false,aresample=48000,afade=t=out:st=${sec(Math.max(0, T - 0.4))}:d=0.4[aout]`);
 
   const filterGraph = graph.join(";\n");
-  const quality = input.quality ?? (input.encoder === "h264_nvenc" ? 21 : 20);
-  const video =
-    input.encoder === "h264_nvenc"
-      ? ["-c:v", "h264_nvenc", "-preset", input.preset ?? "p5", "-rc", "vbr", "-cq", String(quality), "-b:v", "0"]
-      : ["-c:v", "libx264", "-preset", input.preset ?? "medium", "-crf", String(quality)];
   args.push(
     "-filter_complex", filterGraph,
     "-map", "[vout]", "-map", "[aout]",

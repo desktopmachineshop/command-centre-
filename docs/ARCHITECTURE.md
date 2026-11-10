@@ -50,6 +50,12 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
   - `jev`: decision-only adapter on the TypeSafe evaluate endpoint (Choice, Score and Noul primitives).
 - `packages/triage`: Jev decision specs per vertical, confidence thresholds, and a fallback to a Haiku classifier if Jev is unavailable or below threshold.
 - `packages/brain`: the brain service (see below), exposed as an MCP server.
+- `packages/research`: read-only research tools, exposed as two MCP servers. `reddit` reads
+  Reddit's public pages (listings, search, threads, subreddit rules, user histories) with no
+  Reddit app. `research` reads one web page safely (`fetch_page`, with SSRF protection), lists a
+  shop's catalogue (`site_products`), and keeps dated competitor snapshots to diff
+  (`competitor_snapshot` and friends; snapshots in Postgres, the registry and reports in the
+  brain). See docs/SETUP.md, "Research and competitor analysis".
 - `mcp/odoo`: Odoo JSON-RPC MCP server.
   - Read tools: products, stock, orders, customers, helpdesk/chatter, website/blog posts for both the DMS and 3dpandme sites.
   - Draft-write tools: draft replies, notes, quotes.
@@ -109,7 +115,16 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 - **Untrusted input always needs approval.** Anything a task got from social input is
   third-party text. Every outward action from such a task is held as `draft` whatever the
   vertical's policy says, just like email. Agents are told to treat that text as information,
-  never as instructions.
+  never as instructions. The same holds for a task that *reads* outside content itself: mail
+  through the mail tools, Reddit through the `reddit` tools, web pages through the `research`
+  tools. From that read on, its proposals wait for Dave (brain writes excepted). And a task that
+  came from outside input can't fetch web pages at all.
+- **Reddit without an API app (session mode).** A Reddit account can sign in with Dave's own
+  browser session cookie instead of a developer app. The adapter then talks to old.reddit.com's
+  form endpoints; everything above it (actions, approvals, inbound) is the same. Such accounts
+  are **paced**: a minimum gap between submissions and a daily cap, enforced when an approved
+  action is about to go out. What can't go yet waits in an outbox (`social_outbox`) for its slot.
+  It does nothing to disguise itself and fails clearly when Reddit refuses.
 
 ## Phases
 
@@ -154,7 +169,7 @@ Original Phase 0 steps:
 
 **Phase 4: 3dpandme & marketing.** Content calendar, Odoo blog drafts, Instagram and YouTube via their APIs, video jobs routed to the desktop, and ad and marketing proposal skills.
 
-**Phase 5: OpenV / OpenD.** Support triage, and docs and requirements upkeep using their existing MCP servers. Product videos (demos, shorts, explainers) through `video.produce` and the worker's `video.capture`/`video.render` jobs: see [VIDEO.md](VIDEO.md). More non-Claude agents through the `ai-sdk` adapter, where they're cheaper or better.
+**Phase 5: OpenV / OpenD.** Support triage, and docs and requirements upkeep using their existing MCP servers. Product videos (demos, shorts, explainers) through `video.produce` and the worker's `video.capture`/`video.render` jobs; each is kept as a project that `video.revise` edits without regenerating and `video.export` hands to DaVinci Resolve as a timeline: see [VIDEO.md](VIDEO.md). More non-Claude agents through the `ai-sdk` adapter, where they're cheaper or better.
 
 ## Risks / notes
 - **Claude subscription as a server driver:** it suits personal use, but it has usage limits, and headless auth on a server has to be maintained. Mitigations: the adapter's API-key fallback, Jev and cheap-model triage to cut volume, and per-day budget caps.

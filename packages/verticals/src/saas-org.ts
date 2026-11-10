@@ -1,20 +1,14 @@
 import type { Schedule } from "@cc/core";
 import type { Area } from "./how-we-work";
+import { competitorWatchSchedule, redditScoutSchedule } from "./marketing";
 
-/** Weekdays 11:23: find fresh Reddit threads that invite or ask for the product, and draft replies. */
-const redditScout = (product: string) => `Find fresh Reddit threads where a reply about ${product} is welcome, and draft replies. Follow the reddit-marketing skill end to end (with social-platform-guide's Reddit section).
-
-1. Build the ${product} fact sheet from the brain, the product's own tools and its site. Read the playbook and log note (marketing/reddit.md in your brain folder).
-2. Search for threads from the last 48 hours: share-your-startup and self-promotion threads, people asking for a tool ${product} answers, and comparisons. Skip anything already in the log.
-3. For each candidate, read the post, the subreddit's rules and the top comments. Note what it asks for and in what format, and score the fit from 1 to 5.
-4. For fit 4 or 5 only, propose a social.reply from the account on the log note's Account: line (or one notify holding the drafts if none is listed). Propose at most 3, at most 1 per subreddit, each disclosing that Dave builds ${product}.
-5. Update the log with every thread you looked at, proposed or skipped, with the reason.
-
-Finish with the short report the skill describes.`;
-
-/** The weekday Reddit scout for a product (runs as the assistant). */
-export function saasSchedules(product: string): Schedule[] {
-  return [{ id: "reddit-scout", cron: "23 11 * * 1-5", timezone: "Europe/London", prompt: redditScout(product), enabled: true }];
+/**
+ * A product's schedules (they run as the assistant): the weekday Reddit scout at 11:23, which finds
+ * fresh threads that invite or ask for the product and drafts replies, and the weekly competitor
+ * watch (`watchMinute` past six on a Monday).
+ */
+export function saasSchedules(product: string, brainFolder: string, watchMinute: number): Schedule[] {
+  return [redditScoutSchedule(product, "the brain, the product's own tools and its site", 23), competitorWatchSchedule(product, brainFolder, watchMinute)];
 }
 
 /**
@@ -47,7 +41,7 @@ export function saasAreas(product: string, options: { docsWriter?: boolean } = {
   roles.push(
     {
       title: "DevRel & Content",
-      mission: `Tells people what ${product} does and why it matters: release notes, short demo videos, social posts, and honest, disclosed replies in Reddit threads that ask for or invite tools like ${product}. Works from what actually shipped, never from the roadmap.`,
+      mission: `Tells people what ${product} does and why it matters: release notes, short demo videos, social posts, and honest, disclosed replies in Reddit threads that ask for or invite tools like ${product}. Keeps the competitor registry and the weekly competitor watch (the competitor-analysis skill): who else serves these users, what they charge and what changed. Works from what actually shipped, never from the roadmap.`,
       kpis: ["Release note for every release", "One demo video a month", "Reddit replies approved without edits"],
       autonomyNotes: "All posts, replies and campaigns wait for Dave. Reddit replies always disclose that Dave builds the product, at most 3 a day.",
     },

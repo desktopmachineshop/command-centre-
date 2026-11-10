@@ -89,6 +89,51 @@ describe("video.render", () => {
     expect(progress.at(-1)![0]).toBeGreaterThan(0.5);
   });
 
+  it("gives the project back what it made: narration, captions and, for an export, one clip per scene", async () => {
+    const put = (name: string) => ({ putUrl: `${base}/put/${name}`, publicUrl: `https://media.example/${name}` });
+    const scenes: VideoSpecInput["scenes"] = [
+      { id: "hook", kind: "title", heading: "Requirements, traced", narration: "Trace every requirement." },
+      { id: "demo", kind: "capture", steps: [{ action: "goto", url: "https://app.openv.example/" }], narration: "Open the project map." },
+      { id: "cta", kind: "outro", heading: "OpenV", cta: "Try it free" },
+    ];
+    const payload = {
+      spec: spec(scenes, { voice: { provider: "silent" } }),
+      assets: { demo: { url: `${base}/clips/demo.webm`, trimStartSec: 0.4, durationSec: 5 } },
+      // The server already has the hook's narration; the worker makes (and returns) only the other.
+      voice: { hook: { url: `${base}/voice/hook.mp3`, format: "mp3", durationSec: 1.2, words: [{ word: "Trace", start: 0, end: 0.4 }] } },
+      voiceUploads: { hook: put("voice-hook.wav"), demo: put("voice-demo.wav") },
+      captionsUpload: put("promo.srt"),
+      stemUploads: { hook: put("01-hook.mp4"), demo: put("02-demo.mp4"), cta: put("03-cta.mp4") },
+      stemsOnly: true,
+      upload: put("promo.mp4"),
+    };
+    const before = uploads.length;
+    const ctx = context(job("video.render", payload));
+    const result = (await registry().run(ctx)) as Record<string, any>;
+
+    expect(Object.keys(result.voice)).toEqual(["demo"]);
+    expect(result.voice.demo).toMatchObject({ url: "https://media.example/voice-demo.wav", format: "wav", words: expect.arrayContaining([expect.objectContaining({ word: "Open" })]) });
+    expect(result.captionsUrl).toBe("https://media.example/promo.srt");
+    expect(result.stems).toEqual({
+      hook: { url: "https://media.example/01-hook.mp4", durationSec: result.timeline.scenes[0].duration },
+      demo: { url: "https://media.example/02-demo.mp4", durationSec: 5 },
+      cta: { url: "https://media.example/03-cta.mp4", durationSec: 4 },
+    });
+    expect(result.timeline).toMatchObject({ scenes: [{ id: "hook", start: 0, voiceStart: 0.3 }, { id: "demo" }, { id: "cta", voiceStart: null }] });
+    // Clips only: no finished video is rendered or uploaded.
+    expect(result.url).toBeUndefined();
+    expect(existsSync(join(ctx.dir, "promo.mp4"))).toBe(false);
+    expect(uploads.slice(before).map((u) => u.path).sort()).toEqual(["/put/01-hook.mp4", "/put/02-demo.mp4", "/put/03-cta.mp4", "/put/promo.srt", "/put/voice-demo.wav"]);
+    expect(uploads.slice(before).find((u) => u.path === "/put/voice-demo.wav")!.type).toBe("audio/wav");
+    // Each clip is its scene alone: picture only, its card text, no captions.
+    const argv = JSON.parse(readFileSync(join(ctx.dir, "scene-02-demo.mp4"), "utf8")) as string[];
+    expect(argv).toEqual(expect.arrayContaining(["-ss", "0.4", "-i", "clip-demo.webm", "-an"]));
+    expect(argv[argv.indexOf("-filter_complex") + 1]).toContain("subtitles=filename=cards-1.ass");
+    expect(argv).not.toContain("voice-demo.wav");
+    expect(readFileSync(join(ctx.dir, "cards-0.ass"), "utf8")).toContain("Requirements, traced");
+    expect(readFileSync(join(ctx.dir, "cards-0.ass"), "utf8")).not.toContain("Trace every");
+  });
+
   it("uses NVENC on GPU nodes and falls back to x264 when it fails", async () => {
     const payload = { spec: spec([{ id: "hook", kind: "title", heading: "Hi" }]) };
     const gpu = new HandlerRegistry().register(videoRenderHandler({ ffmpegBin: fakeFfmpeg, gpu: true }));

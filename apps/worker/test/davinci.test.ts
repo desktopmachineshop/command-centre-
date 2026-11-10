@@ -164,6 +164,32 @@ describe("davinci.render", () => {
       expect(names.at(-1)).toBe("SaveProject");
     });
 
+    it("opens an edited timeline (FCPXML) as a draft, pointed at the clips on this PC", async () => {
+      const fcpxml = `<fcpxml version="1.9"><resources><asset id="r2"><media-rep kind="original-media" src="media/a.mp4"/></asset><asset id="r3"><media-rep kind="original-media" src="media/b.mov"/></asset></resources><spine><asset-clip ref="r2"/><asset-clip ref="r3"/></spine></fcpxml>`;
+      const fetchFiles = (async (url: string) => new Response(String(url).endsWith(".fcpxml") ? fcpxml : "bytes")) as unknown as typeof fetch;
+      const payload = { ...base, project: "OpenD edit", timeline: "OpenD r2", mode: "draft", timelineFile: { url: "https://cdn.example/t.fcpxml", name: "edit.fcpxml" }, extras: [{ url: "https://cdn.example/c.srt", name: "captions.srt" }] };
+      const { ctx } = context(payload);
+      const log = join(ctx.dir, "log");
+      const mediaDir = tmp();
+      const h = davinciRenderHandler({ python: "python3", env: { ...process.env, PYTHONPATH: fakeModuleDir, PYTHONDONTWRITEBYTECODE: "1", FAKE_RESOLVE: "ok", FAKE_RESOLVE_LOG: log, FAKE_RESOLVE_EXISTING: "{}" }, presets: [], mediaDir, fetch: fetchFiles });
+      const result = (await h.run(DavinciRenderPayload.parse(payload), ctx)) as { mediaDir: string; timeline: string };
+      expect(result).toMatchObject({ mode: "draft", project: "OpenD edit", timeline: "OpenD r2", outputPath: null });
+      // Clips go in the media pool; the document, with both sources relinked to local files, becomes the timeline.
+      const steps = calls(log);
+      expect(steps.find((c) => c[0] === "ImportMedia")).toEqual(["ImportMedia", ["a.mp4", "b.mov"]]);
+      expect(steps.find((c) => c[0] === "ImportTimelineFromFile")).toEqual(["ImportTimelineFromFile", "edit.fcpxml", { timelineName: "OpenD r2", importSourceClips: false }, 2]);
+      expect(steps.map((c) => c[0])).not.toContain("CreateTimelineFromClips");
+      expect(existsSync(join(result.mediaDir, "captions.srt"))).toBe(true);
+      expect(readFileSync(join(result.mediaDir, "edit.fcpxml"), "utf8")).toContain(`src="file://`);
+
+      // Not a render, and not something that isn't FCPXML.
+      expect(DavinciRenderPayload.safeParse({ ...payload, mode: "render" }).success).toBe(false);
+      expect(DavinciRenderPayload.safeParse({ ...payload, timelineFile: { url: "https://cdn.example/t.fcpxml", name: "edit.xml" } }).success).toBe(false);
+      const bad = context(payload);
+      const notXml = davinciRenderHandler({ python: "python3", env: process.env, presets: [], fetch: (async () => new Response("nope")) as unknown as typeof fetch });
+      await expect(notXml.run(DavinciRenderPayload.parse(payload), bad.ctx)).rejects.toThrow(/not an FCPXML document/);
+    });
+
     it("adds clips to an existing project's timeline instead of starting a new one", async () => {
       const existing = { "Shop tour": ["Rough cut", "Main"] };
       const { ctx } = context({ ...base, project: "Shop tour" });

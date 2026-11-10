@@ -543,4 +543,80 @@ export const migrations: { id: string; sql: string }[] = [
       alter table tasks add column if not exists handover_at timestamptz;
     `,
   },
+  {
+    // Paced social accounts (Reddit session mode) and competitor research.
+    id: "0026_social_outbox_competitor_snapshots",
+    sql: `
+      -- Every submission (post, reply, DM) of a paced social account: 'sent' rows are the record the
+      -- pacing limits are checked against, 'queued' rows wait for their slot (@cc/social pacing.ts).
+      create table if not exists social_outbox (
+        id uuid primary key,
+        account_id text not null,
+        vertical text not null,
+        action_type text not null,
+        payload jsonb not null default '{}',
+        not_before timestamptz not null,
+        status text not null,
+        result jsonb,
+        sent_at timestamptz,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create index if not exists social_outbox_due_idx on social_outbox (status, not_before);
+      create index if not exists social_outbox_account_idx on social_outbox (account_id, sent_at desc);
+
+      -- Dated snapshots of a competitor's catalogue and watched pages (@cc/research snapshot.ts).
+      -- Raw data for diffs; the reports people read are notes in the brain.
+      create table if not exists competitor_snapshots (
+        id uuid primary key,
+        vertical text not null,
+        competitor text not null,
+        site text not null,
+        taken_at timestamptz not null,
+        data jsonb not null
+      );
+      create index if not exists competitor_snapshots_idx on competitor_snapshots (vertical, competitor, taken_at desc);
+    `,
+  },
+  {
+    // Video projects (./video-projects.ts): each production's specs, asset manifest and history,
+    // so a video can be edited later without making it again. The files are in storage.
+    // (0026 is taken by the social outbox and competitor snapshots.)
+    id: "0027_video_projects",
+    sql: `
+      create table if not exists video_projects (
+        id uuid primary key,
+        vertical text not null,
+        spec_id text not null,
+        title text not null,
+        status text not null default 'active',
+        current_revision int not null default 0,
+        -- asset key (hash of the inputs that made it) -> {kind, url, sceneId, revision, ...}
+        pool jsonb not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        archived_at timestamptz
+      );
+      create index if not exists video_projects_list_idx on video_projects (status, updated_at desc);
+
+      create table if not exists video_revisions (
+        project_id uuid not null references video_projects(id) on delete cascade,
+        revision int not null,
+        based_on int,
+        spec jsonb not null,
+        -- scene id -> {voice?, capture?} asset keys
+        assets jsonb not null default '{}',
+        compose_key text not null,
+        changes jsonb not null default '[]',
+        plan text not null default '',
+        status text not null,
+        error text,
+        outputs jsonb not null default '{}',
+        request jsonb not null default '{}',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        primary key (project_id, revision)
+      );
+    `,
+  },
 ];

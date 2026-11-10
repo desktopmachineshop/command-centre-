@@ -195,7 +195,8 @@ appear under Approvals. If the run fails, its error is on the task page.
 
 **Accounts** (sidebar → System → Accounts; on the phone **More → Accounts**) is where every
 platform sign-in lives: Claude, the Anthropic API, Jev, OpenAI, ElevenLabs, Odoo, Sendcloud, email inboxes,
-Google (Calendar and Drive), Instagram, Threads, X, Reddit, YouTube and Discord. Saving applies
+Google (Calendar and Drive), Instagram, Threads, X, Reddit (through an API app, or with your own
+login and no app: see "Reddit without a developer app"), YouTube and Discord. Saving applies
 straight away; only the changed integration restarts, and nothing redeploys.
 
 - **Secrets are encrypted** in the database (AES-256-GCM). The key is generated into
@@ -612,10 +613,15 @@ runs a shell command sent by the server. Anything else fails with a clear error.
   queued jobs only).
 - `video.capture` `{spec, scenes?, uploads?}` (needs `browser`): records a VideoSpec's capture
   scenes with Playwright. The result is `{clips: {<scene>: {path, trimStartSec, durationSec, url?}}}`.
-- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?}` (needs `ffmpeg`;
-  NVENC on `gpu` nodes): voices, captions and composes the video. The result is
-  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?}`.
-  See [VIDEO.md](VIDEO.md).
+- `video.render` `{spec, assets?, voice?, captureInline?, encoder?, upload?, voiceUploads?,
+  captionsUpload?, stemUploads?, stemsOnly?}` (needs `ffmpeg`; NVENC on `gpu` nodes): voices,
+  captions and composes the video. The result is
+  `{outputPath, bytes, durationSec, width, height, encoder, captionsPath, url?, voice?, captionsUrl?, stems?, timeline?}`.
+  `stemUploads` also renders each scene as its own clip, for an editable timeline
+  (`video.export`). See [VIDEO.md](VIDEO.md).
+- `davinci.render` also takes `timelineFile` `{url, name}` (an FCPXML document, drafts only)
+  and `extras`: the clips are put in the media pool and the document is imported as the
+  timeline, tracks and offsets as written, instead of laying the clips end to end.
 
 ### Try it
 
@@ -939,8 +945,11 @@ Railway volume. A Hobby volume holds 5 GB, so the server looks after it
   installer) keeps working.
 - **Old renders:** every night at 03:43, rendered videos older than
   `STORAGE_RENDER_RETENTION_DAYS` (default 30; `0` keeps them) are deleted from the volume. A
-  render that a pending approval still points at is kept, however old. Posted videos are already
-  on the platforms.
+  render that a pending approval still points at is kept, however old, and so is everything an
+  active video project is made of (below). Posted videos are already on the platforms.
+- **Old video projects:** the same job archives a video project nobody has changed for
+  `VIDEO_PROJECT_RETENTION_DAYS` (default 90; `0` keeps projects until `video.archive`): its
+  stored recordings, narration and export clips are deleted, its spec and history stay.
 - **Warning:** after the clean-up, a push ("Server storage nearly full") goes out while the
   volume is 80% full or more.
 
@@ -990,12 +999,13 @@ folder, creation time and **vertical**.
 ### Work in progress
 
 A piece of work's intermediate files are kept only until its final version is published:
-- A video production tags its screen captures and narration as work in progress (`wip`) and its
-  render as the final file, all with the same `work` (`video:<production id>`). When a post with the
-  render goes out (`social.post` or `social.campaign` on approval, or a scheduled post when it
-  publishes), the production's work-in-progress files are deleted, from Drive too. The render
-  stays, since the post links to it. Work that is never published is cleared by the nightly
-  render clean-up after `RENDER_RETENTION_DAYS` (local files).
+- A video production is a **project** ([VIDEO.md](VIDEO.md), "Projects"): its screen captures,
+  narration, captions and renders all carry the same `work` (`video:<project id>`) and are
+  **not** work in progress, because the next edit (`video.revise`) is made from them without
+  recording or voicing again. They are kept after the video is posted, and deleted when the
+  project is archived: by the `video.archive` action, or automatically after
+  `VIDEO_PROJECT_RETENTION_DAYS` without a change. (Files of productions made before projects
+  existed keep their old `wip` tag and are still released on publishing.)
 - The Storage page marks work-in-progress files **WIP**.
 - The Software Lead's task checkouts are its work in progress: when `github.pr.merge` merges a PR,
   the checkout that built it is removed, and each night any checkout whose branch is already in the
@@ -1457,8 +1467,10 @@ Read tools (no approval): products (`search_products`, `get_product`, `stock_by_
 `aged_balances`, `search_payments`), inventory (`search_deliveries`, `get_delivery`), purchasing
 (`search_purchase_orders`, `get_purchase_order`), CRM and helpdesk (`search_leads`,
 `search_tickets`), `search_activities`, chatter (`get_record_messages`), websites, blogs and
-discount programs (`list_websites`, `search_blog_posts`, `search_loyalty_programs`), and
-`search_records` to read any other model. A tool whose Odoo app isn't installed answers with a
+discount programs (`list_websites`, `search_blog_posts`, `search_loyalty_programs`), and for any
+other model `list_models` (find a model by name or label), `describe_model` (its fields: type,
+required, read-only, relation, selection values), `search_records` (`include_archived` for
+archived records) and `get_record` (one record by id). A tool whose Odoo app isn't installed answers with a
 short error; fields an Odoo version doesn't have are left out.
 
 Write actions, each waiting for Dave's approval apart from internal notes (many approvals also show what Odoo says
@@ -1484,7 +1496,63 @@ possible duplicates):
 - `odoo.activity.schedule`, `odoo.activity.done`: follow-ups on any record;
 - `odoo.lead.create`, `odoo.lead.update` (stage, won, lost), `odoo.ticket.update` (stage,
   assignee, priority);
-- `odoo.blog.draft`: an unpublished blog post.
+- `odoo.blog.draft`: an unpublished blog post;
+- **any other data**: `odoo.record.create` `{ model, values }`, `odoo.record.update`
+  `{ model, ids, values }` (up to 200 records in one approval), `odoo.record.archive` /
+  `odoo.record.unarchive` `{ model, ids }` and `odoo.record.action` `{ model, ids, method }` (a
+  form button named `action_…` or `button_…`, no arguments; if Odoo opens a wizard nothing is
+  done and the error names it). See "Maintaining any Odoo data" below.
+
+#### Maintaining any Odoo data
+
+The generic record actions let the agents create, edit and archive records of any model
+(pricelist rules, reordering rules, categories, tags, tickets, blog posts…), so nothing in Odoo
+needs a purpose-built action first. They are held to the same rule as every Odoo write, and a
+few more:
+
+- **Always approved.** Like every `odoo.*` action they wait for you whatever a business's policy
+  says; several go in one batch with one approval.
+- **Checked against Odoo's own field definitions** when proposed and again when run: the model
+  exists, every field exists (an unknown one is refused with the closest names), isn't read-only,
+  and the value fits its type (numbers, text, booleans, `YYYY-MM-DD` dates, a selection's own
+  values, record ids that exist). Odoo ≤16 marks some draft-editable fields read-only; those are
+  refused here and edited in Odoo.
+- **The approval shows what will happen**, looked up by the server (never taken from the agent):
+  the records by name and, per field, the value now → after (for many records, the commonest
+  current values and how many change); for a new record its values by name and any existing
+  record with the same name, internal reference, email, barcode or VAT number, archived ones
+  included.
+- **No delete.** Archive hides a record and can be undone (`odoo.record.unarchive`); deleting is
+  done in Odoo.
+- **Protected models and fields are refused outright**, with a message naming the rule, because
+  an approval tapped on a phone shouldn't be able to change who has access, run code or move
+  money. The list is `GENERIC_WRITE_DENYLIST` in `packages/odoo/src/write-policy.ts`:
+
+  | Rule | Refused | Why |
+  | --- | --- | --- |
+  | `users` | `res.users` and its sub-models, `change.password.*`, `auth*` | accounts, passwords, API keys, sign-in |
+  | `groups` | `res.groups` | access groups |
+  | `system` | every `ir.*` model | record rules, model access, system parameters (secrets), scheduled and server actions (code), views, attachments, modules |
+  | `automation` | `base.*` (e.g. `base.automation`) | automation rules and database tools run code |
+  | `payments` | `payment.*` | providers hold gateway credentials; tokens and transactions are money |
+  | `accounting-entries` | `account.move`, `account.move.line` | invoices go through `odoo.invoice.*`. One exception: a **draft** invoice or bill may have its reference, payment reference, dates, payment terms, notes, origin, salesperson and delivery address edited |
+  | `accounting-money` | `account.payment`, the payment wizard, bank statements, reconciliation | use `odoo.invoice.register_payment` |
+  | `bank-accounts` | `res.partner.bank`, `res.bank` | where payments are sent (invoice fraud) |
+  | `mail` | `mail.mail`, `mail.message`, the composer, `mail.template`, aliases, SMS, mass mailings | use `odoo.message.post` or the email actions, which show you the text |
+  | `company-settings` | `res.company`, `res.config.*` | the company record and the settings screens |
+  | `website-pages` | `website.page`, themes | pages are templates (code); blog posts and products are fine |
+  | `secret-fields` | fields named `password`, `*api_key*`, `*secret*`, `totp_secret`, `signup_token`, `access_token`, `groups_id` / `group_ids` on any model | secrets and group membership |
+  | `protected-relations` | any field pointing at `res.groups` or at a bank account (`res.partner.bank`), and list fields pointing at a protected model | no back door through a related record |
+  | `user-contacts` | the `email`, `active` and `parent_id` of a contact (`res.partner`) that belongs to an Odoo user | Odoo sends password resets to that email |
+  | (code) | wizards (transient models), list commands that delete (2 and 5), button methods containing unlink/delete/uninstall | not data; no delete |
+
+  Lifting a rule is a code change there (with its test in `packages/odoo/test/records.test.ts`),
+  not a setting.
+
+Not checked against a live Odoo yet: the checks run against Odoo's `fields_get` metadata and
+are tested on the in-memory fake for both API flavours, so expect the odd model where Odoo
+itself refuses a value the pre-check allowed (the approval then fails with Odoo's message and
+nothing is changed).
 
 The agents' guide to all of this is the `odoo-daily` skill.
 
@@ -1495,7 +1563,11 @@ Without the Odoo variables, all of this is simply left out.
    confirm quotations; Administrator, to create and archive discount and loyalty programs), Invoicing
    (Billing, to create, post and send invoices and register payments), Inventory (User, to validate
    deliveries; Administrator, for stock adjustments), Purchase (User), CRM and Helpdesk (User) if you
-   use them, and Website/Blog editor. Without a right, the action fails with Odoo's access error and
+   use them, and Website/Blog editor. The generic record actions need nothing special: they work with
+   whatever create/write rights the user has on each model, so widen an app's role (e.g. Sales
+   Administrator for pricelists, Inventory Administrator for reordering rules) only for what you want
+   maintained from here; reading the model list (`list_models`, and the model's label on approvals)
+   needs the user to be an internal user. Don't make the bot a Settings administrator. Without a right, the action fails with Odoo's access error and
    the rest keep working; the read tools only need read access. Discount and loyalty programs also need **Sales > Settings > Discounts, Loyalty & Gift
    Card** turned on. Every action it
    takes is logged in Odoo under that user. Odoo notes that the external API needs a **Custom**
@@ -1753,6 +1825,152 @@ What the adapter does:
   "options": { "dmSubject": "Re: your message to 3dpandme" }
 }
 ```
+
+### Reddit without a developer app (session mode)
+
+Reddit now approves API apps slowly, or not at all. Session mode needs none: the Command Centre
+uses **your own Reddit account, signed in the way your browser is**, with the session cookie you
+copy from it once.
+
+> **Read this first.** Session mode automates your personal account outside Reddit's official
+> API. Reddit's User Agreement may not allow that, and Reddit can rate-limit, shadow-ban or ban
+> an account it thinks is automated. It is your account and your call. The Command Centre does
+> nothing to hide what it is: it sends an honest User-Agent (`web:command-centre:1.0 (by
+> /u/<you>)`), uses one account, makes one request at a time, posts only what you approved, and
+> spaces posts out. It has **no** stealth or fingerprint tricks, no proxies, no captcha solving,
+> no second accounts and no voting. When Reddit says no (a block page, a captcha, a rate limit),
+> the action fails and tells you what Reddit said. If that is not acceptable to you, keep to API
+> mode (the section above) or post by hand from the drafts.
+
+**What works in session mode:** everything the Reddit adapter does in API mode, through the same
+actions, so approvals, batches and the skills are unchanged: `social.reply`, `social.post`,
+`social.dm`, Reddit posts in a `social.campaign`, and watching the inbox for replies, mentions
+and messages. **Every Reddit post, reply and message still waits for your approval.**
+
+**Connect it:**
+
+1. In your browser, sign in to <https://www.reddit.com> as the account to post from.
+2. Open the developer tools (**F12**).
+   - Chrome or Edge: **Application** tab → **Storage** → **Cookies** → `https://www.reddit.com`.
+   - Firefox: **Storage** tab → **Cookies** → `https://www.reddit.com`.
+   - Safari: **Develop → Show Web Inspector → Storage → Cookies**.
+3. Find the cookie named **`reddit_session`** and copy its **Value** (a long string; double-click
+   it and copy all of it). You can also paste `reddit_session=<value>`, or a whole `Cookie:`
+   header copied from the Network tab: the server picks the cookie out.
+4. In the Command Centre: **Accounts → Social → Add account → Reddit (your own login)**, choose
+   the business and a name (e.g. `dms-reddit`), paste the value into **reddit_session cookie**,
+   put your username in **Handle** (`u/name`, so agents can check your own history), and save.
+5. Press **Test**. It asks old.reddit.com who the cookie signs in as and shows the username and
+   karma, e.g. *Signed in to Reddit as u/dave_dms (3,520 karma: 120 post, 3,400 comment)*.
+6. Tell the agents which account to reply from: put its name on the `Account:` line of the
+   business's playbook note (`<brain folder>/marketing/reddit.md`), or just ask in Chat ("use
+   dms-reddit for Reddit replies").
+
+Treat the cookie like a password: anyone holding it is signed in as you. It is stored encrypted
+like every other secret on the Accounts page and never shown again. **Signing out of Reddit in
+that browser, or changing your password, ends the session**; so keep that browser signed in, or
+use a separate browser profile for the copy. If **Test** fails with `reddit_session` alone, add
+the `token_v2` cookie's value too (optional field; it expires more often).
+
+**When the session expires** (weeks to months, sooner if you sign out), the next Reddit action
+or inbox check fails with *Reddit no longer accepts the saved session … Reconnect Reddit on the
+Accounts page*, you get a **Reddit sign-in expired** alert (once a day), and the card shows the
+failure. Repeat steps 1 to 5 with a fresh cookie; nothing else changes.
+
+**Pacing (guard rails).** A session account posts at a person's pace, enforced when an approved
+action is about to go out:
+
+| Setting (on the account's card) | Default | What it does |
+|---|---|---|
+| Minutes between submissions | 10 | The least time between two posts, replies or messages |
+| Most submissions in 24 hours | 8 | A rolling daily cap across posts, replies and messages |
+
+- Approve three replies at once and the first goes out, the second ten minutes later, the third
+  ten minutes after that: an approved `social.reply`, `social.post` or `social.dm` that can't go
+  yet is **queued for its next free slot** (the approval's result says *scheduled* and when), and
+  the every-minute job sends it. Over the daily cap, it waits until the oldest of the last eight
+  is a day old. The **Social** page lists them under **Waiting to send**, each with a **Cancel**
+  button while it is still waiting, and shows how the recent ones went
+  (`GET /api/social/outbox`, `POST /api/social/outbox/<id>/cancel`).
+- A queued item is sent once. If it fails (Reddit rate-limits, the thread got locked, the
+  session expired) you get a **Queued social reply failed** alert with Reddit's reason, and it is
+  not retried.
+- A Reddit post inside a `social.campaign`, or a scheduled post, that would break the pace is
+  refused with the time it could go, rather than queued.
+- Reddit's own limits come back as they are, e.g. *rate limited by Reddit (you are doing that
+  too much. try again in 9 minutes.)*. New and low-karma accounts get these often; the answer is
+  to post less, not to retry.
+- To pace an API-mode Reddit account the same way, put `{"minGapMinutes": 10, "dailyCap": 8}` in
+  its **Advanced options**.
+
+**How it works.** The cookie is sent to `old.reddit.com`, the classic site, whose forms the
+adapter fills in: `GET /api/me.json` (username, karma and the `modhash`, old Reddit's
+form token), `POST /api/comment`, `/api/submit` and `/api/compose` with that modhash, and
+`GET /message/inbox.json` for replies and messages (checked every five minutes; turn
+**Watch for comments, mentions and DMs** off on the card to not check it at all). Code: `packages/social/src/adapters/reddit/session.ts`
+(the client), `packages/social/src/pacing.ts` (limits and the outbox, table `social_outbox`).
+
+**Not verified with a real account.** This was built from Reddit's endpoint shapes and tested
+against a stand-in that speaks the same protocol. No real session cookie was available, so
+signing in, posting and reading the inbox have not been run against reddit.com. What was checked
+live (2026-11-09, signed out): `old.reddit.com/api/me.json` answers a signed-out request with a
+redirect to its login page, which the adapter reads as "session expired". Expect the first real
+**Test** to be the proof. If Reddit refuses the server outright even with your cookie (it blocks
+many data-centre addresses), session mode can't work from Railway, and the fallback is the
+desktop-worker browser job in `docs/plans/reddit-browser-worker.md` (designed, not built).
+
+As Railway JSON instead of the Accounts page (`SOCIAL_ACCOUNTS`):
+
+```json
+{
+  "id": "dms-reddit", "platform": "reddit", "vertical": "dms", "handle": "u/<username>",
+  "credentials": { "sessionCookie": "<reddit_session value>" },
+  "options": { "minGapMinutes": 10, "dailyCap": 8 }
+}
+```
+
+### Reading Reddit (no account needed)
+
+Agents read Reddit through the read-only **`reddit`** tools, mounted at `/mcp/reddit` for the
+businesses that market themselves (DMS, 3dpandme, OpenV, OpenD) and for the assistant:
+
+| Tool | What it returns |
+|---|---|
+| `subreddit_posts` | A subreddit's new, hot, top or rising posts |
+| `search_posts` | Posts matching a search, site-wide or in one subreddit, with a time filter |
+| `get_thread` | One thread: the post and its comments (depth and count capped), with the ids a reply targets |
+| `subreddit_info` | A subreddit's rules, sidebar, size and what it allows |
+| `user_history` | A user's recent posts and comments, and how much of it mentions their own sites (the 1-in-10 check) |
+
+- They use Reddit's public pages: `https://www.reddit.com/r/<sub>/new.json`, `/search.json`,
+  `/comments/<id>.json`, `/r/<sub>/about.json` and `/about/rules.json`, `/user/<name>/overview.json`.
+  When the JSON is refused with a 403 or a block page, the matching `.rss` feed is read instead;
+  those answers are marked `partial` (no scores, no comment nesting, no locked flag).
+- **Manners:** an honest User-Agent, one request at a time at least 1.5 s apart, a 2-minute
+  cache, Reddit's `X-Ratelimit-*` and `Retry-After` headers honoured, and no retries: after a
+  429 nothing more is asked until Reddit's window has passed, and the agent is told how long.
+- **Without a Reddit account connected, expect the slow lane.** Tried from a data-centre address
+  on 2026-11-09: Reddit refused every `.json` page (403) and served the feeds at about **one
+  request a minute**. The tools cope: once the JSON has been refused they read the feeds directly
+  for the next 15 minutes, wait out each rate-limit window (up to 50 s a call), and tell the
+  agent it is on `Feeds only`. Finding threads and reading a thread or a user's history works
+  that way, slowly. **Subreddit rules do not** (they have no feed), and the skills tell agents not
+  to propose a reply in a subreddit whose rules they couldn't read: without an account the scout
+  sends you its drafts in a notification to post by hand, rather than proposals.
+- With a session account connected (above), reads carry its cookie, which Reddit treats as you
+  reading while signed in: that is what should give full reads (JSON, rules, scores) at a normal
+  pace. Not yet verified against the live site; the first scout run after connecting will show it.
+- **Everything Reddit returns is outside content.** Results are labelled as such, and a task
+  that has read Reddit has every later proposal held for your approval (see "Outside content and
+  approvals" under Research below).
+- **Reddit scout.** DMS and 3dpandme now have the weekday `reddit-scout` schedule OpenV and OpenD
+  already had (11:37 and 11:51; the SaaS ones at 11:23). It searches with these tools, reads each
+  subreddit's rules and the account's own history, and proposes at most three disclosed replies
+  as **one batch**. The DMS and 3dpandme scouts **start the day a Reddit account is connected for
+  that business** and are skipped until then (without one they could not read subreddit rules,
+  so could only send drafts); OpenV's and OpenD's run as before. To run one now, ask in Chat
+  ("dms: run the Reddit scout"). Turn a scout off or change its time under **Businesses → the
+  business → Schedules**.
 
 ### X
 
@@ -2153,6 +2371,101 @@ for this. Don't point it at `localhost` or a private network.
 
 Set `handle` to the account's username. The adapters use it, along with the account id, to skip
 the account's own comments and replies.
+
+## Research and competitor analysis
+
+Say **"do a competitor analysis for Rival Tools"** (or "who are DMS's competitors?", "are we too
+expensive compared with X?") in Chat, or let the weekly **competitor watch** run. You get a
+dated, sourced report in the brain, with a price comparison against your own prices and what
+changed since last time, and recommended actions as proposals. Nothing needs configuring: there
+are no keys, and the tools read only public pages.
+
+### The research tools
+
+The read-only **`research`** server (`/mcp/research`, `packages/research`) is given to DMS,
+3dpandme, OpenV, OpenD and the assistant:
+
+| Tool | What it does |
+|---|---|
+| `fetch_page` | Reads one public page: title, description, headings, readable main text, links, and the product data the page publishes (name, price, currency, availability, SKU from JSON-LD, OpenGraph or microdata) |
+| `site_products` | A shop's catalogue from its own public endpoints: Shopify `/products.json`, the WooCommerce Store API, or the product pages in `sitemap.xml` (optionally reading a few for prices) |
+| `competitor_snapshot` | Stores today's snapshot of a competitor (catalogue plus up to 8 watched pages) and compares it with the previous one: new and removed products, price changes, gone out of stock, back in stock, pages whose text changed |
+| `competitor_changes` | The same comparison between stored snapshots (the last two, or since a date), without fetching |
+| `competitor_products` | Products and prices in the latest stored snapshot, with the date they were read |
+| `list_snapshots` | Which competitors have snapshots, and when |
+
+**Safety of `fetch_page`** (`packages/research/src/safe-fetch.ts`). The server fetches the URL,
+so the URL must not be able to reach anything private:
+
+- only `http` and `https`, web ports only, no username or password in the URL;
+- the host must resolve **only** to public addresses: loopback, private ranges, link-local
+  (including the cloud metadata address `169.254.169.254`), CGNAT, multicast and reserved ranges
+  are refused, for IPv4 and IPv6, and the connection itself re-checks the address it resolved
+  (so a host can't answer one thing to the check and another to the connection);
+- redirects are followed by hand, at most 5, each hop checked the same way;
+- 20 seconds and 2 MB at most, text content only, no cookies or credentials sent, and a
+  User-Agent that says what it is (`CommandCentreResearch/1.0`).
+
+**robots.txt.** The catalogue readers (`site_products`, `competitor_snapshot` and its watched
+pages) visit a shop on a schedule, as a robot does, so they follow the shop's `robots.txt`: a
+catalogue source or page it closes to robots is skipped, and the result's notes say so. A single
+page you ask about (`fetch_page`) is read as a person's browser would read it. Requests to one
+shop are spaced out (400 ms), and a catalogue read stops at 1,000 products by default.
+
+**What to expect from real shops** (tried on 2026-11-09): a Shopify shop's whole catalogue and a
+WooCommerce shop's came back with prices, SKUs and stock in a few seconds. Some shops refuse any
+visitor that isn't a browser (HTTP 403 for everything, or for product pages only); the tools
+report that and do not pretend to be a browser, so for those shops there is nothing to compare
+automatically. Shops also redirect by where the visitor is: from a server abroad, a UK shop's
+product page may come back as its US page in dollars. The catalogue tools read the shop's base
+currency; for single pages the result gives the final URL and the currency, and the skill tells
+agents not to compare across currencies.
+
+A blocked or failed read is reported as that. A snapshot that suddenly can't read a catalogue it
+read before is **not stored** and not reported as "they removed everything"; smaller oddities
+come back as `warnings` the agent must pass on.
+
+### Where things are kept
+
+| What | Where | Why |
+|---|---|---|
+| The **competitor registry** | The brain: `<brain folder>/competitors.md`, one section per competitor (name, `Site:`, `Sells:`, `Overlap:`, `Watch pages:`, `Notes:`) | It is yours to read and edit; the agent maintains it with `brain.write`. Seeded empty, with a template, for each business |
+| The **reports** | The brain: `<brain folder>/competitors/reports/<date>-<name>.md` | What you read; searchable and versioned like any note |
+| The **snapshots** | Postgres, table `competitor_snapshots` (the last 60 per competitor) | Raw data for comparing: a catalogue is thousands of rows, and brain notes are versioned on every save and indexed for search, so the catalogue JSON would bloat both |
+
+### The weekly competitor watch
+
+Each business has a `competitor-watch` schedule, early on Monday (DMS 06:10, 3dpandme 06:22,
+OpenV 06:34, OpenD 06:46, London time). **It does nothing, and costs nothing, while the
+business's registry lists no competitors**: the server checks the note before starting a run. Add
+a competitor (ask in Chat, or write a section in the note) and the next Monday's run snapshots
+each one, compares, writes `<date>-watch.md`, and notifies you only if something changed that
+matters. Change the time or turn it off under **Businesses → the business → Schedules**.
+
+How the work is done, and the accuracy rules (only facts read in that run, each with its source
+URL and date; like-for-like price matching; VAT basis stated), are in
+`skills/competitor-analysis/SKILL.md`.
+
+### Outside content and approvals
+
+Web pages and Reddit posts are written by strangers, and can contain text aimed at an AI reader.
+Three things keep that from turning into actions:
+
+1. **Results are labelled as outside content**, and the skills tell agents to treat them as
+   information, never instructions.
+2. **A task that has read through the `research` or `reddit` tools is treated like one that has
+   read mail**: from then on every action it proposes waits for your approval, whatever the
+   business's policy says (`brain.write` and `brain.journal` excepted, so reports still get
+   written). The summary `notify` of a competitor report therefore arrives as an approval
+   request; approving it just delivers it. The mark is kept in memory for the life of the server
+   process, as for mail.
+3. **A task that itself came from outside input** (an email, a webhook, an Odoo or social event)
+   **can't fetch pages at all** with the research tools, as with the built-in `WebFetch`: a
+   fetched URL can carry data out. It can still read stored snapshots, and read Reddit (whose
+   tools take a subreddit, a thread id or search words, not a URL).
+
+Decision recorded: fetching pages taints the run the same way reading mail does. The built-in
+`WebFetch` (available only on work you started) does not yet do the same; prefer `fetch_page`.
 
 ## Voice and Drive mode
 

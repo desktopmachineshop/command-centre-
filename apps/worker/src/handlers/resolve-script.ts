@@ -3,7 +3,7 @@
  * ships inside the worker: the server only ever sends data (the JSON request below), never code.
  *
  * Protocol: the first line on stdin is the request
- *   {projectName, deleteIfCreated, timeline, render, clips: [absolute paths], preset, fps?, outDir, outputName}
+ *   {projectName, deleteIfCreated, timeline, render, clips: [absolute paths], timelineFile?, preset, fps?, outDir, outputName}
  * and a later `cancel` line (or stdin closing) stops the job. Events go to stdout as JSON lines:
  *   {"type":"progress","progress":0..1,"message":...}
  *   {"type":"done","file":"<name in outDir>"|null,"project":...|null,"timeline":...,"existing":bool}
@@ -13,7 +13,9 @@
  *
  * Projects: `projectName` is opened if it exists (`existing`), otherwise created. The clips are
  * appended to the timeline called `timeline`, which is created if the project has none by that
- * name. Then, unless `render` is false (a draft), it is rendered.
+ * name. With `timelineFile` (an FCPXML whose media already points at the clips), the clips are only
+ * imported into the media pool and the document is imported as a new timeline of that name, tracks
+ * and offsets as written. Then, unless `render` is false (a draft), it is rendered.
  *  - On success, a project that existed, or one created without `deleteIfCreated`, is saved and
  *    left open for Dave. A throwaway (`deleteIfCreated`) is deleted and the project that was open
  *    before is reopened.
@@ -93,7 +95,13 @@ def main():
             if not items or len(items) != len(req["clips"]):
                 raise Failed("imported %d of %d clips" % (len(items or []), len(req["clips"])))
             check()
-            if timeline is None:
+            if req.get("timelineFile"):
+                if timeline is not None:
+                    raise Failed("project %s already has a timeline called %s" % (name, req["timeline"]))
+                timeline = pool.ImportTimelineFromFile(req["timelineFile"], {"timelineName": req["timeline"], "importSourceClips": False})
+                if timeline is None:
+                    raise Failed("Resolve couldn't import the timeline file %s" % os.path.basename(req["timelineFile"]))
+            elif timeline is None:
                 timeline = pool.CreateTimelineFromClips(req["timeline"], items)
                 if timeline is None:
                     raise Failed("couldn't create timeline %s" % req["timeline"])

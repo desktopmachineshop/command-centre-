@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { BRANDS, Brand, lintSpec, PRODUCTS, parseSpec, VideoRenderPayload, VideoSpec } from "../src";
+import { BRANDS, Brand, lintQuality, lintSpec, PRODUCTS, parseSpec, VideoRenderPayload, VideoSpec } from "../src";
 import { sampleSpec } from "../sample/opend-walkthrough";
 import { minimalSpec } from "./helpers";
 
 describe("VideoSpec", () => {
   it("fills defaults", () => {
     const spec = parseSpec(minimalSpec());
-    expect(spec).toMatchObject({ version: 1, fps: 30, voice: { provider: "silent", speed: 1 }, captions: { enabled: true, style: "word" }, sources: [] });
+    expect(spec).toMatchObject({ version: 1, fps: 30, voice: { provider: "auto", speed: 1 }, captions: { enabled: true, style: "word", background: "outline" }, transition: { style: "fade", durationSec: 0.2 }, sources: [] });
     expect(spec.scenes[1]).toMatchObject({ kind: "capture", fit: "contain", cursor: true, leadInSec: 0.3, tailSec: 0.4 });
   });
 
@@ -55,7 +55,29 @@ describe("VideoSpec", () => {
     expect(warnings.join("\n")).toMatch(/hook/);
     expect(warnings.join("\n")).toMatch(/no outro/);
     expect(warnings.join("\n")).toMatch(/no sources/);
-    expect(lintSpec(parseSpec(sampleSpec("http://x.test")))).toEqual([]);
+    // The sample is a keyless draft: only the quality warnings a draft earns.
+    expect(lintSpec(parseSpec(sampleSpec("http://x.test")))).toEqual([expect.stringMatching(/flite voice is robotic/), expect.stringMatching(/no brand logo/)]);
+  });
+
+  it("catches the tells of an amateur video before anything is rendered", () => {
+    const lint = (overrides: Parameters<typeof minimalSpec>[0]) => lintQuality(parseSpec(minimalSpec(overrides))).join("\n");
+    const branded = { ...BRANDS.opend, logoUrl: "https://cdn.example/logo.png" };
+    // A natural voice, a logo, captions on, short cards: nothing to say.
+    expect(lintQuality(parseSpec(minimalSpec({ brand: branded, voice: { provider: "elevenlabs" } })))).toEqual([]);
+    expect(lint({ brand: branded, voice: { provider: "flite" } })).toMatch(/flite voice is robotic/);
+    expect(lint({ brand: branded, voice: { provider: "silent" } })).toMatch(/nobody speaking/);
+    expect(lint({ voice: { provider: "elevenlabs" } })).toMatch(/no brand logo/);
+    expect(lint({ brand: branded, captions: { enabled: false } })).toMatch(/captions are off/);
+    expect(lint({ brand: branded, captions: { maxChars: 60 } })).toMatch(/over two lines on 9:16; keep it to 36/);
+    expect(lint({ brand: branded, music: { url: "https://cdn.example/m.mp3", volumeDb: -8 } })).toMatch(/-8 dB will fight the voice[\s\S]*no credit/);
+    const scenes = (extra: unknown[]) => ({ brand: branded, voice: { provider: "elevenlabs" }, scenes: [...(extra as never[]), { id: "cta", kind: "outro" as const, heading: "OpenD", cta: "Try it" }] });
+    expect(lint(scenes([{ id: "wall", kind: "slide", heading: "Why", bullets: ["One", "Two", "Three", "Four"], narration: "word ".repeat(30) }]))).toMatch(/holds one card for about 12s[\s\S]*4 bullets is a wall of text on 9:16/);
+    expect(lint(scenes([{ id: "t", kind: "title", heading: "A heading that goes on for far too long to read" }]))).toMatch(/heading is long for a 9:16 card/);
+    expect(lint(scenes([{ id: "a", kind: "title", heading: "Hi", narration: "Hello." }, { id: "quiet", kind: "capture", steps: [{ action: "goto", url: "https://x.test/" }] }]))).toMatch(/"quiet" is a silent screen recording/);
+    expect(lint(scenes([{ id: "pic", kind: "image", url: "https://x.test/a.png", alt: "a", kenBurns: false, minDurationSec: 6 }]))).toMatch(/looks frozen/);
+    expect(lint({ voice: { provider: "elevenlabs" }, scenes: [{ id: "sting", kind: "logo", minDurationSec: 4 }, { id: "cta", kind: "outro", heading: "OpenD", cta: "Try it", minDurationSec: 2 }] })).toMatch(/logo card, but the brand kit has no logoUrl[\s\S]*over 3s is a long wait/);
+    expect(lint({ brand: branded, scenes: [{ id: "cta", kind: "outro", heading: "OpenD", cta: "Try it", minDurationSec: 2 }] })).toMatch(/no narration in any scene[\s\S]*end card is held under 3s/);
+    expect(lint({ brand: branded, type: "demo", format: "16:9", voice: { provider: "elevenlabs" }, scenes: [{ id: "a", kind: "title", heading: "A", narration: "Hello there." }, { id: "b", kind: "slide", heading: "B" }, { id: "c", kind: "outro", heading: "C", cta: "Go" }] })).toMatch(/only text cards/);
   });
 
   it("validates render payloads", () => {

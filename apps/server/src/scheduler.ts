@@ -11,6 +11,8 @@ export function startSchedules(
   verticals: VerticalManifest[],
   ingest: (e: NewEvent) => Promise<unknown>,
   root?: { vertical: string; role: string; schedules: Schedule[] },
+  /** Asked at each firing; false skips it (the competitor watch with nobody to watch, ./competitors.ts). */
+  shouldFire?: (vertical: VerticalManifest, schedule: Schedule) => Promise<boolean>,
 ): Cron[] {
   const entries = verticals.flatMap((v) => schedulesOf(v).map((s) => ({ vertical: v, ...s })));
   const home = root && verticals.find((v) => v.id === root.vertical);
@@ -22,6 +24,7 @@ export function startSchedules(
     jobs.push(
       new Cron(schedule.cron, { timezone: schedule.timezone, protect: true }, async () => {
         const minute = new Date().toISOString().slice(0, 16);
+        if (shouldFire && !(await shouldFire(vertical, schedule).catch(() => true))) return;
         await ingest({
           source: "cron",
           vertical: vertical.id,

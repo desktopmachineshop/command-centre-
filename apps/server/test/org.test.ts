@@ -171,7 +171,11 @@ describe("org tree", () => {
       defaultPolicy: dms.defaultPolicy,
       policies: dms.policies,
       dailyBudgetUsd: dms.dailyBudgetUsd ?? null,
-      schedules: [{ id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", enabled: false }],
+      schedules: [
+        { id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", enabled: false },
+        { id: "reddit-scout", cron: "37 11 * * 1-5", timezone: "Europe/London", enabled: true },
+        { id: "competitor-watch", cron: "10 6 * * 1", timezone: "Europe/London", enabled: true },
+      ],
       stats: { openTasks: 2, doneTasks: 2, pendingApprovals: 1 },
       specialists: [],
     });
@@ -184,7 +188,7 @@ describe("org tree", () => {
     expect(pandme.specialists[0]).toMatchObject({
       vertical: "3dpandme",
       aliases: ["video", "youtube"],
-      mcpServers: ["brain", "odoo"],
+      mcpServers: ["brain", "odoo", "video"],
       stats: { openTasks: 2, doneTasks: 5, costUsd: 0.5, pendingApprovals: 1 },
     });
     expect(pandme.specialists[1]).toMatchObject({ id: "blog-writer", stats: { openTasks: 0, doneTasks: 0, costUsd: 0, pendingApprovals: 0 } });

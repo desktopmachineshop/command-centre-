@@ -83,6 +83,16 @@ export function socialApiRoutes(deps: SocialApiDeps) {
     return c.json(await store.listScheduledPosts({ status: status || undefined }));
   });
 
+  // Approved replies, posts and DMs of paced accounts (Reddit session mode) waiting for their slot, and how they went.
+  app.get("/social/outbox", async (c) => c.json(await store.listSubmissions({ limit: 100 })));
+
+  app.post("/social/outbox/:id/cancel", async (c) => {
+    const id = c.req.param("id");
+    if (!z.uuid().safeParse(id).success) return c.json({ error: "not found" }, 404);
+    const entry = await store.cancelSubmission(id);
+    return entry ? c.json(entry) : c.json({ error: "only something still waiting to be sent can be cancelled" }, 409);
+  });
+
   app.post("/social/scheduled/:id/cancel", async (c) => {
     const id = c.req.param("id");
     if (!z.uuid().safeParse(id).success || !(await store.getScheduledPost(id))) return c.json({ error: "not found" }, 404);
