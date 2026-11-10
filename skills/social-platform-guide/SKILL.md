@@ -101,7 +101,8 @@ this wrong harms Dave's reputation far more than a missed post helps it.
   gives `selfPromoRatio`. Above about 0.1, propose nothing promotional. If the account hasn't
   been helping in a sub, the first post there shouldn't be a promotion.
 - **It is Dave's own account.** Replies go out under his name, a few a day at most, spaced out
-  (an approved reply may come back `scheduled` for later: that is the pacing, not an error).
+  (an approved reply may come back `scheduled` for later: that is the pacing, or "waiting for
+  the PC" for an account that posts from Dave's PC; neither is an error).
   If Reddit refuses, rate-limits or signs the account out, report what it said and stop.
 - **Value first.** The post must be worth reading even if nobody clicks: the actual tips, the
   settings, the photos, the failure and what fixed it. The link is a footnote, not the point.

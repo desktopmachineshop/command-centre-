@@ -1,8 +1,8 @@
 # Plan: post to Reddit from Dave's own browser (desktop-worker job)
 
-**Status:** designed, not built. Written 2026-11-09 alongside Reddit session mode
-(docs/SETUP.md, "Reddit without a developer app"). Build this only if session mode turns out not
-to work from the server.
+**Status:** built 2026-11-10 (see "What was built" at the end; user docs: docs/SETUP.md, "Reddit
+from your own PC"). Not yet run against real Reddit or real Chrome on Windows. Written
+2026-11-09 alongside Reddit session mode (docs/SETUP.md, "Reddit without a developer app").
 
 ## Why this might be needed
 
@@ -110,3 +110,58 @@ other things easy:
   mode "PC is off" should mean "wait", not "fail": add a `retryable` flag to the failure and leave
   such items queued, with one "your PC needs to be on to post 3 Reddit replies" push.
 - Whether to keep the window visible or minimised. Visible is the honest default.
+
+## What was built (2026-11-10)
+
+The shape above, with these decisions:
+
+- **Credentials** `{ browserNode: "<node id or name>" | "any" }`; the username is the account's
+  handle (required on the Accounts kind `reddit-browser`, "Reddit (posts from my PC)"). Paced by
+  default exactly like session accounts; inbox checked every 10 minutes (each check is a job).
+- **Request building and error mapping are shared, not copied.** The adapter builds the same
+  forms and queries for every mode. The job's result is Reddit's own JSON (plus the signed-in
+  user), which the server reads with the same code as session mode (`throwJsonErrors`,
+  `httpError`, `pageError`); `/api/me.json` and the login redirect are read by one pair of pure
+  functions in `@cc/core` (`readMe`, `readRedirect`) that both session mode and the worker use.
+  So the job returns `{ ok: true, user, status, data }` or `{ ok: false, code, message }` (codes
+  `USER_REQUIRED`, `WRONG_USER`, `USER_SUSPENDED`, `RATELIMIT`, `BLOCKED`, `REDIRECT`, `BROWSER`,
+  `TIMEOUT`) rather than `{ id, url }`: `{ id, url }` is still what the action returns.
+- **Fixed ops, fixed paths.** `comment`, `submit`, `compose`, `inbox`, `sent`, `info`, `whoami`,
+  `login`; the worker maps each to one old.reddit.com path and never takes a path or the modhash
+  from the server. The payload names the account's username; the worker refuses (`WRONG_USER`)
+  when its window is signed in as someone else.
+- **In-page requests only** (`context.request`, the window's cookies and Chrome's own
+  User-Agent). The fallback of filling the visible form was not built: if Reddit refuses the
+  in-page request, the job fails with what Reddit said.
+- **Window:** `launchPersistentContext(<dir of worker.json>/reddit-profile, { headless: false })`
+  with the Chrome/Edge that screen capture found. One window, one job at a time; it stays open
+  between jobs and closes after 15 idle minutes (open question 3: visible, not minimised).
+- **Sign-in:** a `login` job from the Devices page (**Sign in to Reddit on this PC**, `POST
+  /api/nodes/:id/reddit-login`, waits 5 minutes) or `cc-worker reddit-login` (10 minutes); both
+  open `old.reddit.com/login` in that profile and wait until `/api/me.json` names a user.
+- **Waiting for the result** (`WorkerService.run`): a job no PC takes within a minute (offline,
+  or busy with e.g. a capture) is cancelled and counts as "PC not there"; a running one is
+  awaited up to 5 minutes. Posts are run **at most once**: if the PC drops mid-job the job is
+  cancelled, not requeued, and the action fails with "check Reddit before sending it again".
+  Read jobs are deleted once read.
+- **Open question 2, answered: replies wait for the PC.** A send that fails only because the PC
+  isn't there throws `PcOfflineError` (`retryable`). The executors put an approved one in the
+  outbox for 5 minutes later instead of failing it, and `sendDueSubmissions` puts a due one back
+  (`SubmissionStore.deferSubmission`) instead of failing it; one push per account ("Reddit posts
+  are waiting for your PC") until one goes out. Campaign and scheduled posts still fail with the
+  message. Everything Reddit itself refused fails as before. No migration was needed.
+
+**Verified** (tests, no network): the worker handler against a local HTTP stand-in for
+old.reddit.com with Playwright's Chromium (`apps/worker/test/reddit.test.ts`: sign-in through
+the login page and the profile keeping it, comment/submit/compose/inbox with cookie, modhash and
+Chrome's own User-Agent, stale modhash retried once, wrong user refused, block page, login
+redirect, sign-in timeout, one job at a time, window reopening); the adapter with an in-memory
+`BrowserJobs` (`packages/social/test/reddit-browser.test.ts`); and the server end to end with a
+fake connected PC (`apps/server/test/reddit-browser.test.ts`: Accounts kind and Test, approved
+reply → job → result, pacing, PC off → queued, one push, deferred, sent when back, busy PC,
+dropped PC not rerun, signed-out alert, Devices sign-in).
+
+**Not verified:** real Chrome or Edge on Windows (only Linux Chromium, headless because the test
+machine has no display), a real Reddit sign-in, and open question 1: whether Reddit serves
+`old.reddit.com/api/*` to a Playwright-driven Chrome. The manual checklist above (sign in,
+**Test**, one reply in r/test, one expired-session run) is still to do on Dave's PC.
