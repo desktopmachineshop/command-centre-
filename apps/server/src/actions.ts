@@ -430,6 +430,33 @@ export class ActionService {
     return proposal;
   }
 
+  /**
+   * Cancels proposals that `replacement` is a revised version of (Dave asked for a change and the
+   * agent proposed it again): each is marked rejected with `result.replacedBy`, so only the new one
+   * waits for approval. Only pending proposals of the same task are replaced; others are skipped
+   * and named in `skipped`.
+   */
+  async supersede(ids: readonly string[], replacement: Pick<Proposal, "id" | "taskId">): Promise<{ replaced: Proposal[]; skipped: string[] }> {
+    const replaced: Proposal[] = [];
+    const skipped: string[] = [];
+    for (const id of new Set(ids)) {
+      const old = id === replacement.id ? null : await this.store.getProposal(id).catch(() => null);
+      if (!old || old.status !== "pending" || !old.taskId || old.taskId !== replacement.taskId) {
+        skipped.push(id);
+        continue;
+      }
+      const proposal = await this.store.transitionProposal(id, ["pending"], "rejected", { ok: false, replacedBy: replacement.id, error: "Replaced by a revised proposal" });
+      if (!proposal) {
+        skipped.push(id);
+        continue;
+      }
+      this.hub.broadcast({ type: "proposal.updated", proposal });
+      await this.settleTask(proposal);
+      replaced.push(proposal);
+    }
+    return { replaced, skipped };
+  }
+
   private async execute(id: string, from: Proposal["status"][]): Promise<Proposal> {
     const approved = await this.store.transitionProposal(id, from, "approved");
     if (!approved) throw new ProposalStateError(id);

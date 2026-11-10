@@ -72,6 +72,9 @@ The assistant's runs depend on where the work came from (`apps/server/src/pipeli
 - **Work from outside input** (an email, a webhook, Odoo, social, or a chat run that has read mail
   or such a transcript): only that business's MCP servers, and every proposal is that business's
   and waits for Dave.
+- **Dave's reply on such a task** makes that run his: a run answering Dave's own message gets the
+  same servers and tools as work he started, even on a task that came from outside input. What it
+  proposes still waits for his approval while the task holds outside input.
 
 A specialist's runs get its own `mcpServers` (or the business's when it lists none) and its own
 skills. The run token carries the role, and `/mcp/<server>` refuses servers it doesn't have.
@@ -90,12 +93,21 @@ For every run:
 - **Help:** every run gets the read-only `help` MCP server: it searches and reads the in-app help
   and the setup notes in `docs/`, so "how do I…" questions are answered from the docs, not guessed
   (see SETUP.md, In-app help).
-- **The web:** every run can search the web (`WebSearch`) and, for work Dave started, read pages
-  (`WebFetch`). A task from outside input gets search only: a page fetch could carry data out to a
-  URL that the input planted. A role's `tools` add more (Bash, Edit, ...) on top.
-- **Scratch folder:** for work Dave started, `scratch/<task id>` in the workspace, which the run may
-  read, write and edit (and nothing else outside the brain). One per task; folders older than two
-  weeks are removed. A task from outside input gets none.
+- **Reading:** every run can read. It can search the web (`WebSearch`) and read pages (`WebFetch`,
+  and the research tools' `fetch_page`), open the files Dave attached, and, for a coding role, read
+  the task's checkout. A run with only outside input to go on (no reply from Dave) is told never
+  to fetch a URL the input asks for, nor put Dave's data in one.
+- **Writing:** a run Dave asked for (he started the task, or the run answers his reply) also gets
+  a role's `tools` (Bash, Edit, ...) and a scratch folder, `scratch/<task id>` in the workspace,
+  which the run may read, write and edit (and nothing else outside the brain). One per task;
+  folders older than two weeks are removed. A run with only outside input gets no shell, no file
+  writes and no scratch folder, and what it proposes waits for Dave.
+- **Revised proposals:** a run answering a reply is told which of the task's proposals are still
+  waiting. When it proposes a revised version, `replaces` (on `propose_action` and
+  `propose_batch`) names the old one, which is cancelled (shown as "replaced"), so revisions don't
+  pile up in Approvals. If the run doesn't say, and it proposed one new proposal (or one batch) of
+  the same action types as the only one waiting, that one is replaced; anything less clear-cut
+  stays open.
 - **Transcripts:** the `actions` tool `search_transcripts` searches earlier runs' messages,
   read-only (every business for the assistant on work Dave started, otherwise the run's own).
   Reading the transcript of a task from outside input counts as reading that input: later

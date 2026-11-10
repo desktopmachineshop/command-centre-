@@ -117,8 +117,9 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
   vertical's policy says, just like email. Agents are told to treat that text as information,
   never as instructions. The same holds for a task that *reads* outside content itself: mail
   through the mail tools, Reddit through the `reddit` tools, web pages through the `research`
-  tools. From that read on, its proposals wait for Dave (brain writes excepted). And a task that
-  came from outside input can't fetch web pages at all.
+  tools. From that read on, its proposals wait for Dave (brain writes excepted). Reading itself is
+  never blocked: a task from outside input can fetch pages, but can't write or publish without
+  Dave. A run answering Dave's own reply gets the tools of work he started.
 - **Reddit without an API app (session mode).** A Reddit account can sign in with Dave's own
   browser session cookie instead of a developer app. The adapter then talks to old.reddit.com's
   form endpoints; everything above it (actions, approvals, inbound) is the same. Such accounts

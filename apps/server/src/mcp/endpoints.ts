@@ -80,6 +80,15 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
     );
   }
   const types = Object.entries(actions.executors).map(([t, e]) => `${t}: ${e.description}`);
+  /** Cancels the proposals a new one replaces, and says what happened. */
+  const replacedNote = async (ids: string[] | undefined, replacement: { id: string; taskId: string | null }): Promise<string> => {
+    if (!ids?.length) return "";
+    const { replaced, skipped } = await actions.supersede(ids, replacement);
+    return [
+      replaced.length ? ` Replaced (cancelled): ${replaced.map((p) => p.id).join(", ")}.` : "",
+      skipped.length ? ` Not replaced (not a pending proposal of this task): ${skipped.join(", ")}.` : "",
+    ].join("");
+  };
   server.registerTool(
     "propose_action",
     {
@@ -89,9 +98,14 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
         summary: z.string().describe("One line Dave can approve or reject from a phone notification"),
         payload: z.record(z.string(), z.unknown()).default({}),
         vertical: z.string().optional().describe("The business (vertical id) it is for. Only needed outside an agent run, or in the assistant's runs"),
+        replaces: z
+          .array(z.string())
+          .max(MAX_BATCH)
+          .optional()
+          .describe("Ids of this task's pending proposals that this is a revised version of (Dave asked for a change). They are cancelled, so only the new version waits for his approval."),
       },
     },
-    async ({ actionType, summary, payload, vertical }) => {
+    async ({ actionType, summary, payload, vertical, replaces }) => {
       const scope = caller.kind === "run" ? caller.scope : null;
       try {
         const proposal = await actions.propose({
@@ -102,7 +116,8 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
           payload,
         });
         const state = proposal.status === "pending" ? "waiting for Dave's approval" : proposal.status;
-        return { content: [{ type: "text", text: `Proposal ${proposal.id}: ${state}` }] };
+        const replaced = await replacedNote(replaces, proposal);
+        return { content: [{ type: "text", text: `Proposal ${proposal.id}: ${state}${replaced}` }] };
       } catch (err) {
         return { content: [{ type: "text", text: (err as Error).message }], isError: true };
       }
@@ -126,15 +141,21 @@ function actionsServer(actions: ActionService, caller: Caller, handoff?: Handoff
           .min(1)
           .max(MAX_BATCH),
         vertical: z.string().optional().describe("The business (vertical id) it is for. Only needed outside an agent run, or in the assistant's runs"),
+        replaces: z
+          .array(z.string())
+          .max(MAX_BATCH)
+          .optional()
+          .describe("Ids of this task's pending proposals that this is a revised version of (Dave asked for a change). They are cancelled, so only the new version waits for his approval."),
       },
     },
-    async ({ summary, items, vertical }) => {
+    async ({ summary, items, vertical, replaces }) => {
       const scope = caller.kind === "run" ? caller.scope : null;
       try {
         const { batchId, proposals } = await actions.proposeBatch({ taskId: scope?.taskId ?? null, vertical: proposalVertical(scope, vertical), summary, items });
         const pending = proposals.every((p) => p.status === "pending");
         const state = pending ? `waiting for Dave's approval as one batch` : proposals.map((p) => p.status).join(", ");
-        return { content: [{ type: "text", text: `Batch ${batchId} of ${proposals.length}: ${state}.` }] };
+        const replaced = await replacedNote(replaces, proposals[0]!);
+        return { content: [{ type: "text", text: `Batch ${batchId} of ${proposals.length}: ${state}.${replaced}` }] };
       } catch (err) {
         return { content: [{ type: "text", text: (err as Error).message }], isError: true };
       }

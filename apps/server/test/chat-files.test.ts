@@ -95,7 +95,7 @@ describe.skipIf(!DB_URL)("files attached in the chat box (integration)", () => {
     expect((await ctx.api(`/api/tasks/${task.id}`)).body.task.status).toBe("done");
   });
 
-  it("lets a task from outside input open the files Dave attaches to his reply, and only those", async () => {
+  it("gives Dave's reply on a task from outside input every tool, and the files he attached", async () => {
     const res = await ctx.server.app.request("/api/ingress/webhook/dms", {
       method: "POST",
       headers: { "x-cc-webhook-secret": WEBHOOK, "content-type": "application/json" },
@@ -104,6 +104,10 @@ describe.skipIf(!DB_URL)("files attached in the chat box (integration)", () => {
     expect(res.status).toBe(201);
     const { task } = (await res.json()) as { task: { id: string } };
     await ctx.queue.drain();
+    const folderRule = (path: string) => `Read(/${path.slice(0, path.lastIndexOf("/"))}/**)`;
+    // Before Dave says anything, the run has only outside input to go on: no folder of his files.
+    expect(runner.calls.at(-1)!.allowedTools!.some((t) => /chat-files\/\*\*\)$/.test(t))).toBe(false);
+
     const shot = await upload("approval.png", PNG, "image/png");
     expect((await ctx.api(`/api/tasks/${task.id}/reply`, { method: "POST", json: { text: "See this", files: [shot.body.id] } })).status).toBe(202);
     await ctx.queue.drain();
@@ -112,10 +116,10 @@ describe.skipIf(!DB_URL)("files attached in the chat box (integration)", () => {
     const path = /On disk at (\S+): it is attached/.exec(request.prompt)?.[1];
     expect(path).toMatch(new RegExp(`/chat-files/${shot.body.id}$`));
     expect(request.images).toEqual([path]);
-    expect(request.allowedTools).toContain(`Read(/${path})`);
-    // Not the folder: it holds the files of Dave's other chats.
-    expect(request.allowedTools).not.toContain(`Read(/${path!.slice(0, path!.lastIndexOf("/"))}/**)`);
-    expect(request.allowedTools).not.toContain("WebFetch");
+    // Dave asked, so the run is his: the same tools as work he started.
+    expect(request.allowedTools).toContain(folderRule(path!));
+    expect(request.allowedTools).toContain("WebFetch");
+    expect(request.systemPrompt).not.toContain("came from outside input (webhook)");
   });
 
   it("refuses ids that aren't chat files", async () => {
