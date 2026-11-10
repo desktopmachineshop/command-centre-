@@ -58,7 +58,7 @@ export function emailPrompt(payload: Record<string, unknown>): string {
     ...(attachments.length && messageId
       ? [
           "",
-          `Only the attachment names are above. Open any that matter before you answer: call the mail tool read_attachment with ${JSON.stringify({ accountId: reply.accountId, messageId, index: 0 })} (index counts from 0 in the order listed). Documents (a price list, invoice or spec sheet) come back as text, and photos, screenshots and pasted images as the image itself, so look at them rather than asking the sender to send them again. If you hand this on, pass the accountId and messageId in your note.`,
+          `Only the attachment names are above. Open any that matter before you answer: call the mail tool read_attachment with ${JSON.stringify({ accountId: reply.accountId, messageId, index: 0 })} (index counts from 0 in the order listed). Documents (a price list, quote, purchase order or spec sheet, in PDF, Word or a spreadsheet) come back as text, scanned PDFs as images of their pages, and photos, screenshots and pasted images as the image itself, so look at them rather than asking the sender to send them again. If you hand this on, pass the accountId and messageId in your note.`,
         ]
       : []),
     "",

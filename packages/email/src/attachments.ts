@@ -15,12 +15,14 @@ export interface MailAttachment {
 export interface AttachmentText {
   filename: string;
   contentType: string;
-  /** How it was read: "pdf", "spreadsheet", "text" or "html". */
-  format: "pdf" | "spreadsheet" | "text" | "html";
+  /** How it was read: "pdf", "spreadsheet", "word", "text" or "html". */
+  format: "pdf" | "spreadsheet" | "word" | "text" | "html";
   text: string;
   truncated: boolean;
   /** Sheets read from a workbook, or pages from a PDF. */
   parts?: number;
+  /** A PDF with no text layer (a scan): look at its pages with pdfPageImages instead. */
+  scanned?: boolean;
 }
 
 type ParsedAttachment = { filename?: string; contentType: string; contentDisposition?: string; size: number; content: Buffer };
@@ -77,12 +79,13 @@ const SHEET_EXT = new Set(["xlsx", "xlsm", "xlsb", "xls", "ods", "numbers"]);
 const SHEET_TYPES = /spreadsheet|excel|ms-excel|opendocument\.spreadsheet/i;
 const TEXT_EXT = new Set(["csv", "tsv", "txt", "md", "json", "xml"]);
 
-/** Which text reader an attachment needs, or null when it can't be read as text (images, archives, Word files...). */
+/** Which text reader an attachment needs, or null when it can't be read as text (images, archives, old .doc files...). */
 export function attachmentFormat(filename: string, contentType: string): AttachmentText["format"] | null {
   const e = ext(filename);
   const type = contentType.toLowerCase();
   if (e === "pdf" || type === "application/pdf") return "pdf";
   if (SHEET_EXT.has(e) || SHEET_TYPES.test(type)) return "spreadsheet";
+  if (e === "docx" || e === "docm" || /officedocument\.wordprocessingml/i.test(type)) return "word";
   if (e === "html" || e === "htm" || type === "text/html") return "html";
   if (TEXT_EXT.has(e) || type.startsWith("text/") || type === "application/json") return "text";
   return null;
@@ -119,10 +122,10 @@ export async function attachmentText(a: Pick<MailAttachment, "filename" | "conte
     const pdf = await getDocumentProxy(new Uint8Array(a.content));
     const { totalPages, text } = await extractText(pdf, { mergePages: false });
     const pages = (text as string[]).map((t, i) => `--- page ${i + 1} ---\n${t.trim()}`).join("\n\n");
-    const body = pages.replace(/--- page \d+ ---\s*/g, "").trim()
-      ? pages
-      : "(no text layer: this PDF looks scanned. Ask Dave for the spreadsheet version or the figures.)";
-    return { ...base, format, parts: totalPages, ...clip(body, maxChars) };
+    if (!pages.replace(/--- page \d+ ---\s*/g, "").trim()) {
+      return { ...base, format, parts: totalPages, scanned: true, text: "(no text layer: this PDF looks scanned, so read it from images of its pages.)", truncated: false };
+    }
+    return { ...base, format, parts: totalPages, ...clip(pages, maxChars) };
   }
   if (format === "spreadsheet") {
     const XLSX = await import("xlsx");
@@ -133,9 +136,38 @@ export async function attachmentText(a: Pick<MailAttachment, "filename" | "conte
     });
     return { ...base, format, parts: sheets.length, ...clip(sheets.join("\n\n"), maxChars) };
   }
+  if (format === "word") {
+    const mammoth = await import("mammoth");
+    const { value } = await mammoth.extractRawText({ buffer: a.content });
+    return { ...base, format, ...clip(value.replace(/\n{3,}/g, "\n\n").trim(), maxChars) };
+  }
   if (format === "html") return { ...base, format, ...clip(htmlText(a.content.toString("utf8")), maxChars) };
   if (format === "text") return { ...base, format, ...clip(a.content.toString("utf8").replace(/\r\n/g, "\n"), maxChars) };
   throw new Error(
-    `${a.filename} (${a.contentType}) can't be read; PDFs, spreadsheets (xlsx, xls, ods, csv), HTML and text files can, and JPEG, PNG, GIF and WebP images can be viewed`,
+    `${a.filename} (${a.contentType}) can't be read; PDFs, Word (.docx), spreadsheets (xlsx, xls, ods, csv), HTML and text files can, and JPEG, PNG, GIF and WebP images can be viewed`,
   );
+}
+
+/** Most pages of a scanned PDF rendered for an agent to look at. */
+export const MAX_SCANNED_PAGES = 8;
+
+/**
+ * The first pages of a PDF as PNG images, for a scan with no text layer (a signed purchase
+ * order, a quote printed and scanned). Each is scaled down to stay well under MAX_IMAGE_BYTES.
+ */
+export async function pdfPageImages(content: Buffer, maxPages = MAX_SCANNED_PAGES): Promise<{ pages: Buffer[]; totalPages: number }> {
+  const { getDocumentProxy, renderPageAsImage } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(content));
+  const pages: Buffer[] = [];
+  const canvasImport = () => import("@napi-rs/canvas");
+  for (let n = 1; n <= Math.min(pdf.numPages, maxPages); n++) {
+    const page = await pdf.getPage(n);
+    const { width } = page.getViewport({ scale: 1 });
+    // About 1600 px wide: A4 text stays legible, and the PNG stays small.
+    const scale = Math.min(3, Math.max(0.5, 1600 / width));
+    let png = Buffer.from(await renderPageAsImage(pdf, n, { canvasImport, scale }));
+    if (png.length > MAX_IMAGE_BYTES) png = Buffer.from(await renderPageAsImage(pdf, n, { canvasImport, scale: scale / 2 }));
+    if (png.length <= MAX_IMAGE_BYTES) pages.push(png);
+  }
+  return { pages, totalPages: pdf.numPages };
 }

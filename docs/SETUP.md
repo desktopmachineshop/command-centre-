@@ -752,9 +752,10 @@ Gmail, Google Workspace, Microsoft 365 / Outlook.com, or Odoo's own mail server.
 - **Looking mail up (`/mcp/mail`):** an agent can search and read mail it wasn't started by, e.g.
   when you ask in chat "file the new price lists". The read-only `mail` MCP server has
   `list_mail_accounts`, `search_mail` (sender, subject, body text, dates, with attachments),
-  `read_mail` and `read_attachment`, which returns PDFs page by page, spreadsheets (xlsx, xls,
-  ods, csv) sheet by sheet as CSV, and HTML or text files as text (scanned PDFs, images and Word
-  files have no text it can read). An email task's prompt lists its attachments with the call
+  `read_mail` and `read_attachment`, which returns PDFs page by page, Word documents (.docx),
+  spreadsheets (xlsx, xls, ods, csv) sheet by sheet as CSV, and HTML or text files as text; a
+  scanned PDF comes back as images of its first 8 pages, and JPEG, PNG, GIF and WebP images as the
+  image itself (old .doc files and HEIC photos can't be read). An email task's prompt lists its attachments with the call
   that reads them. A run sees only its own business's mailboxes, while the assistant, on work
   Dave started, sees every one. A business gets it through `mcpServers: [..., "mail"]` (personal,
   DMS, 3dpandme, OpenV and OpenD in the shipped manifests). It is mounted only while at least one inbox is configured. Mail is outside input: once a run has
