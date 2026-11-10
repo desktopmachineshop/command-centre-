@@ -432,6 +432,24 @@ export async function redditSessionWhoami(credentials: { sessionCookie: string; 
   return new RedditSessionClient(undefined, baseUrl).me(ctx, c, { fresh: true });
 }
 
+/** Tokens for reading as an API-mode account (the read tools), apart from the adapter's own. */
+const readClient = new RedditClient();
+
+/**
+ * A bearer token and User-Agent to read Reddit's Data API as an API-mode account (one connected
+ * through a Reddit app), for the read tools: the API answers what Reddit refuses an anonymous
+ * server (subreddit rules among it). Null for a session account or unusable credentials.
+ */
+export async function redditApiReadAuth(account: SocialAccount, ctx: AdapterContext): Promise<{ token: string; userAgent: string } | null> {
+  const parsed = RedditCredentials.safeParse(account.credentials);
+  if (account.platform !== "reddit" || !parsed.success || parsed.data.sessionCookie || !parsed.data.clientId || !parsed.data.clientSecret) return null;
+  const c = parsed.data;
+  const username = c.username ?? stripUser((account.handle ?? "").replace(/^@/, ""));
+  const userAgent = c.userAgent ?? `web:command-centre:1.0 (by /u/${username || "command-centre"})`;
+  const token = await readClient.token(ctx, { clientId: c.clientId!, clientSecret: c.clientSecret!, username, password: c.password, refreshToken: c.refreshToken, userAgent });
+  return { token, userAgent };
+}
+
 export { RedditApiError } from "./reddit/client";
 export { parseSessionCookie, REDDIT_OLD, RedditSessionExpiredError, sessionCookieHeader } from "./reddit/session";
 export const redditAdapter: PlatformAdapter = createRedditAdapter();

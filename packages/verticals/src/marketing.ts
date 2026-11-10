@@ -12,7 +12,7 @@ export const redditScoutPrompt = (subject: string, factSheet: string) => `Find f
 1. Build the ${subject} fact sheet from ${factSheet}. Read the playbook and log note (marketing/reddit.md in your brain folder).
 2. Find threads from the last 48 hours with the reddit tools (search_posts, and subreddit_posts on the subreddits in the playbook): share-your-work and self-promotion threads, people asking for something ${subject} answers, and comparisons. Skip anything already in the log.
 3. For each candidate, read it with get_thread and its subreddit's rules with subreddit_info. Note what it asks for and in what format, and score the fit from 1 to 5.
-4. Check the account's own recent history with user_history (the account on the log note's Account: line): if more than about 1 in 10 of its recent contributions are self-promotion, propose nothing promotional today and say so.
+4. Check the account's own recent history with user_history (the business's Reddit account under Social accounts in your instructions): if more than about 1 in 10 of its recent contributions are self-promotion, propose nothing promotional today and say so.
 5. For fit 4 or 5 only, propose the replies together as one propose_batch of social.reply items from that account (or one notify holding the drafts if no account is listed). At most 3, at most 1 per subreddit, each disclosing that Dave runs ${subject}.
 6. Update the log with every thread you looked at, proposed or skipped, with the reason.
 

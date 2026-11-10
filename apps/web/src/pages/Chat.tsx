@@ -259,6 +259,11 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   /** The task follow-ups continue; null starts a new one. */
   const [threadId, setThreadId] = useState<string | null>(null);
   const readAloud = useReadAloud(api);
+  // Typing in Chat is quiet; Converse is for listening. So Read aloud follows the mode: on when
+  // Converse opens, off again when it folds back to Chat. The switch still overrides it meanwhile.
+  useEffect(() => {
+    readAloud.set(drive, { tap: false });
+  }, [drive]);
   const sectionRef = useRef<HTMLElement>(null);
   const driveStage = useDriveExpand(sectionRef, drive);
   const driving = driveStage !== "off";

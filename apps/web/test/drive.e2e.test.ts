@@ -577,12 +577,12 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await page.close();
   }, 90_000);
 
-  it("Read aloud reads this chat's replies only, and stays quiet while Converse is open", async () => {
+  it("Read aloud is off in Chat until switched on, reads this chat's replies only, follows Converse on and off", async () => {
     const page = await browser.newPage();
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(MOCK_SPEECH);
-    // A live feed the test can push messages into (window.__feed), and Read aloud switched on.
+    // A live feed the test can push messages into (window.__feed). A choice kept by an earlier version is ignored.
     await page.addInitScript(() => {
       // Every socket opened (in development React builds the feed twice and keeps one).
       const sockets: { onmessage?: (e: { data: string }) => void }[] = [];
@@ -610,6 +610,13 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await box.press("Enter");
     await page.locator(".turn").first().waitFor();
 
+    // Chat is quiet by default, whatever was chosen before.
+    const toggle = page.getByRole("button", { name: /read replies aloud|read aloud/i }).first();
+    expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+    await feed("t1", "Said while quiet.");
+    await toggle.click();
+    expect(await toggle.getAttribute("aria-pressed")).toBe("true");
+
     // Another task's message isn't this chat's: not read. The chat's own reply is.
     await feed("someone-else", "Not this one.");
     await feed("t1", "It shipped on Monday.");
@@ -622,6 +629,15 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     await feed("t1", "A second reply while conversing.");
     await page.waitForTimeout(2_500);
     expect(await spoken()).not.toContain("A second reply while conversing.");
+    expect(await spoken()).not.toContain("Said while quiet.");
+
+    // Folding back to Chat switches Read aloud off again; opening Converse had switched it on.
+    await page.locator('a.tool[href="#/chat"]').click();
+    await page.locator(".composer.is-open").waitFor({ state: "detached", timeout: 10_000 });
+    expect(await page.getByRole("button", { name: /read replies aloud|read aloud/i }).first().getAttribute("aria-pressed")).toBe("false");
+    await feed("t1", "Back in chat, quiet again.");
+    await page.waitForTimeout(1_500);
+    expect(await spoken()).not.toContain("Back in chat, quiet again.");
     expect(errors).toEqual([]);
     await page.close();
   }, 60_000);

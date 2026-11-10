@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readReadAloud, spokenText } from "../src/voice/readAloud";
+import { forgetReadAloud, spokenText } from "../src/voice/readAloud";
 import { barsFor } from "../src/voice/Waveform";
 
 describe("spokenText", () => {
@@ -12,9 +12,14 @@ describe("spokenText", () => {
   });
 });
 
-describe("readReadAloud", () => {
-  it("is off by default, and when storage is missing", () => {
-    expect(readReadAloud()).toBe(false);
+describe("forgetReadAloud", () => {
+  it("clears a choice kept by an earlier version, and copes without storage", () => {
+    expect(() => forgetReadAloud()).not.toThrow();
+    const store = new Map([["cc.readAloud", "1"]]);
+    (globalThis as { localStorage?: unknown }).localStorage = { removeItem: (k: string) => store.delete(k) };
+    forgetReadAloud();
+    expect(store.has("cc.readAloud")).toBe(false);
+    delete (globalThis as { localStorage?: unknown }).localStorage;
   });
 });
 

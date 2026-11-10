@@ -222,6 +222,9 @@ export function socialAccountOf(e: EntryInput, entries: EntryInput[]): SocialAcc
     id: e.id,
     platform,
     vertical: String(e.data.vertical ?? ""),
+    ...(Array.isArray(e.data.alsoVerticals) && e.data.alsoVerticals.length
+      ? { alsoVerticals: [...new Set(e.data.alsoVerticals.map((v) => String(v).trim()).filter((v) => v && v !== e.data.vertical))] }
+      : {}),
     handle: str(e.data.handle),
     displayName: str(e.data.displayName),
     inbound: bool(e.data.inbound, true),
@@ -541,7 +544,7 @@ export function railwayEntries(base: Config): EntryInput[] {
     add(
       s.platform,
       s.id,
-      { vertical: s.vertical, handle: s.handle, displayName: s.displayName, inbound: s.inbound, options: Object.keys(s.options).length ? JSON.stringify(s.options) : undefined },
+      { vertical: s.vertical, alsoVerticals: s.alsoVerticals?.length ? s.alsoVerticals : undefined, handle: s.handle, displayName: s.displayName, inbound: s.inbound, options: Object.keys(s.options).length ? JSON.stringify(s.options) : undefined },
       // The whole credential map moves, app keys included, so nothing is lost.
       { ...s.credentials },
     );

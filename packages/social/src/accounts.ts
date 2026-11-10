@@ -105,6 +105,14 @@ export function normaliseHandle(handle: string | undefined | null): string | nul
   return h || null;
 }
 
+/** Every business that may post from the account: its home first, then the ones it is shared with. */
+export function accountVerticals(account: Pick<SocialAccount, "vertical"> & { alsoVerticals?: string[] }): string[] {
+  return [...new Set([account.vertical, ...(account.alsoVerticals ?? [])])];
+}
+
+/** Whether a business may post from the account (its own, or one shared with it). */
+export const accountSpeaksFor = (account: Pick<SocialAccount, "vertical"> & { alsoVerticals?: string[] }, vertical: string) => accountVerticals(account).includes(vertical);
+
 /** Public view of an account for the UI and API: never credentials or options. */
 export function publicAccount(account: SocialAccount, adapters: AdapterMap) {
   const adapter = adapters[account.platform];
@@ -112,6 +120,7 @@ export function publicAccount(account: SocialAccount, adapters: AdapterMap) {
     id: account.id,
     platform: account.platform,
     vertical: account.vertical,
+    alsoVerticals: account.alsoVerticals ?? [],
     handle: account.handle ?? null,
     displayName: account.displayName ?? null,
     inbound: account.inbound,

@@ -1685,6 +1685,17 @@ defaults, or set:
 Each social account is one entry in the `SOCIAL_ACCOUNTS` JSON array, with
 `credentials` (secrets) and `options` (per-platform settings).
 
+**One account, several businesses (cross-posting).** An account has one home **Business**, and
+**Also posts for** on its card lists other businesses that may post from it too (one business id
+per line: `dms`, `3dpandme`, `openv`, `opend`, `personal`; `alsoVerticals` in the JSON). Agents
+working for any of those businesses can propose posts and replies from it, the composer lets you
+combine it with their accounts, and a Reddit account shared this way counts as that business's
+for its Reddit scout. Messages that arrive on the account still go to its home business.
+
+**Agents know the account ids.** Every run's instructions list the accounts its business may post
+from under "Social accounts" (id, platform, handle; never credentials), so an `accountId` no
+longer has to be written into a playbook note.
+
 ### Discord
 
 The Discord account is a **bot user** in your servers. It posts announcements, answers
@@ -1862,9 +1873,15 @@ and messages. **Every Reddit post, reply and message still waits for your approv
    put your username in **Handle** (`u/name`, so agents can check your own history), and save.
 5. Press **Test**. It asks old.reddit.com who the cookie signs in as and shows the username and
    karma, e.g. *Signed in to Reddit as u/dave_dms (3,520 karma: 120 post, 3,400 comment)*.
-6. Tell the agents which account to reply from: put its name on the `Account:` line of the
-   business's playbook note (`<brain folder>/marketing/reddit.md`), or just ask in Chat ("use
-   dms-reddit for Reddit replies").
+6. The agents see the account at once (their instructions list the business's connected
+   accounts). Only when a business has more than one Reddit account, say which to reply from: on
+   the `Account:` line of its playbook note (`<brain folder>/marketing/reddit.md`), or in Chat.
+
+**Reading rules.** Reddit refuses subreddit rules (and much else) to a server that isn't signed
+in. With an account connected through a Reddit app (API mode), the read tools go through
+Reddit's Data API, which answers them. With only a session account, its cookie is sent and the
+classic site (old.reddit.com) is tried when www refuses. With neither, agents get Reddit's public
+feeds only and send you drafts marked "rules not checked".
 
 Treat the cookie like a password: anyone holding it is signed in as you. It is stored encrypted
 like every other secret on the Accounts page and never shown again. **Signing out of Reddit in

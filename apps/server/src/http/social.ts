@@ -1,5 +1,6 @@
 import { Readable, Transform } from "node:stream";
 import {
+  accountVerticals,
   type AdapterMap,
   CampaignPayload,
   campaignSummary,
@@ -103,18 +104,20 @@ export function socialApiRoutes(deps: SocialApiDeps) {
   /** The composer: one social.campaign proposal, made with the admin's authority, waiting under Approvals. */
   app.post("/social/compose", async (c) => {
     const body = CampaignPayload.extend({ summary: z.string().trim().min(1).optional() }).parse(await c.req.json());
-    const verticals = new Set<string>();
+    // The business the campaign is for: one every account may post for (an account can be shared with several).
+    let common: string[] | null = null;
     for (const post of body.posts) {
       const account = deps.accounts.find((a) => a.id === post.accountId);
       if (!account) return c.json({ error: `Unknown social account "${post.accountId}"` }, 400);
-      verticals.add(account.vertical);
+      const mine = accountVerticals(account);
+      common = common ? common.filter((v) => mine.includes(v)) : mine;
     }
-    if (verticals.size > 1) return c.json({ error: "All posts in one campaign must be for accounts of the same vertical" }, 400);
+    if (!common?.length) return c.json({ error: "All posts in one campaign must be for accounts of the same business (or accounts shared with it)" }, 400);
     const { summary, ...payload } = body;
     try {
       const proposal = await actions.propose({
         taskId: null,
-        vertical: [...verticals][0]!,
+        vertical: common[0]!,
         actionType: "social.campaign",
         summary: summary ?? campaignSummary(payload, deps.accounts, deps.timeZone),
         payload,

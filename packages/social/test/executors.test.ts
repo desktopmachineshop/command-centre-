@@ -47,6 +47,7 @@ function setup() {
     account({ id: "3dp-x", platform: "x", handle: "3dpandme" }),
     account({ id: "3dp-reddit", platform: "reddit" }),
     account({ id: "dms-x", platform: "x", vertical: "dms" }),
+    account({ id: "dave-x", platform: "x", vertical: "personal", alsoVerticals: ["dms", "3dpandme"] }),
   ];
   const scheduled = new MemoryScheduled();
   const executors = createSocialExecutors(accounts, { adapters, scheduled, logger: quiet });
@@ -89,6 +90,16 @@ describe("social.post", () => {
     const { executors } = setup();
     expect(() => executors["social.post"].validate!({ accountId: "dms-x", content: { text: "hi" } }, { vertical: "3dpandme" })).toThrow(
       'Social account "dms-x" belongs to dms, not 3dpandme',
+    );
+  });
+
+  it("lets every business an account is shared with post from it (cross-posting)", () => {
+    const { executors } = setup();
+    for (const vertical of ["personal", "dms", "3dpandme"]) {
+      expect(() => executors["social.post"].validate!({ accountId: "dave-x", content: { text: "hi" } }, { vertical })).not.toThrow();
+    }
+    expect(() => executors["social.post"].validate!({ accountId: "dave-x", content: { text: "hi" } }, { vertical: "openv" })).toThrow(
+      'Social account "dave-x" belongs to personal and dms and 3dpandme, not openv',
     );
   });
 });

@@ -50,6 +50,12 @@ export interface KindDef {
 export const DEFAULT_ID = "default";
 
 const vertical: Field = { key: "vertical", label: "Business", type: "select", required: true, help: "Which business this account speaks for." };
+const alsoVerticals: Field = {
+  key: "alsoVerticals",
+  label: "Also posts for",
+  type: "list",
+  help: "Other businesses that may post from this account too (cross-posting), one business id per line, e.g. dms, 3dpandme, openv, opend, personal. Messages that arrive on the account still go to the business above.",
+};
 const handle: Field = { key: "handle", label: "Handle", type: "text", placeholder: "@name" };
 const displayName: Field = { key: "displayName", label: "Display name", type: "text" };
 const inbound: Field = { key: "inbound", label: "Watch for comments, mentions and DMs", type: "boolean", default: true };
@@ -312,7 +318,7 @@ export const CATALOG: readonly KindDef[] = [
     multi: true,
     oauth: "instagram",
     needsApp: "instagram-app",
-    fields: [vertical, handle, displayName, inbound, { key: "accessToken", label: "Access token", type: "secret", fromOAuth: true }, { key: "igUserId", label: "Instagram user id", type: "text", fromOAuth: true }, options],
+    fields: [vertical, alsoVerticals, handle, displayName, inbound, { key: "accessToken", label: "Access token", type: "secret", fromOAuth: true }, { key: "igUserId", label: "Instagram user id", type: "text", fromOAuth: true }, options],
     affects: ["social"],
   },
   {
@@ -323,7 +329,7 @@ export const CATALOG: readonly KindDef[] = [
     multi: true,
     oauth: "threads",
     needsApp: "threads-app",
-    fields: [vertical, handle, displayName, inbound, { key: "accessToken", label: "Access token", type: "secret", fromOAuth: true }, { key: "threadsUserId", label: "Threads user id", type: "text", fromOAuth: true }, options],
+    fields: [vertical, alsoVerticals, handle, displayName, inbound, { key: "accessToken", label: "Access token", type: "secret", fromOAuth: true }, { key: "threadsUserId", label: "Threads user id", type: "text", fromOAuth: true }, options],
     affects: ["social"],
   },
   {
@@ -334,7 +340,7 @@ export const CATALOG: readonly KindDef[] = [
     multi: true,
     oauth: "x",
     needsApp: "x-app",
-    fields: [vertical, handle, displayName, { key: "accessToken", label: "Access token", type: "secret", fromOAuth: true }, { key: "accessTokenSecret", label: "Access token secret", type: "secret", fromOAuth: true }, options],
+    fields: [vertical, alsoVerticals, handle, displayName, { key: "accessToken", label: "Access token", type: "secret", fromOAuth: true }, { key: "accessTokenSecret", label: "Access token secret", type: "secret", fromOAuth: true }, options],
     affects: ["social"],
   },
   {
@@ -345,7 +351,7 @@ export const CATALOG: readonly KindDef[] = [
     multi: true,
     oauth: "reddit",
     needsApp: "reddit-app",
-    fields: [vertical, handle, displayName, inbound, { key: "refreshToken", label: "Refresh token", type: "secret", fromOAuth: true }, options],
+    fields: [vertical, alsoVerticals, handle, displayName, inbound, { key: "refreshToken", label: "Refresh token", type: "secret", fromOAuth: true }, options],
     affects: ["social"],
   },
   {
@@ -357,6 +363,7 @@ export const CATALOG: readonly KindDef[] = [
     multi: true,
     fields: [
       vertical,
+      alsoVerticals,
       { ...handle, placeholder: "u/name", help: "Your Reddit username, so agents can check your own history before replying." },
       displayName,
       inbound,
@@ -382,7 +389,7 @@ export const CATALOG: readonly KindDef[] = [
     multi: true,
     oauth: "youtube",
     needsApp: "google-app",
-    fields: [vertical, handle, displayName, inbound, { key: "refreshToken", label: "Refresh token", type: "secret", fromOAuth: true }, { key: "channelId", label: "Channel id", type: "text", fromOAuth: true }, options],
+    fields: [vertical, alsoVerticals, handle, displayName, inbound, { key: "refreshToken", label: "Refresh token", type: "secret", fromOAuth: true }, { key: "channelId", label: "Channel id", type: "text", fromOAuth: true }, options],
     affects: ["social"],
   },
   {
@@ -391,7 +398,7 @@ export const CATALOG: readonly KindDef[] = [
     section: "social",
     description: "A bot in your server: posts announcements and answers questions (answers need your approval).",
     multi: true,
-    fields: [vertical, handle, displayName, inbound, { key: "botToken", label: "Bot token", type: "secret", required: true }, { ...options, help: 'e.g. {"channels":["123…"]}' }],
+    fields: [vertical, alsoVerticals, handle, displayName, inbound, { key: "botToken", label: "Bot token", type: "secret", required: true }, { ...options, help: 'e.g. {"channels":["123…"]}' }],
     affects: ["social"],
     helpUrl: "https://discord.com/developers/applications",
   },
