@@ -42,6 +42,7 @@
     <prolog><resourceid appname="command-centre" appid="approvals.revise"/></prolog>
     <body>
       <p>When it is easier to say what is wrong than to fix it yourself, choose <uicontrol>Ask for changes</uicontrol>, write what the agent should change (for example <userinput>Mention the restock date, and keep it shorter</userinput>) and choose <uicontrol>Send to agent</uicontrol>. This proposal is rejected and the agent proposes a new version, which comes back here.</p>
+      <p>Asking for a change in the task's chat works too. When the agent proposes a revised version, the old one is cancelled and shows as <uicontrol>replaced</uicontrol>, so only the new version waits here.</p>
     </body>
   </topic>
 </topic>

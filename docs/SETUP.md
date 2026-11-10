@@ -2574,13 +2574,13 @@ Three things keep that from turning into actions:
    written). The summary `notify` of a competitor report therefore arrives as an approval
    request; approving it just delivers it. The mark is kept in memory for the life of the server
    process, as for mail.
-3. **A task that itself came from outside input** (an email, a webhook, an Odoo or social event)
-   **can't fetch pages at all** with the research tools, as with the built-in `WebFetch`: a
-   fetched URL can carry data out. It can still read stored snapshots, and read Reddit (whose
-   tools take a subreddit, a thread id or search words, not a URL).
+3. **Reading is never blocked.** A task that came from outside input (an email, a webhook, an
+   Odoo or social event) can fetch pages with the research tools and `WebFetch`, read stored
+   snapshots and read Reddit. It is told never to fetch a URL the outside input asks for, nor put
+   your data in one; what limits it is that it can't write or publish without your approval.
 
 Decision recorded: fetching pages taints the run the same way reading mail does. The built-in
-`WebFetch` (available only on work you started) does not yet do the same; prefer `fetch_page`.
+`WebFetch` does not yet do the same; prefer `fetch_page`.
 
 ## Voice and Drive mode
 
@@ -2832,9 +2832,10 @@ checkout is logged as `[code] checkout of … failed: …`.
   **`github.pr.merge`**, which waits under Approvals; approve and the server merges it on GitHub
   (branch protection and required checks still apply). Or merge on GitHub yourself. It never
   pushes the default branch and never forces.
-- **Only for work you started:** a task from chat, a schedule, or a handoff from those gets the
-  tools and the checkout. A task from outside input (an email or webhook routed there) gets
-  neither, and says so.
+- **Writing only for work you asked for:** a task from chat, a schedule, or a handoff from those
+  gets the tools and the checkout, and so does a run answering your reply on any task. A task with
+  only outside input to go on (an email or webhook routed there) gets the checkout to read, but no
+  shell and no editing, and says so.
 - **Trust:** the agent has a shell inside the server's container, as the server's user. Its own
   environment holds no secrets, but this is **not a sandbox**: a shell as that user could read the
   server's files and its process environment (database URL, admin token, `GITHUB_TOKEN`). That is

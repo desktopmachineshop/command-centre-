@@ -19,6 +19,8 @@ export interface ReplyTurn {
   /** With `resumeSessionId`: the prompt with the context spelled out, for a runner that can't resume it. */
   promptWithoutResume?: string;
   voice: boolean;
+  /** Dave wrote it (not a report or follow-up from another role): the run is one he asked for. */
+  fromDave: boolean;
   /** Files Dave attached to the reply (images go to the runner with the prompt). */
   files?: ChatFile[];
 }
@@ -183,10 +185,11 @@ export class VoiceConversations {
         resumeSessionId: reply.resume_session_id,
         promptWithoutResume: answer(context),
         voice: reply.voice,
+        fromDave,
         ...files,
       };
     }
-    return { replyId: reply.id, prompt: answer(context), voice: reply.voice, ...files };
+    return { replyId: reply.id, prompt: answer(context), voice: reply.voice, fromDave, ...files };
   }
 
   /** Marks the turn's reply answered and, for voice-mode runs, stores and broadcasts the spoken response. */

@@ -222,7 +222,7 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
         <span className="row">
           <VTag id={proposal.vertical} /> <code className="action-type">{proposal.actionType}</code>
         </span>
-        <Status value={proposal.status} />
+        <Status value={proposal.status} label={replacedBy(proposal) ? "replaced" : undefined} />
       </div>
       <p className="title">{proposal.summary}</p>
       {video && <VideoPreview video={video} title={typeof proposal.payload.title === "string" ? proposal.payload.title : proposal.summary} />}
@@ -464,4 +464,10 @@ function ChangesForm({ busy, cancel, send }: { busy: boolean; cancel: () => void
 function failureText(result: unknown): string {
   if (result && typeof result === "object" && typeof (result as { error?: unknown }).error === "string") return (result as { error: string }).error;
   return result == null ? "It failed without a message." : JSON.stringify(result, null, 2);
+}
+
+/** The revised proposal that replaced this one (the agent proposed it again after Dave asked for a change), or null. */
+function replacedBy(p: Proposal): string | null {
+  const r = p.result as { replacedBy?: unknown } | null;
+  return p.status === "rejected" && r && typeof r.replacedBy === "string" ? r.replacedBy : null;
 }

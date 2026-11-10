@@ -838,12 +838,6 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       defaultVertical: scope?.vertical,
       fetch: overrides.researchFetch,
       onRead: scope ? () => actions.markOutsideInput(scope.taskId, "web") : undefined,
-      refuseFetch: scope
-        ? async () => {
-            const origin = await actions.originSource(scope.taskId);
-            return origin ? `Fetching pages is off for this task because it came from outside input (${origin}). You can still read stored snapshots (competitor_products, competitor_changes, list_snapshots); tell Dave what needs looking up.` : null;
-          }
-        : undefined,
     });
   };
   /** The servers at /mcp/<name> besides brain and actions; odoo only while Odoo is configured, mail while a mailbox is. */

