@@ -12,7 +12,10 @@ import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
   createSocialExecutors,
+  accountSpeaksFor,
+  accountVerticals,
   isRedditSessionAccount,
+  redditApiReadAuth,
   parseSessionCookie,
   platformLabel,
   publishDueScheduledPosts,
@@ -39,6 +42,7 @@ import { AuthService } from "./accounts/service";
 import { type ActionExecutor, ActionService, builtinExecutors } from "./actions";
 import { BudgetService } from "./budget";
 import { cardGuide, CardService } from "./cards";
+import { socialAccountsGuide } from "./social-guide";
 import type { Config } from "./config";
 import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
@@ -315,7 +319,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   function socialProblem(account: SocialAccount): string | undefined {
     try {
       validateSocialCredentials([account], socialAdapters);
-      verticals.require(account.vertical);
+      for (const v of accountVerticals(account)) verticals.require(v);
       return undefined;
     } catch (err) {
       return (err as Error).message.replace(/^SOCIAL_ACCOUNTS is invalid: /, "");
@@ -753,6 +757,16 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // outside input can't fetch pages at all (as with WebFetch), only read what is stored.
   const redditReader = new RedditReader({
     fetch: overrides.redditFetch,
+    // An account connected through a Reddit app: its reads go to the Data API, which answers what the
+    // public site refuses a server (subreddit rules).
+    api: async () => {
+      for (const account of social.current.accounts) {
+        if (account.platform !== "reddit" || isRedditSessionAccount(account)) continue;
+        const auth = await redditApiReadAuth(account, { fetch: overrides.socialFetch ?? fetch, log: console, now: () => new Date() }).catch(() => null);
+        if (auth) return auth;
+      }
+      return null;
+    },
     cookie: () => {
       const account = social.current.accounts.find(isRedditSessionAccount);
       if (!account) return undefined;
@@ -770,7 +784,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       // The task's own business's account first; the assistant (on Dave's work) can fall back to any.
       ownUsernames: () =>
         social.current.accounts
-          .filter((a) => a.platform === "reddit" && a.handle && (!scope || scope.anyVertical || a.vertical === scope.vertical))
+          .filter((a) => a.platform === "reddit" && a.handle && (!scope || scope.anyVertical || accountSpeaksFor(a, scope.vertical)))
           .sort((a, b) => Number(b.vertical === scope?.vertical) - Number(a.vertical === scope?.vertical))
           .map((a) => a.handle!.replace(/^@/, "").replace(/^\/?u\//i, "")),
       onRead: scope ? () => actions.markOutsideInput(scope.taskId, "reddit") : undefined,
@@ -915,6 +929,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     skillsDir: config.skillsDir,
     appGuide: helpDocs.pageGuide(),
     cardGuide: (servers: string[]): string => cardGuide(cards.kinds(servers)),
+    socialGuide: (vertical: string, any: boolean): string => socialAccountsGuide(social.current.accounts, vertical, any),
     internalBaseUrl: config.internalBaseUrl,
     maxTurns: config.agent.maxTurns,
     notifier, // pushes for filed events that ask for one (incoming RFQs, supplier replies)
@@ -1063,7 +1078,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (!started || !config.schedulesEnabled) return;
     // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
     const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
-    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, (v, s) => scheduleShouldFire(brain, v, s.id, (id) => social.current.accounts.some((a) => a.platform === "reddit" && a.vertical === id)));
+    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, (v, s) => scheduleShouldFire(brain, v, s.id, (id) => social.current.accounts.some((a) => a.platform === "reddit" && accountSpeaksFor(a, id))));
   };
   org.onChange(() => {
     restartSchedules();

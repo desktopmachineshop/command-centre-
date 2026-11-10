@@ -16,6 +16,11 @@ export const SocialAccount = z.object({
   platform: Platform,
   /** Vertical (business) this account speaks for, e.g. "dms" or "3dpandme". */
   vertical: z.string().min(1),
+  /**
+   * Other businesses that may post from this account as well (cross-posting). `vertical` stays its
+   * home: messages that arrive on the account go there.
+   */
+  alsoVerticals: z.array(z.string().min(1)).optional(),
   /** The account's public name/handle, used in prompts and the UI. */
   handle: z.string().optional(),
   displayName: z.string().optional(),

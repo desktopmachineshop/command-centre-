@@ -35,6 +35,8 @@ export interface PipelineDeps {
   appGuide?: string;
   /** The "## Cards" prompt section for a run with these MCP servers ("" for none; see ./cards.ts). */
   cardGuide?: (mcpServers: string[]) => string;
+  /** The "## Social accounts" prompt section: the accounts a run in this business may post from (see ./social-guide.ts). */
+  socialGuide?: (vertical: string, anyVertical: boolean) => string;
   internalBaseUrl: string;
   maxTurns: number;
   /** MCP servers mounted at /mcp/<name> that manifests may list, or a function giving them at run time (odoo comes and goes). Default: brain. */
@@ -387,7 +389,8 @@ export class Pipeline {
       const handover = await store.getHandover(taskId);
       const workbench = await this.workbench(task, role, cwd);
       const cardGuide = this.deps.cardGuide?.(Object.keys(mcpServers));
-      const cardNotes = cardGuide ? [cardGuide] : [];
+      const socialGuide = this.deps.socialGuide?.(vertical.id, assistant && trusted);
+      const cardNotes = [cardGuide, socialGuide].filter((n): n is string => !!n);
       // --- voice: a reply from Dave continues the task, resuming the earlier session (./voice/conversations.ts) ---
       const turn = (await this.deps.voice?.beforeRun(task, run.id)) ?? null;
       // --- end voice ---

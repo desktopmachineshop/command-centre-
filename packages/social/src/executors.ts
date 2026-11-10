@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { AdapterMap } from "./accounts";
+import { accountSpeaksFor, accountVerticals, type AdapterMap } from "./accounts";
 import { describeLimits, MemorySubmissionStore, type OutboxEntry, Pacer, type PacedActionType, pacingFor, type SubmissionStore } from "./pacing";
 import { clip, oneLine, platformLabel } from "./prompt";
 import type { AdapterContext, AdapterLogger, PlatformAdapter, PostContent, PublishResult, ReplyTarget, SocialAccount } from "./types";
@@ -176,7 +176,7 @@ export function createSocialExecutors(
   const account = (id: string, vertical?: string) => {
     const a = accounts.find((x) => x.id === id);
     if (!a) throw new Error(`Unknown social accountId "${id}". Configured: ${ids || "none"}`);
-    if (vertical && a.vertical !== vertical) throw new Error(`Social account "${id}" belongs to ${a.vertical}, not ${vertical}`);
+    if (vertical && !accountSpeaksFor(a, vertical)) throw new Error(`Social account "${id}" belongs to ${accountVerticals(a).join(" and ")}, not ${vertical}`);
     return { account: a, adapter: adapters[a.platform] };
   };
 

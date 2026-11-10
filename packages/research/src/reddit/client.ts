@@ -19,6 +19,8 @@
  */
 
 export const REDDIT_WWW = "https://www.reddit.com";
+export const REDDIT_API = "https://oauth.reddit.com";
+export const REDDIT_OLD = "https://old.reddit.com";
 export const REDDIT_READ_USER_AGENT = "web:command-centre:1.0 (read-only research for a small business owner)";
 
 export type Sleep = (ms: number) => Promise<void>;
@@ -43,6 +45,16 @@ export interface RedditReaderOptions {
   userAgent?: string;
   /** A `Cookie` header value of a signed-in session, when one is connected. */
   cookie?: () => string | undefined;
+  /**
+   * A bearer token (and its User-Agent) of a Reddit account connected through a Reddit app, when
+   * there is one: reads then go to Reddit's Data API first, which answers what the public site
+   * refuses a server (subreddit rules among it).
+   */
+  api?: () => Promise<{ token: string; userAgent: string } | null | undefined>;
+  /** Where the Data API is. Default https://oauth.reddit.com. */
+  apiBaseUrl?: string;
+  /** Where a session cookie is also tried when www refuses. Default https://old.reddit.com. */
+  oldBaseUrl?: string;
   /** How long an answer is reused. Default 2 minutes. */
   cacheMs?: number;
   /** Least time between two requests. Default 1.5 s. */
@@ -107,6 +119,8 @@ export class RedditReader {
   /** Reddit refused the JSON: until then, go straight to the feeds. */
   private jsonRefusedUntil = 0;
   private wasSignedIn = false;
+  /** The last read had a Reddit app account to read through. */
+  private apiSeen = false;
 
   constructor(private readonly options: RedditReaderOptions = {}) {
     this.fetch = options.fetch ?? ((input, init) => fetch(input, init));
@@ -116,7 +130,7 @@ export class RedditReader {
 
   /** True when requests carry a signed-in session's cookie. */
   get signedIn(): boolean {
-    return !!this.options.cookie?.();
+    return !!this.options.cookie?.() || this.apiSeen;
   }
 
   /** True while Reddit is only letting this server read its feeds (the JSON was refused recently). */
@@ -138,20 +152,39 @@ export class RedditReader {
         this.wasSignedIn = this.signedIn;
         this.jsonRefusedUntil = 0;
       }
+      // An account connected through a Reddit app reads through the Data API, which isn't blocked.
+      const api = await this.options.api?.().catch(() => null);
+      this.apiSeen = !!api;
+      if (api) {
+        try {
+          return await this.json<T>(`${this.options.apiBaseUrl ?? REDDIT_API}${path}`, query, { Authorization: `bearer ${api.token}`, "User-Agent": api.userAgent }, false);
+        } catch (err) {
+          // Refused or signed out there: fall back to the public site; anything else (not found, private) is the answer.
+          if (!(err instanceof Refused)) throw err;
+        }
+      }
       let refused: RedditReadError = new Refused("Reddit is refusing its JSON to this server (HTTP 403)", 403);
       if (!this.feedsOnly) {
         try {
-          return await this.json<T>(path, query);
+          return await this.json<T>(this.url(path, ".json", {}), query);
         } catch (err) {
           if (!(err instanceof Refused)) throw err;
           refused = err;
-          this.jsonRefusedUntil = this.now().getTime() + (this.options.jsonRetryMs ?? 15 * 60_000);
         }
+        // Signed in with a session cookie: the classic site, where that session posts, may answer when www won't.
+        if (this.options.cookie?.()) {
+          try {
+            return await this.json<T>(`${this.options.oldBaseUrl ?? REDDIT_OLD}${path}.json`, query);
+          } catch (err) {
+            if (!(err instanceof Refused)) throw err;
+          }
+        }
+        this.jsonRefusedUntil = this.now().getTime() + (this.options.jsonRetryMs ?? 15 * 60_000);
       }
       if (!feed) {
         const hint = this.signedIn
           ? " Reddit is blocking this server right now: try again later."
-          : " Reddit only lets this server read its public feeds, which don't carry this (subreddit rules and descriptions are among what they lack). Connect a Reddit session account on the Accounts page for full reads.";
+          : " Reddit only lets this server read its public feeds, which don't carry this (subreddit rules and descriptions are among what they lack). Connect a Reddit account on the Accounts page (your own login, or a Reddit app) for full reads.";
         throw new RedditReadError(`${refused.message}.${hint}`, refused.status);
       }
       return feed(await this.atom(path, query, refused));
@@ -167,7 +200,7 @@ export class RedditReader {
     return run;
   }
 
-  private async request(url: string, accept: string): Promise<Response> {
+  private async request(url: string, accept: string, headers?: Record<string, string>, withCookie = true): Promise<Response> {
     const now = this.now().getTime();
     const wait = Math.max(this.lastRequest + (this.options.minIntervalMs ?? 1500) - now, this.holdUntil - now, 0);
     if (wait > (this.options.maxWaitMs ?? 50_000)) {
@@ -175,11 +208,11 @@ export class RedditReader {
     }
     if (wait > 0) await this.sleep(wait);
     this.lastRequest = this.now().getTime();
-    const cookie = this.options.cookie?.();
+    const cookie = withCookie ? this.options.cookie?.() : undefined;
     let res: Response;
     try {
       res = await this.fetch(url, {
-        headers: { "User-Agent": this.options.userAgent ?? REDDIT_READ_USER_AGENT, Accept: accept, ...(cookie ? { Cookie: cookie } : {}) },
+        headers: { "User-Agent": this.options.userAgent ?? REDDIT_READ_USER_AGENT, Accept: accept, ...(cookie ? { Cookie: cookie } : {}), ...headers },
         signal: AbortSignal.timeout(20_000),
       });
     } catch (err) {
@@ -201,8 +234,11 @@ export class RedditReader {
     return url.toString();
   }
 
-  private async json<T>(path: string, query: Query): Promise<T> {
-    const res = await this.request(this.url(path, ".json", { ...query, raw_json: 1 }), "application/json");
+  /** GET one JSON address (`base` already has its path). The Data API (`headers` with a token) never gets the cookie. */
+  private async json<T>(base: string, query: Query, headers?: Record<string, string>, withCookie = true): Promise<T> {
+    const url = new URL(base);
+    for (const [k, v] of Object.entries(strings({ ...query, raw_json: 1 }))) url.searchParams.set(k, v);
+    const res = await this.request(url.toString(), "application/json", headers, withCookie);
     const text = await res.text().catch(() => "");
     let data: unknown = null;
     try {
@@ -220,7 +256,7 @@ export class RedditReader {
       const wait = Math.max(0, Math.ceil((this.holdUntil - this.now().getTime()) / 1000));
       throw new RedditReadError(`Reddit is rate limiting this server (HTTP 429); it asks for about ${wait}s. Carry on with what you have and try again later.`, 429);
     }
-    if (res.status === 403) throw new Refused("Reddit refused the request (HTTP 403)", 403);
+    if (res.status === 403 || res.status === 401) throw new Refused(`Reddit refused the request (HTTP ${res.status})`, res.status);
     if (!res.ok) throw new RedditReadError(`Reddit answered HTTP ${res.status}`, res.status);
     // A block page comes back as HTML with a 200.
     if (data === null) throw new Refused("Reddit answered with a page instead of data", res.status);

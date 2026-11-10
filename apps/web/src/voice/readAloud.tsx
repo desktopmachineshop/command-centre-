@@ -8,20 +8,16 @@ import { BrowserSpeaker, hasSynthesis, loadVoices, pickVoice, ServerSpeaker, typ
 
 const KEY = "cc.readAloud";
 
-/** Whether replies are read aloud on this device. Off unless switched on. */
-export function readReadAloud(): boolean {
+/**
+ * Read aloud is off whenever a page opens: typing in Chat is quiet. Opening Converse switches it
+ * on and folding back to Chat switches it off again (see Chat). The switch still turns it on for
+ * the visit, but nothing is remembered: a choice kept from an earlier version is cleared.
+ */
+export function forgetReadAloud() {
   try {
-    return localStorage.getItem(KEY) === "1";
+    localStorage.removeItem(KEY);
   } catch {
-    return false;
-  }
-}
-
-function writeReadAloud(on: boolean) {
-  try {
-    localStorage.setItem(KEY, on ? "1" : "0");
-  } catch {
-    // not persisted; still applies for this visit
+    // no storage: nothing was kept
   }
 }
 
@@ -31,13 +27,14 @@ export function spokenText(text: string): string {
 }
 
 /**
- * Read agent replies aloud in Chat and Task view. `offer(text)` queues a reply (ignored while
- * off); `stop()` cuts the voice mid-reply and drops what is queued. Speaks with the voice chosen
+ * Read agent replies aloud in Chat and Task view (off until switched on, or until Converse opens).
+ * `offer(text)` queues a reply (ignored while off); `stop()` cuts the voice mid-reply and drops what is queued. Speaks with the voice chosen
  * for this device (voice/choice.ts, the same as Drive mode): the server's when there is one,
  * else the browser's. `available` is false where neither can speak.
  */
 export function useReadAloud(api?: Pick<Api, "speak" | "voiceConfig">) {
-  const [enabled, setEnabled] = useState(readReadAloud);
+  const [enabled, setEnabled] = useState(false);
+  useEffect(forgetReadAloud, []);
   const [speaking, setSpeaking] = useState(false);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -134,11 +131,11 @@ export function useReadAloud(api?: Pick<Api, "speak" | "voiceConfig">) {
     [drain],
   );
 
+  /** `tap: false` when the mode changed it (Converse opened or folded) rather than a tap on the switch. */
   const set = useCallback(
-    (on: boolean) => {
-      writeReadAloud(on);
+    (on: boolean, { tap = true }: { tap?: boolean } = {}) => {
       // Called from the switch's tap: unlock audio now, as iOS requires, for replies that arrive later.
-      if (on && configRef.current?.tts) sharedAudioContext();
+      if (on && tap && configRef.current?.tts) sharedAudioContext();
       setEnabled(on);
       enabledRef.current = on;
       if (!on) stop();

@@ -185,8 +185,9 @@ result of an approved reply may say `scheduled` with the time: that is expected,
 If a reply fails because Reddit rate-limited the account or the session expired, tell Dave what
 Reddit said; never try another way to get it posted.
 
-- Find the `accountId` in the task, or on the playbook note's `Account:` line (the Reddit account
-  id from the Accounts page, bound to this vertical). Never guess one. If there is none, propose a
+- The `accountId` is the business's Reddit account under **Social accounts** in your
+  instructions (the accounts connected on the Accounts page). The task or the playbook note's
+  `Account:` line may name a different one to use. Never guess one. If there is none, propose a
   `notify` titled "Reddit drafts" holding each draft: the thread link, what the thread asks for,
   and the text, so Dave can post them himself.
 - To answer a comment rather than the post, use that comment's `t1_` fullname (its `id` in
@@ -206,7 +207,8 @@ Reddit said; never try another way to get it posted.
 Update `<brain folder>/marketing/reddit.md` with `brain.write`, and create the note if it is
 missing. Keep these sections:
 
-- **Account:** the Reddit `accountId` to reply from (Dave fills this in; leave it blank if unknown).
+- **Account:** the Reddit `accountId` you reply from: fill it in from **Social accounts** in your
+  instructions when it is blank (leave it blank only if no Reddit account is connected).
 - **Subreddits:** each sub, its self-promotion rule, its required format, and whether it is
   worth checking, with the date you last read its rules (`subreddit_info`).
 - **Own domains:** the domains and product names that count as self-promotion for this

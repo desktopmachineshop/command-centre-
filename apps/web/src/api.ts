@@ -164,6 +164,8 @@ export type SocialAccount = {
   id: string;
   platform: string;
   vertical: string;
+  /** Other businesses that may post from it too (cross-posting). */
+  alsoVerticals?: string[];
   handle: string | null;
   displayName: string | null;
   inbound: boolean;

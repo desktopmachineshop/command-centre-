@@ -53,7 +53,12 @@ function Accounts({ accounts }: { accounts: SocialAccount[] }) {
                 <strong>
                   {platformLabel(a.platform)} <span className="muted">{handleLabel(a)}</span>
                 </strong>
-                <VTag id={a.vertical} />
+                <span className="row small">
+                  <VTag id={a.vertical} />
+                  {(a.alsoVerticals ?? []).map((v) => (
+                    <VTag key={v} id={v} />
+                  ))}
+                </span>
               </div>
               <div className="row wrap small muted caps">
                 <code>{a.id}</code>
@@ -106,7 +111,15 @@ function Composer({ api, accounts }: { api: Api; accounts: SocialAccount[] }) {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
 
-  const vertical = accounts.find((a) => a.id === selected[0])?.vertical;
+  // The businesses every chosen account may post for (an account can be shared with several): the
+  // campaign goes out for the first, and an account outside them can't be added.
+  const speaksFor = (a: SocialAccount) => [a.vertical, ...(a.alsoVerticals ?? [])];
+  const common = selected.reduce<string[] | null>((acc, id) => {
+    const a = accounts.find((x) => x.id === id);
+    return a ? (acc ? acc.filter((v) => speaksFor(a).includes(v)) : speaksFor(a)) : acc;
+  }, null);
+  const vertical = common?.[0];
+  const fits = (a: SocialAccount) => !common || speaksFor(a).some((v) => common.includes(v));
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const setOverride = (id: string, patch: Override) => setOverrides((o) => ({ ...o, [id]: { ...o[id], ...patch } }));
 
@@ -212,11 +225,11 @@ function Composer({ api, accounts }: { api: Api; accounts: SocialAccount[] }) {
         <span className="small muted">Post to{vertical ? ` (${vertical} accounts)` : ""}</span>
         <div className="chips">
           {publishable.map((a) => (
-            <label key={a.id} className={`chip ${selected.includes(a.id) ? "on" : ""} ${vertical && a.vertical !== vertical ? "off" : ""}`}>
+            <label key={a.id} className={`chip ${selected.includes(a.id) ? "on" : ""} ${fits(a) ? "" : "off"}`}>
               <input
                 type="checkbox"
                 checked={selected.includes(a.id)}
-                disabled={Boolean(vertical && a.vertical !== vertical)}
+                disabled={!fits(a)}
                 onChange={() => toggle(a.id)}
               />
               {platformLabel(a.platform)} {handleLabel(a)}

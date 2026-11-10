@@ -151,6 +151,9 @@ export class IntegrationService {
       const problems = validateFields(def, data, secrets);
       const vertical = data.vertical;
       if (vertical !== undefined && !this.options.verticals().includes(String(vertical))) problems.push(`Business "${String(vertical)}" doesn't exist`);
+      if (Array.isArray(data.alsoVerticals)) {
+        for (const v of data.alsoVerticals) if (!this.options.verticals().includes(String(v))) problems.push(`Business "${String(v)}" doesn't exist (the ids are: ${this.options.verticals().join(", ")})`);
+      }
       if (problems.length) throw new IntegrationError(problems.join("; "), 400, problems);
 
       // Would it make a working account? Check before saving.

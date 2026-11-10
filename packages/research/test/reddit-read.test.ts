@@ -100,7 +100,7 @@ describe("RedditReader", () => {
     await searchPosts(r.reader, "collets");
     expect(r.calls.map((c) => c.url.pathname)).toEqual(["/r/hobbycnc/new.json", "/r/hobbycnc/new.rss", "/search.rss"]);
     // What has no feed is refused without asking again, and says what would help.
-    await expect(subredditInfo(r.reader, "hobbycnc")).rejects.toThrow(/only lets this server read its public feeds.*subreddit rules.*Connect a Reddit session account/s);
+    await expect(subredditInfo(r.reader, "hobbycnc")).rejects.toThrow(/only lets this server read its public feeds.*subreddit rules.*Connect a Reddit account/s);
     expect(r.calls).toHaveLength(3);
     // A quarter of an hour later the JSON is tried again.
     r.advance(16 * 60_000);
@@ -109,7 +109,45 @@ describe("RedditReader", () => {
     // And at once when a session is connected.
     cookie = "reddit_session=abc";
     await searchPosts(r.reader, "clamps");
-    expect(r.calls.slice(5).map((c) => c.url.pathname)).toEqual(["/search.json", "/search.rss"]);
+    // (www first, then the classic site where the session lives, then the feed).
+    expect(r.calls.slice(5).map((c) => `${c.url.host}${c.url.pathname}`)).toEqual(["www.reddit.com/search.json", "old.reddit.com/search.json", "www.reddit.com/search.rss"]);
+  });
+
+  it("reads through the Data API when a Reddit app account is connected: rules that the public site refuses", async () => {
+    const block = () => new Response("<html>blocked</html>", { status: 403 });
+    const r = fakeReddit(
+      {
+        "/r/hobbycnc/about.json": block,
+        "/r/hobbycnc/about/rules.json": block,
+        "/r/hobbycnc/about": { kind: "t5", data: { display_name: "hobbycnc", subscribers: 1200, submission_type: "any", description: "Be kind." } },
+        "/r/hobbycnc/about/rules": { rules: [{ short_name: "No spam", description: "Self-promotion in the weekly thread only.", kind: "all" }] },
+      },
+      { api: async () => ({ token: "tok123", userAgent: "web:command-centre:1.0 (by /u/dave)" }) },
+    );
+    const info = await subredditInfo(r.reader, "hobbycnc");
+    expect(info.rules).toEqual([{ name: "No spam", description: "Self-promotion in the weekly thread only.", appliesTo: "posts and comments" }]);
+    expect(info.rulesError).toBeUndefined();
+    expect(r.calls.map((c) => `${c.url.host}${c.url.pathname}`)).toEqual(["oauth.reddit.com/r/hobbycnc/about", "oauth.reddit.com/r/hobbycnc/about/rules"]);
+    expect(r.calls[0]!.headers).toMatchObject({ Authorization: "bearer tok123", "User-Agent": "web:command-centre:1.0 (by /u/dave)" });
+    expect(r.calls[0]!.headers.Cookie).toBeUndefined();
+    expect(r.reader.signedIn).toBe(true);
+  });
+
+  it("falls back to the public site when the Data API refuses, and to the classic site with a session cookie", async () => {
+    const r = fakeReddit(
+      {
+        "/r/hobbycnc/about": (c: Call) => (c.url.host === "oauth.reddit.com" ? new Response("{}", { status: 401 }) : new Response("nope", { status: 404 })),
+        "/r/hobbycnc/about.json": (c: Call) =>
+          c.url.host === "old.reddit.com" ? new Response(JSON.stringify({ kind: "t5", data: { display_name: "hobbycnc" } })) : new Response("<html>blocked</html>", { status: 403 }),
+        "/r/hobbycnc/about/rules": () => new Response("{}", { status: 401 }),
+        "/r/hobbycnc/about/rules.json": (c: Call) => (c.url.host === "old.reddit.com" ? new Response(JSON.stringify({ rules: [{ short_name: "Flair your post", kind: "link" }] })) : new Response("<html>blocked</html>", { status: 403 })),
+      },
+      { api: async () => ({ token: "expired", userAgent: "ua" }), cookie: () => "reddit_session=abc" },
+    );
+    const info = await subredditInfo(r.reader, "hobbycnc");
+    expect(info.rules).toEqual([{ name: "Flair your post", description: "", appliesTo: "posts" }]);
+    expect(r.calls.map((c) => c.url.host)).toEqual(["oauth.reddit.com", "www.reddit.com", "old.reddit.com", "oauth.reddit.com", "www.reddit.com", "old.reddit.com"]);
+    expect(r.reader.feedsOnly).toBe(false);
   });
 
   it("waits out the feed's one-a-minute window rather than failing", async () => {
@@ -302,6 +340,6 @@ describe("reddit MCP server", () => {
     expect(data.access).toMatch(/Feeds only.*no Reddit account is connected.*about one read a minute/);
     const rules = await t.call("subreddit_info", { subreddit: "hobbycnc" });
     expect(rules.isError).toBe(true);
-    expect(rules.text).toMatch(/Connect a Reddit session account on the Accounts page/);
+    expect(rules.text).toMatch(/Connect a Reddit account on the Accounts page/);
   });
 });
