@@ -1054,7 +1054,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (!started || !config.schedulesEnabled) return;
     // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
     const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
-    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, (v, s) => scheduleShouldFire(brain, v, s.id));
+    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, (v, s) => scheduleShouldFire(brain, v, s.id, (id) => social.current.accounts.some((a) => a.platform === "reddit" && a.vertical === id)));
   };
   org.onChange(() => {
     restartSchedules();

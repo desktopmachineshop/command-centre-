@@ -133,9 +133,10 @@ always needs Dave (refunds always need Dave, for example), are kept as each busi
 
 - The assistant's own: `morning-brief` (07:00 weekdays, on), in its home business `personal`.
 - A business's `schedules` run as the assistant in that business: `dms` `low-stock-check` (off),
-  `personal` `evening-wrap` (off); `reddit-scout` (weekdays, on) and `competitor-watch` (Mondays,
-  on, skipped while the business's competitor registry is empty) for `dms`, `3dpandme`, `openv`
-  and `opend`.
+  `personal` `evening-wrap` (off); `reddit-scout` (weekdays, on; for `dms` and `3dpandme` skipped
+  until a Reddit account is connected for the business) and `competitor-watch` (Mondays, on,
+  skipped while the business's competitor registry is empty) for `dms`, `3dpandme`, `openv` and
+  `opend`.
 - A specialist's `schedules` run as that specialist: the Software Lead's `file-issues` and
   `assess-performance`.
 

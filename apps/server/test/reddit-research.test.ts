@@ -91,11 +91,20 @@ describe("competitor registry", () => {
 
   it("fires the competitor watch only when someone is registered; every other schedule always", async () => {
     const brain = (body: string | null) => ({ read: async () => (body === null ? null : ({ body } as never)) });
-    const dms = { brainFolder: "dms" };
+    const dms = { id: "dms", brainFolder: "dms" };
     expect(await scheduleShouldFire(brain(registryTemplate("DMS")), dms, "competitor-watch")).toBe(false);
     expect(await scheduleShouldFire(brain(null), dms, "competitor-watch")).toBe(false);
     expect(await scheduleShouldFire(brain("## Rival\n- Site: https://rival.example.com\n"), dms, "competitor-watch")).toBe(true);
-    expect(await scheduleShouldFire(brain(registryTemplate("DMS")), dms, "reddit-scout")).toBe(true);
+    expect(await scheduleShouldFire(brain(registryTemplate("DMS")), dms, "low-stock-check")).toBe(true);
+  });
+
+  it("holds the shop's and the channel's Reddit scout until a Reddit account is connected; the SaaS scouts run as before", async () => {
+    const brain = { read: async () => null };
+    const connected = (ids: string[]) => (id: string) => ids.includes(id);
+    expect(await scheduleShouldFire(brain, { id: "dms", brainFolder: "dms" }, "reddit-scout", connected([]))).toBe(false);
+    expect(await scheduleShouldFire(brain, { id: "3dpandme", brainFolder: "3dpandme" }, "reddit-scout", connected(["dms"]))).toBe(false);
+    expect(await scheduleShouldFire(brain, { id: "dms", brainFolder: "dms" }, "reddit-scout", connected(["dms"]))).toBe(true);
+    expect(await scheduleShouldFire(brain, { id: "openv", brainFolder: "openv" }, "reddit-scout", connected([]))).toBe(true);
   });
 });
 

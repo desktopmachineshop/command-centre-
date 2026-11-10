@@ -90,6 +90,8 @@ export const isRedditSessionAccount = (account: Pick<SocialAccount, "platform" |
 /** Default pacing of session accounts: a person's rhythm. Overridden per account in `options`. */
 export const SESSION_MIN_GAP_MINUTES = 10;
 export const SESSION_DAILY_CAP = 8;
+/** How often a session account's inbox is checked. */
+export const SESSION_POLL_SECONDS = 300;
 
 export const RedditOptions = z.object({
   /** Subject for DMs sent with sendDm. */
@@ -297,6 +299,8 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
     inbound: {
       // Each poll is 1-3 requests; Reddit allows about 100 per minute per client id.
       pollIntervalSeconds: 90,
+      // A session account checks its inbox as often as a person with the tab open might, not as an API client can.
+      pollIntervalFor: (account) => (isRedditSessionAccount(account) ? SESSION_POLL_SECONDS : undefined),
 
       async poll(account, cursor, ctx) {
         const c = creds(account);

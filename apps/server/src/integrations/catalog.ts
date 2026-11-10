@@ -373,7 +373,6 @@ export const CATALOG: readonly KindDef[] = [
       options,
     ],
     affects: ["social"],
-    helpUrl: "https://www.reddit.com/",
   },
   {
     kind: "youtube",

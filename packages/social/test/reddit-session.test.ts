@@ -275,6 +275,9 @@ describe("pacing", () => {
     const api = account({ credentials: { clientId: "c", clientSecret: "s", refreshToken: "r" } });
     expect(pacingFor(api, adapter)).toBeNull();
     expect(pacingFor({ ...api, options: { dailyCap: 5 } }, adapter)).toEqual({ minGapMs: 0, dailyCap: 5 });
+    // And a session account's inbox is checked every five minutes, not every 90 seconds.
+    expect(adapter.inbound!.pollIntervalFor!(account())).toBe(300);
+    expect(adapter.inbound!.pollIntervalFor!(api)).toBeUndefined();
   });
 
   function setup(options: Record<string, unknown> = {}) {

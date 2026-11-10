@@ -18,9 +18,20 @@ export const redditScoutPrompt = (subject: string, factSheet: string) => `Find f
 
 Finish with the short report the skill describes.`;
 
+export const REDDIT_SCOUT_ID = "reddit-scout";
+
+/**
+ * Businesses whose scout waits for a Reddit account: the server skips the firing until one is
+ * connected for the business (apps/server competitors.ts). Without an account Reddit gives a
+ * server only its feeds (no subreddit rules), so the scout could draft but not propose; for the
+ * shop and the channel, which never had a scout, that isn't worth a daily run. OpenV's and
+ * OpenD's scouts run as they always have, sending Dave drafts when there is no account.
+ */
+export const SCOUT_WAITS_FOR_ACCOUNT: readonly string[] = ["dms", "3dpandme"];
+
 /** The weekday Reddit scout. `minute` staggers the businesses so they don't all read Reddit at once. */
 export function redditScoutSchedule(subject: string, factSheet: string, minute: number, enabled = true): Schedule {
-  return { id: "reddit-scout", cron: `${minute} 11 * * 1-5`, timezone: "Europe/London", prompt: redditScoutPrompt(subject, factSheet), enabled };
+  return { id: REDDIT_SCOUT_ID, cron: `${minute} 11 * * 1-5`, timezone: "Europe/London", prompt: redditScoutPrompt(subject, factSheet), enabled };
 }
 
 /** The brain note listing a business's competitors (seeded with a template by the server). */

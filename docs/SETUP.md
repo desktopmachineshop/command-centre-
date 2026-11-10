@@ -1835,7 +1835,8 @@ action is about to go out:
 **How it works.** The cookie is sent to `old.reddit.com`, the classic site, whose forms the
 adapter fills in: `GET /api/me.json` (username, karma and the `modhash`, old Reddit's
 form token), `POST /api/comment`, `/api/submit` and `/api/compose` with that modhash, and
-`GET /message/inbox.json` for replies and messages. Code: `packages/social/src/adapters/reddit/session.ts`
+`GET /message/inbox.json` for replies and messages (checked every five minutes; turn
+**Watch for comments, mentions and DMs** off on the card to not check it at all). Code: `packages/social/src/adapters/reddit/session.ts`
 (the client), `packages/social/src/pacing.ts` (limits and the outbox, table `social_outbox`).
 
 **Not verified with a real account.** This was built from Reddit's endpoint shapes and tested
@@ -1894,8 +1895,11 @@ businesses that market themselves (DMS, 3dpandme, OpenV, OpenD) and for the assi
 - **Reddit scout.** DMS and 3dpandme now have the weekday `reddit-scout` schedule OpenV and OpenD
   already had (11:37 and 11:51; the SaaS ones at 11:23). It searches with these tools, reads each
   subreddit's rules and the account's own history, and proposes at most three disclosed replies
-  as **one batch**. Turn a scout off or change its time under **Businesses → the business →
-  Schedules**.
+  as **one batch**. The DMS and 3dpandme scouts **start the day a Reddit account is connected for
+  that business** and are skipped until then (without one they could not read subreddit rules,
+  so could only send drafts); OpenV's and OpenD's run as before. To run one now, ask in Chat
+  ("dms: run the Reddit scout"). Turn a scout off or change its time under **Businesses → the
+  business → Schedules**.
 
 ### X
 

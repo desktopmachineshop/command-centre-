@@ -126,6 +126,8 @@ export interface InboundSource {
   poll?(account: SocialAccount, cursor: string | null, ctx: AdapterContext): Promise<PollResult>;
   /** Suggested poll interval for this platform, in seconds (rate limits differ a lot). */
   pollIntervalSeconds?: number;
+  /** A different interval for one account, when how it is signed in calls for it; wins over `pollIntervalSeconds`. */
+  pollIntervalFor?(account: SocialAccount): number | undefined;
   /** Open a live connection and call `emit` for each item. Resolves to a stop function. */
   listen?(
     account: SocialAccount,

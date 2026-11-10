@@ -1,7 +1,7 @@
 import { type Brain, BrainConflictError } from "@cc/brain";
 import type { VerticalManifest } from "@cc/core";
 import { slugOf } from "@cc/research";
-import { COMPETITOR_WATCH_ID, competitorRegistryPath, type VerticalRegistry } from "@cc/verticals";
+import { COMPETITOR_WATCH_ID, competitorRegistryPath, REDDIT_SCOUT_ID, SCOUT_WAITS_FOR_ACCOUNT, type VerticalRegistry } from "@cc/verticals";
 import type { Pool } from "./db/pool";
 
 /**
@@ -76,11 +76,19 @@ export async function seedCompetitorRegistries(brain: Brain, pool: Pool, registr
 }
 
 /**
- * Whether a schedule should fire now. The competitor watch is skipped while the business's
- * registry lists no competitors, so the weekly run costs nothing until there is someone to watch.
+ * Whether a schedule should fire now. Two schedules wait for something to work with, so they cost
+ * nothing until it is there:
+ * - the competitor watch, while the business's registry lists no competitors;
+ * - the Reddit scout of a business in SCOUT_WAITS_FOR_ACCOUNT, while it has no Reddit account connected.
  * Anything else, and any doubt (the note can't be read), fires.
  */
-export async function scheduleShouldFire(brain: Pick<Brain, "read">, vertical: Pick<VerticalManifest, "brainFolder">, scheduleId: string): Promise<boolean> {
+export async function scheduleShouldFire(
+  brain: Pick<Brain, "read">,
+  vertical: Pick<VerticalManifest, "id" | "brainFolder">,
+  scheduleId: string,
+  hasRedditAccount: (verticalId: string) => boolean = () => true,
+): Promise<boolean> {
+  if (scheduleId === REDDIT_SCOUT_ID && SCOUT_WAITS_FOR_ACCOUNT.includes(vertical.id)) return hasRedditAccount(vertical.id);
   if (scheduleId !== COMPETITOR_WATCH_ID) return true;
   try {
     const note = await brain.read(competitorRegistryPath(vertical.brainFolder));

@@ -127,8 +127,8 @@ export class SocialInbound {
     };
   }
 
-  private intervalMs(adapter: PlatformAdapter): number {
-    const seconds = adapter.inbound?.pollIntervalSeconds ?? this.options.defaultPollSeconds ?? 300;
+  private intervalMs(adapter: PlatformAdapter, account: SocialAccount): number {
+    const seconds = adapter.inbound?.pollIntervalFor?.(account) ?? adapter.inbound?.pollIntervalSeconds ?? this.options.defaultPollSeconds ?? 300;
     const jitter = this.options.jitter ?? 0.1;
     const random = this.options.random ?? Math.random;
     return Math.max(0, seconds * 1000 * (1 + jitter * (2 * random() - 1)));
@@ -160,7 +160,7 @@ export class SocialInbound {
           cursor = result.cursor;
         }
         backoff.reset();
-        wait = this.intervalMs(adapter);
+        wait = this.intervalMs(adapter, account);
       } catch (err) {
         if (this.stopped) return;
         wait = backoff.next();
