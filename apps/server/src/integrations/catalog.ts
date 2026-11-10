@@ -382,6 +382,26 @@ export const CATALOG: readonly KindDef[] = [
     affects: ["social"],
   },
   {
+    kind: "reddit-browser",
+    label: "Reddit (posts from my PC)",
+    section: "social",
+    description:
+      "For when Reddit won't take your own login from the server: posts, replies and messages go out from a Chrome window on your PC that you signed in to yourself (Devices page, Sign in to Reddit). The PC must be on with the desktop app open for anything to go out; until then approved ones wait. Same approvals and the same slow pace as your own login. This automates your account outside Reddit's official API, which Reddit's terms may not allow: the account can be rate limited or banned. Setup steps: docs/SETUP.md, \"Reddit from your own PC\".",
+    multi: true,
+    fields: [
+      vertical,
+      alsoVerticals,
+      { ...handle, placeholder: "u/name", required: true, help: "Your Reddit username. The PC refuses to post if its Reddit window is signed in as anyone else." },
+      displayName,
+      inbound,
+      { key: "browserNode", label: "Which PC", type: "text", placeholder: "any", help: "The computer's name as the Devices page shows it, or blank for any connected PC with a browser." },
+      { key: "minGapMinutes", label: "Minutes between submissions", type: "number", default: 10, help: "The least time between two posts, replies or messages from this account. Approved ones queue up." },
+      { key: "dailyCap", label: "Most submissions in 24 hours", type: "number", default: 8 },
+      options,
+    ],
+    affects: ["social"],
+  },
+  {
     kind: "youtube",
     label: "YouTube",
     section: "social",

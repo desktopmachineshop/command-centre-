@@ -29,13 +29,14 @@ export interface EntryError {
   message: string;
 }
 
-const SOCIAL: readonly string[] = ["discord", "instagram", "threads", "x", "reddit", "reddit-session", "youtube"];
+const SOCIAL: readonly string[] = ["discord", "instagram", "threads", "x", "reddit", "reddit-session", "reddit-browser", "youtube"];
 /** Kinds that are a second way to sign in to a platform, not a platform of their own. */
-const KIND_PLATFORM: Record<string, Platform> = { "reddit-session": "reddit" };
+const KIND_PLATFORM: Record<string, Platform> = { "reddit-session": "reddit", "reddit-browser": "reddit" };
 /** The social platform an Accounts-page kind signs in to. */
 export const platformOfKind = (kind: string): Platform => KIND_PLATFORM[kind] ?? (kind as Platform);
 /** The Accounts-page kind a social account was (or would be) saved as. */
-export const kindOfAccount = (account: Pick<SocialAccount, "platform" | "credentials">): string => (account.platform === "reddit" && account.credentials.sessionCookie ? "reddit-session" : account.platform);
+export const kindOfAccount = (account: Pick<SocialAccount, "platform" | "credentials">): string =>
+  account.platform !== "reddit" ? account.platform : account.credentials.browserNode ? "reddit-browser" : account.credentials.sessionCookie ? "reddit-session" : "reddit";
 /** The developer-app kind whose keys each platform's credentials include. */
 const APP_CREDENTIALS: Partial<Record<Platform, { kind: string; map: Record<string, string> }>> = {
   x: { kind: "x-app", map: { apiKey: "apiKey", apiSecret: "apiSecret" } },
@@ -218,6 +219,8 @@ export function socialAccountOf(e: EntryInput, entries: EntryInput[]): SocialAcc
   }
   // Anything else stored as a secret (e.g. a Reddit password moved in from Railway).
   for (const [k, value] of Object.entries(e.secrets)) if (value && !(k in credentials)) credentials[k] = value;
+  // Reddit from Dave's PC: which PC is all it needs (no secret at all); blank is any PC.
+  if (e.kind === "reddit-browser") credentials.browserNode = str(e.data.browserNode) ?? "any";
   return {
     id: e.id,
     platform,

@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Capability } from "@cc/core";
 import { prepareCapture } from "./browser";
 import { defaultPython, detectCapabilities, resolveEnv, which } from "./capabilities";
@@ -8,6 +8,7 @@ import { claudeHandler } from "./handlers/claude";
 import { davinciRenderHandler } from "./handlers/davinci";
 import { echoHandler } from "./handlers/echo";
 import { ffmpegHandler } from "./handlers/ffmpeg";
+import { RedditBrowser, redditBrowserHandler } from "./handlers/reddit";
 import { HandlerRegistry } from "./handlers/registry";
 import { videoCaptureHandler, videoRenderHandler } from "./handlers/video";
 import { detectSetup, refreshProcessPath, setupHandler } from "./setup";
@@ -21,11 +22,18 @@ export * from "./setup";
 export * from "./storage";
 export { claudeHandler, davinciRenderHandler, echoHandler, ffmpegHandler, videoCaptureHandler, videoRenderHandler };
 export { DavinciRenderPayload } from "./handlers/davinci";
+export { RedditBrowser, redditBrowserHandler } from "./handlers/reddit";
+
+/** The Reddit window's own Chrome profile, beside worker.json: never Dave's everyday profile. */
+export const redditProfileDir = (config: Pick<WorkerConfig, "configPath">): string => join(dirname(config.configPath), "reddit-profile");
 
 /** The built-in job kinds. Add new handlers here. */
 export function defaultRegistry(
   config: Pick<WorkerConfig, "ffmpegBin" | "claudeBin" | "claudeDirs" | "workDir"> &
-    Partial<Pick<WorkerConfig, "chromiumBin" | "captureProfiles" | "pythonBin" | "davinciPresets">>,
+    Partial<Pick<WorkerConfig, "chromiumBin" | "captureProfiles" | "pythonBin" | "davinciPresets">> & {
+      /** Posts to Reddit from this PC's browser (one window for the worker's life). */
+      reddit?: RedditBrowser;
+    },
   capabilities: Capability[] = [],
 ): HandlerRegistry {
   const ffmpegBin = which(config.ffmpegBin) ?? config.ffmpegBin;
@@ -41,6 +49,8 @@ export function defaultRegistry(
     .register(claudeHandler({ bin: which(config.claudeBin) ?? config.claudeBin, allowedDirs: [config.workDir, ...config.claudeDirs] }))
     .register(videoCaptureHandler(video))
     .register(videoRenderHandler(video))
+    // Needs `browser`, so the server only sends it to a PC that offers it.
+    .register(redditBrowserHandler(config.reddit ?? { chromiumBin: video.chromiumBin, profileDir: join(config.workDir, "reddit-profile") }))
     .register(setupHandler());
   // Only offered where Resolve and its scripting module were found (or worker.json forces it on).
   if (capabilities.includes("davinci")) {
@@ -63,6 +73,15 @@ export async function createWorker(
   options: { onStatus?: (s: WorkerStatus) => void; log?: (line: string) => void; onUpdate?: () => void } = {},
 ) {
   const log = options.log ?? ((line: string) => console.log(line));
+  // One Reddit window for the worker's life, whatever re-detection finds; it uses the browser found last.
+  let redditChromium: string | null = config.chromiumBin;
+  const reddit = new RedditBrowser({
+    get chromiumBin() {
+      return redditChromium;
+    },
+    profileDir: redditProfileDir(config),
+    log,
+  });
   /** What this computer can do now; run again after a setup.install job installed something. */
   const probe = async () => {
     // Windows: pick up programs installed since the desktop app started (e.g. ffmpeg by winget).
@@ -82,7 +101,8 @@ export async function createWorker(
         overrides: config.capabilityOverrides,
       }));
     const setup = await detectSetup({ capture: { ready: capture.ready, why: capture.why }, appVersion: config.appVersion, remoteUpdate: !!options.onUpdate && !!config.appVersion, ffmpegBin: config.ffmpegBin, claudeBin: config.claudeBin, chromiumBin: config.chromiumBin, capabilities });
-    const registry = defaultRegistry({ ...config, chromiumBin: capture.chromiumBin ?? config.chromiumBin }, capabilities);
+    redditChromium = capture.chromiumBin ?? config.chromiumBin;
+    const registry = defaultRegistry({ ...config, chromiumBin: capture.chromiumBin ?? config.chromiumBin, reddit }, capabilities);
     return { capabilities, setup, registry };
   };
   const first = await probe();
