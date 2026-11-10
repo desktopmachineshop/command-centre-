@@ -2,12 +2,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import * as XLSX from "xlsx";
 import { beforeEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { attachmentText, createMailMcpServer, emailPrompt, MemoryMailbox, parseEmail } from "../src";
 import { account, rawEmail } from "./fixtures";
 
-/** A one-page PDF with a text layer. */
-function pdf(text: string): Buffer {
-  const stream = `BT /F1 12 Tf 20 100 Td (${text}) Tj ET`;
+/** A one-page PDF with a text layer, or with only a drawing (a scan has no text layer). */
+function pdf(text: string, scanned = false): Buffer {
+  const stream = scanned ? "0 0 0 rg 20 80 200 40 re f" : `BT /F1 12 Tf 20 100 Td (${text}) Tj ET`;
   const objs = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -54,7 +55,20 @@ describe("attachmentText", () => {
     expect(html.text).toBe("A\t1");
     const long = await attachmentText({ filename: "p.txt", contentType: "text/plain", content: Buffer.from("x".repeat(5000)) }, 1000);
     expect(long.truncated).toBe(true);
-    await expect(attachmentText({ filename: "manual.docx", contentType: "application/msword", content: Buffer.alloc(4) })).rejects.toThrow(/can't be read/);
+    await expect(attachmentText({ filename: "manual.doc", contentType: "application/msword", content: Buffer.alloc(4) })).rejects.toThrow(/can't be read/);
+  });
+
+  it("reads Word documents as text", async () => {
+    const content = readFileSync(new URL("./purchase-order.docx", import.meta.url));
+    const out = await attachmentText({ filename: "PO 4471.docx", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", content });
+    expect(out).toMatchObject({ format: "word", truncated: false });
+    expect(out.text).toContain("Purchase order 4471");
+    expect(out.text).toContain("10 x ER11 collet set");
+  });
+
+  it("marks a PDF with no text layer as scanned", async () => {
+    const out = await attachmentText({ filename: "po.pdf", contentType: "application/pdf", content: pdf("", true) });
+    expect(out).toMatchObject({ format: "pdf", parts: 1, scanned: true });
   });
 });
 
@@ -187,6 +201,28 @@ describe("mail MCP server", () => {
     const prompt = emailPrompt({ accountId: "shop", ...(await parseEmail(box.messages.at(-1)!.source)) });
     expect(prompt).toContain("Attachments: image-1.png");
     expect(prompt).toMatch(/images as the image itself/);
+  });
+
+  it("hands a scanned PDF over as images of its pages", async () => {
+    box.deliver(
+      await rawEmail({
+        from: "Buyer <buyer@example.com>",
+        to: "support@desktopmachineshop.com",
+        subject: "PO attached",
+        text: "Signed PO attached.",
+        messageId: "<scan@example.com>",
+        attachments: [{ filename: "PO-4471.pdf", content: pdf("", true), contentType: "application/pdf" }],
+      }),
+    );
+    const res = (await mcp().callTool({ name: "read_attachment", arguments: { accountId: "shop", messageId: "<scan@example.com>" } })) as {
+      content: { type: string; text?: string; data?: string; mimeType?: string }[];
+      isError?: boolean;
+    };
+    expect(res.isError).toBeFalsy();
+    expect(JSON.parse(res.content[0]!.text!)).toMatchObject({ filename: "PO-4471.pdf", format: "pdf", scanned: true, text: expect.stringMatching(/pages follow as images/) });
+    expect(res.content).toHaveLength(2);
+    expect(res.content[1]).toMatchObject({ type: "image", mimeType: "image/png" });
+    expect(Buffer.from(res.content[1]!.data!, "base64").subarray(1, 4).toString()).toBe("PNG");
   });
 
   it("tells the agent how to read attachments of the email in its task", async () => {

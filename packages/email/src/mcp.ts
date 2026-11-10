@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { EmailAccount } from "./accounts";
-import { attachmentFormat, attachmentReadable, attachmentText, isImageAttachment, MAX_ATTACHMENT_CHARS, MAX_IMAGE_BYTES, mailAttachments, viewableImageType } from "./attachments";
+import { attachmentFormat, attachmentReadable, attachmentText, isImageAttachment, MAX_ATTACHMENT_CHARS, MAX_IMAGE_BYTES, mailAttachments, pdfPageImages, viewableImageType } from "./attachments";
 import { type ImapConnector, type ImapSession, imapflowConnector, type MailSearch } from "./imap";
 import { type EmailPayload, formatAddress, parseEmail } from "./parse";
 
@@ -175,7 +175,7 @@ export function createMailMcpServer(options: MailMcpOptions): McpServer {
     "read_attachment",
     {
       description:
-        "Read an attachment: PDFs page by page, spreadsheets (xlsx, xls, ods, csv) sheet by sheet as CSV, HTML and text files as text; JPEG, PNG, GIF and WebP images (photos, screenshots, pasted pictures) come back as the image itself for you to look at. Pick it by index (from search_mail or read_mail) or filename. Scanned PDFs have no text.",
+        "Read an attachment: PDFs page by page (a scanned PDF comes back as images of its pages), Word documents (.docx), spreadsheets (xlsx, xls, ods, csv) sheet by sheet as CSV, HTML and text files as text; JPEG, PNG, GIF and WebP images (photos, screenshots, pasted pictures) come back as the image itself for you to look at. Pick it by index (from search_mail or read_mail) or filename.",
       inputSchema: {
         ...where,
         index: z.number().int().min(0).optional().describe("Attachment index; default the first readable document, else the first image"),
@@ -211,6 +211,19 @@ export function createMailMcpServer(options: MailMcpOptions): McpServer {
         if (isImageAttachment(pick.filename, pick.contentType) && attachmentFormat(pick.filename, pick.contentType) === null)
           return fail(`${pick.filename} (${pick.contentType}) is an image in a format you can't view; JPEG, PNG, GIF and WebP can be. Ask for a JPEG if it matters.`);
         const text = await attachmentText(pick, maxChars);
+        if (text.scanned) {
+          // A scan (a signed PO, a printed quote): its pages as pictures to read.
+          const { pages, totalPages } = await pdfPageImages(pick.content).catch(() => ({ pages: [] as Buffer[], totalPages: text.parts ?? 0 }));
+          await read();
+          if (!pages.length) return ok({ note: UNTRUSTED, index: pick.index, size: pick.size, ...text, text: "(no text layer: this PDF looks scanned, and its pages couldn't be rendered as images.)" });
+          const more = totalPages > pages.length ? ` Only the first ${pages.length} of ${totalPages} pages are shown.` : "";
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify({ note: UNTRUSTED, index: pick.index, size: pick.size, ...text, text: `This PDF is a scan with no text layer: its pages follow as images, in order.${more}` }) },
+              ...pages.map((p) => ({ type: "image" as const, data: p.toString("base64"), mimeType: "image/png" })),
+            ],
+          };
+        }
         await read();
         return ok({ note: UNTRUSTED, index: pick.index, size: pick.size, ...text });
       } catch (err) {

@@ -75,6 +75,15 @@ export class ChatFiles {
     return `Read(/${this.dir}/**)`;
   }
 
+  /**
+   * Rules that let a run read just these files' copies: for a task from outside input, which
+   * doesn't get the whole folder (it holds the files of Dave's other chats), but must still be
+   * able to open what Dave attached to his own message.
+   */
+  fileReadRules(files: readonly ChatFile[]): string[] {
+    return files.filter((f) => isBlobId(f.id)).map((f) => `Read(/${join(this.dir, f.id)})`);
+  }
+
   /** Stores an uploaded file in the "attachments" folder. Throws ChatFileError when it is too large or the disk is full. */
   async upload(body: ReadableStream<Uint8Array> | null, name: string, contentType: string, declaredBytes = 0): Promise<ChatFile> {
     if (!body) throw new ChatFileError("empty file");
