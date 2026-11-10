@@ -1,14 +1,29 @@
-import { type Capability, type InboundMessage, type Job, type NodeSetup, roleStatus, SETUP_ROLES, type SetupRoleId } from "@cc/core";
+import { type Capability, type InboundMessage, type Job, type NodeSetup, REDDIT_BROWSER_JOB, roleStatus, SETUP_ROLES, type SetupRoleId } from "@cc/core";
 import type { Store } from "./db/store";
 import type { Hub, Peer } from "./hub";
 
+/** How a job someone is waiting for (`run`) ended. */
+export type JobOutcome =
+  | { kind: "settled"; job: Job }
+  /** No computer took it within `pickupMs`; it was cancelled, so it never ran. */
+  | { kind: "not-picked-up" }
+  /** It was running when `timeoutMs` ran out; it may still finish (and nobody hears of it). */
+  | { kind: "timed-out" }
+  /** A run-at-most-once job whose computer dropped mid-job: cancelled, not requeued, outcome unknown. */
+  | { kind: "dropped" };
+
 /**
  * Desktop worker nodes: registration, heartbeats and capability-matched job
- * dispatch. A node runs one job at a time; its jobs are requeued if it drops.
+ * dispatch. A node runs one job at a time; its jobs are requeued if it drops
+ * (except a run-at-most-once job, see `run`).
  */
 export class WorkerService {
   private readonly online = new Map<string, Capability[]>();
   private readonly settledListeners: ((job: Job) => Promise<void> | void)[] = [];
+  /** Jobs someone awaits with `run`, by id. */
+  private readonly waiters = new Map<string, (outcome: JobOutcome) => void>();
+  /** Jobs that must not run twice (a Reddit post): cancelled rather than requeued when their computer drops. */
+  private readonly atMostOnce = new Set<string>();
 
   constructor(
     private readonly store: Store,
@@ -29,7 +44,15 @@ export class WorkerService {
     this.online.delete(nodeId);
     const node = await this.store.setNodeOffline(nodeId);
     if (node) this.hub.broadcast({ type: "node.updated", node });
-    for (const job of await this.store.requeueJobsForNode(nodeId)) this.hub.broadcast({ type: "job.updated", job });
+    for (const requeued of await this.store.requeueJobsForNode(nodeId)) {
+      // It may already have posted before the connection dropped: never hand it to another run.
+      const job = this.atMostOnce.has(requeued.id) ? ((await this.store.cancelQueuedJob(requeued.id)) ?? requeued) : requeued;
+      this.hub.broadcast({ type: "job.updated", job });
+      if (job.status === "cancelled") {
+        this.atMostOnce.delete(job.id);
+        this.waiters.get(job.id)?.({ kind: "dropped" });
+      }
+    }
     await this.dispatch();
   }
 
@@ -62,17 +85,71 @@ export class WorkerService {
         );
         if (job) this.hub.broadcast({ type: "job.updated", job });
         await this.dispatch();
-        if (job) await this.settled(job);
+        if (job) {
+          this.atMostOnce.delete(job.id);
+          this.waiters.get(job.id)?.({ kind: "settled", job });
+          await this.settled(job);
+        }
         return;
       }
     }
   }
 
-  async submit(job: { kind: string; requires: Capability[]; payload: Record<string, unknown>; targetNodeId?: string | null }) {
+  async submit(job: { kind: string; requires: Capability[]; payload: Record<string, unknown>; targetNodeId?: string | null }, beforeDispatch?: (job: Job) => void) {
     const created = await this.store.insertJob(job);
+    beforeDispatch?.(created);
     this.hub.broadcast({ type: "job.updated", job: created });
     await this.dispatch();
     return created;
+  }
+
+  /** Whether a connected computer (that one, if given) has every capability in `requires`. */
+  capableOnline(requires: Capability[], nodeId?: string | null): boolean {
+    for (const [id, capabilities] of this.online) {
+      if (nodeId && id !== nodeId) continue;
+      if (requires.every((c) => capabilities.includes(c))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Submits a job and waits for it to finish, for a caller that needs the result now (a Reddit
+   * post from the PC). A job no computer takes within `pickupMs` is cancelled (it never ran); one
+   * still running at `timeoutMs` is left to finish unheard. `once`: if its computer drops
+   * mid-job it is cancelled, not run again elsewhere.
+   */
+  async run(
+    job: { kind: string; requires: Capability[]; payload: Record<string, unknown>; targetNodeId?: string | null },
+    options: { pickupMs: number; timeoutMs: number; once?: boolean; signal?: AbortSignal },
+  ): Promise<JobOutcome> {
+    let id = "";
+    let resolve!: (o: JobOutcome) => void;
+    const outcome = new Promise<JobOutcome>((r) => (resolve = r));
+    const timers: NodeJS.Timeout[] = [];
+    const created = await this.submit(job, (j) => {
+      id = j.id;
+      if (options.once) this.atMostOnce.add(id);
+      this.waiters.set(id, resolve);
+    });
+    timers.push(
+      setTimeout(async () => {
+        const cancelled = await this.store.cancelQueuedJob(id).catch(() => null);
+        if (cancelled) {
+          this.hub.broadcast({ type: "job.updated", job: cancelled });
+          resolve({ kind: "not-picked-up" });
+        }
+      }, options.pickupMs),
+      setTimeout(() => resolve({ kind: "timed-out" }), options.timeoutMs),
+    );
+    const abort = () => resolve({ kind: "timed-out" });
+    options.signal?.addEventListener("abort", abort, { once: true });
+    const result = await outcome;
+    for (const t of timers) clearTimeout(t);
+    options.signal?.removeEventListener("abort", abort);
+    this.waiters.delete(created.id);
+    // Still running: it stays run-at-most-once until it settles or its computer drops.
+    if (result.kind !== "timed-out") this.atMostOnce.delete(created.id);
+    return result;
   }
 
   /**
@@ -93,6 +170,25 @@ export class WorkerService {
     );
     if (busy) throw new SetupError(`${node.name} is already installing. Wait for it to finish.`, 409);
     return this.submit({ kind: "setup.install", requires: [], targetNodeId: nodeId, payload: { role: role.id, components: installable } });
+  }
+
+  /**
+   * Sign in to Reddit on this PC, from the Devices page: a `social.reddit.browser` login job for
+   * that computer alone, which opens its Reddit window at the login page and waits (5 minutes)
+   * for Dave to sign in there himself. Nothing he types passes through here.
+   */
+  async redditLogin(nodeId: string): Promise<Job> {
+    const node = await this.store.getNode(nodeId);
+    if (!node) throw new SetupError("No such computer.", 404);
+    if (!this.online.has(nodeId)) throw new SetupError(`${node.name} is offline. Open the desktop app on it, then try again.`, 409);
+    if (!this.capableOnline(["browser"], nodeId)) {
+      throw new SetupError(`${node.name} can't drive a browser yet (it needs Chrome or Edge and the Media production setup). Install Media production on it first.`, 409);
+    }
+    const busy = (await this.store.listJobs({ limit: 200 })).find(
+      (j) => j.kind === REDDIT_BROWSER_JOB && j.payload.op === "login" && j.targetNodeId === nodeId && (j.status === "queued" || j.status === "assigned" || j.status === "running"),
+    );
+    if (busy) throw new SetupError(`${node.name} is already waiting for you to sign in to Reddit in its window.`, 409);
+    return this.submit({ kind: REDDIT_BROWSER_JOB, requires: ["browser"], targetNodeId: nodeId, payload: { op: "login", timeoutSec: 300 } });
   }
 
   /**

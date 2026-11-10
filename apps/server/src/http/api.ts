@@ -319,6 +319,15 @@ export function apiRoutes(deps: ApiDeps) {
       throw err;
     }
   });
+  /** Sign in to Reddit on this PC: its Reddit window opens at the login page for Dave to sign in himself. */
+  app.post("/nodes/:id/reddit-login", async (c) => {
+    try {
+      return c.json(await workers.redditLogin(c.req.param("id")), 201);
+    } catch (err) {
+      if (err instanceof SetupError) return c.json({ error: err.message }, err.status);
+      throw err;
+    }
+  });
   /** Update now: that computer's desktop app installs its newest build (after any running job). */
   app.post("/nodes/:id/update", async (c) => {
     try {

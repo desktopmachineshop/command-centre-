@@ -9,6 +9,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   x: "X",
   reddit: "Reddit",
   "reddit-session": "Reddit (own login)",
+  "reddit-browser": "Reddit (from my PC)",
   youtube: "YouTube",
 };
 export const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p;

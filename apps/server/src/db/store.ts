@@ -766,6 +766,11 @@ export class Store {
     return rows[0] ? toJob(rows[0]) : null;
   }
 
+  /** Removes a finished job (a Reddit inbox read from the PC: nothing to keep, and not for the Devices list). */
+  async deleteJob(id: string): Promise<void> {
+    await this.pool.query("delete from jobs where id = $1 and status in ('succeeded', 'failed', 'cancelled')", [id]);
+  }
+
   /** Puts a disconnected node's unfinished jobs back on the queue. */
   async requeueJobsForNode(nodeId: string): Promise<Job[]> {
     const { rows } = await this.pool.query(
@@ -907,6 +912,10 @@ export class Store {
       "update social_outbox set status = $2, result = $3, sent_at = case when $2 = 'sent' then $4::timestamptz else null end, updated_at = now() where id = $1 and status = 'sending'",
       [id, status, JSON.stringify(result), at],
     );
+  }
+
+  async deferSubmission(id: string, notBefore: Date, result: unknown): Promise<void> {
+    await this.pool.query("update social_outbox set status = 'queued', not_before = $2, result = $3, updated_at = now() where id = $1 and status = 'sending'", [id, notBefore, JSON.stringify(result)]);
   }
 
   async failStaleSubmissions(olderThan: Date, result: unknown): Promise<OutboxEntry[]> {

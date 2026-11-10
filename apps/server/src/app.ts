@@ -11,6 +11,7 @@ import { CalendarService, ContactsService, createCalendarExecutors, createContac
 import {
   type AdapterMap,
   adapters as socialPlatformAdapters,
+  createRedditAdapter,
   createSocialExecutors,
   accountSpeaksFor,
   accountVerticals,
@@ -99,6 +100,7 @@ import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
+import { WorkerBrowserJobs } from "./reddit-browser";
 
 export interface Overrides {
   runner?: AgentRunner;
@@ -114,6 +116,8 @@ export interface Overrides {
   socialAdapters?: AdapterMap;
   /** fetch the social adapters call their platforms with (tests use a fake platform). */
   socialFetch?: typeof fetch;
+  /** How long a Reddit job may wait for the PC to take it before it counts as offline (default a minute). */
+  redditBrowserPickupMs?: number;
   /** fetch for the reddit read tools (tests use a fake reddit.com). */
   redditFetch?: typeof fetch;
   /** Transport and DNS for the research tools' page fetches (tests use an in-memory web). */
@@ -236,6 +240,9 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   const pool = createPool(config.databaseUrl);
   const store = new Store(pool);
   const hub = new Hub();
+  const workers = new WorkerService(store, hub);
+  // Reddit browser mode: posts go out from Chrome on Dave's PC, as desktop-worker jobs (./reddit-browser.ts).
+  const redditBrowserJobs = new WorkerBrowserJobs(workers, store, { pickupMs: overrides.redditBrowserPickupMs });
   const verticals = overrides.verticals ?? new VerticalRegistry();
   // --- brain: notes live in Postgres ---
   const brain = new PgBrain(pool);
@@ -274,7 +281,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   });
   const integrations = new IntegrationService(integrationStore, config, {
     verticals: () => verticals.all().map((v) => v.id),
-    tests: credentialTests({ fetch: overrides.integrationsFetch, imap: overrides.imap, smtpVerify: overrides.smtpVerify }), // --- integrations oauth ---
+    tests: credentialTests({ fetch: overrides.integrationsFetch, imap: overrides.imap, smtpVerify: overrides.smtpVerify, redditBrowser: redditBrowserJobs }), // --- integrations oauth ---
     // A social account the platform adapter would reject: refused on save, and left out (not the whole group) on reload.
     check: (c, e) => {
       const account = c.social.accounts.find((a) => a.id === e.id && a.platform === platformOfKind(e.kind));
@@ -315,7 +322,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- end email ---
 
   // --- Social: accounts checked against the adapters, executors, media, scheduled posts; inbound starts in start() ---
-  const socialAdapters = overrides.socialAdapters ?? socialPlatformAdapters;
+  const socialAdapters = overrides.socialAdapters ?? { ...socialPlatformAdapters, reddit: createRedditAdapter({ browserJobs: redditBrowserJobs }) };
   function socialProblem(account: SocialAccount): string | undefined {
     try {
       validateSocialCredentials([account], socialAdapters);
@@ -374,6 +381,26 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       })
       .catch(() => {});
   };
+  /**
+   * Approved Reddit posts waiting for the PC that sends them (browser mode, PC off): one push per
+   * account until one of them goes out, not one per reply.
+   */
+  const socialWaitingAlerted = new Set<string>();
+  const socialWaitingAlert = async (accountId: string, message: string): Promise<void> => {
+    if (socialWaitingAlerted.has(accountId)) return;
+    socialWaitingAlerted.add(accountId);
+    const account = social.current.accounts.find((a) => a.id === accountId);
+    await notifier
+      .notify({
+        title: `${account ? platformLabel(account.platform) : "Social"} posts are waiting for your PC`,
+        body: `${account?.handle ?? accountId}: approved posts, replies and messages wait in the outbox and go out by themselves once the PC is on with the desktop app open. ${message}`.slice(0, 400),
+        url: "/social",
+        category: "alert",
+        tag: `social-waiting-${accountId}`,
+        vertical: account?.vertical,
+      })
+      .catch(() => {});
+  };
   const buildSocial = (c: Config, strict = false) => {
     // On reload, one unusable account (shown on the Accounts page) mustn't take the others down with it.
     const usable = strict ? c.social.accounts : c.social.accounts.filter((a) => {
@@ -385,7 +412,19 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (strict) for (const a of accounts) verticals.require(a.vertical);
     return {
       accounts,
-      executors: accounts.length ? releasingWork(createSocialExecutors(accounts, { adapters: socialAdapters, scheduled: store, submissions: store, fetch: overrides.socialFetch, onAuthError: socialAuthAlert, timeZone: config.timezone })) : {},
+      executors: accounts.length
+        ? releasingWork(
+            createSocialExecutors(accounts, {
+              adapters: socialAdapters,
+              scheduled: store,
+              submissions: store,
+              fetch: overrides.socialFetch,
+              onAuthError: socialAuthAlert,
+              onWaiting: (a, message) => socialWaitingAlert(a.id, message),
+              timeZone: config.timezone,
+            }),
+          )
+        : {},
       inbound: accounts.length
         ? new SocialInbound({
             accounts,
@@ -415,11 +454,13 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       fetch: overrides.socialFetch,
       // A queued post releases its work in progress when it actually goes out, like a scheduled one.
       onSent: async (entry) => {
+        socialWaitingAlerted.delete(entry.accountId);
         if (entry.actionType === "social.post") await releaseWork(entry.payload, entry.vertical);
       },
+      onWaiting: (entry, error) => socialWaitingAlert(entry.accountId, error),
       onFailure: async (entry, error) => {
         const account = accounts.find((a) => a.id === entry.accountId);
-        if (account && /reconnect reddit/i.test(error)) await socialAuthAlert(account, error);
+        if (account && /reconnect reddit|sign in to reddit/i.test(error)) await socialAuthAlert(account, error);
         await notifier.notify({
           title: "Queued social reply failed",
           body: `${entry.actionType} on ${entry.accountId}: ${error}`.slice(0, 400),
@@ -638,8 +679,6 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       }),
     );
   // --- end pa ---
-
-  const workers = new WorkerService(store, hub);
 
   // --- Voice keys: server speech providers (optional) and the video narration keys ---
   const buildVoice = (c: Config) => ({
