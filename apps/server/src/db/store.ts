@@ -18,7 +18,7 @@ import type {
   WorkerNode,
 } from "@cc/core";
 import type { OdooCheckpoint } from "@cc/odoo";
-import type { NewScheduledPost, ScheduledPost, ScheduledPostStatus } from "@cc/social";
+import type { NewScheduledPost, OutboxEntry, PacedActionType, ScheduledPost, ScheduledPostStatus } from "@cc/social";
 import type { Pool } from "./pool";
 
 type Row = Record<string, any>;
@@ -101,6 +101,18 @@ const toJob = (r: Row): Job => ({
   result: r.result,
   createdAt: iso(r.created_at)!,
   updatedAt: iso(r.updated_at)!,
+});
+
+const toOutboxEntry = (r: Row): OutboxEntry => ({
+  id: r.id,
+  accountId: r.account_id,
+  vertical: r.vertical,
+  actionType: r.action_type,
+  payload: r.payload ?? {},
+  notBefore: new Date(r.not_before).toISOString(),
+  status: r.status,
+  result: r.result ?? null,
+  createdAt: new Date(r.created_at).toISOString(),
 });
 
 const toScheduledPost = (r: Row): ScheduledPost => ({
@@ -852,6 +864,79 @@ export class Store {
       [olderThan, JSON.stringify(result)],
     );
     return rows.map(toScheduledPost);
+  }
+
+  // Paced accounts' submissions (implements SubmissionStore from @cc/social, table social_outbox)
+
+  async submissionTimes(accountId: string, since: Date): Promise<Date[]> {
+    const { rows } = await this.pool.query(
+      `select coalesce(sent_at, not_before) as at from social_outbox
+       where account_id = $1 and ((status = 'sent' and sent_at >= $2) or status in ('queued', 'sending'))`,
+      [accountId, since],
+    );
+    return rows.map((r) => new Date(r.at));
+  }
+
+  async recordSubmission(entry: { accountId: string; vertical: string; actionType: string; at: Date }): Promise<void> {
+    await this.pool.query(
+      `insert into social_outbox (id, account_id, vertical, action_type, not_before, status, sent_at) values ($1, $2, $3, $4, $5, 'sent', $5)`,
+      [randomUUID(), entry.accountId, entry.vertical, entry.actionType, entry.at],
+    );
+  }
+
+  async queueSubmission(entry: { accountId: string; vertical: string; actionType: PacedActionType; payload: Record<string, unknown>; notBefore: Date }): Promise<OutboxEntry> {
+    const { rows } = await this.pool.query(
+      `insert into social_outbox (id, account_id, vertical, action_type, payload, not_before, status) values ($1, $2, $3, $4, $5, $6, 'queued') returning *`,
+      [randomUUID(), entry.accountId, entry.vertical, entry.actionType, JSON.stringify(entry.payload), entry.notBefore],
+    );
+    return toOutboxEntry(rows[0]);
+  }
+
+  async dueSubmissions(now: Date, limit: number): Promise<OutboxEntry[]> {
+    const { rows } = await this.pool.query("select * from social_outbox where status = 'queued' and not_before <= $1 order by not_before limit $2", [now, limit]);
+    return rows.map(toOutboxEntry);
+  }
+
+  async claimSubmission(id: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query("update social_outbox set status = 'sending', updated_at = now() where id = $1 and status = 'queued'", [id]);
+    return rowCount === 1;
+  }
+
+  async finishSubmission(id: string, status: "sent" | "failed", result: unknown, at: Date): Promise<void> {
+    await this.pool.query(
+      "update social_outbox set status = $2, result = $3, sent_at = case when $2 = 'sent' then $4::timestamptz else null end, updated_at = now() where id = $1 and status = 'sending'",
+      [id, status, JSON.stringify(result), at],
+    );
+  }
+
+  async failStaleSubmissions(olderThan: Date, result: unknown): Promise<OutboxEntry[]> {
+    const { rows } = await this.pool.query("update social_outbox set status = 'failed', result = $2, updated_at = now() where status = 'sending' and updated_at < $1 returning *", [
+      olderThan,
+      JSON.stringify(result),
+    ]);
+    return rows.map(toOutboxEntry);
+  }
+
+  /**
+   * What the Social page shows of paced accounts' submissions: those waiting for their slot
+   * (soonest first), then the ones that were queued and went out, failed or were cancelled in the
+   * last three days. Submissions that went straight out are only pacing records, and are left out.
+   */
+  async listSubmissions(options: { limit?: number } = {}): Promise<OutboxEntry[]> {
+    const { rows } = await this.pool.query(
+      `select * from social_outbox
+       where status in ('queued', 'sending') or (payload <> '{}' and updated_at > now() - interval '3 days')
+       order by (status in ('queued', 'sending')) desc, case when status in ('queued', 'sending') then not_before end asc, updated_at desc
+       limit $1`,
+      [options.limit ?? 100],
+    );
+    return rows.map(toOutboxEntry);
+  }
+
+  /** Cancels a submission still waiting for its slot; null when it has already gone (or is going) out. */
+  async cancelSubmission(id: string): Promise<OutboxEntry | null> {
+    const { rows } = await this.pool.query("update social_outbox set status = 'cancelled', updated_at = now() where id = $1 and status = 'queued' returning *", [id]);
+    return rows[0] ? toOutboxEntry(rows[0]) : null;
   }
 
   /** Upcoming posts first (soonest first), then the rest, newest first. */

@@ -1,5 +1,6 @@
 import { defineVertical } from "@cc/core";
 import { howWeWork } from "./how-we-work";
+import { competitorWatchSchedule, redditScoutSchedule } from "./marketing";
 import { INTERNAL_AUTO_POLICIES } from "./policies";
 
 /** The channel's other areas of work (the old org chart's roles), for its how-we-work note. */
@@ -23,7 +24,7 @@ const AREAS = [
       reportsTo: "content-lead",
       aliases: ["community"],
       mission:
-        "Looks after the 3dpandme community: replies to comments, mentions and DMs on the blog, YouTube and social accounts, and spots questions worth a video. Friendly, practical and honest, like Dave at a maker meet-up.",
+        "Looks after the 3dpandme community: replies to comments, mentions and DMs on the blog, YouTube and social accounts, and spots questions worth a video. On Reddit, the scout finds threads a 3dpandme video or post genuinely answers, and replies say it is Dave's channel. Keeps an eye on similar channels and blogs (competitor-analysis). Friendly, practical and honest, like Dave at a maker meet-up.",
       intents: ["comment-reply"],
       skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide"],
       mcpServers: ["brain"],
@@ -41,8 +42,13 @@ export default defineVertical({
   brainFolder: "3dpandme",
   color: "#cf4f8f",
   intents: ["content-idea", "comment-reply", "collab", "publishing"],
-  skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel"],
-  mcpServers: ["brain", "odoo", "pa", "mail", "video"],
+  skills: ["brain-notes", "social-voice-3dpandme", "social-platform-guide", "video-reel", "reddit-marketing", "competitor-analysis"],
+  // reddit and research: read-only Reddit threads and web research (packages/research).
+  mcpServers: ["brain", "odoo", "pa", "mail", "video", "reddit", "research"],
+  schedules: [
+    redditScoutSchedule("3dpandme", "the brain (the content calendar and published videos and posts) and the blog", 51),
+    competitorWatchSchedule("3dpandme", "3dpandme", 22),
+  ],
   policies: { ...INTERNAL_AUTO_POLICIES, "brain.write": "auto", "email.label": "auto" },
   guidance: howWeWork("3dpandme", AREAS),
   // The specialists: the assistant hands them producing a video and writing a blog post.

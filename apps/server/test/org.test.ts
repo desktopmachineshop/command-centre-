@@ -171,7 +171,11 @@ describe("org tree", () => {
       defaultPolicy: dms.defaultPolicy,
       policies: dms.policies,
       dailyBudgetUsd: dms.dailyBudgetUsd ?? null,
-      schedules: [{ id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", enabled: false }],
+      schedules: [
+        { id: "low-stock-check", cron: "15 8 * * 1-5", timezone: "Europe/London", enabled: false },
+        { id: "reddit-scout", cron: "37 11 * * 1-5", timezone: "Europe/London", enabled: true },
+        { id: "competitor-watch", cron: "10 6 * * 1", timezone: "Europe/London", enabled: true },
+      ],
       stats: { openTasks: 2, doneTasks: 2, pendingApprovals: 1 },
       specialists: [],
     });

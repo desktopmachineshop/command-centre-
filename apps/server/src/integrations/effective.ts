@@ -29,7 +29,13 @@ export interface EntryError {
   message: string;
 }
 
-const SOCIAL: readonly Platform[] = ["discord", "instagram", "threads", "x", "reddit", "youtube"];
+const SOCIAL: readonly string[] = ["discord", "instagram", "threads", "x", "reddit", "reddit-session", "youtube"];
+/** Kinds that are a second way to sign in to a platform, not a platform of their own. */
+const KIND_PLATFORM: Record<string, Platform> = { "reddit-session": "reddit" };
+/** The social platform an Accounts-page kind signs in to. */
+export const platformOfKind = (kind: string): Platform => KIND_PLATFORM[kind] ?? (kind as Platform);
+/** The Accounts-page kind a social account was (or would be) saved as. */
+export const kindOfAccount = (account: Pick<SocialAccount, "platform" | "credentials">): string => (account.platform === "reddit" && account.credentials.sessionCookie ? "reddit-session" : account.platform);
 /** The developer-app kind whose keys each platform's credentials include. */
 const APP_CREDENTIALS: Partial<Record<Platform, { kind: string; map: Record<string, string> }>> = {
   x: { kind: "x-app", map: { apiKey: "apiKey", apiSecret: "apiSecret" } },
@@ -193,10 +199,11 @@ export function outlookAccountOf(e: EntryInput, entries: EntryInput[]): EmailAcc
 }
 
 export function socialAccountOf(e: EntryInput, entries: EntryInput[]): SocialAccount {
-  const platform = e.kind as Platform;
+  const platform = platformOfKind(e.kind);
   const def = KINDS.get(e.kind)!;
   const credentials: Record<string, string> = {};
-  const app = APP_CREDENTIALS[platform];
+  // A session sign-in needs no developer app (and must not pick one up).
+  const app = e.kind in KIND_PLATFORM ? undefined : APP_CREDENTIALS[platform];
   if (app) {
     const appEntry = single(entries, app.kind);
     if (appEntry) for (const [from, to] of Object.entries(app.map)) {
@@ -219,8 +226,21 @@ export function socialAccountOf(e: EntryInput, entries: EntryInput[]): SocialAcc
     displayName: str(e.data.displayName),
     inbound: bool(e.data.inbound, true),
     credentials,
-    options: plainObject(json<unknown>(e.data.options, {}), "Advanced options"),
+    options: { ...pacingOptions(e), ...plainObject(json<unknown>(e.data.options, {}), "Advanced options") },
   };
+}
+
+/** The pacing fields of a paced kind (Reddit session), as the account options the executors read. */
+function pacingOptions(e: EntryInput): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const key of ["minGapMinutes", "dailyCap"] as const) {
+    const v = e.data[key];
+    if (v === undefined || v === null || v === "") continue;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < (key === "dailyCap" ? 1 : 0)) throw new Error(`${key === "dailyCap" ? "Most submissions in 24 hours must be at least 1" : "Minutes between submissions can't be negative"}`);
+    out[key] = n;
+  }
+  return out;
 }
 
 function googleApp(base: Config, entries: EntryInput[]): { clientId?: string; clientSecret?: string } {
@@ -356,7 +376,7 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
   );
 
   // --- social ---
-  const socialEntries = entries.filter((e) => (SOCIAL as readonly string[]).includes(e.kind));
+  const socialEntries = entries.filter((e) => SOCIAL.includes(e.kind));
   const socialAccounts = mergeById(
     base.social.accounts,
     socialEntries.flatMap((e) => attempt(e, () => socialAccountOf(e, entries)) ?? []),

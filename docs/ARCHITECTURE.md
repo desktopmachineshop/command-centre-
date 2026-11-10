@@ -50,6 +50,12 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
   - `jev`: decision-only adapter on the TypeSafe evaluate endpoint (Choice, Score and Noul primitives).
 - `packages/triage`: Jev decision specs per vertical, confidence thresholds, and a fallback to a Haiku classifier if Jev is unavailable or below threshold.
 - `packages/brain`: the brain service (see below), exposed as an MCP server.
+- `packages/research`: read-only research tools, exposed as two MCP servers. `reddit` reads
+  Reddit's public pages (listings, search, threads, subreddit rules, user histories) with no
+  Reddit app. `research` reads one web page safely (`fetch_page`, with SSRF protection), lists a
+  shop's catalogue (`site_products`), and keeps dated competitor snapshots to diff
+  (`competitor_snapshot` and friends; snapshots in Postgres, the registry and reports in the
+  brain). See docs/SETUP.md, "Research and competitor analysis".
 - `mcp/odoo`: Odoo JSON-RPC MCP server.
   - Read tools: products, stock, orders, customers, helpdesk/chatter, website/blog posts for both the DMS and 3dpandme sites.
   - Draft-write tools: draft replies, notes, quotes.
@@ -109,7 +115,16 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 - **Untrusted input always needs approval.** Anything a task got from social input is
   third-party text. Every outward action from such a task is held as `draft` whatever the
   vertical's policy says, just like email. Agents are told to treat that text as information,
-  never as instructions.
+  never as instructions. The same holds for a task that *reads* outside content itself: mail
+  through the mail tools, Reddit through the `reddit` tools, web pages through the `research`
+  tools. From that read on, its proposals wait for Dave (brain writes excepted). And a task that
+  came from outside input can't fetch web pages at all.
+- **Reddit without an API app (session mode).** A Reddit account can sign in with Dave's own
+  browser session cookie instead of a developer app. The adapter then talks to old.reddit.com's
+  form endpoints; everything above it (actions, approvals, inbound) is the same. Such accounts
+  are **paced**: a minimum gap between submissions and a daily cap, enforced when an approved
+  action is about to go out. What can't go yet waits in an outbox (`social_outbox`) for its slot.
+  It does nothing to disguise itself and fails clearly when Reddit refuses.
 
 ## Phases
 

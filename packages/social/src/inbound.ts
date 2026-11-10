@@ -20,6 +20,8 @@ export interface SocialInboundOptions {
   backoff?: { initialMs: number; maxMs: number };
   /** ± fraction of the poll interval added at random, so accounts don't poll in lockstep. Default 0.1. */
   jitter?: number;
+  /** Called for each failed poll or connection (the server alerts Dave when it is an expired sign-in). */
+  onError?: (account: SocialAccount, err: unknown) => void;
   fetch?: typeof fetch;
   logger?: AdapterLogger;
   now?: () => Date;
@@ -125,8 +127,8 @@ export class SocialInbound {
     };
   }
 
-  private intervalMs(adapter: PlatformAdapter): number {
-    const seconds = adapter.inbound?.pollIntervalSeconds ?? this.options.defaultPollSeconds ?? 300;
+  private intervalMs(adapter: PlatformAdapter, account: SocialAccount): number {
+    const seconds = adapter.inbound?.pollIntervalFor?.(account) ?? adapter.inbound?.pollIntervalSeconds ?? this.options.defaultPollSeconds ?? 300;
     const jitter = this.options.jitter ?? 0.1;
     const random = this.options.random ?? Math.random;
     return Math.max(0, seconds * 1000 * (1 + jitter * (2 * random() - 1)));
@@ -158,11 +160,16 @@ export class SocialInbound {
           cursor = result.cursor;
         }
         backoff.reset();
-        wait = this.intervalMs(adapter);
+        wait = this.intervalMs(adapter, account);
       } catch (err) {
         if (this.stopped) return;
         wait = backoff.next();
         this.log.error(`${account.id}: poll failed: ${(err as Error).message}; retrying in ${Math.round(wait / 1000)}s`, err);
+        try {
+          this.options.onError?.(account, err);
+        } catch {
+          // Reporting is best effort.
+        }
       }
       await sleep(wait, this.abort.signal);
     }

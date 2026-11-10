@@ -15,6 +15,7 @@
     </fig>
     <p>Accounts (Instagram, Threads, X, Reddit, YouTube and Discord) are connected in <xref href="../system/accounts.dita#social">Accounts</xref>. The <wintitle>Accounts</wintitle> list here shows each one's business, what it can do (publish, reply, DM) and whether its comments and messages are being watched.</p>
     <p><wintitle>Recent</wintitle> lists the comments, mentions and messages that came in, each linked to the task that handled it. Replies the agents draft go to <xref href="../work/approvals.dita">Approvals</xref> like everything else.</p>
+    <p><wintitle>Waiting to send</wintitle> appears when a Reddit account connected with your own login has approved replies, posts or messages queued: such an account sends one at a time, some minutes apart and only a few a day, so approving several at once doesn't post them all together. Each shows when it will go; <uicontrol>Cancel</uicontrol> stops one that hasn't gone yet.</p>
   </body>
   <topic id="composer">
     <title>Write a post</title>
