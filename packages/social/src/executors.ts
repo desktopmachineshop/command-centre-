@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { accountSpeaksFor, accountVerticals, type AdapterMap } from "./accounts";
-import { describeLimits, MemorySubmissionStore, type OutboxEntry, Pacer, type PacedActionType, pacingFor, type SubmissionStore } from "./pacing";
+import { describeLimits, isRetryableSend, MemorySubmissionStore, type OutboxEntry, Pacer, type PacedActionType, pacingFor, RETRY_WAIT_MS, type SubmissionStore } from "./pacing";
 import { clip, oneLine, platformLabel } from "./prompt";
 import type { AdapterContext, AdapterLogger, PlatformAdapter, PostContent, PublishResult, ReplyTarget, SocialAccount } from "./types";
 import { Platform } from "./types";
@@ -67,6 +67,8 @@ export interface SocialExecutorOptions {
   submissions?: SubmissionStore;
   /** Called when a platform says an account's sign-in no longer works (the server alerts Dave to reconnect it). */
   onAuthError?: (account: SocialAccount, message: string) => void | Promise<void>;
+  /** Called when an approved submission waits in the outbox because the PC that sends it is off. */
+  onWaiting?: (account: SocialAccount, message: string) => void | Promise<void>;
   fetch?: typeof fetch;
   logger?: AdapterLogger;
   now?: () => Date;
@@ -247,7 +249,19 @@ export function createSocialExecutors(
       return await pacer.serial(a.id, async () => {
         const slot = await pacer.slot(a, limits);
         if (slot.getTime() <= now().getTime()) {
-          const r = await send();
+          let r: PublishResult;
+          try {
+            r = await send();
+          } catch (err) {
+            if (!isRetryableSend(err)) throw err;
+            // Nothing went out (the PC that posts is off): it waits in the outbox and is tried again.
+            const at = new Date(now().getTime() + RETRY_WAIT_MS);
+            const entry = await store.queueSubmission({ accountId: a.id, vertical: a.vertical, actionType: type, payload, notBefore: at });
+            const message = (err as Error).message;
+            log.info(`${a.id}: ${type} waits in the outbox: ${message}`);
+            await Promise.resolve(options.onWaiting?.(a, message)).catch((e) => log.error("could not report a waiting submission", e));
+            return { status: "scheduled", outboxId: entry.id, sendAt: at.toISOString(), when: formatWhen(at, timeZone), reason: `waiting for the PC: ${message}` };
+          }
           // It has gone out: a failure to note it down mustn't make the action look failed (and get sent again).
           await store.recordSubmission({ accountId: a.id, vertical: a.vertical, actionType: type, at: now() }).catch((err) => log.error(`${a.id}: sent, but could not record it for pacing`, err));
           return result(r);

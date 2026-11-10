@@ -41,7 +41,7 @@ The repo (`desktopmachineshop/command-centre-`, branch `ccr-fa6f7f74-51z3o9`) is
 ### Monorepo layout (pnpm workspaces + turborepo)
 - `apps/server`: Hono API, WebSocket hub, ingress adapters, scheduler. Deployed on Railway (or a VPS) with Docker.
 - `apps/web`: React + Vite PWA (inbox, approvals, chat with the command agent, job monitor, brain browser). Installable on the phone, with web push.
-- `apps/desktop`: Tauri 2 shell around `apps/web`, plus a **worker daemon**. The daemon registers over WebSocket, advertises its capabilities (`gpu`, `ffmpeg`, `davinci`, `claude-local`), and pulls matching jobs.
+- `apps/desktop`: Tauri 2 shell around `apps/web`, plus a **worker daemon**. The daemon registers over WebSocket, advertises its capabilities (`gpu`, `ffmpeg`, `davinci`, `claude-local`, `browser`), and pulls matching jobs. Job kinds include `video.capture`/`video.render`, `davinci.render`, `claude.local`, `setup.install` and `social.reddit.browser` (Reddit posts from a Chrome window on Dave's PC, which the server awaits: docs/SETUP.md, "Reddit from your own PC").
 - `packages/core`: shared types (Event, TriageResult, Task, ActionProposal, Job), plus a zod schema for the WebSocket protocol.
 - `packages/agent-runtime`: the standard harness. One `AgentRunner` interface with adapters:
   - `claude-code`: spawns `claude -p --output-format stream-json` headless, with `--mcp-config`, `--allowedTools` and the skills/plugin dir. It authenticates with Dave's subscription login on the server. Falls back to an `ANTHROPIC_API_KEY` if usage limits are hit.

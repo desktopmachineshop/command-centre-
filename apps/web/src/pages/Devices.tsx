@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { WorkerNode } from "@cc/core";
+import type { Job, WorkerNode } from "@cc/core";
 import { type Api, ApiError, type DesktopDevice } from "../api";
 import { ago } from "../format";
 import { Icon } from "../icons";
@@ -62,6 +62,7 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
                 </div>
                 <AppVersion api={api} node={n} latest={latest} />
                 <DeviceRoles api={api} node={n} jobs={jobs.data ?? []} />
+                {n.online && n.capabilities.includes("browser") && <RedditSignIn api={api} node={n} jobs={jobs.data ?? []} />}
                 {device && <Unlink api={api} device={device} onDone={devices.reload} />}
               </div>
             </li>
@@ -122,6 +123,47 @@ export function Devices({ api, feed }: { api: Api; feed: LiveFeed }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * Sign in to Reddit on this PC (Reddit accounts that post from the PC): opens the PC's own Reddit
+ * window at the login page; Dave signs in there himself, and this shows who it signed in as.
+ */
+function RedditSignIn({ api, node, jobs }: { api: Api; node: WorkerNode; jobs: Job[] }) {
+  const [state, setState] = useState<{ busy?: boolean; error?: string }>({});
+  const login = jobs.find((j) => j.kind === "social.reddit.browser" && j.targetNodeId === node.id && j.payload.op === "login");
+  const result = login?.result as { ok?: boolean; user?: { name: string }; message?: string; error?: string } | null | undefined;
+  const waiting = login && (login.status === "queued" || login.status === "assigned" || login.status === "running");
+  return (
+    <div className="muted small">
+      {waiting ? (
+        `Waiting for you to sign in to Reddit in the window on ${node.name} (up to 5 minutes)…`
+      ) : (
+        <>
+          <button
+            type="button"
+            className="link small"
+            disabled={state.busy}
+            onClick={async () => {
+              setState({ busy: true });
+              try {
+                await api.redditLogin(node.id); // the job list refreshes from job.updated
+                setState({});
+              } catch (e) {
+                setState({ error: (e as Error).message });
+              }
+            }}
+          >
+            {state.busy ? "Opening…" : "Sign in to Reddit on this PC"}
+          </button>
+          {login?.status === "succeeded" && result?.ok && result.user && ` · signed in as u/${result.user.name}`}
+          {login?.status === "succeeded" && result?.ok === false && ` · ${result.message}`}
+          {login?.status === "failed" && ` · ${result?.error ?? "it failed"}`}
+        </>
+      )}
+      {state.error && <p className="error small">{state.error}</p>}
+    </div>
   );
 }
 

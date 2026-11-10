@@ -1,4 +1,4 @@
-import { accountSpeaksFor, accountVerticals, isRedditSessionAccount, type SocialAccount } from "@cc/social";
+import { accountSpeaksFor, accountVerticals, isRedditBrowserAccount, isRedditSessionAccount, type SocialAccount } from "@cc/social";
 
 /**
  * The system-prompt section naming the social accounts a run can post from, so an agent never
@@ -13,7 +13,7 @@ export function socialAccountsGuide(accounts: readonly SocialAccount[], vertical
     "The accounts connected on the Accounts page. Use the id as `accountId` in social.* actions (social.reply, social.post, social.dm, social.campaign); never guess one, and use an account of the business the work is for.",
     ...mine.map((a) => {
       const handle = a.handle ? ` ${a.handle}` : "";
-      const notes = [any ? `business ${accountVerticals(a).join(", ")}` : a.vertical !== vertical ? `shared from ${a.vertical}` : "", isRedditSessionAccount(a) ? "Dave's own login: paced, a few posts a day" : ""].filter(Boolean).join("; ");
+      const notes = [any ? `business ${accountVerticals(a).join(", ")}` : a.vertical !== vertical ? `shared from ${a.vertical}` : "", isRedditSessionAccount(a) ? "Dave's own login: paced, a few posts a day" : isRedditBrowserAccount(a) ? "Dave's own login, posted from his PC: paced, a few posts a day; results may say it waits for the PC" : ""].filter(Boolean).join("; ");
       return `- \`${a.id}\`: ${a.platform}${handle}${notes ? ` (${notes})` : ""}`;
     }),
   ].join("\n");

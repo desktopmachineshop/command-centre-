@@ -439,6 +439,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     installRole: (nodeId: string, role: SetupRoleId) => post<Job>(`/nodes/${encodeURIComponent(nodeId)}/setup`, { role }),
     /** Update now: that computer's desktop app installs its newest build (after any running job). */
     updateApp: (nodeId: string) => post<{ requested: true }>(`/nodes/${encodeURIComponent(nodeId)}/update`),
+    /** Sign in to Reddit on this PC: opens its Reddit window at the login page (a social.reddit.browser login job). */
+    redditLogin: (nodeId: string) => post<Job>(`/nodes/${encodeURIComponent(nodeId)}/reddit-login`),
     // --- desktop app: linking computers by signing in, and the installer download ---
     desktopDevices: () => call<DesktopDevice[]>("/desktop/devices"),
     unlinkDesktop: (id: string) => call<{ revoked: true }>(`/desktop/devices/${id}`, { method: "DELETE" }),

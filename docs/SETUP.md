@@ -196,7 +196,8 @@ appear under Approvals. If the run fails, its error is on the task page.
 **Accounts** (sidebar → System → Accounts; on the phone **More → Accounts**) is where every
 platform sign-in lives: Claude, the Anthropic API, Jev, OpenAI, ElevenLabs, Odoo, Sendcloud, email inboxes,
 Google (Calendar and Drive), Instagram, Threads, X, Reddit (through an API app, or with your own
-login and no app: see "Reddit without a developer app"), YouTube and Discord. Saving applies
+login and no app: see "Reddit without a developer app", or from a Chrome window on your PC: see
+"Reddit from your own PC"), YouTube and Discord. Saving applies
 straight away; only the changed integration restarts, and nothing redeploys.
 
 - **Secrets are encrypted** in the database (AES-256-GCM). The key is generated into
@@ -1934,7 +1935,7 @@ live (2026-11-09, signed out): `old.reddit.com/api/me.json` answers a signed-out
 redirect to its login page, which the adapter reads as "session expired". Expect the first real
 **Test** to be the proof. If Reddit refuses the server outright even with your cookie (it blocks
 many data-centre addresses), session mode can't work from Railway, and the fallback is the
-desktop-worker browser job in `docs/plans/reddit-browser-worker.md` (designed, not built).
+desktop-worker browser mode in the next section, "Reddit from your own PC".
 
 As Railway JSON instead of the Accounts page (`SOCIAL_ACCOUNTS`):
 
@@ -1942,6 +1943,102 @@ As Railway JSON instead of the Accounts page (`SOCIAL_ACCOUNTS`):
 {
   "id": "dms-reddit", "platform": "reddit", "vertical": "dms", "handle": "u/<username>",
   "credentials": { "sessionCookie": "<reddit_session value>" },
+  "options": { "minGapMinutes": 10, "dailyCap": 8 }
+}
+```
+
+### Reddit from your own PC (browser mode)
+
+Use this when session mode can't work from the server: its **Test** fails with *Reddit refused
+the session check (HTTP 403)*, or Reddit keeps signing the copied cookie out or asking for a
+captcha. Reddit refuses many data-centre addresses (Railway's among them) whatever the cookie.
+Browser mode does the last step from where your sign-in really lives: **a Chrome (or Edge)
+window on your PC**, driven by the desktop app's worker, the same one that records video
+captures.
+
+> **Read this first.** Like session mode, this automates your personal Reddit account outside
+> Reddit's official API. Reddit's User Agreement may not allow that, and Reddit can rate-limit,
+> shadow-ban or ban an account it thinks is automated. It is your account and your call. A real
+> browser makes hiding easy, so the lines are drawn harder here: the window is a normal,
+> **visible** Chrome with Chrome's own "controlled by automated test software" bar, sending
+> Chrome's own User-Agent. There are **no** stealth or fingerprint plugins, no tricks with
+> `navigator.webdriver`, no proxies or address changes, no captcha solving, no second accounts
+> and no voting. When Reddit blocks or challenges, the action fails and says what Reddit showed;
+> you can deal with it yourself in that window.
+
+**What works:** the same as session mode, through the same actions and approvals:
+`social.reply`, `social.post`, `social.dm`, Reddit posts in a `social.campaign`, and watching
+the inbox. **Every Reddit post, reply and message still waits for your approval**, and the same
+pacing applies (10 minutes apart, 8 a day by default).
+
+**What it needs:** the PC on, the desktop app open and connected (the Devices page shows it
+**Online** with the `browser` capability, which the **Media production** role sets up), and that
+PC's Reddit window signed in. The PC posts; the server only queues and waits for it.
+
+**Set it up (once):**
+
+1. On the Devices page, find the PC and press **Sign in to Reddit on this PC** (or, on the PC
+   itself, run `cc-worker reddit-login` while the worker isn't posting). A Chrome window opens
+   at `old.reddit.com/login`, in a **profile of its own** (`reddit-profile` beside `worker.json`,
+   e.g. `%APPDATA%\CommandCentre\reddit-profile`), not your everyday Chrome profile.
+2. Sign in there yourself: username, password, two-factor code. The worker never sees or stores
+   them; the profile keeps Reddit's cookies like any browser would. The Devices page shows
+   *signed in as u/name* once Reddit says so (it waits up to 5 minutes).
+3. **Accounts → Social → Add account → Reddit (posts from my PC)**: the business, a name (e.g.
+   `dms-reddit`), your username in **Handle** (`u/name`; the PC refuses to post if its window is
+   signed in as anyone else), and **Which PC**: its name as the Devices page shows it, or blank
+   for any connected PC with a browser. Save.
+4. Press **Test**. It asks the PC's window who it is signed in as: *Signed in to Reddit on Studio
+   PC as u/dave_dms (3,520 karma: …)*, or *Not signed in on Studio PC: press Sign in to Reddit…*.
+
+Don't also connect the same Reddit account in session mode: one account, one way in.
+
+**When the PC is off.** An approved reply, post or message doesn't fail: it waits in the outbox
+(the result says *scheduled*, reason *waiting for the PC: …*), is tried again every 5 minutes,
+and goes out once the PC is back, still at the account's pace. You get **one** push, *Reddit
+posts are waiting for your PC*, until one of them has gone out. The same happens when the PC is
+connected but busy with other work (a long video capture) and doesn't take the job within a
+minute. Inbox checks (every 10 minutes) just pause while the PC is off and catch up by cursor.
+A campaign or scheduled post can't wait like that: it fails with the same message.
+
+**When it can't tell whether it went out.** If the PC disconnects in the middle of a post, or
+doesn't finish within 5 minutes, the action fails with *… check Reddit before sending it again*,
+and the job is **not** run a second time. Look at the account on Reddit before approving it
+again.
+
+**When Reddit signs the window out** (weeks to months, or if you sign out in that window), the
+next action fails with *Reddit isn't signed in … press Sign in to Reddit on that PC*, and you get
+the **Reddit sign-in expired** alert. Press the button again and sign in.
+
+**The window.** It opens for the first Reddit job, stays open between jobs (so replies don't
+flash a new window up each time), and closes after 15 minutes without one; the next job opens it
+again. Minimising it is fine. Closing it in the middle of a job fails that job. Jobs run one at a
+time.
+
+**How it works.** The adapter builds exactly the requests session mode sends and hands each to the
+PC as a `social.reddit.browser` job (`op` `comment`, `submit`, `compose`, `inbox`, `sent`, `info`,
+`whoami`, `login`; schema in `packages/core/src/reddit.ts`). The worker
+(`apps/worker/src/handlers/reddit.ts`) asks `old.reddit.com/api/me.json` for the modhash from
+inside the window's session, sends the one fixed old.reddit.com form endpoint for that op (it
+never takes a URL from the server), and returns Reddit's JSON, which the server reads as session
+mode does. Reads (whoami, inbox) are removed from the job list once read; posts stay there as a
+record. Server side: `packages/social/src/adapters/reddit/browser.ts`,
+`apps/server/src/reddit-browser.ts`. The Reddit read tools don't go through the PC.
+
+**Not verified with a real account or on Windows.** Built and tested on Linux against a local
+stand-in for old.reddit.com, driven through Playwright's Chromium (signing in through the login
+page, the profile keeping it, comment/submit/compose/inbox, a stale modhash, a block page, a
+redirect to the login page, one job at a time). Not yet run: real Chrome on Windows, a real
+Reddit sign-in, and whether Reddit answers `old.reddit.com/api/*` to a browser driven by
+Playwright at all. The first **Sign in to Reddit** and **Test** on your PC are the proof; then
+one reply in r/test.
+
+As Railway JSON instead of the Accounts page (`SOCIAL_ACCOUNTS`):
+
+```json
+{
+  "id": "dms-reddit", "platform": "reddit", "vertical": "dms", "handle": "u/<username>",
+  "credentials": { "browserNode": "Studio PC" },
   "options": { "minGapMinutes": 10, "dailyCap": 8 }
 }
 ```

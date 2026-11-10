@@ -3,7 +3,7 @@ import { OdooClient } from "@cc/odoo";
 import { isPairingCode, OpenGymClient, openGymBase } from "@cc/opengym";
 import { createGoogleTokenProvider } from "@cc/pa";
 import { SENDCLOUD_API, SendcloudClient } from "@cc/sendcloud";
-import { IG_GRAPH_BASE, REDDIT_API, REDDIT_OLD, REDDIT_TOKEN_URL, redditSessionWhoami, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
+import { type BrowserJobs, IG_GRAPH_BASE, REDDIT_API, REDDIT_OLD, REDDIT_TOKEN_URL, redditBrowserWhoami, RedditBrowserSignedOutError, redditSessionWhoami, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
 import nodemailer from "nodemailer";
 import { codexAuthInfo, codexAuthProblem } from "../codex-home";
 import { emailAccountOf, type EntryInput } from "./effective";
@@ -53,6 +53,8 @@ export interface TestDeps {
   /** SMTP login check for email. Default: nodemailer's verify(). */
   smtpVerify?: (account: EmailAccount) => Promise<void>;
   timeoutMs?: number;
+  /** Reddit browser mode: jobs on the desktop worker, and the PC's name for messages. */
+  redditBrowser?: BrowserJobs & { pcName(node: string | undefined): Promise<string> };
 }
 
 type Result = { ok: boolean; message: string; account?: string };
@@ -384,6 +386,25 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
         return ok(`Signed in to Reddit as u/${me.name} (${karma} karma: ${me.linkKarma.toLocaleString("en-GB")} post, ${me.commentKarma.toLocaleString("en-GB")} comment)`, `u/${me.name}`);
       } catch (err) {
         return fail(redact((err as Error).message, [sessionCookie, tokenV2]));
+      }
+    },
+
+    // Reddit from Dave's PC: who the PC's Reddit window is signed in as (a whoami job on the worker).
+    async "reddit-browser"(entry) {
+      const jobs = deps.redditBrowser;
+      if (!jobs) return fail("Posting to Reddit from a PC isn't available on this server");
+      const raw = typeof entry.data.browserNode === "string" ? entry.data.browserNode.trim() : "";
+      const node = /^(any|)$/i.test(raw) ? undefined : raw;
+      const username = typeof entry.data.handle === "string" ? entry.data.handle.trim().replace(/^@/, "").replace(/^\/?u(ser)?\//i, "") : "";
+      const pc = await jobs.pcName(node);
+      try {
+        const me = await redditBrowserWhoami(jobs, { browserNode: node ?? "any", ...(username ? { username } : {}) }, { fetch: f, now: () => new Date(), log: { info: () => {}, error: () => {} } });
+        if (me.suspended) return fail(`${pc}'s Reddit window is signed in as u/${me.name}, but the account is suspended: it can't post`);
+        const karma = (me.linkKarma + me.commentKarma).toLocaleString("en-GB");
+        return ok(`Signed in to Reddit on ${pc} as u/${me.name} (${karma} karma: ${me.linkKarma.toLocaleString("en-GB")} post, ${me.commentKarma.toLocaleString("en-GB")} comment)`, `u/${me.name}`);
+      } catch (err) {
+        if (err instanceof RedditBrowserSignedOutError) return fail(`Not signed in on ${pc}: press Sign in to Reddit for it on the Devices page, and sign in in the window that opens there.`);
+        return fail((err as Error).message);
       }
     },
 

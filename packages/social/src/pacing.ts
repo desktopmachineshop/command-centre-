@@ -79,7 +79,21 @@ export interface SubmissionStore {
   finishSubmission(id: string, status: "sent" | "failed", result: unknown, at: Date): Promise<void>;
   /** Marks entries stuck in `sending` (a crash mid-send) as failed, and returns them. */
   failStaleSubmissions?(olderThan: Date, result: unknown): Promise<OutboxEntry[]>;
+  /**
+   * Puts an entry being sent back in the queue for `notBefore`: the send couldn't start (the PC
+   * that posts to Reddit is off), so nothing went out. Without it such a send fails like any other.
+   */
+  deferSubmission?(id: string, notBefore: Date, result: unknown): Promise<void>;
 }
+
+/** How long a submission waiting for its PC waits before it is tried again. */
+export const RETRY_WAIT_MS = 5 * 60_000;
+
+/**
+ * A send that never started, so it can safely be tried again later (the PC that posts to Reddit
+ * isn't connected: PcOfflineError). Anything else may be the platform saying no, and isn't.
+ */
+export const isRetryableSend = (err: unknown): boolean => (err as { retryable?: unknown } | null)?.retryable === true;
 
 /** In memory, for tests and for a server without a database-backed store. */
 export class MemorySubmissionStore implements SubmissionStore {
@@ -118,6 +132,13 @@ export class MemorySubmissionStore implements SubmissionStore {
     e.status = status;
     e.result = result;
     if (status === "sent") this.sent.push({ accountId: e.accountId, vertical: e.vertical, actionType: e.actionType, at });
+  }
+  async deferSubmission(id: string, notBefore: Date, result: unknown): Promise<void> {
+    const e = this.outbox.find((x) => x.id === id);
+    if (!e || e.status !== "sending") return;
+    e.status = "queued";
+    e.notBefore = notBefore.toISOString();
+    e.result = result;
   }
 }
 
@@ -183,6 +204,8 @@ export interface SendDueOptions {
   send: (entry: OutboxEntry, account: SocialAccount, adapter: PlatformAdapter, ctx: AdapterContext) => Promise<PublishResult>;
   onFailure?: (entry: OutboxEntry, error: string) => Promise<void>;
   onSent?: (entry: OutboxEntry, result: PublishResult) => Promise<void>;
+  /** An entry put back in the queue because the PC that sends it is off (`isRetryableSend`). */
+  onWaiting?: (entry: OutboxEntry, error: string) => Promise<void>;
   fetch?: typeof fetch;
   logger?: AdapterLogger;
   now?: () => Date;
@@ -194,7 +217,8 @@ export interface SendDueOptions {
  * Sends queued submissions whose slot has come (run every minute by the server): at most one per
  * account per run, and only if the account's limits still allow it now, so a late run can't
  * release a burst. An entry is sent once: it is claimed first, then marked sent or failed. A
- * failure is reported and not retried (it may be Reddit saying no).
+ * failure is reported and not retried (it may be Reddit saying no), except a send that never
+ * started because the PC that posts is off: that one goes back in the queue (`deferSubmission`).
  */
 export async function sendDueSubmissions(options: SendDueOptions): Promise<{ sent: number; failed: number; waiting: number }> {
   const now = options.now ?? (() => new Date());
@@ -252,6 +276,13 @@ export async function sendDueSubmissions(options: SendDueOptions): Promise<{ sen
       await options.onSent?.(entry, result).catch((err) => log.error(`after sending ${entry.id}`, err));
     } catch (err) {
       const error = (err as Error)?.message ?? String(err);
+      if (isRetryableSend(err) && options.store.deferSubmission) {
+        waiting++;
+        await options.store.deferSubmission(entry.id, new Date(now().getTime() + RETRY_WAIT_MS), { ok: false, waiting: error });
+        log.info(`queued ${entry.actionType} ${entry.id} (${entry.accountId}) waits: ${error}`);
+        await options.onWaiting?.(entry, error).catch((e) => log.error("could not report a waiting submission", e));
+        continue;
+      }
       await options.store.finishSubmission(entry.id, "failed", { ok: false, error }, now());
       await fail(entry, error);
     }

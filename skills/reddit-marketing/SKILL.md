@@ -182,6 +182,8 @@ plain `propose_action`):
 Approved replies don't all go out at once. An account signed in with Dave's own login (session
 mode) is paced: one submission, then the next at least ten minutes later, and a daily cap. The
 result of an approved reply may say `scheduled` with the time: that is expected, not a failure.
+An account that posts from Dave's PC is paced the same way, and while that PC is off its result
+says `scheduled` with "waiting for the PC": also expected; it goes out when the PC is back.
 If a reply fails because Reddit rate-limited the account or the session expired, tell Dave what
 Reddit said; never try another way to get it posted.
 

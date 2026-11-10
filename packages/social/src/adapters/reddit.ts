@@ -1,3 +1,4 @@
+import type { RedditBrowserUser } from "@cc/core";
 import { z } from "zod";
 import {
   type AdapterCapabilities,
@@ -10,10 +11,11 @@ import {
   validateAgainstCapabilities,
 } from "../types";
 import { type RedditCredentials as ApiCreds, RedditApiError, RedditClient, type Sleep } from "./reddit/client";
+import { type BrowserJobs, RedditBrowserClient, type RedditBrowserCredentials } from "./reddit/browser";
 import { parseSessionCookie, RedditSessionClient, type RedditSessionCredentials, type RedditSessionUser } from "./reddit/session";
 
 /**
- * Reddit: Dave's own account, in one of two modes.
+ * Reddit: Dave's own account, in one of three modes.
  * - API mode: signed in on the Accounts page through a "web app" (refresh-token grant:
  *   credentials {clientId, clientSecret, refreshToken, userAgent?}, the username from the
  *   account's handle), or through a "script" app (password grant: {clientId, clientSecret,
@@ -23,7 +25,12 @@ import { parseSessionCookie, RedditSessionClient, type RedditSessionCredentials,
  *   against old.reddit.com (./reddit/session.ts, with what that means and what it never does).
  *   A `sessionCookie` wins over app keys. Session accounts are paced by default (`pacing`):
  *   10 minutes between submissions and 8 a day, which the executors enforce.
- * Everything below is the same in both modes.
+ * - Browser mode, for when Reddit refuses the session from the server's address: credentials
+ *   {browserNode: "<worker node id or name>" | "any"}, the username from the account's handle.
+ *   The same requests go out from a Chrome window on Dave's PC that he signed in to himself, as
+ *   `social.reddit.browser` jobs for the desktop worker (./reddit/browser.ts). Paced like session
+ *   accounts. `browserNode` wins over everything else.
+ * Everything below is the same in every mode.
  *
  *
  * Publish (`POST /api/submit`) to the subreddit in `content.target` (with or without "r/"):
@@ -50,6 +57,8 @@ const USER_AGENT_HINT = "userAgent must look like '<platform>:<app id>:<version>
 
 export const RedditCredentials = z
   .object({
+    /** Browser mode: the desktop worker (node id or name) whose Chrome posts, or "any". */
+    browserNode: z.string().trim().min(1).max(100).optional(),
     /** Session mode: the `reddit_session` cookie (its value, `reddit_session=<value>`, or a pasted Cookie header). */
     sessionCookie: z.string().min(1).optional(),
     /** Session mode: the `token_v2` cookie, sent alongside when given. */
@@ -65,6 +74,7 @@ export const RedditCredentials = z
   })
   .superRefine((c, ctx) => {
     if (c.userAgent && !USER_AGENT.test(c.userAgent)) ctx.addIssue({ code: "custom", path: ["userAgent"], message: USER_AGENT_HINT });
+    if (c.browserNode) return;
     if (c.sessionCookie) {
       try {
         parseSessionCookie(c.sessionCookie, c.tokenV2);
@@ -82,16 +92,21 @@ export const RedditCredentials = z
     }
   });
 
-type Creds = (ApiCreds & { mode: "api" }) | RedditSessionCredentials;
+type Creds = (ApiCreds & { mode: "api" }) | RedditSessionCredentials | RedditBrowserCredentials;
 
 /** True for an account whose credentials are a browser session cookie, not an API app. */
-export const isRedditSessionAccount = (account: Pick<SocialAccount, "platform" | "credentials">) => account.platform === "reddit" && !!account.credentials.sessionCookie;
+export const isRedditSessionAccount = (account: Pick<SocialAccount, "platform" | "credentials">) =>
+  account.platform === "reddit" && !!account.credentials.sessionCookie && !account.credentials.browserNode;
+/** True for an account that posts from a Chrome window on Dave's PC (browser mode). */
+export const isRedditBrowserAccount = (account: Pick<SocialAccount, "platform" | "credentials">) => account.platform === "reddit" && !!account.credentials.browserNode;
 
 /** Default pacing of session accounts: a person's rhythm. Overridden per account in `options`. */
 export const SESSION_MIN_GAP_MINUTES = 10;
 export const SESSION_DAILY_CAP = 8;
 /** How often a session account's inbox is checked. */
 export const SESSION_POLL_SECONDS = 300;
+/** How often a browser account's inbox is checked: each check is a job on Dave's PC. */
+export const BROWSER_POLL_SECONDS = 600;
 
 export const RedditOptions = z.object({
   /** Subject for DMs sent with sendDm. */
@@ -117,6 +132,8 @@ const capabilities: AdapterCapabilities = {
 
 export interface RedditAdapterDeps {
   sleep?: Sleep;
+  /** Browser mode: runs jobs on the desktop worker (the server provides it). */
+  browserJobs?: BrowserJobs;
 }
 
 /** Persisted poll cursor: the newest inbox fullname seen, and its created time (epoch s). */
@@ -166,9 +183,11 @@ interface Caller {
 export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapter {
   const api = new RedditClient(deps.sleep);
   const session = new RedditSessionClient(deps.sleep);
-  /** One call, to the Data API or to old.reddit.com with the session cookie. */
+  const browser = new RedditBrowserClient(deps.browserJobs);
+  /** One call, to the Data API, to old.reddit.com with the session cookie, or from the PC's browser. */
   const client: Caller = {
     call<T>(ctx: AdapterContext, c: Creds, path: string, opts: CallOptions = {}): Promise<T> {
+      if (c.mode === "browser") return browser.call<T>(ctx, c, path, opts);
       return c.mode === "session" ? session.call<T>(ctx, c, path, opts) : api.call<T>(ctx, c, path, opts);
     },
   };
@@ -181,12 +200,14 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
     const c = parsed.data;
     // Signed in with Connect: the name comes from the account's handle ("u/name").
     const username = c.username ?? stripUser((account.handle ?? "").replace(/^@/, ""));
+    if (c.browserNode) return { mode: "browser", node: browserNodeOf(c.browserNode), username };
     const userAgent = c.userAgent ?? `web:command-centre:1.0 (by /u/${username || "command-centre"})`;
     if (c.sessionCookie) return { mode: "session", ...parseSessionCookie(c.sessionCookie, c.tokenV2), username, userAgent };
     return { mode: "api", clientId: c.clientId!, clientSecret: c.clientSecret!, username, password: c.password, refreshToken: c.refreshToken, userAgent };
   };
-  /** The account's own name: from its credentials or handle, else (session mode) from Reddit. */
-  const self = async (ctx: AdapterContext, c: Creds): Promise<string> => c.username || (c.mode === "session" ? (await session.me(ctx, c)).name : "");
+  /** The account's own name: from its credentials or handle, else (session and browser mode) from Reddit. */
+  const self = async (ctx: AdapterContext, c: Creds): Promise<string> =>
+    c.username || (c.mode === "session" ? (await session.me(ctx, c)).name : c.mode === "browser" ? (await browser.me(ctx, c)).name : "");
 
   const comment = async (ctx: AdapterContext, c: Creds, thingId: string, text: string): Promise<PublishResult> => {
     const res = await client.call<{ json: { data?: { things?: Thing<{ id: string; name: string; permalink?: string }>[] } } }>(
@@ -293,14 +314,15 @@ export function createRedditAdapter(deps: RedditAdapterDeps = {}): PlatformAdapt
     },
 
     pacing(account) {
-      return isRedditSessionAccount(account) ? { minGapMinutes: SESSION_MIN_GAP_MINUTES, dailyCap: SESSION_DAILY_CAP } : null;
+      // Browser accounts post as the same person, so they get the same rhythm.
+      return isRedditSessionAccount(account) || isRedditBrowserAccount(account) ? { minGapMinutes: SESSION_MIN_GAP_MINUTES, dailyCap: SESSION_DAILY_CAP } : null;
     },
 
     inbound: {
       // Each poll is 1-3 requests; Reddit allows about 100 per minute per client id.
       pollIntervalSeconds: 90,
       // A session account checks its inbox as often as a person with the tab open might, not as an API client can.
-      pollIntervalFor: (account) => (isRedditSessionAccount(account) ? SESSION_POLL_SECONDS : undefined),
+      pollIntervalFor: (account) => (isRedditBrowserAccount(account) ? BROWSER_POLL_SECONDS : isRedditSessionAccount(account) ? SESSION_POLL_SECONDS : undefined),
 
       async poll(account, cursor, ctx) {
         const c = creds(account);
@@ -432,6 +454,18 @@ export async function redditSessionWhoami(credentials: { sessionCookie: string; 
   return new RedditSessionClient(undefined, baseUrl).me(ctx, c, { fresh: true });
 }
 
+/** "any" (or blank) means any PC with a browser; anything else names one. */
+const browserNodeOf = (node: string): string | undefined => (/^(any|)$/i.test(node.trim()) ? undefined : node.trim());
+
+/**
+ * Who the PC's Reddit window is signed in as (the Accounts page's Test for browser mode): a
+ * `whoami` job on the worker. Throws RedditBrowserSignedOutError when it isn't signed in, and
+ * PcOfflineError when the PC isn't connected.
+ */
+export async function redditBrowserWhoami(jobs: BrowserJobs, credentials: { browserNode: string; username?: string }, ctx: AdapterContext, timeoutMs = 90_000): Promise<RedditBrowserUser> {
+  return new RedditBrowserClient(jobs).me(ctx, { mode: "browser", node: browserNodeOf(credentials.browserNode), username: credentials.username ?? "" }, timeoutMs);
+}
+
 /** Tokens for reading as an API-mode account (the read tools), apart from the adapter's own. */
 const readClient = new RedditClient();
 
@@ -442,7 +476,7 @@ const readClient = new RedditClient();
  */
 export async function redditApiReadAuth(account: SocialAccount, ctx: AdapterContext): Promise<{ token: string; userAgent: string } | null> {
   const parsed = RedditCredentials.safeParse(account.credentials);
-  if (account.platform !== "reddit" || !parsed.success || parsed.data.sessionCookie || !parsed.data.clientId || !parsed.data.clientSecret) return null;
+  if (account.platform !== "reddit" || !parsed.success || parsed.data.browserNode || parsed.data.sessionCookie || !parsed.data.clientId || !parsed.data.clientSecret) return null;
   const c = parsed.data;
   const username = c.username ?? stripUser((account.handle ?? "").replace(/^@/, ""));
   const userAgent = c.userAgent ?? `web:command-centre:1.0 (by /u/${username || "command-centre"})`;
@@ -452,5 +486,6 @@ export async function redditApiReadAuth(account: SocialAccount, ctx: AdapterCont
 
 export { RedditApiError } from "./reddit/client";
 export { parseSessionCookie, REDDIT_OLD, RedditSessionExpiredError, sessionCookieHeader } from "./reddit/session";
+export { BROWSER_JOB_TIMEOUT_MS, type BrowserJobOptions, type BrowserJobs, PcOfflineError, RedditBrowserSignedOutError } from "./reddit/browser";
 export const redditAdapter: PlatformAdapter = createRedditAdapter();
 

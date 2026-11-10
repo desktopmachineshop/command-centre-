@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { type OldRedditMe, readMe, readRedirect, refusedMessage } from "@cc/core";
 import type { AdapterContext } from "../../types";
 import { realSleep, RedditApiError, type Sleep, throwJsonErrors } from "./client";
 
@@ -79,17 +80,25 @@ export function sessionCookieHeader(c: Pick<RedditSessionCredentials, "session" 
   return `reddit_session=${c.session}${c.tokenV2 ? `; token_v2=${c.tokenV2}` : ""}`;
 }
 
-export interface RedditSessionUser {
-  name: string;
-  modhash: string;
-  linkKarma: number;
-  commentKarma: number;
-  /** Reddit marks the account suspended: it can read but not post. */
-  suspended: boolean;
+/** Who the session signs in as (old.reddit.com's /api/me.json, read by @cc/core `readMe`). */
+export type RedditSessionUser = OldRedditMe;
+
+/**
+ * The error for a request Reddit answered with a non-2xx status, in session and browser mode
+ * alike. `where` names what Reddit may be blocking ("this server", "this PC").
+ */
+export function httpError(status: number, data: unknown, path: string, statusText: string, where: string): RedditApiError {
+  const msg = (data as { reason?: string } | null)?.reason ?? (data as { message?: string } | null)?.message ?? statusText;
+  let hint = "";
+  if (status === 403) hint = ` - the subreddit may be private or quarantined, the account banned there, or Reddit is blocking ${where}`;
+  if (status === 404) hint = " - not found (check the subreddit name or thing id)";
+  return new RedditApiError(`Reddit ${status} on ${path}: ${msg}${hint}`, status);
 }
 
-interface MeResponse {
-  data?: { name?: string; modhash?: string; link_karma?: number; comment_karma?: number; is_suspended?: boolean };
+/** Reddit answered with a page (a block or a captcha) where data was expected. */
+export function pageError(path: string, status: number, posting: boolean, where: string): RedditApiError {
+  const what = posting ? "check the account on Reddit before sending it again" : "nothing was read";
+  return new RedditApiError(`Reddit answered ${path} with a page instead of data (it may be asking for a captcha or blocking ${where}); ${what}`, status);
 }
 
 export class RedditSessionClient {
@@ -135,10 +144,10 @@ export class RedditSessionClient {
       this.holdUntil.set(key, ctx.now().getTime() + wait * 1000);
       throw new RedditApiError(`Reddit rate limit reached; resets in ${Math.ceil(wait)}s`, 429, ["RATELIMIT"]);
     }
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get("location") ?? "";
+    const redirect = readRedirect(res.status, res.headers.get("location"));
+    if (redirect) {
       this.users.delete(key);
-      if (/\/login\b/.test(location)) throw new RedditSessionExpiredError(c.username || undefined);
+      if (redirect === "signed-out") throw new RedditSessionExpiredError(c.username || undefined);
       throw new RedditApiError(`Reddit redirected the request (HTTP ${res.status}) instead of answering it, so it was not carried out`, res.status);
     }
     return res;
@@ -150,29 +159,14 @@ export class RedditSessionClient {
     const cached = this.users.get(key);
     if (!options.fresh && cached && ctx.now().getTime() - cached.at < MODHASH_TTL_MS) return cached.user;
     const res = await this.send(ctx, c, `${this.baseUrl}/api/me.json?raw_json=1`, { method: "GET" });
-    const text = await res.text().catch(() => "");
-    let body: MeResponse | null = null;
-    try {
-      body = JSON.parse(text) as MeResponse;
-    } catch {
-      body = null;
-    }
-    if (!res.ok || body === null) {
-      // Not JSON, or refused outright: Reddit is blocking the request, not answering "signed out".
-      throw new RedditApiError(
-        `Reddit refused the session check (HTTP ${res.status}${body === null && res.ok ? ", a page instead of data" : ""}): it may be blocking this server or asking for a captcha. Session mode can't work until Reddit lets the request through; nothing was posted.`,
-        res.status,
-      );
-    }
-    const d = body.data;
-    // Signed out: old Reddit answers {} (no data, or data without a name).
-    if (!d?.name || !d.modhash) {
+    const me = readMe(res.status, await res.text().catch(() => ""));
+    if (me.kind === "refused") throw new RedditApiError(refusedMessage(me, "this server"), res.status);
+    if (me.kind === "signed-out") {
       this.users.delete(key);
       throw new RedditSessionExpiredError(c.username || undefined);
     }
-    const user: RedditSessionUser = { name: d.name, modhash: d.modhash, linkKarma: d.link_karma ?? 0, commentKarma: d.comment_karma ?? 0, suspended: d.is_suspended === true };
-    this.users.set(key, { user, at: ctx.now().getTime() });
-    return user;
+    this.users.set(key, { user: me.user, at: ctx.now().getTime() });
+    return me.user;
   }
 
   /** Same contract as RedditClient.call: `form` POSTs (with the modhash), otherwise a GET of `<path>.json`. */
@@ -216,17 +210,8 @@ export class RedditSessionClient {
           if (signedOut || (opts.form && res.status === 403)) continue;
         }
         if (signedOut) throw new RedditSessionExpiredError(c.username || undefined);
-        if (!res.ok) {
-          const msg = (data as { message?: string; reason?: string } | null)?.reason ?? (data as { message?: string } | null)?.message ?? res.statusText;
-          let hint = "";
-          if (res.status === 403) hint = " - the subreddit may be private or quarantined, the account banned there, or Reddit is blocking this server";
-          if (res.status === 404) hint = " - not found (check the subreddit name or thing id)";
-          throw new RedditApiError(`Reddit ${res.status} on ${path}: ${msg}${hint}`, res.status);
-        }
-        if (data === null) {
-          const what = opts.form ? "check the account on Reddit before sending it again" : "nothing was read";
-          throw new RedditApiError(`Reddit answered ${path} with a page instead of data (it may be asking for a captcha or blocking this server); ${what}`, res.status);
-        }
+        if (!res.ok) throw httpError(res.status, data, path, res.statusText, "this server");
+        if (data === null) throw pageError(path, res.status, !!opts.form, "this server");
         throwJsonErrors(data, path);
         return data;
       }
