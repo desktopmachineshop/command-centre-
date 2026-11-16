@@ -3309,6 +3309,30 @@ a.stat:hover {
 .inbox-group > .card {
   margin-bottom: var(--sp-3);
 }
+.inbox-approval {
+  margin-bottom: var(--sp-4);
+}
+.inbox-approval > .card + .card {
+  margin-top: var(--sp-3);
+}
+.inbox-why {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--sp-2) var(--sp-2);
+  color: inherit;
+  text-decoration: none;
+}
+.inbox-why-said {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .inbox-card .title {
   margin: 6px 0 2px;
   font-weight: 650;

@@ -110,7 +110,7 @@ describe.skipIf(!DB_URL)("email ingress and reply (integration)", () => {
       source: "email",
       kind: "message",
       title: "Jane Doe: ER11 collets for a 300W spindle",
-      dedupeKey: "email:shop:<q1@example.com>",
+      dedupeKey: "email:<q1@example.com>",
     });
 
     const request = runner.requests[0]!;

@@ -1,6 +1,6 @@
 import type { NewEvent } from "@cc/core";
 import { afterEach, describe, expect, it } from "vitest";
-import { type EmailCheckpointStore, EmailPoller, MemoryMailbox } from "../src";
+import { emailEvent, type EmailCheckpointStore, EmailPoller, MemoryMailbox } from "../src";
 import { account, rawEmail } from "./fixtures";
 
 class MemoryCheckpoints implements EmailCheckpointStore {
@@ -60,7 +60,7 @@ describe("EmailPoller", () => {
       vertical: "dms",
       kind: "message",
       title: "Jane Doe: ER11 collets",
-      dedupeKey: "email:shop:<m2@example.com>",
+      dedupeKey: "email:<m2@example.com>",
       payload: { accountId: "shop", messageId: "<m2@example.com>", from: { address: "jane@example.com" } },
     });
     await waitFor(() => store.rows.get("shop")?.lastUid === 2);
@@ -73,7 +73,7 @@ describe("EmailPoller", () => {
     mailbox.deliver(await mail("support@desktopmachineshop.com", "<self@dms>"));
     mailbox.deliver(await mail("jane@example.com", "<j@example.com>"));
     await waitFor(() => store.rows.get("shop")?.lastUid === 3);
-    expect(events.map((e) => e.dedupeKey)).toEqual(["email:shop:<j@example.com>"]);
+    expect(events.map((e) => e.dedupeKey)).toEqual(["email:<j@example.com>"]);
   });
 
   it("resumes from the saved UID after a restart, without re-ingesting", async () => {
@@ -89,7 +89,7 @@ describe("EmailPoller", () => {
     mailbox.deliver(await mail("b@example.com", "<b@example.com>"));
     const second = setup({ mailbox, store });
     await waitFor(() => second.events.length === 1);
-    expect(second.events[0]!.dedupeKey).toBe("email:shop:<b@example.com>");
+    expect(second.events[0]!.dedupeKey).toBe("email:<b@example.com>");
     expect(store.rows.get("shop")).toEqual({ uidValidity: "1", lastUid: 2 });
   });
 
@@ -144,5 +144,19 @@ describe("EmailPoller", () => {
     mailbox.deliver(raw);
     await waitFor(() => events.length === 2);
     expect(events[0]!.dedupeKey).toBe(events[1]!.dedupeKey);
+  });
+});
+
+describe("emailEvent", () => {
+  it("is one event per message, whichever of Dave's inboxes it reached", () => {
+    const email = { messageId: "<q1@example.com>", from: { name: "Jane", address: "jane@example.com" }, subject: "Hello" } as Parameters<typeof emailEvent>[1];
+    const first = emailEvent(account({ id: "dms" }), email, "uid:1:7");
+    const second = emailEvent(account({ id: "dms-email" }), email, "uid:1:9");
+    expect(first.dedupeKey).toBe("email:<q1@example.com>");
+    expect(second.dedupeKey).toBe(first.dedupeKey);
+    // Without a Message-ID there is nothing to match on: it stays per account.
+    const bare = { ...email, messageId: null } as Parameters<typeof emailEvent>[1];
+    expect(emailEvent(account({ id: "dms" }), bare, "uid:1:7").dedupeKey).toBe("email:dms:uid:1:7");
+    expect(emailEvent(account({ id: "dms-email" }), bare, "uid:1:7").dedupeKey).toBe("email:dms-email:uid:1:7");
   });
 });

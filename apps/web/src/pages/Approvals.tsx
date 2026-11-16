@@ -195,6 +195,9 @@ function ConfirmAction({ api, unit, action }: { api: Api; unit: Proposal[]; acti
   );
 }
 
+/** Payload fields that only name the record an action is about (see `proposalCardRefs` in @cc/core). */
+const RECORD_KEYS = ["id", "ids", "model", "product_id", "order_id", "partner_id"];
+
 export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; proposal: Proposal; /** Card kinds the answer above already shows (a thread doesn't draw the same record twice). */ shownKinds?: readonly string[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -249,7 +252,8 @@ export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; pro
         // Open unless the card already shows the content (a social post, a video to watch).
         <details className="proposal-details" open={!social && !video}>
           <summary className="muted small">Details</summary>
-          <PayloadView payload={proposal.payload} />
+          {/* The record's card says which record it is: its id and model needn't be read as well. */}
+          <PayloadView payload={proposal.payload} skip={proposalCardRefs(proposal.actionType, proposal.payload).length ? RECORD_KEYS : []} />
         </details>
       )}
       {proposal.status === "executed" && proposal.result != null && <ProposalResult result={proposal.result} />}

@@ -68,6 +68,7 @@ export function assistantCharter(registry: VerticalRegistry, vertical: VerticalM
   } else {
     lines.push(
       `This task came from outside input, so you have only ${vertical.name}'s tools, and every action you propose is ${vertical.name}'s and waits for Dave's approval.`,
+      "That includes notify, so don't propose a notify to tell Dave about this task: he would have to approve his own notification. He reads your final answer, and any action waiting for him appears in his Inbox with it, so put what he needs to know or do there, most important first.",
     );
   }
   if (root.autonomyNotes) lines.push("", `Autonomy: ${root.autonomyNotes}`);

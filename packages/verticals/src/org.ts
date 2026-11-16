@@ -6,11 +6,11 @@ const MORNING_BRIEF = `Write Dave's morning brief for today. Follow the personal
 1. Work out yesterday's date (YYYY-MM-DD). On a Monday, also cover Saturday and Sunday.
 2. Call the pa tool list_events for today: the fixed points of the day (first commitment, anything needing travel or prep, clashes).
 3. Call the pa tool list_reminders with dueBy "today" (includes overdue ones), and list_items with no list for the top open to-dos.
-4. Read yesterday's digests from the brain: list the brain (folder "") and read every note at "<vertical>/digests/<date>.md" for those dates. Digests are deterministic summaries of done and failed tasks, auto actions, approvals and spend.
+4. Read yesterday's digest from the brain: the note at "digests/<date>.md" covers every business for that day (if it isn't there, read each "<vertical>/digests/<date>.md" that is). Digests are deterministic summaries of done and failed tasks, auto actions, orders and revenue, parcels, approvals and spend: they are the record of what ran by itself.
 5. Read the journal for those dates ("journal/<date>.md"), and today's journal if it already exists.
 6. Call the actions tool list_pending to see the approvals waiting for Dave across every vertical.
 7. Decide today's priorities: fixed calendar commitments, reminders due, overdue to-dos, approvals waiting more than a day, failed tasks worth a retry, and whatever the notes or journal flag for today.
-8. Propose exactly one "notify" action with title "Morning brief", category "briefing" and a body of 3 to 6 short lines, most important first: the first commitment and any clash, reminders due, the top to-do or two, then the approvals waiting (count and the oldest one), then anything else worth knowing. No greeting, no filler. If there is truly nothing, say so in one line.
+8. Propose exactly one "notify" action with title "Morning brief", category "briefing" and a body of 3 to 7 short lines, most important first: the first commitment and any clash, reminders due, the top to-do or two, then the approvals waiting (count and the oldest one), then one line summing up what was done without him yesterday (orders and revenue, tasks done and anything that failed, naming a business only where there is something to say), then anything else worth knowing. No greeting, no filler. If there is truly nothing, say so in one line.
 
 Do not propose any other action, and do not use the mail tools: reading outside mail would hold this brief for approval instead of sending it.`;
 

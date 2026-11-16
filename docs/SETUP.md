@@ -735,6 +735,10 @@ brain, or `BRAIN_DIR=~/brain pnpm --filter @cc/brain mcp` against a local folder
 > The variables below are the alternative.
 
 
+Each message becomes one task, whichever of your inboxes it reached: the same message in two
+accounts (two accounts set up on one mailbox, or a message sent to two of your addresses) is
+matched by its Message-ID and handled once.
+
 Inboxes feed the command centre over IMAP, and replies go out over SMTP, so any provider works:
 Gmail, Google Workspace, Microsoft 365 / Outlook.com, or Odoo's own mail server.
 
