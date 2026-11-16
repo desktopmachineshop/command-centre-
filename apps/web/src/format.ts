@@ -6,6 +6,13 @@ export function ago(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/** A task's state in the words Dave would use. */
+export function statusWords(task: { status: string; note?: string | null }): string {
+  if (task.status === "failed" && task.note === "Stopped from the app.") return "Stopped";
+  const words: Record<string, string> = { queued: "Waiting to start", running: "Working on it", awaiting_approval: "Waiting for your approval", done: "Done", failed: "Didn't finish", dropped: "Not run", deferred: "Held by the daily budget" };
+  return words[task.status] ?? task.status;
+}
+
 /** The heading a list groups a day's items under: "Today", "Yesterday", or "Mon 16 Nov". */
 export function dayLabel(iso: string, now = new Date()): string {
   const d = new Date(iso);

@@ -1,11 +1,11 @@
 import { isStopped, type Task } from "@cc/core";
 import { useContext, useState } from "react";
 import type { Api } from "../api";
-import { ago, askText, usd } from "../format";
+import { ago, askText, dayLabel, statusWords, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
 import { go, useRouteQuery } from "../router";
-import { Empty, ErrorBanner, PageHead, Skeleton, Status, TaskTag, VerticalsContext, VTag } from "../ui";
+import { Empty, ErrorBanner, PageHead, Skeleton, Status, VerticalsContext, VTag } from "../ui";
 
 const FILTERS = ["", "queued", "running", "awaiting_approval", "deferred", "done", "failed"] as const;
 
@@ -68,7 +68,17 @@ export function Activity({ api, feed }: { api: Api; feed: LiveFeed }) {
           Nothing here yet. Ask something in <a href="#/chat">Chat</a>.
         </Empty>
       )}
-      <ul className="list">{data?.map((t) => <TaskRow key={t.id} task={t} />)}</ul>
+      {/* Newest first, under the day it started. */}
+      {byDay(data ?? []).map((group) => (
+        <div key={group.day} className="activity-day">
+          <h3 className="small muted">{group.day}</h3>
+          <ul className="list">
+            {group.tasks.map((t) => (
+              <TaskRow key={t.id} task={t} />
+            ))}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }
@@ -151,13 +161,25 @@ const SOURCES: Record<string, string> = { chat: "You asked", email: "Email", odo
 /** Where a task came from, in words. */
 export const sourceLabel = (source: string | null | undefined): string => (source ? (SOURCES[source] ?? source) : "Task");
 
+/** Tasks in the order given, grouped under the day each started ("Today", "Yesterday", "Mon 16 Nov"). */
+export function byDay(tasks: Task[], now = new Date()): { day: string; tasks: Task[] }[] {
+  const groups: { day: string; tasks: Task[] }[] = [];
+  for (const t of tasks) {
+    const day = dayLabel(t.createdAt, now);
+    const last = groups[groups.length - 1];
+    if (last?.day === day) last.tasks.push(t);
+    else groups.push({ day, tasks: [t] });
+  }
+  return groups;
+}
+
 export function TaskRow({ task }: { task: Task }) {
   return (
     <li className="item">
       <a className="item-link" href={`#/task/${task.id}`}>
         <div className="item-top">
-          <TaskTag task={task} />
-          <Status value={task.status} />
+          <VTag id={task.vertical} />
+          <Status value={task.status} label={statusWords(task)} />
         </div>
         <div className="title">{askText(task.prompt).split("\n")[0]}</div>
         {/* How it came out, so the list can be read without opening each task. */}

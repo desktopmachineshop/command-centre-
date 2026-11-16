@@ -1183,7 +1183,6 @@ section > h3 {
   line-height: 1.6;
   color: var(--s);
   background: color-mix(in srgb, var(--s) 12%, var(--surface));
-  text-transform: capitalize;
   white-space: nowrap;
 }
 .status::before {
@@ -3159,6 +3158,7 @@ a.stat:hover {
   opacity: 0.85;
 }
 /* Each notification is shown in full; only a very long one is folded. */
+.activity-day > h3,
 .notification-day > h3 {
   margin: var(--sp-4) 0 var(--sp-2);
   font-weight: 650;

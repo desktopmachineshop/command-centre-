@@ -316,6 +316,9 @@ describe.skipIf(!DB_URL)("daily digest", () => {
     expect(note?.body).toContain("## Auto actions (auto-with-digest)");
     expect(note?.body).toContain("executed: notify: Remind Dave");
     expect(note?.body).toContain("## Failed");
+    // What he asked for himself is apart from what ran without him, each with how it came out.
+    expect(note?.body).toContain("## You asked\n\n- plan the garden");
+    expect(note?.body).not.toContain("## Done without you");
     expect(note?.body).toContain("brain.journal: Log the bins");
     // Quiet verticals get no note.
     expect(await ctx.server.brain.read(`openv/digests/${d.date}.md`)).toBeNull();
