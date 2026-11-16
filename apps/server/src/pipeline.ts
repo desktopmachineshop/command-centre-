@@ -469,7 +469,10 @@ export class Pipeline {
       }
       const pending = await store.listProposals({ taskId, status: "pending" });
       const next: TaskStatus = result.status === "failed" ? "failed" : pending.length > 0 ? "awaiting_approval" : "done";
-      hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, next) });
+      // A run that ended in failure says why (a usage limit, a timeout, too many turns): keep it on
+      // the task, where Chat and the Inbox show it.
+      const failedNote = next === "failed" ? `Run failed: ${result.error?.trim() || "the agent stopped without saying why"}` : undefined;
+      hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, next, failedNote) });
       await this.afterRun(task, event, { status: next, result: result.result, error: result.error, pending });
     } catch (err) {
       const message = (err as Error).message;

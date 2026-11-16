@@ -1119,6 +1119,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     hub.broadcast({ type: "org.updated" });
   });
   let notificationCrons: ReturnType<typeof startNotificationJobs> = [];
+  let stopHeartbeat = () => {};
 
   /** Just after midnight: finish yesterday's digest notes (no push) and release deferred tasks. */
   const rollover = async () => {
@@ -1222,6 +1223,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         },
       });
       notificationCrons = startNotificationJobs(notifications, config.timezone); // notifications: quiet-hours release, quick briefing
+      stopHeartbeat = hub.startHeartbeat(); // keeps the app's live connection open through the proxy
       started = true;
       restartSchedules();
       // Pollers: whatever is current now (the env config with saved accounts applied); later reloads start their own.
@@ -1236,6 +1238,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       for (const c of crons) c.stop();
       for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();
+      stopHeartbeat();
       await email.stop();
       voiceFront?.stop();
       await social.stop();
