@@ -20,6 +20,12 @@ in, or have `CLAUDE_CODE_OAUTH_TOKEN` set.
 
 Checks: `pnpm typecheck`, and `TEST_DATABASE_URL=postgres://cc:cc@localhost:5432/cc_test pnpm test`.
 Create the `cc_test` database first. Without `TEST_DATABASE_URL`, the server integration tests are skipped.
+To look at the app with something in it but no model and no real accounts, run the demo: an
+empty database, a pretend Odoo and a pretend agent that answers a few kinds of message the way a
+real one does (tools, a card, a proposal). `pnpm --filter @cc/web build`, then
+`DEMO_DATABASE_URL=postgres://cc:cc@localhost:5432/cc_demo pnpm --filter @cc/server exec tsx scripts/demo.ts`
+and open the address it prints. `DEMO_REAL=sonnet` uses this machine's `claude` sign-in instead of the pretend agent.
+
 The sign-in browser test (`apps/server/test/auth.browser.test.ts`, Playwright) also needs Chromium
 at `PW_CHROMIUM` (default `/opt/pw-browsers/chromium`) and a built PWA; `pnpm test` builds the PWA
 first, and the test is skipped when Chromium is missing.

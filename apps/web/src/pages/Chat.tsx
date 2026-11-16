@@ -1,7 +1,7 @@
 import { type AgentMessage, isStopped, type Proposal, type Task } from "@cc/core";
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Api, ChatFile } from "../api";
-import { type LiveFeed, useLive } from "../live";
+import { type LiveFeed, useLive, useResync } from "../live";
 import { Icon } from "../icons";
 import { Empty, ErrorBanner, PageHead, TaskTag } from "../ui";
 import { ProposalCard } from "./Approvals";
@@ -91,7 +91,7 @@ function useChainProposals(api: Api, feed: LiveFeed, taskIds: string[]) {
       refresh(); // a new handoff task joins a chain
     }
   });
-  return chains;
+  return { chains, refresh };
 }
 
 /**
@@ -385,7 +385,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
 
   // Proposals show inline on the latest turn of each task (follow-ups continue the same task).
   const latestTurnOf = new Map(turns.flatMap((t) => (t.task ? [[t.task.id, t.key] as const] : [])));
-  const chains = useChainProposals(api, feed, [...latestTurnOf.keys()]);
+  const { chains, refresh: refreshChains } = useChainProposals(api, feed, [...latestTurnOf.keys()]);
 
   // Newest at the bottom, followed as it streams in (unless scrolled up to read).
   const lastTurn = turns[turns.length - 1];
@@ -411,6 +411,28 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
       setTurns((ts) => onLatest(ts, m.task.id, (t) => ({ ...t, task: m.task })));
     }
   });
+
+  // Live messages aren't replayed: after a dropped connection, or the app coming back from the
+  // background, load each task again so an answer that arrived meanwhile shows.
+  useResync(feed, () => {
+    const ids = [...new Set(turnsRef.current.flatMap((t) => (t.task ? [t.task.id] : [])))];
+    for (const id of ids) {
+      void api
+        .task(id)
+        .then((detail) =>
+          setTurns((ts) => {
+            const mine = ts.filter((t) => t.task?.id === id);
+            const messages = messagesByTurn(mine, detail.runs);
+            return ts.map((t) => {
+              const n = mine.indexOf(t);
+              return n < 0 ? t : { ...t, task: detail.task, messages: messages[n]! };
+            });
+          }),
+        )
+        .catch(() => {});
+    }
+  });
+  useResync(feed, () => refreshChains());
 
   /** The thread's latest task, and whether it has answered (so a follow-up can continue it). */
   const thread = threadId ? turns.findLast((t) => t.task?.id === threadId)?.task : undefined;

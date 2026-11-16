@@ -46,6 +46,9 @@ export type InboundMessage = z.infer<typeof InboundMessage>;
 export const OutboundMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("welcome"), role: z.enum(["client", "worker"]) }),
   z.object({ type: z.literal("error"), message: z.string() }),
+  // Clients only, every few seconds of quiet: keeps proxies from closing an idle connection, and
+  // lets the app notice a dead one (apps/web/src/live.ts).
+  z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("event.created"), event: Event }),
   z.object({ type: z.literal("task.updated"), task: Task }),
   z.object({ type: z.literal("run.message"), runId: z.string(), taskId: z.string(), message: AgentMessage }),

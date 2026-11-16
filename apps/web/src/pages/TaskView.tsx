@@ -21,8 +21,10 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
     (m) => (m.type === "task.updated" && m.task.id === id) || (m.type === "proposal.updated" && m.proposal.taskId === id),
     [id],
   );
-  // Messages streamed while the run is in progress, before they are in the loaded detail.
+  // Messages streamed since the detail was last loaded: shown after the loaded ones while a run is
+  // in progress, and dropped at each load (which has them).
   const [live, setLive] = useState<Record<string, AgentMessage[]>>({});
+  useEffect(() => setLive({}), [data]);
   const [retrying, setRetrying] = useState(false);
   /** Narrow screens: Conversation or Actions. Wide screens show both side by side. */
   const [tab, setTab] = useState<"conversation" | "actions">("conversation");
@@ -163,7 +165,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
             <span className="muted">{usd(run.costUsd)}</span>
           </div>
           <div className="run-body">
-            <Transcript messages={run.messages.length ? run.messages : (live[run.id] ?? [])} readAloud={readAloud} id={run.id} />
+            <Transcript messages={run.status === "running" ? [...run.messages, ...(live[run.id] ?? [])] : run.messages} readAloud={readAloud} id={run.id} />
             {run.error && (
               <ErrorReport
                 title="Run failed"

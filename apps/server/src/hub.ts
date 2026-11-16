@@ -32,6 +32,17 @@ export class Hub {
     return true;
   }
 
+  /**
+   * Pings every app client on an interval. Proxies (Railway's among them) close a WebSocket that
+   * has been quiet for a couple of minutes; without this the app's live feed dropped every two
+   * minutes and anything sent in the gap was lost. Returns the function that stops it.
+   */
+  startHeartbeat(intervalMs = 25_000): () => void {
+    const timer = setInterval(() => this.broadcast({ type: "ping" }), intervalMs);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }
+
   broadcast(message: OutboundMessage): void {
     const frame = JSON.stringify(message);
     for (const peer of this.clients) safeSend(peer, frame);
