@@ -1636,8 +1636,10 @@ polled inbox go through the email flow (an agent drafts a reply for approval).
   that is late now.
 - **Weekly low stock:** at `LOW_STOCK_CRON` (default `0 8 * * 1`, Monday 08:00 in
   `DAY_TIMEZONE`; `off` disables it) each business with anything below its reorder level gets one
-  brain note, `<folder>/stock/low-stock-YYYY-MM-DD.md`, and one push that opens it. The note lists
+  brain note, `<folder>/stock/low-stock-YYYY-MM-DD.md`. The note lists
   **To order** (nothing incoming) and **Already on order**, with on-hand and incoming quantities.
+  The notes are also written together as `stock/low-stock-YYYY-MM-DD.md`, and you get a single push
+  that opens it, with one line per business.
 
 Set `ODOO_EVENTS` to choose what runs. Leave it unset (or `on`) for every source with the
 defaults, or set:

@@ -74,36 +74,47 @@ export class DigestService {
     return `${vertical.brainFolder}/stock/low-stock-${day}.md`;
   }
 
+  /** The one note that covers every business's low stock: what the weekly push opens. */
+  static combinedLowStockPath(day: string): string {
+    return `stock/low-stock-${day}.md`;
+  }
+
   /**
-   * The weekly low-stock summary: for each business with anything below its
-   * reorder level (what the Odoo stock poller last saw), one brain note and
-   * one push that opens it. Returns what each business got.
+   * The weekly low-stock summary: a brain note for each business with anything
+   * below its reorder level (what the Odoo stock poller last saw), one note
+   * covering all of them, and a single push that opens it. Returns what each business got.
    */
   async deliverLowStock(day = this.today(), options: { push?: boolean } = {}): Promise<{ vertical: string; path: string; count: number }[]> {
     const snapshot = await this.odooSnapshot();
     const out: { vertical: string; path: string; count: number }[] = [];
+    const headlines: string[] = [];
+    const notes: string[] = [];
     for (const vertical of this.verticals.all()) {
       const items = (snapshot?.lowStock ?? []).filter((p) => p.vertical === vertical.id);
       if (!items.length) continue;
       const path = DigestService.lowStockPath(vertical, day);
-      await this.brain.write(
-        path,
-        { frontmatter: { type: "low-stock", vertical: vertical.id, date: day }, body: renderLowStockSummary(vertical.name, day, items) },
-        `low stock: ${vertical.id} ${day}`,
-      );
+      const body = renderLowStockSummary(vertical.name, day, items);
+      await this.brain.write(path, { frontmatter: { type: "low-stock", vertical: vertical.id, date: day }, body }, `low stock: ${vertical.id} ${day}`);
       const toOrder = items.filter((p) => !p.incomingQty).length;
-      if (options.push !== false) {
-        await this.notifier.notify({
-          title: `${vertical.name} low stock, week of ${day}`,
-          body: `${items.length} below reorder level, ${toOrder} with nothing on order`,
-          url: `/brain/${encodeURIComponent(path)}`,
-          category: "digest",
-          priority: "normal",
-          vertical: vertical.id,
-          tag: `low-stock:${vertical.id}`,
-        });
-      }
+      headlines.push(`${vertical.name}: ${items.length} below reorder level, ${toOrder} with nothing on order`);
+      notes.push(body);
       out.push({ vertical: vertical.id, path, count: items.length });
+    }
+    if (!out.length) return out;
+    const path = DigestService.combinedLowStockPath(day);
+    // Each business's own note, one heading level down.
+    const combined = [`# Low stock, week of ${day}`, ...notes.map((n) => `\n${n.trimEnd().replace(/^#/gm, "##")}`)].join("\n");
+    await this.brain.write(path, { frontmatter: { type: "low-stock", date: day }, body: `${combined}\n` }, `low stock: all ${day}`);
+    if (options.push !== false) {
+      // One push for every business: a line each, opening the combined note.
+      await this.notifier.notify({
+        title: `Low stock, week of ${day}`,
+        body: headlines.join("\n"),
+        url: `/brain/${encodeURIComponent(path)}`,
+        category: "digest",
+        priority: "normal",
+        tag: "low-stock",
+      });
     }
     return out;
   }

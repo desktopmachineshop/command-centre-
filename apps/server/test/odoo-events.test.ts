@@ -293,7 +293,7 @@ describe.skipIf(!DB_URL)("Odoo events (integration)", () => {
     expect(JSON.stringify(stored)).toContain("New RFQ from Lee Engineering");
   });
 
-  it("puts low stock on one weekly summary per business, not an inbox item each", async () => {
+  it("puts low stock on one weekly summary, not an inbox item each", async () => {
     const runsBefore = runner.requests.length;
     const sentBefore = ctx.notifier.sent.length;
     odoo.update("product.product", 1, { qty_available: 1 });
@@ -308,9 +308,21 @@ describe.skipIf(!DB_URL)("Odoo events (integration)", () => {
     expect(weekly).toEqual([expect.objectContaining({ vertical: "dms", path: `dms/stock/low-stock-${day}.md` })]);
     const note = await ctx.server.brain.read(`dms/stock/low-stock-${day}.md`);
     expect(note?.body).toContain("- ER11 collet set (7 pcs) (ER11-7): 1 on hand, reorder level 3");
+    // One push for every business, opening the note that covers them all.
+    const combined = `stock/low-stock-${day}.md`;
     expect(ctx.notifier.sent.slice(sentBefore)).toEqual([
-      expect.objectContaining({ title: `Desktop Machine Shop low stock, week of ${day}`, url: `/brain/${encodeURIComponent(`dms/stock/low-stock-${day}.md`)}`, category: "digest" }),
+      expect.objectContaining({
+        title: `Low stock, week of ${day}`,
+        body: expect.stringMatching(/^Desktop Machine Shop: \d+ below reorder level, \d+ with nothing on order$/),
+        url: `/brain/${encodeURIComponent(combined)}`,
+        category: "digest",
+        tag: "low-stock",
+      }),
     ]);
+    const all = (await ctx.server.brain.read(combined))!.body;
+    expect(all).toContain(`# Low stock, week of ${day}`);
+    expect(all).toContain(`## Desktop Machine Shop low stock, week of ${day}`);
+    expect(all).toContain("- ER11 collet set (7 pcs) (ER11-7): 1 on hand, reorder level 3");
 
     const { body } = await ctx.api("/api/digest?vertical=dms");
     const d = body.digests[0];
