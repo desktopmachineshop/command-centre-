@@ -12,7 +12,8 @@ import { Brain } from "./pages/Brain";
 import { Chat } from "./pages/Chat";
 import { Connections } from "./pages/Connections";
 import { Devices } from "./pages/Devices";
-import { Inbox } from "./pages/Inbox";
+import { Activity } from "./pages/Activity";
+import { Inbox, useWaiting, waitingCount } from "./pages/Inbox";
 import { Login } from "./pages/Login";
 import { Org } from "./pages/Org";
 import { Settings } from "./pages/Settings";
@@ -137,9 +138,10 @@ export type NavItem = { key: string; label: string; icon: IconName; group: strin
 
 export const NAV: NavItem[] = [
   { key: "inbox", label: "Inbox", icon: "inbox", group: "Work", mobilePrimary: true },
-  { key: "today", label: "Today", icon: "today", group: "Work", mobilePrimary: true },
-  { key: "approvals", label: "Approvals", icon: "approvals", group: "Work", mobilePrimary: true },
   { key: "chat", label: "Chat", icon: "chat", group: "Work", mobilePrimary: true },
+  { key: "activity", label: "Activity", icon: "pulse", group: "Work", mobilePrimary: true },
+  { key: "today", label: "Today", icon: "today", group: "Work", mobilePrimary: true },
+  { key: "approvals", label: "Approvals", icon: "approvals", group: "Work" },
   { key: "notifications", label: "Notifications", icon: "bell", group: "Work" },
   { key: "converse", label: "Converse", icon: "drive", group: "Work" },
   { key: "social", label: "Social", icon: "social", group: "Business" },
@@ -153,7 +155,7 @@ export const NAV: NavItem[] = [
 ];
 
 /** Routes without their own nav entry, and the entry they highlight. */
-const PARENT: Record<string, string> = { task: "inbox", briefing: "notifications", drive: "converse" };
+const PARENT: Record<string, string> = { task: "activity", briefing: "notifications", drive: "converse" };
 
 
 const PHONE = "(max-width: 759.98px)";
@@ -210,7 +212,9 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
    * Badge counts by nav key. The notifications page adds its unread count here
    * (`notifications: unread`), which also badges the header bell.
    */
-  const badges: Record<string, number> = { approvals: pending, notifications: unread };
+  // The Inbox's badge is everything waiting in it: approvals, what didn't finish, messages for him.
+  const { waiting } = useWaiting(api, feed);
+  const badges: Record<string, number> = { inbox: waiting ? waitingCount(waiting) : pending, approvals: pending, notifications: unread };
 
   let body;
   switch (page) {
@@ -235,6 +239,9 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
       body = <Briefing api={api} feed={feed} id={id} />;
       break;
     // --- end notifications ---
+    case "activity":
+      body = <Activity api={api} feed={feed} />;
+      break;
     case "task":
       body = <TaskView api={api} feed={feed} id={id!} />;
       break;
@@ -317,7 +324,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
                 <Icon name="chevron" size={14} className="muted" />
                 {page === "task" ? (
                   <>
-                    <a href="#/inbox">Inbox</a>
+                    <a href="#/activity">Activity</a>
                     <Icon name="chevron" size={14} className="muted" />
                     <strong>Task</strong>
                   </>

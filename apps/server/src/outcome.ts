@@ -61,3 +61,22 @@ export function outcomeNotification(o: {
   const body = answerPreview(o.result);
   return body ? { ...base, title: ask, body, priority: "normal" } : null;
 }
+
+/** Tools that change Dave's own lists, reminders and calendar: small things he asked for by name. */
+const ROUTINE_TOOLS = /^mcp__pa__(add|update|cancel|complete)_/;
+/** Action types of the same kind, and the brain's own notes. */
+const ROUTINE_ACTIONS = /^(pa\.|brain\.)/;
+
+/**
+ * Whether a run was a routine confirmation: it did a small thing Dave asked for (set a reminder,
+ * added to a list, wrote a note), everything it proposed ran, and its answer only says so. That it
+ * is on the list is the confirmation: nothing is pushed and no card is made for it; it shows in
+ * Activity. An answer that asks him something, or is long enough to be telling him something, isn't routine.
+ */
+export function isRoutine(run: { tools: Iterable<string>; proposals: { actionType: string; status: string }[]; result: string | null }): boolean {
+  const did = [...run.tools].some((t) => ROUTINE_TOOLS.test(t)) || run.proposals.some((p) => ROUTINE_ACTIONS.test(p.actionType));
+  if (!did) return false;
+  if (run.proposals.some((p) => p.status !== "executed" || !ROUTINE_ACTIONS.test(p.actionType))) return false;
+  const answer = answerPreview(run.result, 2000);
+  return answer.length <= 400 && !answer.includes("?");
+}

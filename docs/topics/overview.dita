@@ -11,7 +11,7 @@
     <fig id="fig-inbox">
       <title>The Inbox on a PC</title>
       <image href="../screenshots/inbox-desktop-light.png" placement="break" width="900">
-        <alt>The Command Centre Inbox on a PC: a sidebar of pages on the left, today's spend and counts at the top, and a list of tasks with their business, status and role.</alt>
+        <alt>The Command Centre Inbox on a PC: a sidebar of pages on the left, and what needs you on the right: an action to approve, a request that didn't finish and messages from the assistant.</alt>
       </image>
     </fig>
     <section id="what-you-do">
@@ -19,7 +19,7 @@
       <ul>
         <li><b>Approve or adjust</b> what the agents propose, in <xref href="work/approvals.dita">Approvals</xref>, or straight from a push notification.</li>
         <li><b>Ask for things</b> in <xref href="work/chat.dita">Chat</xref>, or hands-free in <xref href="work/converse.dita">Converse</xref>.</li>
-        <li><b>Keep an eye on work</b> in the <xref href="work/inbox.dita">Inbox</xref>, and on your own day in <xref href="work/today.dita">Today</xref>.</li>
+        <li><b>See what needs you</b> in the <xref href="work/inbox.dita">Inbox</xref>, <b>keep an eye on work</b> in <xref href="work/activity.dita">Activity</xref>, and on your own day in <xref href="work/today.dita">Today</xref>.</li>
         <li><b>Teach the agents</b> by editing notes in the <xref href="knowledge/brain.dita">Brain</xref>, including each business's how-we-work note, and policies and specialists on the <xref href="business/org.dita">Businesses</xref> page.</li>
       </ul>
     </section>

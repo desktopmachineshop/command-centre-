@@ -78,8 +78,8 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
 
   return (
     <section>
-      <a className="back-link" href="#/inbox">
-        <Icon name="back" size={16} /> Inbox
+      <a className="back-link" href="#/activity">
+        <Icon name="back" size={16} /> Activity
       </a>
       <ReadAloudControl readAloud={readAloud} />
       {proposals.length > 0 && (

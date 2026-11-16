@@ -14,7 +14,7 @@ import { type CodeOptions, prepareCheckout } from "./code";
 import { assistantCharter, assistantRole, assistantServers } from "./assistant";
 import { autoHandover, handoverSection } from "./handover";
 import type { Hub } from "./hub";
-import { outcomeNotification, taskTag } from "./outcome";
+import { isRoutine, outcomeNotification, taskTag } from "./outcome";
 import { startProgressUpdates } from "./progress";
 import type { Notifier } from "./push";
 import type { TaskQueue } from "./queue";
@@ -417,8 +417,12 @@ export class Pipeline {
 
       // Persist messages in order without blocking the stream.
       let chain = Promise.resolve();
+      // Dave is told about what he asked for (how it is going, how it ended). Work that came in or
+      // ran by itself stays quiet: it is in Activity and the daily digest.
+      const daveAsked = event?.source === "chat" || !!turn?.fromDave;
+      const toolsUsed = new Set<string>();
       const progress = startProgressUpdates({
-        notifier: this.deps.notifier,
+        notifier: daveAsked ? this.deps.notifier : undefined,
         intervalMs: (this.deps.progressIntervalSeconds ?? 120) * 1000,
         title: event?.title ?? task.intent,
         url: `/task/${taskId}`,
@@ -441,6 +445,7 @@ export class Pipeline {
       };
       const onMessage = (message: AgentMessage) => {
         hub.broadcast({ type: "run.message", runId: run.id, taskId, message });
+        if (message.type === "tool_use") toolsUsed.add(message.name);
         progress.note(message);
         chain = chain.then(() => store.appendRunMessage(run.id, message)).catch(() => {});
       };
@@ -474,7 +479,12 @@ export class Pipeline {
       // the task, where Chat and the Inbox show it.
       const failedNote = next === "failed" ? `Run failed: ${result.error?.trim() || "the agent stopped without saying why"}` : undefined;
       hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, next, failedNote) });
-      if (event?.source === "chat" || turn?.fromDave) await this.notifyOutcome(task, event, next, result.result, failedNote ?? null, new Date(run.startedAt));
+      if (daveAsked) {
+        const proposed = (await store.listProposals({ taskId, limit: 200 })).filter((p) => p.createdAt >= run.startedAt);
+        // A reminder set, an item added: it being on the list is the confirmation.
+        const routine = next === "done" && isRoutine({ tools: toolsUsed, proposals: proposed, result: result.result });
+        if (!routine) await this.notifyOutcome(task, event, next, result.result, failedNote ?? null, new Date(run.startedAt));
+      }
       await this.afterRun(task, event, { status: next, result: result.result, error: result.error, pending });
     } catch (err) {
       const message = (err as Error).message;

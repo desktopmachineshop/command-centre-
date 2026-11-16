@@ -19,6 +19,12 @@ import type {
 } from "@cc/core";
 import type { OdooCheckpoint } from "@cc/odoo";
 import { answerPreview } from "../outcome";
+
+/**
+ * Mail the triage only filed or dropped (newsletters, receipts, spam): sorting the post, which
+ * Dave doesn't want listed anywhere. For queries with `tasks t left join events e`.
+ */
+const MAIL_FILTERING = "(e.source = 'email' and t.route in ('drop', 'file'))";
 import type { NewScheduledPost, OutboxEntry, PacedActionType, ScheduledPost, ScheduledPostStatus } from "@cc/social";
 import type { Pool } from "./pool";
 
@@ -370,8 +376,10 @@ export class Store {
   /** Tasks of a vertical whose status last changed within `[start, end)`. */
   async listTasksUpdatedBetween(vertical: string, statuses: TaskStatus[], start: Date, end: Date): Promise<Task[]> {
     const { rows } = await this.pool.query(
-      `select * from tasks where vertical = $1 and status = any($2::text[]) and updated_at >= $3 and updated_at < $4
-       order by updated_at`,
+      `select t.* from tasks t left join events e on e.id = t.event_id
+       where t.vertical = $1 and t.status = any($2::text[]) and t.updated_at >= $3 and t.updated_at < $4
+         and not ${MAIL_FILTERING}
+       order by t.updated_at`,
       [vertical, statuses, start, end],
     );
     return rows.map(toTask);
@@ -392,18 +400,20 @@ export class Store {
    * (for a vertical's lead) tasks from before roles existed count as that role's.
    */
   async listTasks(
-    options: { status?: TaskStatus; limit?: number; vertical?: string; role?: string; includeUnassigned?: boolean } = {},
+    options: { status?: TaskStatus; limit?: number; vertical?: string; role?: string; includeUnassigned?: boolean; /** The activity feed: without mail filtering and dropped duplicates. */ feed?: boolean } = {},
   ): Promise<Task[]> {
     const { rows } = await this.pool.query(
-      `select t.*, (select r.result from agent_runs r where r.task_id = t.id and r.result is not null order by r.started_at desc limit 1) as last_result
-       from tasks t
-       where ($1::text is null or status = $1) and ($3::text is null or vertical = $3)
-         and ($4::text is null or role = $4 or ($5::boolean and role is null))
-       order by created_at desc limit $2`,
-      [options.status ?? null, options.limit ?? 50, options.vertical ?? null, options.role ?? null, options.includeUnassigned ?? false],
+      `select t.*, e.source as event_source,
+         (select r.result from agent_runs r where r.task_id = t.id and r.result is not null order by r.started_at desc limit 1) as last_result
+       from tasks t left join events e on e.id = t.event_id
+       where ($1::text is null or t.status = $1) and ($3::text is null or t.vertical = $3)
+         and ($4::text is null or t.role = $4 or ($5::boolean and t.role is null))
+         and (not $6::boolean or (t.status <> 'dropped' and not ${MAIL_FILTERING}))
+       order by t.created_at desc limit $2`,
+      [options.status ?? null, options.limit ?? 50, options.vertical ?? null, options.role ?? null, options.includeUnassigned ?? false, options.feed ?? false],
     );
-    // How each came out: the latest answer's first lines (a failed task's reason is its note).
-    return rows.map((row) => ({ ...toTask(row), outcome: answerPreview(row.last_result, 220) || null }));
+    // Where each came from and how it came out: the latest answer's first lines (a failed task's reason is its note).
+    return rows.map((row) => ({ ...toTask(row), source: row.event_source ?? null, outcome: answerPreview(row.last_result, 220) || null }));
   }
 
   /**

@@ -1190,7 +1190,7 @@ brain note at `<brainFolder>/digests/YYYY-MM-DD.md`, and the active businesses' 
 one note at `digests/YYYY-MM-DD.md`. You get a single push for the day, with one headline line per
 business that had something to report; tapping it opens the combined note in the Brain. Just after
 midnight the notes are rewritten, without a push, so that they cover the
-whole day. The Inbox's **Today** card shows the same numbers live. Any day's digest is at
+whole day. Activity's **Today** card shows the same numbers live. Any day's digest is at
 `GET /api/digest?date=YYYY-MM-DD&vertical=dms` (both parameters optional).
 
 ## Morning brief
@@ -1427,7 +1427,11 @@ one category for one business, e.g. 3dpandme social off.
   1 orders"). If there is no digest that day they stay in the centre.
 - **Your requests:** when something you asked for (a chat message, or your reply on any task)
   finishes or fails while the app is not on screen, you get one `agent` notification with the
-  first lines of the answer, or why it didn't finish; it opens the task. The app tells the server
+  first lines of the answer, or why it didn't finish; it opens the task. Not for a routine
+  confirmation: a run that only set a reminder, changed a list or wrote a note, with everything
+  it proposed done and an answer that just says so (`isRoutine`, `apps/server/src/outcome.ts`).
+  Progress updates are sent only for tasks you asked for; work that came in or ran by itself
+  stays in Activity and the daily digest. The app tells the server
   whether it is on screen (and answers the server's pings, so a phone that has frozen the page stops
   counting within about a minute); while it is on screen nothing is sent. Nothing is sent either
   when the task is waiting for your approval (that request is its own notification) or while work

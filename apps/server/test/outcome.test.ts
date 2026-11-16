@@ -1,7 +1,7 @@
 import { ScriptedRunner } from "@cc/agent-runtime";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hub } from "../src/hub";
-import { answerPreview, outcomeNotification, taskTag } from "../src/outcome";
+import { answerPreview, isRoutine, outcomeNotification, taskTag } from "../src/outcome";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 describe("answerPreview", () => {
@@ -51,6 +51,29 @@ describe("outcomeNotification", () => {
   });
 });
 
+describe("isRoutine", () => {
+  const done = { actionType: "pa.items.add", status: "executed" };
+  it("is a small thing done and merely confirmed", () => {
+    expect(isRoutine({ tools: ["ToolSearch", "mcp__pa__add_reminder"], proposals: [], result: "I've set a reminder for tomorrow at 10:00." })).toBe(true);
+    expect(isRoutine({ tools: ["mcp__actions__propose_action"], proposals: [done], result: "Added milk to **Shopping**." })).toBe(true);
+    expect(isRoutine({ tools: [], proposals: [{ actionType: "brain.journal", status: "executed" }], result: "Logged." })).toBe(true);
+  });
+
+  it("isn't when it tells or asks Dave something, or anything is left to decide", () => {
+    // A lookup is an answer, however short.
+    expect(isRoutine({ tools: ["mcp__odoo__search_products"], proposals: [], result: "We have 12." })).toBe(false);
+    expect(isRoutine({ tools: ["mcp__pa__list_reminders"], proposals: [], result: "Nothing due." })).toBe(false);
+    // It asks him something.
+    expect(isRoutine({ tools: ["mcp__pa__add_reminder"], proposals: [], result: "Set. Do you want the accountant's number on it?" })).toBe(false);
+    // It has more to say than a confirmation.
+    expect(isRoutine({ tools: ["mcp__pa__add_reminder"], proposals: [], result: "x ".repeat(300) })).toBe(false);
+    // Something waits for approval, failed, or reaches outside.
+    expect(isRoutine({ tools: [], proposals: [done, { actionType: "pa.reminder.add", status: "pending" }], result: "Done." })).toBe(false);
+    expect(isRoutine({ tools: [], proposals: [{ actionType: "pa.items.add", status: "failed" }], result: "Done." })).toBe(false);
+    expect(isRoutine({ tools: ["mcp__pa__add_reminder"], proposals: [{ actionType: "email.send", status: "executed" }], result: "Done." })).toBe(false);
+  });
+});
+
 describe("who is watching", () => {
   it("counts a client whose app is on screen and still answering pings", () => {
     vi.useFakeTimers();
@@ -82,7 +105,9 @@ describe.skipIf(!DB_URL)("telling Dave how his request ended", () => {
   const runner = new ScriptedRunner("echo", (req) =>
     /fail/.test(req.prompt)
       ? { result: { status: "failed", result: null, error: "Timed out after 15 minutes", costUsd: 0, sessionId: null } }
-      : { result: { status: "succeeded", result: "We have **12** in stock.\n\n```card\nodoo.product:2\n```", error: null, costUsd: 0, sessionId: null } },
+      : /shopping list/.test(req.prompt)
+        ? { messages: [{ type: "tool_use", name: "mcp__pa__add_items", input: {} }], result: { status: "succeeded", result: "Added milk to Shopping.", error: null, costUsd: 0, sessionId: null } }
+        : { result: { status: "succeeded", result: "We have **12** in stock.\n\n```card\nodoo.product:2\n```", error: null, costUsd: 0, sessionId: null } },
   );
   const chat = async (text: string) => {
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text } });
@@ -144,6 +169,29 @@ describe.skipIf(!DB_URL)("telling Dave how his request ended", () => {
     await ctx.server.pipeline.ingest({ source: "webhook", vertical: "dms", kind: "ping", title: "A webhook", payload: { text: "hello" } });
     await ctx.queue.drain();
     expect(ctx.notifier.sent.filter((n) => n.title === "A webhook")).toEqual([]);
+  });
+
+  it("says nothing for a routine confirmation: the item on the list is the confirmation", async () => {
+    const before = (await centre()).length;
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "add milk to the shopping list" } });
+    await ctx.queue.drain();
+    expect((await ctx.api(`/api/tasks/${body.task.id}`)).body.task.status).toBe("done");
+    expect(ctx.notifier.sent).toEqual([]);
+    expect(await centre()).toHaveLength(before);
+  });
+
+  it("leaves mail that was only sorted out of the activity feed", async () => {
+    const store = ctx.server.store;
+    const { rows } = await store.pool.query("select id, event_id from tasks order by created_at desc limit 1");
+    // Make the newest task look like a filed newsletter.
+    await store.pool.query("update events set source = 'email' where id = $1", [rows[0].event_id]);
+    await store.pool.query("update tasks set route = 'file' where id = $1", [rows[0].id]);
+    const all = (await ctx.api("/api/tasks")).body as { id: string; source: string }[];
+    const feed = (await ctx.api("/api/tasks?feed=1")).body as { id: string; source: string }[];
+    expect(all.find((t) => t.id === rows[0].id)?.source).toBe("email");
+    expect(feed.some((t) => t.id === rows[0].id)).toBe(false);
+    expect(feed.length).toBe(all.length - 1);
+    expect(feed.every((t) => t.source === "chat" || t.source === "webhook")).toBe(true);
   });
 
   it("links an agent's own notification back to its task", async () => {

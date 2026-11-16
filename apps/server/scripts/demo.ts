@@ -74,10 +74,16 @@ class DemoAgent implements AgentRunner {
       say(text);
       return done(text);
     }
-    if (/remind|notify|tell me/i.test(prompt)) {
-      say("I'll set that up.");
-      await this.call(request, onMessage, "actions", "propose_action", { actionType: "notify", summary: "Remind Dave to call the accountant", payload: { title: "Call the accountant", body: "About the VAT return, before 17:00.", category: "reminder" } });
-      const text = "Done: you'll get a reminder to call the accountant about the VAT return.";
+    if (/remind/i.test(prompt)) {
+      const due = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+      await this.call(request, onMessage, "pa", "add_reminder", { text: "Call the accountant", due: `${due}T10:00` });
+      const text = "I've set a reminder for tomorrow at 10:00: \"Call the accountant\".";
+      say(text);
+      return done(text);
+    }
+    if (/price/i.test(prompt)) {
+      await this.call(request, onMessage, "actions", "propose_action", { actionType: "odoo.product.update_price", vertical: "dms", summary: "ER11 collet set (7 pcs, ER11-7): price £24.50 → £26.00", payload: { id: 1, list_price: 26 } });
+      const text = "I've proposed raising the ER11 collet set from £24.50 to £26.00. It waits for your approval.";
       say(text);
       return done(text);
     }

@@ -2,7 +2,7 @@
 <!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
 <topic id="inbox">
   <title>Inbox</title>
-  <shortdesc>What is waiting for you, today's spend and counts, then every task the agents have worked on, newest first.</shortdesc>
+  <shortdesc>Only what needs you, whichever business it is from: actions to approve, things you asked for that didn't finish, and messages worth reading.</shortdesc>
   <prolog>
     <resourceid appname="command-centre" appid="inbox"/>
   </prolog>
@@ -10,39 +10,31 @@
     <fig id="fig-inbox-phone">
       <title>The Inbox on a phone</title>
       <image href="../../screenshots/inbox-phone-light.png" placement="break" width="300">
-        <alt>The Inbox on a phone: the Today card with spend and counts, then a list of tasks.</alt>
+        <alt>The Inbox on a phone: an action to approve with the product it changes, a request that didn't finish, and two messages from the assistant.</alt>
       </image>
     </fig>
-    <p>Each row is one task: its business, status, the first line of what came in, how it came out (the first lines of the answer, or why it failed), the role that has it, the kind of work and how long ago. Choose a row to open the <xref href="task.dita">task</xref>.</p>
-    <p>Task statuses are <term>queued</term>, <term>running</term>, <term>awaiting approval</term>, <term>deferred</term> (held by a daily budget), <term>done</term> and <term>failed</term>.</p>
-    <p>Nothing yet? Ask for something in <xref href="chat.dita">Chat</xref>.</p>
+    <p>The Inbox is short on purpose. Everything that was done, by you asking or by itself, is in <xref href="activity.dita">Activity</xref>; routine automated work is summed up in the daily digest. When nothing needs you the Inbox says so. The number on the Inbox tab is how many things are in it.</p>
+    <p>Things that never make a card here: a small thing you asked for that was simply done (a reminder set, an item added to a list: it being on the list is the confirmation), a task's progress updates, orders, social activity and digests, and mail that was only sorted.</p>
   </body>
-  <topic id="waiting">
-    <title>Waiting for you</title>
-    <prolog><resourceid appname="command-centre" appid="inbox.waiting"/></prolog>
+  <topic id="inbox-approvals">
+    <title>To approve</title>
+    <prolog><resourceid appname="command-centre" appid="inbox.approvals"/></prolog>
     <body>
-      <p>The first card gathers what needs you, whichever business it is from:</p>
-      <ul>
-        <li>the actions <uicontrol>to approve</uicontrol> (the first three; choose one to decide it, or <uicontrol>see all</uicontrol>);</li>
-        <li>anything you asked for in the last two days that <uicontrol>didn't finish</uicontrol>, with the reason (open it to retry or reply);</li>
-        <li>what you have been told but not read (the first three; <uicontrol>see all</uicontrol> opens <xref href="notifications.dita">Notifications</xref>).</li>
-      </ul>
-      <p>It is hidden while the list is filtered.</p>
+      <p>Each action waiting for your yes, in full, with the record it would change (the product, order or customer, read live). <uicontrol>Approve</uicontrol> or <uicontrol>Reject</uicontrol> it here; <uicontrol>Edit</uicontrol> and <uicontrol>Ask for changes</uicontrol> work as on the <xref href="approvals.dita">Approvals</xref> page. The first five are shown, with a link to the rest.</p>
     </body>
   </topic>
-  <topic id="digest">
-    <title>The Today card</title>
-    <prolog><resourceid appname="command-centre" appid="inbox.digest"/></prolog>
+  <topic id="inbox-failed">
+    <title>Didn't finish</title>
+    <prolog><resourceid appname="command-centre" appid="inbox.failed"/></prolog>
     <body>
-      <p>The Today card shows what has been spent today against the budget, how many tasks are done or failed, how many actions ran by themselves, and how many are <uicontrol>to approve</uicontrol> (choose it to go to Approvals). Below that is one line per business.</p>
-      <p>When tasks were deferred by a budget, the card says so: they run after midnight, or choose <uicontrol>retry one now</uicontrol> to list them and run one.</p>
+      <p>Something you asked for in Chat in the last two days that failed, with the reason. <uicontrol>Retry</uicontrol> runs it again and opens it, <uicontrol>Open</uicontrol> shows the conversation (reply there to change what you asked), and <uicontrol>Dismiss</uicontrol> clears it from this device's Inbox. Work that came in by itself and failed is listed in the daily digest and in Activity, not here.</p>
     </body>
   </topic>
-  <topic id="filter">
-    <title>Filter the list</title>
-    <prolog><resourceid appname="command-centre" appid="inbox.filter"/></prolog>
+  <topic id="inbox-messages">
+    <title>For you</title>
+    <prolog><resourceid appname="command-centre" appid="inbox.messages"/></prolog>
     <body>
-      <p><uicontrol>Filter by vertical</uicontrol> shows only one vertical's tasks (the link keeps the choice, so you can bookmark it), and <uicontrol>Filter by status</uicontrol> only tasks with one status; the two combine. Choosing a role on the <xref href="../business/org.dita">Org</xref> page opens the Inbox on that role's tasks; the subtitle says <systemoutput>Showing …</systemoutput>, and <uicontrol>show all</uicontrol> clears it.</p>
+      <p>Unread messages that matter: an answer to something you asked that arrived while the app was not on screen, a message your assistant chose to send you, reminders, alerts, quotes and supplier replies, and briefings. The first button opens what it is about (and marks it read); <uicontrol>Dismiss</uicontrol> marks it read without opening it, and <uicontrol>Dismiss all</uicontrol> clears the group. They all stay in <xref href="notifications.dita">Notifications</xref>.</p>
     </body>
   </topic>
 </topic>

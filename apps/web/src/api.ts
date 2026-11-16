@@ -398,7 +398,7 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       if (!res.ok) throw await failed(res);
       return (await res.json()) as ChatFile;
     },
-    tasks: (status?: string, filter: { vertical?: string; role?: string } = {}) => {
+    tasks: (status?: string, filter: { vertical?: string; role?: string; /** "1": the Activity feed (no mail filtering, no dropped duplicates). */ feed?: string } = {}) => {
       const q = new URLSearchParams(Object.entries({ status, ...filter }).filter(([, v]) => v) as [string, string][]).toString();
       return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);
     },
