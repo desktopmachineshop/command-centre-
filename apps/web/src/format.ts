@@ -6,6 +6,14 @@ export function ago(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+const ACTION_AREAS: Record<string, string> = { odoo: "Odoo", email: "Email", social: "Social", pa: "Personal", brain: "Brain", github: "GitHub", video: "Video", notify: "Notification", reddit: "Reddit", sendcloud: "Parcels", storage: "Storage" };
+/** An action type for reading: "odoo.product.update_price" → "Odoo: product, update price". */
+export function actionLabel(type: string): string {
+  const [area, ...rest] = type.split(".");
+  const name = ACTION_AREAS[area!] ?? area!.charAt(0).toUpperCase() + area!.slice(1);
+  return rest.length ? `${name}: ${rest.map((p) => p.replace(/_/g, " ")).join(", ")}` : name;
+}
+
 /** A task's state in the words Dave would use. */
 export function statusWords(task: { status: string; note?: string | null }): string {
   if (task.status === "failed" && task.note === "Stopped from the app.") return "Stopped";

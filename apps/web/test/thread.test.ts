@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { decidedSummary } from "../src/pages/Approvals";
 import { cardKindsIn, statusWords, threadOf } from "../src/pages/TaskView";
 import { htmlToText, readable } from "../src/payload";
+import { actionLabel } from "../src/format";
 
 const run = (id: string, startedAt: string, messages: AgentMessage[] = []) => ({ id, taskId: "t", runner: "claude-code", status: "succeeded" as const, result: null, error: null, costUsd: 0.1, sessionId: null, startedAt, finishedAt: null, messages });
 const proposal = (id: string, createdAt: string, status = "pending") => ({ id, createdAt, status }) as Proposal;
@@ -52,5 +53,15 @@ describe("reading what an action will send", () => {
     expect(readable("<p>Hi</p><p>Dave</p>")).toEqual({ kind: "text", text: "Hi\n\nDave" });
     // Plain text with an angle bracket is left alone.
     expect(readable("qty < 3 and price > 2")).toEqual({ kind: "text", text: "qty < 3 and price > 2" });
+  });
+});
+
+describe("action names for reading", () => {
+  it("says the area and the action in words", () => {
+    expect(actionLabel("odoo.product.update_price")).toBe("Odoo: product, update price");
+    expect(actionLabel("email.reply")).toBe("Email: reply");
+    expect(actionLabel("notify")).toBe("Notification");
+    expect(actionLabel("pa.items.add")).toBe("Personal: items, add");
+    expect(actionLabel("newthing.do_it")).toBe("Newthing: do it");
   });
 });

@@ -1917,6 +1917,10 @@ a.stat:hover {
 }
 .action-type {
   font-size: var(--fs-xs);
+  color: var(--text-2);
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
 }
 
 /* Social previews */
