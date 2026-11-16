@@ -33,7 +33,7 @@ The **Businesses** page in the app (route `#/org`) shows the assistant's card, w
 over every business (open tasks, tasks done in the last 7 days, cost over 7 days and approvals
 waiting), then each business: its description, a link to its how-we-work note, its budget, its
 schedules, its approval policies and its specialists' cards. Choose a card's title to see its tasks
-in the Inbox. The same tree is served at `GET /api/org`. A task counts towards the specialist it
+in Activity. The same tree is served at `GET /api/org`. A task counts towards the specialist it
 names, otherwise towards the assistant (including tasks of roles that no longer exist).
 
 ## How a task gets its role
@@ -54,7 +54,7 @@ assistant. The assistant's own names (`assistant:`, `cos:`, `chief:`) go to it t
 named first (`dms: …`, or the business picked in the app) still steers triage, so a `dms: …` chat
 or a DMS email is a DMS task of the assistant's.
 
-The role is stored on the task (`tasks.role`, migration `0005_roles`) and shown in the Inbox.
+The role is stored on the task (`tasks.role`, migration `0005_roles`) and shown in Activity.
 `GET /api/tasks?vertical=3dpandme&role=video-producer` lists one role's tasks.
 
 ## What a run gets

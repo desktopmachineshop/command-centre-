@@ -1,21 +1,43 @@
 import { CATEGORY_LABELS, NOTIFICATION_CATEGORIES, type NotificationMedia, type StoredNotification } from "@cc/core";
 import { useState } from "react";
 import type { Api } from "../api";
-import { ago } from "../format";
+import { ago, dayLabel } from "../format";
 import { type LiveFeed, useLoad } from "../live";
 import { go, routeQuery } from "../router";
 import { MediaThumbs } from "../social";
+import { VTag } from "../ui";
 import { VideoPreview } from "../video";
 
+/** What happened to a notification that wasn't simply pushed, in plain words. */
 const STATUS_LABEL: Partial<Record<StoredNotification["status"], string>> = {
-  held: "held for quiet hours",
-  released: "sent after quiet hours",
-  collapsed: "collapsed",
-  batched: "waiting for the digest",
-  digested: "in the digest",
-  inapp: "in app only",
-  muted: "muted",
+  held: "Not pushed yet: it arrived in quiet hours, and goes out when they end",
+  released: "Arrived in quiet hours; pushed when they ended",
+  collapsed: "Not pushed on its own: several came at once, so your devices got one summary",
+  batched: "Not pushed: waiting to be listed with the next daily digest",
+  digested: "Not pushed on its own: listed with the daily digest",
+  inapp: "Kept in the app only (not pushed)",
+  muted: "Muted",
 };
+export const statusNote = (n: Pick<StoredNotification, "status">): string | null => STATUS_LABEL[n.status] ?? null;
+
+/**
+ * Where a notification leads: its own link, and the task it came from when that is somewhere
+ * else (an agent's message links back to the conversation that produced it).
+ */
+export function notificationLinks(n: Pick<StoredNotification, "url" | "data" | "category">): { label: string; route: string }[] {
+  const links: { label: string; route: string }[] = [];
+  const route = n.url?.replace(/^\//, "");
+  if (route) {
+    const label = route.startsWith("approvals") ? "Review it" : route.startsWith("task/") ? "Open the conversation" : route.startsWith("brain/") ? "Read the note" : route.startsWith("briefing/") ? "Open the briefing" : "Open";
+    links.push({ label, route });
+  }
+  const taskId = typeof n.data?.taskId === "string" ? n.data.taskId : null;
+  if (taskId && route !== `task/${taskId}`) links.push({ label: "Open the conversation", route: `task/${taskId}` });
+  return links;
+}
+
+/** More lines than this and the text is folded, with a button to show the rest. */
+const LONG_BODY = 600;
 
 /** A notification's pictures and videos in full: videos play in place, images show at their own size. */
 export function NotificationMediaView({ media, title }: { media?: NotificationMedia[]; title: string }) {
@@ -43,7 +65,11 @@ export async function openNotification(api: Api, n: StoredNotification) {
   go((n.url ?? `/briefing/${n.id}`).replace(/^\//, ""));
 }
 
-/** The notification centre: every notification, filterable by category. */
+/**
+ * The notification centre: everything Command Centre has told Dave, newest first under the day
+ * it arrived, each in full (its text, pictures, what happened to it, and where it leads) so
+ * nothing needs opening to be read. Reading one here marks it read.
+ */
 export function Notifications({ api, feed }: { api: Api; feed: LiveFeed }) {
   const [category, setCategory] = useState<string>(() => routeQuery().get("category") ?? "");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -53,6 +79,13 @@ export function Notifications({ api, feed }: { api: Api; feed: LiveFeed }) {
     (m) => m.type === "notifications.updated",
     [category, unreadOnly],
   );
+  const groups: { day: string; items: StoredNotification[] }[] = [];
+  for (const n of data?.items ?? []) {
+    const day = dayLabel(n.createdAt);
+    const last = groups[groups.length - 1];
+    if (last?.day === day) last.items.push(n);
+    else groups.push({ day, items: [n] });
+  }
 
   return (
     <section className="notifications">
@@ -83,25 +116,63 @@ export function Notifications({ api, feed }: { api: Api; feed: LiveFeed }) {
         </button>
       </div>
       {error && <p className="error">{error}</p>}
-      {data?.items.length === 0 && <p className="muted">No notifications.</p>}
-      <ul className="list">
-        {data?.items.map((n) => (
-          <li key={n.id} className={`item notification ${n.readAt ? "read" : "unread"}`} onClick={() => openNotification(api, n)}>
-            <div className="row between small">
-              <span>
-                <span className="tag">{CATEGORY_LABELS[n.category]}</span> {n.vertical && <span className="muted">{n.vertical}</span>}
-                {!n.readAt && <span className="badge">new</span>}
-              </span>
-              <span className="muted">{ago(n.createdAt)}</span>
-            </div>
-            <p className="title">{n.title}</p>
-            <p className="prewrap small clip">{n.body}</p>
-            <MediaThumbs media={n.media} />
-            {STATUS_LABEL[n.status] && <p className="muted small">{STATUS_LABEL[n.status]}</p>}
-          </li>
-        ))}
-      </ul>
+      {data?.items.length === 0 && <p className="muted">{unreadOnly ? "Nothing unread." : "No notifications."}</p>}
+      {groups.map((g) => (
+        <div key={g.day} className="notification-day">
+          <h3 className="small muted">{g.day}</h3>
+          <ul className="list">
+            {g.items.map((n) => (
+              <NotificationItem key={n.id} api={api} n={n} onChange={reload} />
+            ))}
+          </ul>
+        </div>
+      ))}
     </section>
+  );
+}
+
+function NotificationItem({ api, n, onChange }: { api: Api; n: StoredNotification; onChange: () => void }) {
+  const long = n.body.length > LONG_BODY || n.body.split("\n").length > 12;
+  const [open, setOpen] = useState(false);
+  const links = notificationLinks(n);
+  const note = statusNote(n);
+  const follow = async (route: string) => {
+    if (!n.readAt) await api.markRead(n.id).catch(() => {});
+    go(route);
+  };
+  return (
+    <li className={`item notification ${n.readAt ? "read" : "unread"}`}>
+      <div className="row between small">
+        <span>
+          <span className="tag">{CATEGORY_LABELS[n.category]}</span> {n.vertical && <VTag id={n.vertical} />}
+          {!n.readAt && <span className="badge">new</span>}
+        </span>
+        <span className="muted" title={new Date(n.createdAt).toLocaleString()}>
+          {new Date(n.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </span>
+      </div>
+      <p className="title">{n.title}</p>
+      {n.body && <p className={`prewrap notification-body ${long && !open ? "is-folded" : ""}`}>{n.body}</p>}
+      {long && (
+        <button type="button" className="link small" onClick={() => setOpen((o) => !o)}>
+          {open ? "Show less" : "Show all of it"}
+        </button>
+      )}
+      <NotificationMediaView media={n.media} title={n.title} />
+      {note && <p className="muted small notification-status">{note}</p>}
+      <div className="row wrap small notification-links">
+        {links.map((l) => (
+          <button key={l.route} type="button" className="link" onClick={() => void follow(l.route)}>
+            {l.label}
+          </button>
+        ))}
+        {!n.readAt && (
+          <button type="button" className="link muted" onClick={() => void api.markRead(n.id).then(onChange, () => {})}>
+            Mark read
+          </button>
+        )}
+      </div>
+    </li>
   );
 }
 

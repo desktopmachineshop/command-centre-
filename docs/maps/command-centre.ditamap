@@ -18,6 +18,7 @@
 
   <topichead navtitle="Work">
     <topicref href="../topics/work/inbox.dita"/>
+    <topicref href="../topics/work/activity.dita"/>
     <topicref href="../topics/work/task.dita"/>
     <topicref href="../topics/work/today.dita"/>
     <topicref href="../topics/work/approvals.dita"/>

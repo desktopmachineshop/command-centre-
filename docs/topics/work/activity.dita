@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="activity">
+  <title>Activity</title>
+  <shortdesc>Everything that was done, newest first, with today's spend and counts at the top.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="activity"/>
+  </prolog>
+  <body>
+    <fig id="fig-activity-phone">
+      <title>Activity on a phone</title>
+      <image href="../../screenshots/activity-phone-light.png" placement="break" width="300">
+        <alt>Activity on a phone: the Today card with spend and counts, then a list of tasks, each with how it came out.</alt>
+      </image>
+    </fig>
+    <p>Each row is one task: its business, status, the first line of what was asked or came in, how it came out (the first lines of the answer, or why it failed), where it came from (<systemoutput>You asked</systemoutput>, <systemoutput>Email</systemoutput>, <systemoutput>Odoo</systemoutput>, <systemoutput>Social</systemoutput>, <systemoutput>Scheduled</systemoutput>) and how long ago. Choose a row to open the <xref href="task.dita">task</xref>.</p>
+    <p>Mail that was only sorted (newsletters, receipts, spam) is not listed, here or in the daily digest. What needs you is in the <xref href="inbox.dita">Inbox</xref>.</p>
+    <p>Task statuses are <term>queued</term>, <term>running</term>, <term>awaiting approval</term>, <term>deferred</term> (held by a daily budget), <term>done</term> and <term>failed</term>.</p>
+  </body>
+  <topic id="activity-today">
+    <title>The Today card</title>
+    <prolog><resourceid appname="command-centre" appid="activity.today"/></prolog>
+    <body>
+      <p>The Today card shows what has been spent today against the budget, how many tasks are done or failed, how many actions ran by themselves, and how many are <uicontrol>to approve</uicontrol> (choose it to go to Approvals). Below that is one line per business.</p>
+      <p>When tasks were deferred by a budget, the card says so: they run after midnight, or choose <uicontrol>retry one now</uicontrol> to list them and run one.</p>
+    </body>
+  </topic>
+  <topic id="activity-filter">
+    <title>Filter the list</title>
+    <prolog><resourceid appname="command-centre" appid="activity.filter"/></prolog>
+    <body>
+      <p><uicontrol>Filter by vertical</uicontrol> shows only one vertical's tasks (the link keeps the choice, so you can bookmark it), and <uicontrol>Filter by status</uicontrol> only tasks with one status; the two combine. Choosing a role on the <xref href="../business/org.dita">Businesses</xref> page opens Activity on that role's tasks; the subtitle says <systemoutput>Showing …</systemoutput>, and <uicontrol>show all</uicontrol> clears it.</p>
+    </body>
+  </topic>
+</topic>

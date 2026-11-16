@@ -168,7 +168,8 @@ export function apiRoutes(deps: ApiDeps) {
     if (vertical && !verticals.get(vertical)) return c.json({ error: `unknown vertical ${vertical}` }, 404);
     // The assistant's tasks run in every business; tasks from before roles existed are its too.
     const includeUnassigned = role === ROOT_ROLE_ID;
-    return c.json(await store.listTasks({ status, vertical, role, includeUnassigned, limit: limit.parse(c.req.query("limit")) }));
+    // `feed=1` is the Activity page's list: everything but mail filtering and dropped duplicates.
+    return c.json(await store.listTasks({ status, vertical, role, includeUnassigned, feed: c.req.query("feed") === "1", limit: limit.parse(c.req.query("limit")) }));
   });
 
   /** Who made a change from the app, for brain and org history. */

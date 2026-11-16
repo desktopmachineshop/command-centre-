@@ -149,6 +149,12 @@ export class NotificationStore {
   }
 
   /** Marks read every notification whose `data[key]` is `value`, e.g. the approval request for a decided proposal. */
+  /** Removes the notifications with this tag (the ones a `replaces` notification stands in for). */
+  async deleteByTag(userId: string, tag: string): Promise<number> {
+    const { rowCount } = await this.pool.query("delete from notifications where user_id = $1 and tag = $2", [userId, tag]);
+    return rowCount ?? 0;
+  }
+
   async markReadByData(userId: string, key: string, value: string): Promise<number> {
     const { rowCount } = await this.pool.query(
       "update notifications set read_at = now() where user_id = $1 and read_at is null and data ->> $2 = $3",

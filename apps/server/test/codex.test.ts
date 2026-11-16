@@ -75,6 +75,8 @@ describe("agent routes", () => {
   it("gives Codex no Claude settings and no tokens", () => {
     const env = agentEnv(config({ CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-x" }), "codex", { PATH: "/usr/bin", CLAUDE_CONFIG_DIR: "/c", OPENAI_API_KEY: "sk-x", ODOO_API_KEY: "o" });
     expect(env).toEqual({ PATH: "/usr/bin" });
+    // Claude Code's tool-search switch reaches the agent; the server's secrets still don't.
+    expect(agentEnv(config(), "subscription", { ENABLE_TOOL_SEARCH: "false", ODOO_API_KEY: "o" })).toEqual({ ENABLE_TOOL_SEARCH: "false" });
   });
 
   it("codex: runs on the ChatGPT plan, and says so when it isn't connected", async () => {

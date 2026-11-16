@@ -9,6 +9,7 @@ apps:
     routes:
       /: inbox
       /inbox: inbox
+      /activity: activity
       /task/:id: inbox.task
       /today: today
       /approvals/**: approvals

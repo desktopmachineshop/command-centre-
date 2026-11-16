@@ -24,7 +24,7 @@
     <note type="important">Work that started with an email, a webhook or any other outside message always waits for approval, whatever the policy says. Text from strangers is treated as information, never as instructions.</note>
     <section id="budget">
       <title>Spend and budgets</title>
-      <p>Every agent run is costed. The Inbox shows today's spend against the daily budget. When a budget is used up, new tasks are <term>deferred</term> and run after midnight, unless you choose <uicontrol>Run now</uicontrol> on one.</p>
+      <p>Every agent run is costed. Activity shows today's spend against the daily budget. When a budget is used up, new tasks are <term>deferred</term> and run after midnight, unless you choose <uicontrol>Run now</uicontrol> on one.</p>
     </section>
     <section id="workers">
       <title>Worker PCs</title>

@@ -90,7 +90,8 @@ describe.skipIf(!existsSync(CHROMIUM))("Briefing media (Playwright)", () => {
 
     await page.goto(`${base}/#/notifications`);
     await page.getByRole("heading", { name: "Notifications" }).waitFor();
-    expect(await page.locator(".notification").first().locator(".thumb video").getAttribute("src")).toBe(video);
+    // The notification centre shows each notification in full: the video plays in place there too.
+    expect(await page.locator(".notification").first().locator(".notification-media video").getAttribute("src")).toBe(video);
     expect(errors).toEqual([]);
   }, 60_000);
 });

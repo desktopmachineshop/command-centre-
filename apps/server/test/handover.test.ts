@@ -16,6 +16,8 @@ describe("handover notes (unit)", () => {
   it("keeps a note within its limit, and says when there is none yet", () => {
     expect(cleanHandover("x".repeat(HANDOVER_MAX + 500)).length).toBeLessThanOrEqual(HANDOVER_MAX);
     expect(handoverSection(null)).toContain("no note yet");
+    // A quick one-shot answer needn't spend a turn on the note: the server records the answer.
+    expect(handoverSection(null)).toContain("skip the call");
     expect(handoverSection("## Goal\nfoo")).toContain("<<<\n## Goal\nfoo\n>>>");
   });
 });

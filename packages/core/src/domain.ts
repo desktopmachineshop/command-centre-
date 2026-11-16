@@ -74,6 +74,10 @@ export const Task = z.object({
   duplicateOf: z.string().nullish(),
   /** Org role that runs the task (see docs/ORG.md). Null on tasks from before roles existed: the vertical lead. */
   role: z.string().nullish(),
+  /** On task lists only: where it came from (the source of its event): "chat" is Dave asking, the rest came in or ran by themselves. */
+  source: z.string().nullish(),
+  /** On task lists only: the latest answer in a few plain lines, so a list shows how each task came out. */
+  outcome: z.string().nullish(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

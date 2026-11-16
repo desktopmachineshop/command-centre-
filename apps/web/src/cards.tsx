@@ -53,40 +53,43 @@ export function RecordCard({ card }: { card: Card }) {
   const integration = card.kind.split(".")[0]!;
   return (
     <article className={`record-card kind-${card.kind.replace(/\./g, "-")}`} data-kind={card.kind}>
-      {image ? <img className="record-card-image" src={image} alt="" loading="lazy" /> : <div className="record-card-image placeholder" aria-hidden="true">{card.title.slice(0, 1).toUpperCase()}</div>}
-      <div className="record-card-body">
-        <header>
-          <h4>{card.title}</h4>
-          {card.subtitle && <span className="record-card-subtitle">{card.subtitle}</span>}
-        </header>
-        {card.badges.length > 0 && (
-          <div className="record-card-badges">
-            {card.badges.map((b) => (
-              <span key={b.text} className={`record-badge tone-${b.tone}`}>
-                {b.text}
-              </span>
-            ))}
-          </div>
-        )}
-        {card.facts.length > 0 && (
-          <dl className="record-card-facts">
-            {card.facts.map((f) => (
-              <div key={f.label} className={f.tone ? `tone-${f.tone}` : undefined}>
-                <dt>{f.label}</dt>
-                <dd>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-        <footer className="small muted">
-          <span>{card.footnote ?? integration}</span>
-          {url && (
-            <a href={url} target="_blank" rel="noreferrer noopener">
-              Open in {integration.charAt(0).toUpperCase() + integration.slice(1)}
-            </a>
+      {/* Picture and name side by side; the facts get the card's full width, so they sit in columns on a phone too. */}
+      <div className="record-card-top">
+        {image ? <img className="record-card-image" src={image} alt="" loading="lazy" /> : <div className="record-card-image placeholder" aria-hidden="true">{card.title.slice(0, 1).toUpperCase()}</div>}
+        <div className="record-card-body">
+          <header>
+            <h4>{card.title}</h4>
+            {card.subtitle && <span className="record-card-subtitle">{card.subtitle}</span>}
+          </header>
+          {card.badges.length > 0 && (
+            <div className="record-card-badges">
+              {card.badges.map((b) => (
+                <span key={b.text} className={`record-badge tone-${b.tone}`}>
+                  {b.text}
+                </span>
+              ))}
+            </div>
           )}
-        </footer>
+        </div>
       </div>
+      {card.facts.length > 0 && (
+        <dl className="record-card-facts">
+          {card.facts.map((f) => (
+            <div key={f.label} className={f.tone ? `tone-${f.tone}` : undefined}>
+              <dt>{f.label}</dt>
+              <dd>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <footer className="small muted">
+        <span>{card.footnote ?? integration}</span>
+        {url && (
+          <a href={url} target="_blank" rel="noreferrer noopener">
+            Open in {integration.charAt(0).toUpperCase() + integration.slice(1)}
+          </a>
+        )}
+      </footer>
     </article>
   );
 }

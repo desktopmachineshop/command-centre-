@@ -5,16 +5,39 @@ export interface Peer {
   send(data: string): void;
 }
 
+/** A client that hasn't reported its presence for this long isn't counted as watching. */
+const PRESENCE_MS = 70_000;
+
 /**
  * Fan-out of live updates: every connected client gets every message;
  * worker nodes only get messages addressed to them.
  */
 export class Hub {
-  private readonly clients = new Set<Peer>();
+  /**
+   * App clients: whether each says its app is on screen, and when it last said so. The app answers
+   * every ping with its presence, so a phone that has frozen the page (or lost its connection
+   * without closing it) stops counting within a minute or so.
+   */
+  private readonly clients = new Map<Peer, { visible: boolean; seenAt: number }>();
   private readonly workers = new Map<string, Peer>();
 
   addClient(peer: Peer): void {
-    this.clients.add(peer);
+    this.clients.set(peer, { visible: true, seenAt: Date.now() });
+  }
+
+  /** A client reporting that its app came on screen or left it (`client.presence`). */
+  setVisible(peer: Peer, visible: boolean): void {
+    const client = this.clients.get(peer);
+    if (!client) return;
+    client.visible = visible;
+    client.seenAt = Date.now();
+  }
+
+  /** Whether the app is on screen somewhere, so Dave can see what arrives. */
+  watching(): boolean {
+    const fresh = Date.now() - PRESENCE_MS;
+    for (const client of this.clients.values()) if (client.visible && client.seenAt >= fresh) return true;
+    return false;
   }
 
   removeClient(peer: Peer): void {
@@ -45,7 +68,7 @@ export class Hub {
 
   broadcast(message: OutboundMessage): void {
     const frame = JSON.stringify(message);
-    for (const peer of this.clients) safeSend(peer, frame);
+    for (const peer of this.clients.keys()) safeSend(peer, frame);
   }
 
   sendToWorker(nodeId: string, message: OutboundMessage): boolean {

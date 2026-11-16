@@ -21,6 +21,12 @@ export const ClientHello = z.object({
     .optional(),
 });
 
+/**
+ * App clients only: whether the app is on screen. While it is, Dave can see an answer arrive, so
+ * the server doesn't also push it to his devices (Pipeline.notifyOutcome).
+ */
+export const ClientPresence = z.object({ type: z.literal("client.presence"), visible: z.boolean() });
+
 export const WorkerHeartbeat = z.object({ type: z.literal("worker.heartbeat") });
 /** Workers only: capabilities and setup changed while connected (e.g. after a setup.install job). */
 export const WorkerCapabilities = z.object({ type: z.literal("worker.capabilities"), capabilities: z.array(Capability), setup: NodeSetup.optional() });
@@ -35,6 +41,7 @@ export const JobFail = z.object({ type: z.literal("job.fail"), jobId: z.string()
 
 export const InboundMessage = z.discriminatedUnion("type", [
   ClientHello,
+  ClientPresence,
   WorkerHeartbeat,
   WorkerCapabilities,
   JobProgress,

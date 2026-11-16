@@ -398,7 +398,7 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       if (!res.ok) throw await failed(res);
       return (await res.json()) as ChatFile;
     },
-    tasks: (status?: string, filter: { vertical?: string; role?: string } = {}) => {
+    tasks: (status?: string, filter: { vertical?: string; role?: string; /** "1": the Activity feed (no mail filtering, no dropped duplicates). */ feed?: string } = {}) => {
       const q = new URLSearchParams(Object.entries({ status, ...filter }).filter(([, v]) => v) as [string, string][]).toString();
       return call<Task[]>(`/tasks${q ? `?${q}` : ""}`);
     },
@@ -611,6 +611,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     notification: (id: string) => call<StoredNotification>(`/notifications/${id}`),
     unreadCount: () => call<{ unread: number }>("/notifications/unread-count"),
     markRead: (id: string) => post<{ unread: number }>(`/notifications/${id}/read`),
+    /** Opening a task reads what was said about it (its answer, a failure, an agent's message). */
+    markTaskRead: (taskId: string) => post<{ changed: number; unread: number }>(`/notifications/read-task/${encodeURIComponent(taskId)}`),
     markAllRead: (category?: string) => post<{ changed: number; unread: number }>("/notifications/read-all", { category }),
     notificationPrefs: () =>
       call<{ prefs: NotificationPrefs; defaults: NotificationPrefs; categories: NotificationCategory[] }>("/notifications/prefs"),

@@ -13,7 +13,7 @@ const EditContext = createContext<{ config: OrgConfig; open: (t: OrgEditTarget) 
 /** Wide screens start with every branch open; phones start collapsed. */
 const wide = () => typeof matchMedia === "function" && matchMedia("(min-width: 641px)").matches;
 
-const inboxLink = (vertical: string, role: string) => `#/inbox?${new URLSearchParams({ vertical, role })}`;
+const inboxLink = (vertical: string, role: string) => `#/activity?${new URLSearchParams({ vertical, role })}`;
 
 /**
  * Businesses: the assistant (which takes every task), then each business with what it is, how it

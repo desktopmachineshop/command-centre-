@@ -22,7 +22,7 @@
       <li>its <term>specialists</term>, if it has any.</li>
     </ul>
     <p>The specialists are the <b>Software Lead</b> (Command Centre: changes the app's code and raises pull requests), the <b>Video Producer</b> and the <b>Blog Writer</b> (3dpandme). The assistant hands them only that kind of work, and they report back to it on the same task. You can also start a message with a specialist's name, such as <userinput>video: …</userinput>, <userinput>blog: …</userinput> or <userinput>software: …</userinput>. A specialist's <uicontrol>Mission and tools</uicontrol> shows what it is for, its autonomy notes, skills, tools, schedules, the names you can address it by and what it is measured on.</p>
-    <p>Choose a card's title to see its tasks in the Inbox. Whether an action runs or waits is decided by the business's <xref href="#policies">policies</xref>.</p>
+    <p>Choose a card's title to see its tasks in Activity. Whether an action runs or waits is decided by the business's <xref href="#policies">policies</xref>.</p>
   </body>
   <topic id="edit">
     <title>Edit businesses and specialists</title>

@@ -1149,6 +1149,16 @@ Odoo. (`bypassesBudget` in `apps/server/src/budget.ts`.)
 Spend is counted from finished runs, so runs already in flight when a cap is reached can go over
 it by their own cost. `/api/stats` shows today's cost per vertical and the configured budgets.
 
+**Faster answers.** With many tools connected, Claude Code loads tool definitions on demand: each
+run starts by looking up the tools it needs, which is an extra round trip (and now and then a
+first call with the wrong arguments). Setting `ENABLE_TOOL_SEARCH=false` on the server gives every
+run all its tools' definitions up front instead. Measured on two simple requests (a stock question
+and a reminder, Sonnet, a pretend Odoo): 8 seconds each with it off, against 12 to 32 seconds with
+it on. The price is a larger prompt: the first run after a quiet spell cost about $0.41 against
+$0.15, and later runs about the same as before once the prompt is cached. That counts against the
+daily budgets, so raise them if you turn this on. It is off (Claude Code's default behaviour)
+unless you set it.
+
 **Concurrency.** `AGENT_CONCURRENCY` (default 2) is the total number of runs at once.
 `AGENT_MAX_CONCURRENT_PER_VERTICAL` (default 1) caps each vertical, so one noisy vertical can't
 take every slot. A task whose vertical is full goes back on the queue for
@@ -1180,7 +1190,7 @@ brain note at `<brainFolder>/digests/YYYY-MM-DD.md`, and the active businesses' 
 one note at `digests/YYYY-MM-DD.md`. You get a single push for the day, with one headline line per
 business that had something to report; tapping it opens the combined note in the Brain. Just after
 midnight the notes are rewritten, without a push, so that they cover the
-whole day. The Inbox's **Today** card shows the same numbers live. Any day's digest is at
+whole day. Activity's **Today** card shows the same numbers live. Any day's digest is at
 `GET /api/digest?date=YYYY-MM-DD&vertical=dms` (both parameters optional).
 
 ## Morning brief
@@ -1407,17 +1417,35 @@ one category for one business, e.g. 3dpandme social off.
   a proposal marks its notification read.
 - Briefings open a briefing view (`#/briefing/<id>`).
 - A notification can carry **media**: pictures and videos it is about (a finished video render,
-  for one). The briefing view plays a video in place and shows an image full width; the
-  notification centre and the recent-briefings list show thumbnails; a push shows the first image
+  for one). The briefing view and the notification centre play a video in place and show an image
+  full width; the recent-briefings list shows thumbnails; a push shows the first image
   as its large picture where the platform supports it (Chrome on Android and Windows). A video
   can't play inside a push, so tap it to open the briefing.
 - **Rate limit:** at most 3 pushes per category per 10 minutes (configurable). Extras collapse into
   one "and N more" notification per category, which updates in place. Urgent is never limited.
 - **Batched** notifications are added to the next daily-digest push as one line ("Also: 2 social,
   1 orders"). If there is no digest that day they stay in the centre.
+- **Your requests:** when something you asked for (a chat message, or your reply on any task)
+  finishes or fails while the app is not on screen, you get one `agent` notification with the
+  first lines of the answer, or why it didn't finish; it opens the task. Not for a routine
+  confirmation: a run that only set a reminder, changed a list or wrote a note, with everything
+  it proposed done and an answer that just says so (`isRoutine`, `apps/server/src/outcome.ts`).
+  Progress updates are sent only for tasks you asked for; work that came in or ran by itself
+  stays in Activity and the daily digest. The app tells the server
+  whether it is on screen (and answers the server's pings, so a phone that has frozen the page stops
+  counting within about a minute); while it is on screen nothing is sent. Nothing is sent either
+  when the task is waiting for your approval (that request is its own notification) or while work
+  it handed to a specialist is still out. A long task's progress updates and this notification
+  share a tag and replace each other, on the device and in the centre, so a task has one row.
+  An answer that comes within ten minutes of the question is pushed even in quiet hours (you are
+  evidently awake); a long task that finishes later in the night is held like anything else.
+- **The app's live connection:** the server pings the app every 25 seconds, which keeps proxies
+  from closing the connection. If it drops anyway, or the app comes back from the background, the
+  app reconnects and loads what it shows again, so an answer sent in the gap still appears.
 
 Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`normal`/`low`),
-`vertical`, `tag`, `actions`, `media` (`[{url, type: "image"|"video", alt?, durationSec?, width?,
+`vertical`, `tag`, `replaces` (with `tag`: remove the earlier notifications with that tag from the centre),
+`actions`, `media` (`[{url, type: "image"|"video", alt?, durationSec?, width?,
 height?}]`, absolute http(s) URLs, at most 4) and `data`; `{title, body, url}` alone still works, and the category
 is then guessed from the title and URL (else `agent`). The `notify` action takes
 `payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`. It

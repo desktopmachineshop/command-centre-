@@ -7,8 +7,10 @@
     <resourceid appname="command-centre" appid="notifications"/>
   </prolog>
   <body>
-    <p>Filter by <uicontrol>Category</uicontrol> (the number in brackets is unread), tick <uicontrol>Unread only</uicontrol>, and choose <uicontrol>Mark all read</uicontrol> to clear the current category. Choosing a notification marks it read and opens what it is about.</p>
-    <p>A line under each says what happened to it: <systemoutput>held for quiet hours</systemoutput>, <systemoutput>sent after quiet hours</systemoutput>, <systemoutput>collapsed</systemoutput> (one of many pushed as <q>and N more</q>), <systemoutput>waiting for the digest</systemoutput>, <systemoutput>in the digest</systemoutput>, <systemoutput>in app only</systemoutput> or <systemoutput>muted</systemoutput>. What gets pushed is set in <xref href="../system/notification-settings.dita">Notification settings</xref>.</p>
+    <p>Notifications are listed under the day they arrived, newest first, each in full: its text, any pictures or videos, and links to what it is about (<uicontrol>Review it</uicontrol> for an approval, <uicontrol>Open the conversation</uicontrol> for the task it came from, <uicontrol>Read the note</uicontrol> for a digest). Only a very long one is folded, with <uicontrol>Show all of it</uicontrol>. Following a link marks it read, as does <uicontrol>Mark read</uicontrol>.</p>
+    <p>Filter by <uicontrol>Category</uicontrol> (the number in brackets is unread), tick <uicontrol>Unread only</uicontrol>, and choose <uicontrol>Mark all read</uicontrol> to clear the current category.</p>
+    <p>When a notification was not simply pushed to your devices, a line under it says why: it arrived in quiet hours, several came at once and your devices got one summary, it is waiting to be listed with the daily digest, it is kept in the app only, or it is muted. What gets pushed is set in <xref href="../system/notification-settings.dita">Notification settings</xref>.</p>
+    <p>When something you asked for in Chat finishes, or fails, while the app is not on your screen, you are sent the first lines of the answer (or why it did not finish). It opens the conversation. A small thing that was simply done (a reminder set, an item added to a list) sends nothing: it being on the list is the confirmation. While the app is on screen you see the answer arrive and nothing is pushed. A long task's progress updates and its answer share one row here: each replaces the last. Opening a task marks what was said about it read.</p>
   </body>
   <topic id="briefing">
     <title>Briefings</title>
