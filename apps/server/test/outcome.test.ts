@@ -194,6 +194,26 @@ describe.skipIf(!DB_URL)("telling Dave how his request ended", () => {
     expect(feed.every((t) => t.source === "chat" || t.source === "webhook")).toBe(true);
   });
 
+  it("tells Dave when an action fails, and runs it again when he says so", async () => {
+    const id = await chat("something with an action");
+    ctx.notifier.sent.length = 0;
+    // A brain write to a path the brain refuses: the action fails when it runs.
+    const failed = await ctx.server.actions.propose({ taskId: id, vertical: "personal", actionType: "brain.write", summary: "Save the note", payload: { path: "../outside.md", body: "x" } });
+    expect(failed.status).toBe("failed");
+    expect(ctx.notifier.sent).toEqual([expect.objectContaining({ title: "Didn't go through: Save the note", category: "alert", priority: "high", url: `/task/${id}` })]);
+    const alert = (await centre()).find((n) => n.title === "Didn't go through: Save the note")!;
+    expect(alert.data).toMatchObject({ failedProposalId: failed.id, taskId: id });
+    expect(alert.body).toMatch(/Open it to try again\.$/);
+
+    // Try again: it runs once more (and fails the same way here), without a second row for it.
+    const again = (await ctx.api(`/api/proposals/${failed.id}/retry`, { method: "POST" })).body;
+    expect(again.status).toBe("failed");
+    expect((await centre()).filter((n) => n.title === "Didn't go through: Save the note")).toHaveLength(1);
+    // Only a failed action can be retried.
+    const fine = await ctx.server.actions.propose({ taskId: id, vertical: "personal", actionType: "brain.journal", summary: "Log it", payload: { text: "x" } });
+    expect((await ctx.api(`/api/proposals/${fine.id}/retry`, { method: "POST" })).status).toBe(409);
+  });
+
   it("links an agent's own notification back to its task", async () => {
     const id = await chat("something quiet");
     const p = await ctx.server.actions.propose({ taskId: id, vertical: "personal", actionType: "notify", summary: "Tell Dave", payload: { title: "Order S00042 looks stuck", body: "The spindle hasn't shipped." } });

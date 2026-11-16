@@ -426,6 +426,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     chainProposals: (taskId: string) => call<{ taskIds: string[]; proposals: Proposal[] }>(`/tasks/${encodeURIComponent(taskId)}/chain-proposals`),
     approve: (id: string) => post<Proposal>(`/proposals/${id}/approve`),
     reject: (id: string) => post<Proposal>(`/proposals/${id}/reject`),
+    /** Runs an action that failed once more, unchanged. */
+    retryProposal: (id: string) => post<Proposal>(`/proposals/${id}/retry`),
     /** Every item of a batch still pending, approved (or rejected) in one go. */
     approveBatch: (batchId: string) => post<Proposal[]>(`/batches/${encodeURIComponent(batchId)}/approve`),
     rejectBatch: (batchId: string) => post<Proposal[]>(`/batches/${encodeURIComponent(batchId)}/reject`),

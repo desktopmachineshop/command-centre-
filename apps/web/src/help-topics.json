@@ -36,7 +36,6 @@
   "inbox.failed": "topics/work/inbox.html#inbox-failed",
   "inbox.messages": "topics/work/inbox.html#inbox-messages",
   "inbox.task": "topics/work/task.html",
-  "inbox.task.actions": "topics/work/task.html#actions",
   "inbox.task.reply": "topics/work/task.html#reply",
   "navigation": "topics/start/find-your-way.html",
   "notification-settings": "topics/system/notification-settings.html",

@@ -61,6 +61,23 @@ class DemoAgent implements AgentRunner {
     // "slowly" in the message: take a while, as a real agent does.
     await new Promise((r) => setTimeout(r, /slowly/i.test(prompt) ? 5000 : 300));
 
+    // An email that came in (outside input): look the order up and draft a reply, which waits for Dave.
+    if (/^Email from/i.test(prompt)) {
+      await this.call(request, onMessage, "odoo", "search_orders", { partner: "Jane Doe", limit: 5 });
+      await this.call(request, onMessage, "actions", "propose_action", {
+        actionType: "odoo.message.post",
+        summary: "Reply to Jane Doe on S00042: her spindle ships tomorrow, with an apology",
+        payload: { model: "sale.order", id: 42, body: "<p>Hi Jane,</p><p>Sorry for the wait. Your 300W spindle ships tomorrow by Royal Mail Tracked 48; I'll send the tracking number as soon as it has gone.</p><p>Dave</p>" },
+      });
+      const text = "Jane is asking where her spindle is. Order S00042 is paid and part delivered: the collet set went, the spindle didn't.\n\n```card\nodoo.order:S00042\n```\n\nI've drafted a reply saying it ships tomorrow. It waits for your approval. Is tomorrow right?";
+      say(text);
+      return done(text);
+    }
+    if (/^Dave replies:|friday|instead/i.test(prompt)) {
+      const text = "Understood: I've changed the draft to say it ships on Friday.";
+      say(text);
+      return done(text);
+    }
     if (/fail/i.test(prompt)) return { status: "failed" as const, result: null, error: "Claude usage limit reached; resets at 03:00", costUsd: 0.01, sessionId: null };
 
     if (/spindle|stock|collet/i.test(prompt)) {
@@ -135,6 +152,18 @@ const runner: AgentRunner = real ? { name: "claude-code", run: (request, onMessa
 const server = createServer(config, { runner });
 agent.app = server.app;
 await server.start();
+// DEMO_SEED=1 on an empty database: an email from a customer, as the mail watcher would bring it in.
+if (process.env.DEMO_SEED && !(await server.store.listTasks({ limit: 1 })).length) {
+  await server.pipeline.ingest({
+    source: "email",
+    vertical: "dms",
+    kind: "message",
+    title: "Jane Doe: Where is my spindle?",
+    payload: { accountId: "dms", from: { name: "Jane Doe", address: "jane@example.com" }, to: [{ name: "Desktop Machine Shop", address: "sales@example.com" }], subject: "Where is my spindle?", date: new Date().toISOString(), text: "Hi,\n\nI ordered a 300W spindle three weeks ago (S00042) and only the collets arrived. Where is it?\n\nJane", messageId: "<m1@example.com>" },
+    dedupeKey: "email:dms:<m1@example.com>",
+  });
+}
+
 const http = serve({ fetch: server.app.fetch, port: PORT, hostname: "127.0.0.1" }, () => {
   console.log(`demo command centre on http://127.0.0.1:${PORT}  (admin token: ${ADMIN})`);
 });

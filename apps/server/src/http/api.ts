@@ -262,6 +262,8 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json(await store.listProposals({ status, limit: limit.parse(c.req.query("limit")) }));
   });
   app.post("/proposals/:id/approve", async (c) => c.json(await actions.approve(c.req.param("id"))));
+  /** Try again: runs an action that failed once more, unchanged. */
+  app.post("/proposals/:id/retry", async (c) => c.json(await actions.retry(c.req.param("id"))));
   app.post("/proposals/:id/reject", async (c) => c.json(await actions.reject(c.req.param("id"))));
   /** A batch (propose_batch): every item, oldest first, so Dave sees each recipient and message before deciding. */
   app.get("/batches/:id", async (c) => {

@@ -1447,7 +1447,7 @@ a.status:hover {
   box-shadow: var(--shadow-1);
   width: min(92%, 680px);
 }
-.bubble.agent .transcript:empty::before {
+.bubble.agent .transcript.is-working:empty::before {
   content: "Working on it…";
   color: var(--text-2);
   font-size: var(--fs-sm);
@@ -3183,6 +3183,105 @@ a.stat:hover {
 }
 .notification-links:empty {
   display: none;
+}
+/* A task read as a conversation (pages/TaskView.tsx): the chat's bubbles, plus a few of its own parts. */
+.thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.thread-head .back-link {
+  margin: 0;
+}
+.thread .turns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.thread .turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.thread .bubble.me {
+  align-self: flex-end;
+}
+.thread .bubble-when {
+  margin-top: 4px;
+  opacity: 0.75;
+}
+.thread-origin .task-prompt {
+  margin: 4px 0 var(--sp-2);
+  font-size: var(--fs-lg, 1.1rem);
+}
+.thread-report,
+.thread-details {
+  align-self: flex-start;
+  max-width: 100%;
+}
+.thread-report > summary,
+.thread-details > summary {
+  cursor: pointer;
+}
+.thread-details dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px var(--sp-3);
+  margin: var(--sp-2) 0;
+}
+.thread-details dt {
+  color: var(--text-2);
+}
+.thread-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.thread-note {
+  margin: 0;
+}
+.thread-actions {
+  gap: var(--sp-2);
+  align-items: center;
+}
+.transcript .msg.note {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+/* Chat: conversations to pick back up (pages/Chat.tsx). */
+.recent-chats {
+  width: 100%;
+}
+.recent-chats h3 {
+  margin: var(--sp-4) 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-weight: 650;
+}
+.recent-chats a {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  margin-bottom: 6px;
+}
+.recent-chats .title {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.recent-chats .sub {
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 /* Inbox: only what needs Dave, as cards with what to do about each (pages/Inbox.tsx). */
 .inbox-group {

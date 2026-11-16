@@ -195,7 +195,7 @@ function ConfirmAction({ api, unit, action }: { api: Api; unit: Proposal[]; acti
   );
 }
 
-export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }) {
+export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; proposal: Proposal; /** Card kinds the answer above already shows (a thread doesn't draw the same record twice). */ shownKinds?: readonly string[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Editing the payload, or writing feedback for the agent. */
@@ -227,7 +227,7 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
       </div>
       <p className="title">{proposal.summary}</p>
       {/* The record it would change, read live: the product, order or customer, not just its id. */}
-      {proposal.status === "pending" && <CardGrid refs={proposalCardRefs(proposal.actionType, proposal.payload)} />}
+      {proposal.status === "pending" && <CardGrid refs={proposalCardRefs(proposal.actionType, proposal.payload).filter((ref) => !shownKinds.includes(ref.split(":")[0]!))} />}
       {video && <VideoPreview video={video} title={typeof proposal.payload.title === "string" ? proposal.payload.title : proposal.summary} />}
       {social && <SocialProposalBody proposal={proposal} accounts={socialAccounts} />}
       {proposal.status === "failed" && (
@@ -299,10 +299,18 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
           {proposal.taskId && (
             <>
               {" · "}
-              <a href={`#/task/${proposal.taskId}`}>task</a>
+              <a href={`#/task/${proposal.taskId}`}>conversation</a>
             </>
           )}
         </span>
+        {proposal.status === "failed" && (
+          <span className="actions">
+            <button className="primary" disabled={busy} onClick={() => act(api.retryProposal)} title="Run this action again, as it is">
+              <Icon name="refresh" size={16} />
+              {busy ? "Trying…" : "Try again"}
+            </button>
+          </span>
+        )}
         {proposal.status === "pending" && mode === "view" && (
           <span className="actions">
             <button className="danger-text" disabled={busy} onClick={() => act(api.reject)}>
@@ -473,4 +481,52 @@ function failureText(result: unknown): string {
 function replacedBy(p: Proposal): string | null {
   const r = p.result as { replacedBy?: unknown } | null;
   return p.status === "rejected" && r && typeof r.replacedBy === "string" ? r.replacedBy : null;
+}
+
+/**
+ * A conversation's actions, where they happened: the ones waiting for Dave in full (he decides
+ * them there), the decided ones folded into one line that says how they went.
+ */
+export function ProposalList({ api, proposals, shownKinds }: { api: Api; proposals: Proposal[]; shownKinds?: readonly string[] }) {
+  if (!proposals.length) return null;
+  const pending = proposals.filter((p) => p.status === "pending");
+  // An action that failed needs him as much as one that waits: it is shown in full too.
+  const failed = proposals.filter((p) => p.status === "failed");
+  const decided = proposals.filter((p) => p.status !== "pending" && p.status !== "failed");
+  return (
+    <div className="inline-proposals">
+      {failed.map((p) => (
+        <ProposalCard key={p.id} api={api} proposal={p} />
+      ))}
+      {pending.length > 0 && (
+        <p className="small muted">
+          {pending.length === 1 ? "Waiting for your approval:" : `${pending.length} waiting for your approval:`}
+        </p>
+      )}
+      {pending.map((p) => (
+        <ProposalCard key={p.id} api={api} proposal={p} shownKinds={shownKinds} />
+      ))}
+      {decided.length > 0 && (
+        <details>
+          <summary className="small muted">{decidedSummary(decided)}</summary>
+          {decided.map((p) => (
+            <ProposalCard key={p.id} api={api} proposal={p} />
+          ))}
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** "2 actions done", "1 action done, 1 failed, 1 rejected": how a conversation's decided actions went. */
+export function decidedSummary(decided: Pick<Proposal, "status">[]): string {
+  const count = (s: string) => decided.filter((p) => p.status === s).length;
+  const done = count("executed");
+  const parts: string[] = [];
+  if (done) parts.push(`${done} action${done === 1 ? "" : "s"} done`);
+  if (count("failed")) parts.push(`${count("failed")} failed`);
+  if (count("rejected")) parts.push(`${count("rejected")} rejected`);
+  const other = decided.length - done - count("failed") - count("rejected");
+  if (other) parts.push(`${other} ${done || parts.length ? "other" : `action${other === 1 ? "" : "s"} decided`}`);
+  return parts.join(", ");
 }

@@ -1,19 +1,66 @@
-import { type AgentMessage, isStopped } from "@cc/core";
+import { type AgentMessage, cardRefs, isStopped, type Proposal, type Task } from "@cc/core";
 import { useEffect, useState } from "react";
-import { latestCommand } from "../progress";
-import type { Api, ChatFile } from "../api";
+import type { Api, ChatFile, TaskDetail } from "../api";
 import { ago, askText, emailAsk, readableEmailBody, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLive, useLoad } from "../live";
-import { ErrorBanner, Skeleton, Status, TaskTag } from "../ui";
-import { ProposalCard } from "./Approvals";
-import { Transcript } from "./Transcript";
+import { ErrorBanner, Skeleton, TaskTag } from "../ui";
+import { ProposalList } from "./Approvals";
+import { sourceLabel } from "./Activity";
+import { runOpener, Transcript } from "./Transcript";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport, type ReportFacts } from "../copy";
 import { AttachedFiles, chatFilesOf, Composer } from "../composer";
 import { ReadAloudControl, useReadAloud } from "../voice/readAloud";
 import { Markdown } from "../markdown";
 
+/** A task's state in the words Dave would use. */
+export function statusWords(task: Pick<Task, "status" | "note">): string {
+  if (isStopped(task)) return "Stopped";
+  return { queued: "Waiting to start", running: "Working on it", awaiting_approval: "Waiting for your approval", done: "Done", failed: "Didn't finish", dropped: "Not run", deferred: "Held by the daily budget" }[task.status];
+}
+
+/** The kinds of record card (odoo.order) an agent's messages already show. */
+export function cardKindsIn(messages: AgentMessage[]): string[] {
+  const kinds = new Set<string>();
+  for (const m of messages) {
+    if (m.type !== "text") continue;
+    for (const block of m.text.matchAll(/^ {0,3}(`{3,}|~{3,})card\s*\n([\s\S]*?)^ {0,3}\1\s*$/gm)) {
+      for (const ref of cardRefs(block[2]!)) kinds.add(ref.split(":")[0]!);
+    }
+  }
+  return [...kinds];
+}
+
+type Run = TaskDetail["runs"][number];
+export interface ThreadStep {
+  run: Run;
+  /** Who started this run after the first: Dave's reply, or a role reporting back. */
+  opener: ReturnType<typeof runOpener>;
+  /** The actions proposed during this run. */
+  proposals: Proposal[];
+}
+
+/**
+ * A task as a conversation: its runs in order, each with what started it and the actions it
+ * proposed (those made from its start until the next run starts; anything earlier goes with
+ * the first run). Pure.
+ */
+export function threadOf(runs: Run[], proposals: Proposal[]): ThreadStep[] {
+  const ordered = [...runs].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+  return ordered.map((run, i) => {
+    const from = i === 0 ? -Infinity : Date.parse(run.startedAt);
+    const to = i + 1 < ordered.length ? Date.parse(ordered[i + 1]!.startedAt) : Infinity;
+    return { run, opener: runOpener(run.messages), proposals: proposals.filter((p) => Date.parse(p.createdAt) >= from && Date.parse(p.createdAt) < to) };
+  });
+}
+
+/**
+ * One task, read as the conversation it is: what was asked (or came in), then each answer with
+ * the actions it led to, each reply and what came back, down to a box to carry it on. What the
+ * agent did along the way is one folded line per answer; the task's workings (role, cost, the
+ * handover note) are under Details.
+ */
 export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: string }) {
   const { data, error } = useLoad(
     () => api.task(id),
@@ -30,10 +77,10 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   useEffect(() => {
     void api.markTaskRead(id).catch(() => {});
   }, [api, id, data?.task.status]);
-  const [retrying, setRetrying] = useState(false);
-  /** Narrow screens: Conversation or Actions. Wide screens show both side by side. */
-  const [tab, setTab] = useState<"conversation" | "actions">("conversation");
-  const [retryError, setRetryError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  /** A reply just sent, shown until the run that answers it appears. */
+  const [sent, setSent] = useState<{ text: string; runs: number } | null>(null);
   const readAloud = useReadAloud(api);
   useLive(feed, (m) => {
     if (m.type === "run.message" && m.taskId === id) {
@@ -44,199 +91,179 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
 
   // The latest answer is at the bottom, above the reply box: open there and follow it as it streams.
   const streamed = Object.values(live).reduce((n, m) => n + m.length, 0);
-  useStickToBottom(`${data?.runs.length ?? 0}:${streamed}:${data?.task.status ?? ""}:${tab}`, !!data && tab === "conversation");
+  useStickToBottom(`${data?.runs.length ?? 0}:${streamed}:${data?.task.status ?? ""}:${sent ? 1 : 0}`, !!data);
 
   if (error) return <ErrorBanner>{error}</ErrorBanner>;
   if (!data) return <Skeleton rows={2} />;
-  const { task, runs, proposals } = data;
+  const { task, runs, proposals, event } = data;
+  const thread = threadOf(runs, proposals);
+  const orphans = proposals.filter((p) => !thread.some((s) => s.proposals.includes(p)));
   const liveOnly = Object.keys(live).filter((runId) => !runs.some((r) => r.id === runId));
+  const working = task.status === "running" || task.status === "queued";
   const canRetry = task.status === "failed" || task.status === "deferred";
-  const canStop = task.status === "running" || task.status === "queued" || task.status === "deferred";
-  const pending = proposals.filter((p) => p.status === "pending").length;
-  const stop = async () => {
-    setRetrying(true);
-    setRetryError(null);
+  const fromChat = event?.source === "chat";
+  const cost = runs.reduce((n, r) => n + (r.costUsd ?? 0), 0);
+  const pendingSent = sent && runs.length <= sent.runs ? sent : null;
+
+  const act = async (what: () => Promise<unknown>) => {
+    setBusy(true);
+    setActionError(null);
     try {
-      await api.stopTask(task.id);
+      await what();
     } catch (e) {
-      setRetryError((e as Error).message);
+      setActionError((e as Error).message);
     } finally {
-      setRetrying(false);
-    }
-  };
-  const retry = async () => {
-    setRetrying(true);
-    setRetryError(null);
-    try {
-      await api.retry(task.id);
-    } catch (e) {
-      setRetryError((e as Error).message);
-    } finally {
-      setRetrying(false);
+      setBusy(false);
     }
   };
 
   return (
-    <section>
-      <a className="back-link" href="#/activity">
-        <Icon name="back" size={16} /> Activity
-      </a>
-      <ReadAloudControl readAloud={readAloud} />
-      {proposals.length > 0 && (
-        <div className="task-tabs" role="tablist" aria-label="Task view">
-          <button type="button" role="tab" aria-selected={tab === "conversation"} className={tab === "conversation" ? "on" : ""} onClick={() => setTab("conversation")}>
-            Conversation
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "actions"}
-            className={tab === "actions" ? "on" : ""}
-            onClick={() => {
-              setTab("actions");
-              window.scrollTo({ top: 0 });
-            }}
-          >
-            Actions
-            {pending > 0 && <span className="badge">{pending}</span>}
-          </button>
-        </div>
-      )}
-      <div className={`task-layout ${proposals.length ? "has-actions" : ""} show-${tab}`}>
-      <div className="task-main">
-      <div className="card">
-        <div className="task-head">
+    <section className="thread">
+      <div className="thread-head">
+        <a className="back-link" href="#/activity" onClick={(e) => { if (history.length > 1) { e.preventDefault(); history.back(); } }}>
+          <Icon name="back" size={16} /> Back
+        </a>
+        <span className="row small thread-state">
           <TaskTag task={task} />
-          <Status value={task.status} />
-        </div>
-        <TaskAsk prompt={task.prompt} />
-        <AttachedFiles files={chatFilesOf(data.event?.payload)} />
-        <div className="meta">
-          {task.role && <span className="role">{task.role}</span>}
-          <span>{task.intent}</span>
-          <span>{task.route}</span>
-          <span>urgency {task.urgency.toFixed(1)}</span>
-          <span>{ago(task.createdAt)}</span>
-        </div>
-        {task.note &&
-          (task.status === "failed" && !isStopped(task) ? (
-            <ErrorReport title="Task failed" error={task.note} facts={taskFacts(task)} />
-          ) : (
-            <p className={`small note status ${task.status}`}>{task.note}</p>
-          ))}
-        {task.duplicateOf && (
-          <p className="small">
-            <a href={`#/task/${task.duplicateOf}`}>Open the original task</a>
-          </p>
-        )}
-        {canStop && (
-          <div className="row wrap" style={{ marginTop: 12 }}>
-            <button className="danger" disabled={retrying} onClick={stop} title="Stop this task, and the work it handed on">
-              <Icon name="stop" size={16} />
-              Stop
-            </button>
-          </div>
-        )}
-        {canRetry && (
-          <div className="row wrap" style={{ marginTop: 12 }}>
-            <button className="primary" disabled={retrying} onClick={retry}>
-              <Icon name="refresh" size={16} />
-              {task.status === "deferred" ? "Run now" : "Retry"}
-            </button>
-            {task.status === "deferred" && <span className="muted small">Ignores the daily budget for this one run.</span>}
-          </div>
-        )}
-        {retryError && <ErrorBanner>{retryError}</ErrorBanner>}
-        {data.handover && (
-          <details className="handover">
-            <summary className="small muted">Show handover</summary>
-            <p className="small muted">What any agent picking this task up starts from (updated {ago(data.handover.at)}).</p>
-            <Markdown className="msg text" text={data.handover.text} />
-          </details>
-        )}
+          <span className={`status ${task.status}`}>{statusWords(task)}</span>
+        </span>
       </div>
 
-      {(runs.length > 0 || liveOnly.length > 0) && (
-        <div className="section-title">
-          <h3>Conversation</h3>
-        </div>
-      )}
-      {runs.map((run) => (
-        <div key={run.id} className="card run-card">
-          <div className="run-head small">
-            <span className="row">
-              <strong>{run.runner}</strong> <Status value={run.status} />
-            </span>
-            <span className="muted">{usd(run.costUsd)}</span>
+      <div className="turns">
+        {/* What started it: Dave's own message, or what came in. */}
+        {fromChat ? (
+          <div className="bubble me">
+            <span className="prewrap">{askText(task.prompt)}</span>
+            <AttachedFiles files={chatFilesOf(event?.payload)} />
+            <div className="bubble-when small">{ago(task.createdAt)}</div>
           </div>
-          <div className="run-body">
-            <Transcript messages={run.status === "running" ? [...run.messages, ...(live[run.id] ?? [])] : run.messages} readAloud={readAloud} id={run.id} working={run.status === "running"} />
-            {run.error && (
-              <ErrorReport
-                title="Run failed"
-                error={run.error}
-                facts={[...taskFacts(task), ["Run", run.id], ["Runner", run.runner], ["Run started", run.startedAt], ["Run finished", run.finishedAt], ["Cost", usd(run.costUsd)]]}
-              />
+        ) : (
+          <div className="card thread-origin">
+            <p className="small muted">
+              {sourceLabel(event?.source)} · {ago(task.createdAt)}
+            </p>
+            <TaskAsk prompt={task.prompt} />
+          </div>
+        )}
+        {task.duplicateOf && (
+          <p className="small">
+            This repeated work already in hand, so it wasn't run again. <a href={`#/task/${task.duplicateOf}`}>Open the original</a>
+          </p>
+        )}
+
+        {thread.map(({ run, opener, proposals: made }, i) => {
+          const running = run.status === "running";
+          const last = i === thread.length - 1;
+          return (
+            <div key={run.id} className="turn">
+              {opener?.from === "dave" && <div className="bubble me prewrap">{opener.text}</div>}
+              {opener?.from === "role" && (
+                <details className="thread-report">
+                  <summary className="small muted">{opener.kind === "report" ? `Report back from ${opener.author}` : `Follow-up from ${opener.author}`}</summary>
+                  <Markdown className="msg text" text={opener.text} />
+                </details>
+              )}
+              <div className="bubble agent">
+                <Transcript messages={running ? [...run.messages, ...(live[run.id] ?? [])] : run.messages} readAloud={readAloud} id={run.id} working={running} />
+                {run.error && !(last && isStopped(task)) && (
+                  <ErrorReport
+                    title="This didn't finish"
+                    error={run.error}
+                    facts={[...taskFacts(task), ["Run", run.id], ["Runner", run.runner], ["Run started", run.startedAt], ["Run finished", run.finishedAt], ["Cost", usd(run.costUsd)]]}
+                  />
+                )}
+                <ProposalList api={api} proposals={made} shownKinds={cardKindsIn(run.messages)} />
+              </div>
+            </div>
+          );
+        })}
+        {liveOnly.map((runId) => (
+          <div key={runId} className="turn">
+            <div className="bubble agent">
+              <Transcript messages={live[runId]!} readAloud={readAloud} id={runId} working />
+            </div>
+          </div>
+        ))}
+        {orphans.length > 0 && <ProposalList api={api} proposals={orphans} />}
+        {pendingSent && <div className="bubble me prewrap">{pendingSent.text}</div>}
+        {(pendingSent || (working && !thread.some((s) => s.run.status === "running") && !liveOnly.length)) && (
+          <div className="bubble agent">
+            <p className="msg system muted small working-line">{task.status === "queued" || pendingSent ? "Waiting to start…" : "Working on it…"}</p>
+          </div>
+        )}
+        {runs.length === 0 && !working && task.status !== "failed" && task.status !== "deferred" && (
+          <p className="small muted thread-note">
+            {task.status === "dropped" ? "This wasn't run." : "This was filed without an agent run: nothing needed doing. Reply below to have the assistant look at it."}
+          </p>
+        )}
+
+        {/* How it stands, when that needs saying. */}
+        {isStopped(task) && <p className="small muted thread-note">You stopped this. Reply to carry on, or retry it.</p>}
+        {task.status === "failed" && !isStopped(task) && !runs.some((r) => r.error) && (
+          <ErrorReport title="This didn't finish" error={task.note ?? "The run failed without a message."} facts={taskFacts(task)} />
+        )}
+        {task.status === "deferred" && <p className="small note status deferred thread-note">{task.note ?? "Held by a daily budget until after midnight."}</p>}
+        {actionError && <ErrorBanner>{actionError}</ErrorBanner>}
+        {(working || task.status === "deferred" || canRetry) && (
+          <div className="row wrap thread-actions">
+            {(working || task.status === "deferred") && (
+              <button type="button" className="danger" disabled={busy} onClick={() => void act(() => api.stopTask(task.id))} title="Stop this, and any work it handed on">
+                <Icon name="stop" size={16} /> Stop
+              </button>
             )}
+            {canRetry && (
+              <button type="button" className="primary" disabled={busy} onClick={() => void act(() => api.retry(task.id))}>
+                <Icon name="refresh" size={16} /> {task.status === "deferred" ? "Run now" : "Try again"}
+              </button>
+            )}
+            {task.status === "deferred" && <span className="muted small">Run now ignores the daily budget for this one run.</span>}
           </div>
-        </div>
-      ))}
-      {liveOnly.map((runId) => (
-        <div key={runId} className="card run-card">
-          <div className="run-head small">
-            <span className="row">
-              <Status value="running" />
-            </span>
-          </div>
-          <div className="run-body">
-            <Transcript messages={live[runId]!} readAloud={readAloud} id={runId} />
-          </div>
-        </div>
-      ))}
-      {(task.status === "running" || task.status === "queued") && <LiveActivity status={task.status} command={latestCommand(Object.values(live).at(-1) ?? [])} />}
-      {(task.status === "done" || task.status === "awaiting_approval" || task.status === "failed") && <ReplyBox api={api} taskId={task.id} />}
+        )}
+
+        <details className="thread-details">
+          <summary className="small muted">Details</summary>
+          <dl className="small">
+            <dt>Handled by</dt>
+            <dd>{task.role ?? "the business's lead"}</dd>
+            <dt>Came from</dt>
+            <dd>{sourceLabel(event?.source)}{event?.kind ? ` (${event.kind})` : ""}</dd>
+            <dt>Sorted as</dt>
+            <dd>{task.intent}, {task.route}, urgency {task.urgency.toFixed(1)}</dd>
+            <dt>Started</dt>
+            <dd>{new Date(task.createdAt).toLocaleString()}</dd>
+            <dt>Runs</dt>
+            <dd>{runs.length ? runs.map((r) => `${r.runner} ${r.status}${r.costUsd != null ? ` ${usd(r.costUsd)}` : ""}`).join(" · ") : "none"}</dd>
+            <dt>Cost</dt>
+            <dd>{usd(cost)}</dd>
+            <dt>Task</dt>
+            <dd><code>{task.id}</code></dd>
+          </dl>
+          <ReadAloudControl readAloud={readAloud} />
+          {data.handover && (
+            <details className="handover">
+              <summary className="small muted">Handover note</summary>
+              <p className="small muted">What any agent picking this up starts from (updated {ago(data.handover.at)}).</p>
+              <Markdown className="msg text" text={data.handover.text} />
+            </details>
+          )}
+        </details>
       </div>
-      {proposals.length > 0 && (
-        <aside className="task-actions" data-help-pane="inbox.task.actions" aria-label="Proposed actions">
-          <div className="section-title">
-            <h3>Proposed actions</h3>
-            {pending > 0 && <span className="muted small">{pending} waiting for you</span>}
-          </div>
-          {/* Waiting ones first: they're what this column is for. */}
-          {[...proposals]
-            .sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending"))
-            .map((p) => (
-              <ProposalCard key={p.id} api={api} proposal={p} />
-            ))}
-        </aside>
-      )}
-      </div>
+
+      {/* The server takes a reply once the task has answered (done, waiting for approval, or failed). */}
+      {(task.status === "done" || task.status === "awaiting_approval" || task.status === "failed") && !pendingSent ? (
+        <ReplyBox api={api} taskId={task.id} onSent={(text) => setSent({ text, runs: runs.length })} />
+      ) : working || pendingSent ? (
+        <p className="small muted thread-note">You can reply as soon as it has answered.</p>
+      ) : null}
     </section>
   );
 }
 
-/** A command-line style status line while the agent works: what it is running now, and for how long. */
-function LiveActivity({ status, command }: { status: string; command: string | null }) {
-  const [started] = useState(() => Date.now());
-  const [now, setNow] = useState(started);
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const secs = Math.floor((now - started) / 1000);
-  return (
-    <p className="live-activity small" role="status" aria-live="polite">
-      <span aria-hidden="true">⠶</span> {command ?? (status === "queued" ? "Waiting to start" : "Working")} · {secs}s
-    </p>
-  );
-}
-
 /**
- * Talk back to the agent on this task: answer its question, change its plan or
- * ask for more. The task runs again, resuming the agent's earlier session.
- * The same message box as the Chat page, mic included.
+ * Carry the conversation on: answer its question, change the plan or ask for more. The task runs
+ * again from where it was.
  */
-function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
+function ReplyBox({ api, taskId, onSent }: { api: Api; taskId: string; onSent: (text: string) => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -246,6 +273,7 @@ function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
     try {
       await api.replyToTask(taskId, message, false, files.map((f) => f.id));
       setText("");
+      onSent(message);
       return true;
     } catch (err) {
       setError((err as Error).message);
@@ -264,8 +292,8 @@ function ReplyBox({ api, taskId }: { api: Api; taskId: string }) {
         onSend={send}
         busy={busy}
         className="reply-box"
-        label="Reply to the agent"
-        placeholder="Reply to the agent: answer its question, change the plan, or ask for something else"
+        label="Reply"
+        placeholder="Reply: answer its question, change the plan, or ask for more"
       />
     </div>
   );
