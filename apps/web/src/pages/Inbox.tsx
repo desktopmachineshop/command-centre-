@@ -1,4 +1,4 @@
-import type { Task } from "@cc/core";
+import { isStopped, type Task } from "@cc/core";
 import { useContext, useState } from "react";
 import type { Api } from "../api";
 import { ago, askText, usd } from "../format";
@@ -55,6 +55,7 @@ export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
           ))}
         </select>
       </PageHead>
+      {!status && !vertical && !role && <WaitingForYou api={api} feed={feed} />}
       <Today api={api} feed={feed} onDeferred={() => setStatus("deferred")} />
       {error && <ErrorBanner>{error}</ErrorBanner>}
       {!data && !error && <Skeleton rows={4} />}
@@ -65,6 +66,77 @@ export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
       )}
       <ul className="list">{data?.map((t) => <TaskRow key={t.id} task={t} />)}</ul>
     </section>
+  );
+}
+
+/** How long a failed task stays under "Waiting for you". */
+const FAILED_FOR_MS = 48 * 3_600_000;
+
+/**
+ * The top of the Inbox: what needs Dave now, whichever business it is from. Approvals to
+ * decide, things he asked for that didn't finish, and what he's been told but hasn't read.
+ * Each row opens the thing itself.
+ */
+function WaitingForYou({ api, feed }: { api: Api; feed: LiveFeed }) {
+  const { data } = useLoad(
+    () => Promise.all([api.proposals("pending"), api.tasks("failed"), api.notifications({ unread: true, limit: 20 })]),
+    feed,
+    (m) => m.type === "task.updated" || m.type === "proposal.updated" || m.type === "notifications.updated",
+  );
+  if (!data) return null;
+  const [approvals, failedTasks, unread] = data;
+  const failed = failedTasks.filter((t) => !isStopped(t) && Date.now() - Date.parse(t.updatedAt) < FAILED_FOR_MS);
+  // Approval requests and failures are already above; a task's progress updates aren't news.
+  const failedIds = new Set(failed.map((t) => t.id));
+  const told = unread.items.filter((n) => n.category !== "approval" && !(typeof n.data?.taskId === "string" && failedIds.has(n.data.taskId)) && !(n.category === "agent" && n.tag?.startsWith("progress-") && !n.data?.outcome));
+  const nothing = !approvals.length && !failed.length && !told.length;
+
+  return (
+    <div className="card waiting" data-help-pane="inbox.waiting">
+      <h3>Waiting for you</h3>
+      {nothing && <p className="muted small">Nothing. Approvals, anything that didn't finish and unread messages show here.</p>}
+      {approvals.length > 0 && (
+        <div className="waiting-group">
+          <p className="small">
+            {approvals.length} to approve · <a href="#/approvals">see all</a>
+          </p>
+          {approvals.slice(0, 3).map((p) => (
+            <a key={p.id} className="waiting-row" href={`#/approvals/${p.id}`}>
+              <p className="title">{p.summary}</p>
+              <p className="sub">
+                <VTag id={p.vertical} /> {ago(p.createdAt)}
+              </p>
+            </a>
+          ))}
+          {approvals.length > 3 && <p className="small muted">and {approvals.length - 3} more</p>}
+        </div>
+      )}
+      {failed.length > 0 && (
+        <div className="waiting-group">
+          <p className="small">Didn't finish</p>
+          {failed.slice(0, 3).map((t) => (
+            <a key={t.id} className="waiting-row bad" href={`#/task/${t.id}`}>
+              <p className="title">{askText(t.prompt).split("\n")[0]}</p>
+              <p className="sub">{`${(t.note ?? "The run failed").replace(/^Run failed:\s*/, "").replace(/[.\s]+$/, "")}. Open it to retry or reply.`}</p>
+            </a>
+          ))}
+          {failed.length > 3 && <p className="small muted">and {failed.length - 3} more</p>}
+        </div>
+      )}
+      {told.length > 0 && (
+        <div className="waiting-group">
+          <p className="small">
+            {told.length} unread · <a href="#/notifications">see all</a>
+          </p>
+          {told.slice(0, 3).map((n) => (
+            <a key={n.id} className="waiting-row" href={`#/${(n.url ?? "/notifications").replace(/^\//, "")}${n.url ? `${n.url.includes("?") ? "&" : "?"}n=${n.id}` : ""}`}>
+              <p className="title">{n.title}</p>
+              {n.body && <p className="sub">{n.body}</p>}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -151,6 +223,12 @@ export function TaskRow({ task }: { task: Task }) {
           <Status value={task.status} />
         </div>
         <div className="title">{askText(task.prompt).split("\n")[0]}</div>
+        {/* How it came out, so the list can be read without opening each task. */}
+        {task.status === "failed" && task.note && !isStopped(task) ? (
+          <div className="outcome bad">{task.note}</div>
+        ) : task.outcome && (task.status === "done" || task.status === "awaiting_approval") ? (
+          <div className="outcome">{task.outcome}</div>
+        ) : null}
         <div className="meta">
           {task.role && <span className="role">{task.role}</span>}
           <span>{task.intent}</span>

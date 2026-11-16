@@ -133,6 +133,9 @@ export class NotificationService implements Notifier {
     }
     if (route.kind === "held") data.heldUntil = quietHoursEnd(now, prefs.quietHours).toISOString();
 
+    // It stands in for the earlier ones with its tag: one row in the centre, not one per update.
+    if (input.replaces === true && n.tag) await this.store.deleteByTag(userId, n.tag);
+
     const id = randomUUID();
     // Briefings open the briefing view of themselves.
     const url = n.url ?? (n.category === "briefing" ? `/briefing/${id}` : null);
@@ -202,6 +205,13 @@ export class NotificationService implements Notifier {
     if (await this.store.markReadByData(userId, "proposalId", proposalId)) {
       this.options.onUnreadChange?.(await this.store.unreadCount(userId), userId);
     }
+  }
+
+  /** Marks read what Dave was told about a task (its answer or failure, an agent's message from it) once he opens it. */
+  async resolveTask(taskId: string, userId = DEFAULT_USER): Promise<number> {
+    const changed = await this.store.markReadByData(userId, "taskId", taskId);
+    if (changed) this.options.onUnreadChange?.(await this.store.unreadCount(userId), userId);
+    return changed;
   }
 
   /** Once a minute: release what quiet hours held, and send the quick briefing when due. */

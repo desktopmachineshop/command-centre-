@@ -1407,17 +1407,29 @@ one category for one business, e.g. 3dpandme social off.
   a proposal marks its notification read.
 - Briefings open a briefing view (`#/briefing/<id>`).
 - A notification can carry **media**: pictures and videos it is about (a finished video render,
-  for one). The briefing view plays a video in place and shows an image full width; the
-  notification centre and the recent-briefings list show thumbnails; a push shows the first image
+  for one). The briefing view and the notification centre play a video in place and show an image
+  full width; the recent-briefings list shows thumbnails; a push shows the first image
   as its large picture where the platform supports it (Chrome on Android and Windows). A video
   can't play inside a push, so tap it to open the briefing.
 - **Rate limit:** at most 3 pushes per category per 10 minutes (configurable). Extras collapse into
   one "and N more" notification per category, which updates in place. Urgent is never limited.
 - **Batched** notifications are added to the next daily-digest push as one line ("Also: 2 social,
   1 orders"). If there is no digest that day they stay in the centre.
+- **Your requests:** when something you asked for (a chat message, or your reply on any task)
+  finishes or fails while the app is not on screen, you get one `agent` notification with the
+  first lines of the answer, or why it didn't finish; it opens the task. The app tells the server
+  whether it is on screen (and answers the server's pings, so a phone that has frozen the page stops
+  counting within about a minute); while it is on screen nothing is sent. Nothing is sent either
+  when the task is waiting for your approval (that request is its own notification) or while work
+  it handed to a specialist is still out. A long task's progress updates and this notification
+  share a tag and replace each other, on the device and in the centre, so a task has one row.
+- **The app's live connection:** the server pings the app every 25 seconds, which keeps proxies
+  from closing the connection. If it drops anyway, or the app comes back from the background, the
+  app reconnects and loads what it shows again, so an answer sent in the gap still appears.
 
 Code that calls `notify()` can pass `category`, `priority` (`urgent`/`high`/`normal`/`low`),
-`vertical`, `tag`, `actions`, `media` (`[{url, type: "image"|"video", alt?, durationSec?, width?,
+`vertical`, `tag`, `replaces` (with `tag`: remove the earlier notifications with that tag from the centre),
+`actions`, `media` (`[{url, type: "image"|"video", alt?, durationSec?, width?,
 height?}]`, absolute http(s) URLs, at most 4) and `data`; `{title, body, url}` alone still works, and the category
 is then guessed from the title and URL (else `agent`). The `notify` action takes
 `payload.category` (default `agent`); agents can't use `approval` or `system`, or `urgent`. It

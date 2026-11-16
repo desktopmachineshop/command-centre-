@@ -34,6 +34,7 @@
   "inbox.task": "topics/work/task.html",
   "inbox.task.actions": "topics/work/task.html#actions",
   "inbox.task.reply": "topics/work/task.html#reply",
+  "inbox.waiting": "topics/work/inbox.html#waiting",
   "navigation": "topics/start/find-your-way.html",
   "notification-settings": "topics/system/notification-settings.html",
   "notification-settings.categories": "topics/system/notification-settings.html#categories",

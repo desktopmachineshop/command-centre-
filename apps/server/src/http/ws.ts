@@ -83,6 +83,7 @@ export function wsHandler(
           return;
         }
 
+        if (role === "client" && peer && msg.type === "client.presence") return deps.hub.setVisible(peer, msg.visible);
         if (role === "worker" && nodeId) await deps.workers.handle(nodeId, msg).catch((err) => console.error("[ws]", err));
       },
       onClose: () => {

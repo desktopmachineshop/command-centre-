@@ -61,6 +61,12 @@ export function notificationRoutes(service: NotificationService) {
 
   app.get("/notifications/unread-count", async (c) => c.json({ unread: await store.unreadCount(userIdOf(c)) }));
 
+  /** Dave opened a task: what he was told about it (its answer, its progress) is read. */
+  app.post("/notifications/read-task/:taskId", async (c) => {
+    const changed = await service.resolveTask(c.req.param("taskId"), userIdOf(c));
+    return c.json({ changed, unread: await store.unreadCount(userIdOf(c)) });
+  });
+
   app.post("/notifications/read-all", async (c) => {
     const body = z.object({ category: NotificationCategory.optional() }).parse(await c.req.json().catch(() => ({})));
     const changed = await service.markAllRead(body.category, userIdOf(c));

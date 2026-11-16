@@ -18,6 +18,7 @@ import type {
   WorkerNode,
 } from "@cc/core";
 import type { OdooCheckpoint } from "@cc/odoo";
+import { answerPreview } from "../outcome";
 import type { NewScheduledPost, OutboxEntry, PacedActionType, ScheduledPost, ScheduledPostStatus } from "@cc/social";
 import type { Pool } from "./pool";
 
@@ -394,13 +395,15 @@ export class Store {
     options: { status?: TaskStatus; limit?: number; vertical?: string; role?: string; includeUnassigned?: boolean } = {},
   ): Promise<Task[]> {
     const { rows } = await this.pool.query(
-      `select * from tasks
+      `select t.*, (select r.result from agent_runs r where r.task_id = t.id and r.result is not null order by r.started_at desc limit 1) as last_result
+       from tasks t
        where ($1::text is null or status = $1) and ($3::text is null or vertical = $3)
          and ($4::text is null or role = $4 or ($5::boolean and role is null))
        order by created_at desc limit $2`,
       [options.status ?? null, options.limit ?? 50, options.vertical ?? null, options.role ?? null, options.includeUnassigned ?? false],
     );
-    return rows.map(toTask);
+    // How each came out: the latest answer's first lines (a failed task's reason is its note).
+    return rows.map((row) => ({ ...toTask(row), outcome: answerPreview(row.last_result, 220) || null }));
   }
 
   /**

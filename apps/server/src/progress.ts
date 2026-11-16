@@ -14,7 +14,8 @@ export function describeActivity(message: AgentMessage): string | null {
 /**
  * Progressive updates for a long run: once the run has lasted `intervalMs`, and then every
  * `intervalMs`, pushes one low-priority "agent" notification with the latest activity. Each
- * update uses the same tag so it replaces the previous one instead of stacking. Short runs
+ * update uses the same tag and replaces the previous one, on the device and in the notification
+ * centre, instead of stacking. Short runs
  * never notify. Call `note()` for every message and `stop()` when the run ends.
  */
 export function startProgressUpdates(opts: {
@@ -36,7 +37,7 @@ export function startProgressUpdates(opts: {
     lastSent = body;
     const minutes = Math.round((Date.now() - startedAt) / 60000);
     void notifier
-      .notify({ title: `${opts.title} (${minutes} min)`, body, url: opts.url, category: "agent", priority: "low", vertical: opts.vertical, tag: opts.tag })
+      .notify({ title: `${opts.title} (${minutes} min)`, body, url: opts.url, category: "agent", priority: "low", vertical: opts.vertical, tag: opts.tag, replaces: true })
       .catch((err) => console.error("[pipeline] progress push failed:", (err as Error).message));
   }, intervalMs);
   timer.unref?.();

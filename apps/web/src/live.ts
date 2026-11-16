@@ -49,10 +49,14 @@ export class LiveFeed {
       if (ws !== this.ws) return;
       this.lastSeen = Date.now();
       const msg = JSON.parse(e.data) as OutboundMessage;
-      if (msg.type === "ping") return;
+      if (msg.type === "ping") {
+        this.sendPresence(); // also tells the server this page is alive, not frozen in the background
+        return;
+      }
       if (msg.type === "welcome") {
         this.retry = 0;
         this.setStatus(true);
+        this.sendPresence();
         if (this.wasConnected) this.resync();
         this.wasConnected = true;
       }
@@ -90,7 +94,18 @@ export class LiveFeed {
     if (Date.now() - this.lastSeen > SILENCE_MS) this.reconnectNow();
   }
 
+  /** Tells the server whether the app is on screen: while it is, answers aren't also pushed. */
+  private sendPresence() {
+    const visible = typeof document === "undefined" || document.visibilityState === "visible";
+    try {
+      if (this.connected) this.ws?.send(JSON.stringify({ type: "client.presence", visible }));
+    } catch {
+      // the socket closed under us: the next welcome sends it
+    }
+  }
+
   private readonly onVisibility = () => {
+    this.sendPresence();
     if (document.visibilityState !== "visible") {
       this.hiddenAt = Date.now();
       return;

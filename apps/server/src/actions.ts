@@ -22,6 +22,8 @@ export interface ExecutorContext {
   notifier: Notifier;
   /** The proposal's vertical, set when an executor runs. */
   vertical?: string;
+  /** The task the proposal came from, when an agent's run proposed it. */
+  taskId?: string | null;
   /** PUBLIC_BASE_URL: this server's own /media files are the only media an agent's notify may show. */
   publicBaseUrl?: string;
 }
@@ -75,7 +77,7 @@ export const builtinExecutors: Record<string, ActionExecutor> = {
     validate: (payload, { publicBaseUrl }) => {
       agentMedia(payload.media, publicBaseUrl);
     },
-    execute: async (payload, { notifier, vertical, publicBaseUrl }) => {
+    execute: async (payload, { notifier, vertical, publicBaseUrl, taskId }) => {
       // notifications: agents pick a category; never "approval"/"system", and never urgent (which breaks quiet hours).
       const category = AGENT_CATEGORIES.has(payload.category as string) ? (payload.category as NotificationCategory) : "agent";
       const asked = ["high", "normal", "low"].includes(payload.priority as string) ? (payload.priority as NotificationPriority) : undefined;
@@ -87,6 +89,8 @@ export const builtinExecutors: Record<string, ActionExecutor> = {
         vertical,
         url: typeof payload.url === "string" && payload.url.startsWith("/") ? payload.url : undefined,
         media: agentMedia(payload.media, publicBaseUrl),
+        // Where it came from: the notification centre links back to the task's conversation.
+        ...(taskId ? { data: { taskId } } : {}),
       });
       return "sent";
     },
@@ -466,7 +470,7 @@ export class ActionService {
     let final: Proposal | null;
     try {
       if (!executor) throw new Error(`No executor for ${approved.actionType}`);
-      const result = await executor.execute(approved.payload, { ...this.ctx, vertical: approved.vertical });
+      const result = await executor.execute(approved.payload, { ...this.ctx, vertical: approved.vertical, taskId: approved.taskId });
       final = await this.store.transitionProposal(id, ["approved"], "executed", { ok: true, result: result ?? null });
     } catch (err) {
       final = await this.store.transitionProposal(id, ["approved"], "failed", { ok: false, error: (err as Error).message });

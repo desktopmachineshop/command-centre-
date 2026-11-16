@@ -611,6 +611,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     notification: (id: string) => call<StoredNotification>(`/notifications/${id}`),
     unreadCount: () => call<{ unread: number }>("/notifications/unread-count"),
     markRead: (id: string) => post<{ unread: number }>(`/notifications/${id}/read`),
+    /** Opening a task reads what was said about it (its answer, a failure, an agent's message). */
+    markTaskRead: (taskId: string) => post<{ changed: number; unread: number }>(`/notifications/read-task/${encodeURIComponent(taskId)}`),
     markAllRead: (category?: string) => post<{ changed: number; unread: number }>("/notifications/read-all", { category }),
     notificationPrefs: () =>
       call<{ prefs: NotificationPrefs; defaults: NotificationPrefs; categories: NotificationCategory[] }>("/notifications/prefs"),

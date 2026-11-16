@@ -6,6 +6,16 @@ export function ago(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/** The heading a list groups a day's items under: "Today", "Yesterday", or "Mon 16 Nov". */
+export function dayLabel(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(d)) / 86_400_000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
 export function usd(n: number | null | undefined): string {
   return n == null ? "–" : `$${n.toFixed(n < 1 ? 3 : 2)}`;
 }

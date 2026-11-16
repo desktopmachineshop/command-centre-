@@ -14,6 +14,7 @@ import { type CodeOptions, prepareCheckout } from "./code";
 import { assistantCharter, assistantRole, assistantServers } from "./assistant";
 import { autoHandover, handoverSection } from "./handover";
 import type { Hub } from "./hub";
+import { outcomeNotification, taskTag } from "./outcome";
 import { startProgressUpdates } from "./progress";
 import type { Notifier } from "./push";
 import type { TaskQueue } from "./queue";
@@ -422,7 +423,7 @@ export class Pipeline {
         title: event?.title ?? task.intent,
         url: `/task/${taskId}`,
         vertical: vertical.id,
-        tag: `progress-${taskId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 22)}`,
+        tag: taskTag(taskId),
       });
       // A reply continues the task: the proposals still waiting on it are listed, so a revised one replaces its old version.
       const openBefore = turn ? await store.listProposals({ taskId, status: "pending", limit: 200 }) : [];
@@ -473,6 +474,7 @@ export class Pipeline {
       // the task, where Chat and the Inbox show it.
       const failedNote = next === "failed" ? `Run failed: ${result.error?.trim() || "the agent stopped without saying why"}` : undefined;
       hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, next, failedNote) });
+      if (event?.source === "chat" || turn?.fromDave) await this.notifyOutcome(task, event, next, result.result, failedNote ?? null);
       await this.afterRun(task, event, { status: next, result: result.result, error: result.error, pending });
     } catch (err) {
       const message = (err as Error).message;
@@ -488,7 +490,9 @@ export class Pipeline {
       }
       const note = runId ? `Run failed: ${message}` : `Failed before the agent started: ${message}`;
       hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "failed", note) });
-      await this.afterRun(task, await store.getEvent(task.eventId).catch(() => null), { status: "failed", result: null, error: message, pending: [] });
+      const failedEvent = await store.getEvent(task.eventId).catch(() => null);
+      if (failedEvent?.source === "chat") await this.notifyOutcome(task, failedEvent, "failed", null, note);
+      await this.afterRun(task, failedEvent, { status: "failed", result: null, error: message, pending: [] });
     } finally {
       if (token) runTokens.revoke(token);
       this.running.delete(taskId);
@@ -674,6 +678,24 @@ export class Pipeline {
       await voice.report(fromTaskId, author, reportText(task, outcome));
     } catch (err) {
       console.error(`[pipeline] report back for task ${task.id}`, err);
+    }
+  }
+
+  /**
+   * Something Dave asked for has ended. If the app is on screen he can see it; otherwise he is
+   * told: the answer's first lines, or why it didn't finish (./outcome.ts). Not when it waits
+   * for his approval (that request is its own notification), nor while work it handed on is
+   * still out (the report coming back runs it again).
+   */
+  private async notifyOutcome(task: Task, event: Event | null, status: TaskStatus, result: string | null, note: string | null): Promise<void> {
+    const { notifier, hub, store } = this.deps;
+    if (!notifier || (status !== "done" && status !== "failed") || hub.watching()) return;
+    try {
+      if ((await store.openHandoffs(task.id)) > 0 || (await this.deps.voice?.hasPending(task.id))) return;
+      const n = outcomeNotification({ taskId: task.id, vertical: task.vertical, ask: event?.title ?? task.prompt, status, result, note });
+      if (n) await notifier.notify(n);
+    } catch (err) {
+      console.error("[pipeline] outcome push failed:", (err as Error).message);
     }
   }
 

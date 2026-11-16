@@ -25,6 +25,11 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
   // in progress, and dropped at each load (which has them).
   const [live, setLive] = useState<Record<string, AgentMessage[]>>({});
   useEffect(() => setLive({}), [data]);
+  // Reading the task reads what the notification centre said about it. Again when it changes
+  // state, so the answer that arrives while it is open isn't left unread.
+  useEffect(() => {
+    void api.markTaskRead(id).catch(() => {});
+  }, [api, id, data?.task.status]);
   const [retrying, setRetrying] = useState(false);
   /** Narrow screens: Conversation or Actions. Wide screens show both side by side. */
   const [tab, setTab] = useState<"conversation" | "actions">("conversation");
