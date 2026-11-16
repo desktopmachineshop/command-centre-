@@ -29,6 +29,66 @@ export function withoutVoiceLine(text: string): string {
     .trim();
 }
 
+/** Where a tool comes from, in words: the MCP server names agents are given (apps/server agent-context). */
+const TOOL_SOURCES: Record<string, string> = {
+  odoo: "Odoo",
+  brain: "Brain",
+  actions: "Actions",
+  pa: "Calendar and lists",
+  mail: "Mail",
+  sendcloud: "Parcels",
+  video: "Video",
+  reddit: "Reddit",
+  research: "Research",
+  ops: "App health",
+  help: "Help",
+  github: "GitHub",
+  opengym: "Gym",
+};
+/** Tools whose name says little: what they are for. */
+const TOOL_NAMES: Record<string, string> = {
+  ToolSearch: "Finding the right tools",
+  Skill: "Reading a skill",
+  mcp__actions__propose_action: "Proposing an action",
+  mcp__actions__propose_batch: "Proposing a batch of actions",
+  mcp__actions__update_handover: "Saving its notes on this task",
+  mcp__actions__handoff_to_role: "Handing work to a specialist",
+  mcp__actions__list_pending: "Checking what is waiting for approval",
+};
+
+/** A tool's name for reading: "mcp__odoo__search_products" → "Odoo: search products". */
+export function toolLabel(name: string): string {
+  if (TOOL_NAMES[name]) return TOOL_NAMES[name];
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name);
+  if (!mcp) return name;
+  const source = TOOL_SOURCES[mcp[1]!] ?? mcp[1]!.charAt(0).toUpperCase() + mcp[1]!.slice(1);
+  return `${source}: ${mcp[2]!.replace(/_/g, " ")}`;
+}
+
+/** Where a tool comes from ("Odoo"), or null for one that isn't an integration's. */
+function toolSource(name: string): string | null {
+  if (TOOL_NAMES[name] && !name.startsWith("mcp__actions__propose")) return null;
+  const mcp = /^mcp__([^_]+(?:_[^_]+)*?)__/.exec(name);
+  return mcp ? (TOOL_SOURCES[mcp[1]!] ?? mcp[1]!) : null;
+}
+
+/**
+ * One line for a run of tool calls: "4 steps: Odoo, Brain" (and "1 problem" when a call failed),
+ * or, while the run is still going, what it is doing now.
+ */
+export function stepsSummary(steps: { type: string; name?: string; isError?: boolean }[], working = false): string {
+  const calls = steps.filter((s) => s.type === "tool_use");
+  const problems = steps.filter((s) => s.type === "tool_result" && s.isError).length;
+  if (working) {
+    const last = calls[calls.length - 1];
+    return last?.name ? `Working: ${toolLabel(last.name)}…` : "Working on it…";
+  }
+  const sources = [...new Set(calls.map((c) => (c.name ? toolSource(c.name) : null)).filter((s): s is string => !!s))];
+  const n = calls.length || 1;
+  const head = `${n} step${n === 1 ? "" : "s"}`;
+  return `${head}${sources.length ? `: ${sources.join(", ")}` : ""}${problems ? ` · ${problems} problem${problems === 1 ? "" : "s"}` : ""}`;
+}
+
 /** An email task's prompt, split into what Dave reads: the title line, the email itself, and whether a machine sent it. */
 export interface EmailAsk {
   title: string;

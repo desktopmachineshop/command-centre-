@@ -1,4 +1,4 @@
-import type { Proposal } from "@cc/core";
+import { type Proposal, proposalCardRefs } from "@cc/core";
 import { type FormEvent, useState } from "react";
 import type { Api } from "../api";
 import { ago } from "../format";
@@ -8,6 +8,7 @@ import { go, routeQuery } from "../router";
 import { SocialProposalBody, useSocialAccounts } from "../social";
 import { Empty, ErrorBanner, PageHead, Skeleton, Status, VTag } from "../ui";
 import { VideoPreview, videoOf } from "../video";
+import { CardGrid } from "../cards";
 import { ErrorReport } from "../copy";
 import { hasReadable, PayloadView } from "../payload";
 
@@ -225,6 +226,8 @@ export function ProposalCard({ api, proposal }: { api: Api; proposal: Proposal }
         <Status value={proposal.status} label={replacedBy(proposal) ? "replaced" : undefined} />
       </div>
       <p className="title">{proposal.summary}</p>
+      {/* The record it would change, read live: the product, order or customer, not just its id. */}
+      {proposal.status === "pending" && <CardGrid refs={proposalCardRefs(proposal.actionType, proposal.payload)} />}
       {video && <VideoPreview video={video} title={typeof proposal.payload.title === "string" ? proposal.payload.title : proposal.summary} />}
       {social && <SocialProposalBody proposal={proposal} accounts={socialAccounts} />}
       {proposal.status === "failed" && (

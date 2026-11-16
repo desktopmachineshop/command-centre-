@@ -61,3 +61,43 @@ export interface CardProvider {
 
 /** What `GET /api/cards` answers per reference. */
 export type CardResult = { ref: string; card: Card } | { ref: string; error: string };
+
+/** Odoo models that have a card kind. */
+const ODOO_MODEL_KINDS: Record<string, string> = { "product.product": "odoo.product", "sale.order": "odoo.order", "res.partner": "odoo.customer" };
+/** Action types whose payload names one record by a plain id field: [payload key, card kind]. */
+const PROPOSAL_RECORDS: Record<string, [string, string][]> = {
+  "odoo.product.update_price": [["id", "odoo.product"]],
+  "odoo.product.update": [["id", "odoo.product"]],
+  "odoo.stock.adjust": [["product_id", "odoo.product"]],
+  "odoo.order.confirm": [["id", "odoo.order"]],
+  "odoo.order.cancel": [["id", "odoo.order"]],
+  "odoo.quote.update": [["id", "odoo.order"]],
+  "odoo.quote.send": [["id", "odoo.order"]],
+  "odoo.quote.create": [["partner_id", "odoo.customer"]],
+  "odoo.invoice.create": [["order_id", "odoo.order"]],
+  "odoo.customer.update": [["id", "odoo.customer"]],
+};
+
+/**
+ * The records a proposal is about, as card references, so an approval shows what it would
+ * change (the product whose price moves, the order being cancelled) and not just its id.
+ * From the action type and the ids in its payload; empty when it names no record with a card.
+ */
+export function proposalCardRefs(actionType: string, payload: Record<string, unknown>): string[] {
+  const id = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v > 0 ? String(v) : typeof v === "string" && /^\d+$/.test(v) ? v : null);
+  const refs: string[] = [];
+  for (const [key, kind] of PROPOSAL_RECORDS[actionType] ?? []) {
+    const n = id(payload[key]);
+    if (n) refs.push(`${kind}:${n}`);
+  }
+  // Chatter posts and generic record actions say which model they act on.
+  const kind = typeof payload.model === "string" ? ODOO_MODEL_KINDS[payload.model] : undefined;
+  if (kind && actionType.startsWith("odoo.")) {
+    const ids = Array.isArray(payload.ids) ? payload.ids : [payload.id];
+    for (const v of ids.slice(0, 4)) {
+      const n = id(v);
+      if (n) refs.push(`${kind}:${n}`);
+    }
+  }
+  return [...new Set(refs)];
+}

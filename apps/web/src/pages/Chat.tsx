@@ -594,7 +594,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
                   <PlayReply readAloud={readAloud} id={`turn-${t.key}:reply`} text={t.reply} />
                 </div>
               )}
-              <Transcript messages={t.messages} readAloud={readAloud} id={`turn-${t.key}`} />
+              <Transcript messages={t.messages} readAloud={readAloud} id={`turn-${t.key}`} working={t.task?.status === "running" && latestTurnOf.get(t.task.id) === t.key} />
               {t.task && isStopped(t.task) && latestTurnOf.get(t.task.id) === t.key && (
                 <p className="small muted">Stopped. Send a message to carry on, or open the task to retry it.</p>
               )}
