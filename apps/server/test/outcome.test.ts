@@ -36,6 +36,14 @@ describe("outcomeNotification", () => {
     expect(outcomeNotification({ taskId: "t-1", vertical: "dms", ask: "x", status: "done", result: "" })).toBeNull();
   });
 
+  it("isn't held for quiet hours when he asked minutes ago", () => {
+    const now = new Date("2026-11-16T23:00:00Z");
+    const o = { taskId: "t-1", vertical: "dms", ask: "x", status: "done" as const, result: "ok", now };
+    expect(outcomeNotification({ ...o, askedAt: new Date("2026-11-16T22:58:00Z") })).toMatchObject({ breaksQuiet: true });
+    expect(outcomeNotification({ ...o, askedAt: new Date("2026-11-16T22:30:00Z") })).not.toHaveProperty("breaksQuiet");
+    expect(outcomeNotification(o)).not.toHaveProperty("breaksQuiet");
+  });
+
   it("says why something didn't finish", () => {
     const n = outcomeNotification({ taskId: "t-1", vertical: "dms", ask: "post the reel", status: "failed", note: "Run failed: Claude usage limit reached; resets at 03:00" })!;
     expect(n).toMatchObject({ title: "Didn't finish: post the reel", body: "Claude usage limit reached; resets at 03:00", priority: "high", category: "agent" });

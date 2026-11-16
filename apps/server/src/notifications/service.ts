@@ -120,6 +120,8 @@ export class NotificationService implements Notifier {
       const since = new Date(now.getTime() - prefs.rateLimit.windowMinutes * 60_000);
       const recent = await this.store.windowCounts(userId, n.category, since);
       route = decideRoute({ category: n.category, priority, settings, prefs, now, recentPushes: recent.sent });
+      // Held only by quiet hours, and the caller says he is awake (the answer to what he just asked).
+      if (route.kind === "held" && input.breaksQuiet === true) route = { kind: "push" };
     }
 
     let body = n.body;

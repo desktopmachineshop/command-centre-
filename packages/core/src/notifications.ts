@@ -83,6 +83,8 @@ export interface NotificationInput {
    * removed from the notification centre too (a task's progress updates, then its answer).
    */
   replaces?: boolean;
+  /** Push it even in quiet hours: Dave asked for this minutes ago, so he is evidently awake. */
+  breaksQuiet?: boolean;
   /** Alert again when replacing a notification with the same tag. Default: only for urgent/high. */
   renotify?: boolean;
   actions?: NotificationAction[];

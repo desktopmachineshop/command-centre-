@@ -474,7 +474,7 @@ export class Pipeline {
       // the task, where Chat and the Inbox show it.
       const failedNote = next === "failed" ? `Run failed: ${result.error?.trim() || "the agent stopped without saying why"}` : undefined;
       hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, next, failedNote) });
-      if (event?.source === "chat" || turn?.fromDave) await this.notifyOutcome(task, event, next, result.result, failedNote ?? null);
+      if (event?.source === "chat" || turn?.fromDave) await this.notifyOutcome(task, event, next, result.result, failedNote ?? null, new Date(run.startedAt));
       await this.afterRun(task, event, { status: next, result: result.result, error: result.error, pending });
     } catch (err) {
       const message = (err as Error).message;
@@ -687,12 +687,12 @@ export class Pipeline {
    * for his approval (that request is its own notification), nor while work it handed on is
    * still out (the report coming back runs it again).
    */
-  private async notifyOutcome(task: Task, event: Event | null, status: TaskStatus, result: string | null, note: string | null): Promise<void> {
+  private async notifyOutcome(task: Task, event: Event | null, status: TaskStatus, result: string | null, note: string | null, askedAt: Date | null = null): Promise<void> {
     const { notifier, hub, store } = this.deps;
     if (!notifier || (status !== "done" && status !== "failed") || hub.watching()) return;
     try {
       if ((await store.openHandoffs(task.id)) > 0 || (await this.deps.voice?.hasPending(task.id))) return;
-      const n = outcomeNotification({ taskId: task.id, vertical: task.vertical, ask: event?.title ?? task.prompt, status, result, note });
+      const n = outcomeNotification({ taskId: task.id, vertical: task.vertical, ask: event?.title ?? task.prompt, status, result, note, askedAt });
       if (n) await notifier.notify(n);
     } catch (err) {
       console.error("[pipeline] outcome push failed:", (err as Error).message);

@@ -124,6 +124,13 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     expect(transport.sent.map((s) => s.payload.title)).toEqual(["From OpenV", "From OpenV"]);
   });
 
+  it("pushes the answer to something Dave just asked, even in quiet hours", async () => {
+    now = NIGHT;
+    await notifications().notify({ title: "how many spindles?", body: "12", breaksQuiet: true });
+    expect(transport.sent.map((s) => s.payload.title)).toEqual(["how many spindles?", "how many spindles?"]);
+    expect((await ctx.api("/api/notifications")).body.items[0]).toMatchObject({ title: "how many spindles?", status: "sent" });
+  });
+
   it("holds during quiet hours, lets urgent through, then releases one summary", async () => {
     now = NIGHT;
     await notifications().notify({ title: "Agent note", body: "x" });

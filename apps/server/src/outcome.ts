@@ -31,6 +31,9 @@ export function answerPreview(result: string | null | undefined, max = 280): str
   return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max - 40)).trimEnd()}…`;
 }
 
+/** An answer this soon after the question isn't held for quiet hours. */
+export const FRESH_MS = 10 * 60_000;
+
 /**
  * What Dave is told when something he asked for ends while he isn't looking at the app: the
  * answer's first lines, or why it didn't finish. It opens the task, and replaces the task's
@@ -45,9 +48,13 @@ export function outcomeNotification(o: {
   result?: string | null;
   /** Why it failed (the task's note). */
   note?: string | null;
+  /** When he asked. An answer within FRESH_MS of that is pushed even in quiet hours: he is still up. */
+  askedAt?: Date | null;
+  now?: Date;
 }): NotificationInput | null {
   const ask = (o.ask.trim().split("\n")[0] ?? "").slice(0, 90) || "Your request";
-  const base = { url: `/task/${o.taskId}`, category: "agent" as const, vertical: o.vertical, tag: taskTag(o.taskId), replaces: true, renotify: true, data: { taskId: o.taskId, outcome: o.status } };
+  const fresh = !!o.askedAt && (o.now ?? new Date()).getTime() - o.askedAt.getTime() < FRESH_MS;
+  const base = { ...(fresh ? { breaksQuiet: true } : {}), url: `/task/${o.taskId}`, category: "agent" as const, vertical: o.vertical, tag: taskTag(o.taskId), replaces: true, renotify: true, data: { taskId: o.taskId, outcome: o.status } };
   if (o.status === "failed") {
     return { ...base, title: `Didn't finish: ${ask}`, body: (o.note ?? "").replace(/^Run failed:\s*/, "").slice(0, 300) || "The agent stopped without saying why. Open it to retry.", priority: "high" };
   }

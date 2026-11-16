@@ -1423,6 +1423,8 @@ one category for one business, e.g. 3dpandme social off.
   when the task is waiting for your approval (that request is its own notification) or while work
   it handed to a specialist is still out. A long task's progress updates and this notification
   share a tag and replace each other, on the device and in the centre, so a task has one row.
+  An answer that comes within ten minutes of the question is pushed even in quiet hours (you are
+  evidently awake); a long task that finishes later in the night is held like anything else.
 - **The app's live connection:** the server pings the app every 25 seconds, which keeps proxies
   from closing the connection. If it drops anyway, or the app comes back from the background, the
   app reconnects and loads what it shows again, so an answer sent in the gap still appears.
