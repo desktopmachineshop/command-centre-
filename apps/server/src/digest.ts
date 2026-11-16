@@ -40,7 +40,8 @@ const usd = (n: number) => `$${n.toFixed(2)}`;
  * The daily digest per vertical: a deterministic summary of the day's tasks,
  * auto-with-digest actions, pending approvals, cost and jobs. It is built from
  * the database, not by an agent, so it costs no tokens. Delivered as a brain
- * note at `<brainFolder>/digests/YYYY-MM-DD.md` plus one push per vertical that opens it.
+ * note at `<brainFolder>/digests/YYYY-MM-DD.md`, plus one note for all of them at
+ * `digests/YYYY-MM-DD.md` and a single push that opens it.
  */
 export class DigestService {
   constructor(
@@ -62,6 +63,11 @@ export class DigestService {
 
   static notePath(vertical: VerticalManifest, day: string): string {
     return `${vertical.brainFolder}/digests/${day}.md`;
+  }
+
+  /** The one note that covers every business's day: what the daily push opens. */
+  static combinedPath(day: string): string {
+    return `digests/${day}.md`;
   }
 
   static lowStockPath(vertical: VerticalManifest, day: string): string {
@@ -173,12 +179,14 @@ export class DigestService {
   }
 
   /**
-   * Writes the digest note for each vertical that had anything to report, and
-   * sends each one's headline as its own push (`push: false` for a quiet rewrite).
+   * Writes the digest note for each vertical that had anything to report, plus
+   * one note covering all of them, and sends a single push for the day that
+   * opens it (`push: false` for a quiet rewrite).
    */
   async deliver(day = this.today(), options: { push?: boolean; now?: Date } = {}): Promise<Digest[]> {
     const { digests } = await this.buildAll(day, { now: options.now });
     const active = digests.filter(isActive);
+    if (!active.length) return active;
     for (const d of active) {
       await this.brain.write(
         DigestService.notePath(this.verticals.require(d.vertical), day),
@@ -186,23 +194,30 @@ export class DigestService {
         `digest: ${d.vertical} ${day}`,
       );
     }
+    const path = DigestService.combinedPath(day);
+    await this.brain.write(path, { frontmatter: { type: "digest", date: day }, body: renderCombined(day, active) }, `digest: all ${day}`);
     if (options.push !== false) {
-      // One push per business, each opening that business's digest note.
-      for (const d of active) {
-        const path = DigestService.notePath(this.verticals.require(d.vertical), day);
-        await this.notifier.notify({
-          title: `${d.name} daily digest, ${day}`,
-          body: d.headline,
-          url: `/brain/${encodeURIComponent(path)}`,
-          category: "digest",
-          priority: "normal",
-          vertical: d.vertical,
-          tag: `digest:${d.vertical}`,
-        });
-      }
+      // One push for every business: a headline line each, opening the combined note.
+      await this.notifier.notify({
+        title: `Daily digest, ${day}`,
+        body: active.map((d) => d.headline).join("\n"),
+        url: `/brain/${encodeURIComponent(path)}`,
+        category: "digest",
+        priority: "normal",
+        tag: "digest",
+      });
     }
     return active;
   }
+}
+
+/** Every active business's digest in one note, each under its own heading. */
+function renderCombined(day: string, digests: Digest[]): string {
+  const cost = digests.reduce((a, d) => a + d.costUsd, 0);
+  const lines = [`# Daily digest, ${day}`, "", `**${digests.length} ${digests.length === 1 ? "business" : "businesses"} with something to report · ${usd(cost)} spent**`];
+  // Each business's own note, one heading level down.
+  for (const d of digests) lines.push("", d.markdown.trimEnd().replace(/^#/gm, "##"));
+  return `${lines.join("\n")}\n`;
 }
 
 /** Jobs say which vertical they belong to in `payload.vertical`; the rest count under the default vertical. */

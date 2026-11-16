@@ -319,13 +319,24 @@ describe.skipIf(!DB_URL)("daily digest", () => {
     expect(note?.body).toContain("brain.journal: Log the bins");
     // Quiet verticals get no note.
     expect(await ctx.server.brain.read(`openv/digests/${d.date}.md`)).toBeNull();
+    // One push for the day, whatever the number of businesses, opening the note that covers them all.
+    const combined = `digests/${d.date}.md`;
     expect(ctx.notifier.sent).toEqual([
-      expect.objectContaining({
-        title: `${d.name} daily digest, ${d.date}`,
-        body: d.headline,
-        url: `/brain/${encodeURIComponent(`personal/digests/${d.date}.md`)}`,
-      }),
+      expect.objectContaining({ title: `Daily digest, ${d.date}`, body: d.headline, url: `/brain/${encodeURIComponent(combined)}`, tag: "digest" }),
     ]);
+    expect((await ctx.server.brain.read(combined))?.body).toContain(`## Personal digest, ${d.date}`);
+
+    // A second business with news adds a line to the same push, not a push of its own.
+    await ctx.server.actions.propose({ vertical: "dms", actionType: "brain.journal", summary: "Log the stock", payload: { text: "x" } });
+    ctx.notifier.sent.length = 0;
+    await ctx.server.digests.deliver();
+    const pushes = ctx.notifier.sent.filter((n) => n.title.startsWith("Daily digest"));
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]!.body.split("\n")).toEqual([expect.stringMatching(/^Personal: /), expect.stringMatching(/^Desktop Machine Shop: /)]);
+    const all = (await ctx.server.brain.read(combined))!.body;
+    expect(all).toContain("**2 businesses with something to report");
+    expect(all).toContain(`## Desktop Machine Shop digest, ${d.date}`);
+    expect(all).toContain("### Awaiting approval");
 
     const runsAfter = (await ctx.server.store.pool.query("select count(*)::int as n from agent_runs")).rows[0].n;
     expect(runsAfter).toBe(runsBefore);
