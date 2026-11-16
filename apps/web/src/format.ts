@@ -93,6 +93,7 @@ export function stepsSummary(steps: { type: string; name?: string; isError?: boo
     const last = calls[calls.length - 1];
     return last?.name ? `Working: ${toolLabel(last.name)}…` : "Working on it…";
   }
+  if (!calls.length) return "Notes";
   const sources = [...new Set(calls.map((c) => (c.name ? toolSource(c.name) : null)).filter((s): s is string => !!s))];
   const n = calls.length || 1;
   const head = `${n} step${n === 1 ? "" : "s"}`;

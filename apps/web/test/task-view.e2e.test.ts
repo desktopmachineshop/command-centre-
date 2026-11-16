@@ -77,7 +77,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Task page (Playwright)", () => {
       return json({ error: `unmocked ${path}` }, 404);
     });
     await page.goto(`${base}/#/task/${TASK}`);
-    await page.locator(".run-card").first().waitFor({ timeout: 20_000 });
+    await page.locator(".thread .bubble.agent").first().waitFor({ timeout: 20_000 });
   }
 
   it("each reply has a play button that reads it again with the server's voice", async () => {
@@ -103,63 +103,59 @@ describe.skipIf(!existsSync(CHROMIUM))("Task page (Playwright)", () => {
     expect(errors).toEqual([]);
   }, 60_000);
 
-  it("wide: actions in a column on the right that stays in view at the bottom", async () => {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    const errors: string[] = [];
-    page.on("pageerror", (e) => errors.push(e.message));
-    await open(page);
-    const aside = page.getByRole("complementary", { name: "Proposed actions" });
-    expect(await aside.isVisible()).toBe(true);
-    expect(await page.locator(".task-tabs").isVisible()).toBe(false);
-    // Waiting ones first.
-    expect(await aside.locator(".card.proposal .title").first().textContent()).toBe("Post a note on S01042");
-    // Scrolled to the latest answer at the bottom, the column is still on screen.
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-    const box = await aside.boundingBox();
-    expect(box!.y).toBeGreaterThanOrEqual(0);
-    expect(box!.y).toBeLessThan(900);
-    const main = await page.locator(".task-main").boundingBox();
-    expect(box!.x).toBeGreaterThan(main!.x + main!.width - 1);
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}/task-wide.png` });
-    expect(errors).toEqual([]);
-  }, 60_000);
-
-  it("narrow: Conversation and Actions tabs, with the count waiting", async () => {
-    const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
-    await open(page);
-    const tabs = page.getByRole("tablist", { name: "Task view" });
-    expect(await tabs.isVisible()).toBe(true);
-    const actionsTab = tabs.getByRole("tab", { name: /Actions/ });
-    expect(await actionsTab.textContent()).toBe("Actions1");
-    expect(await page.getByRole("complementary", { name: "Proposed actions" }).isVisible()).toBe(false);
-    // The tabs stay at the top while reading the bottom of the conversation.
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
-    expect((await tabs.boundingBox())!.y).toBeLessThan(150);
-    await actionsTab.click();
-    expect(await page.getByRole("complementary", { name: "Proposed actions" }).isVisible()).toBe(true);
-    expect(await page.locator(".task-main").isVisible()).toBe(false);
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}/task-narrow-actions.png` });
-    await tabs.getByRole("tab", { name: "Conversation" }).click();
-    expect(await page.locator(".task-main").isVisible()).toBe(true);
-  }, 60_000);
+  it("reads as a conversation: what was asked, each answer, its actions under it, then the reply box", async () => {
+    for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 800 }]) {
+      const page = await browser.newPage({ viewport });
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await open(page);
+      // No tabs and no side column: one thread, top to bottom.
+      expect(await page.locator(".task-tabs").count()).toBe(0);
+      expect(await page.getByRole("complementary", { name: "Proposed actions" }).count()).toBe(0);
+      expect(await page.locator(".thread-state .status").textContent()).toBe("Didn't finish");
+      const order = await page.evaluate(() => {
+        const y = (sel: string, last = false) => {
+          const all = document.querySelectorAll(sel);
+          return all[last ? all.length - 1 : 0]!.getBoundingClientRect().top;
+        };
+        return [y(".thread-origin"), y(".turn .bubble.agent"), y(".turn .bubble.agent", true), y(".card.proposal.is-pending"), y(".task-reply")];
+      });
+      expect([...order].sort((a, b) => a - b)).toEqual(order);
+      // The action waiting for him is in full under the answer that proposed it, and the failed one too.
+      const actions = page.locator(".turn").last().locator(".inline-proposals");
+      expect(await actions.locator(".card.proposal.is-pending .title").textContent()).toBe("Post a note on S01042");
+      expect(await actions.locator(".card.proposal .error-report").count()).toBe(1);
+      // It opens at the latest answer.
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+      // The workings are folded away under Details.
+      const details = page.locator(".thread-details");
+      expect(await details.getAttribute("open")).toBeNull();
+      await details.locator("> summary").click();
+      expect(await details.textContent()).toContain("customer-support");
+      expect(await details.textContent()).toContain("claude-code");
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/task-${viewport.width}.png`, fullPage: true });
+      expect(errors).toEqual([]);
+      await page.close();
+    }
+  }, 90_000);
 
   it("failures carry a copyable error report", async () => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
     const page = await context.newPage();
     await open(page);
-    const runError = page.locator(".run-card .error-report");
-    expect(await runError.textContent()).toContain("Run failed: spawn claude ENOENT");
-    await runError.getByRole("button", { name: /Copy error report: Run failed/ }).click();
+    const runError = page.locator(".bubble.agent > .error-report");
+    expect(await runError.textContent()).toContain("This didn't finish: spawn claude ENOENT");
+    await runError.getByRole("button", { name: /Copy error report: This didn't finish/ }).click();
     const copied = await page.evaluate(() => navigator.clipboard.readText());
-    expect(copied).toContain("Command Centre error: Run failed");
+    expect(copied).toContain("Command Centre error: This didn't finish");
     expect(copied).toContain(`Task: ${TASK}`);
     expect(copied).toContain("Run: r2");
     expect(copied).toContain("at ChildProcess._handle.onexit");
     expect(await runError.getByRole("button", { name: /Copy error/ }).textContent()).toContain("Copied");
 
-    // The failed approval, in the actions column.
-    const failed = page.getByRole("complementary", { name: "Proposed actions" }).locator(".error-report");
+    // The failed approval, under the answer that proposed it.
+    const failed = page.locator(".inline-proposals .error-report");
     expect(await failed.textContent()).toContain("email.reply failed: SMTP 535 authentication failed");
     await failed.getByRole("button", { name: /Copy error/ }).click();
     const copied2 = await page.evaluate(() => navigator.clipboard.readText());

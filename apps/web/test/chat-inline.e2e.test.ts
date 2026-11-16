@@ -106,7 +106,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: approvals inline (Playwright)", ()
     expect(await video.getAttribute("controls")).not.toBeNull();
     expect(await card.locator("figcaption").textContent()).toContain("1:01 · 1080×1920");
     // The decided one is folded away.
-    expect(await page.locator(".inline-proposals > details > summary").textContent()).toContain("1 action done or decided");
+    expect(await page.locator(".inline-proposals > details > summary").textContent()).toContain("1 action done");
 
     await card.getByRole("button", { name: "Approve" }).click();
     await expect.poll(() => calls.includes("POST /proposals/p1/approve")).toBe(true);

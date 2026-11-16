@@ -4,7 +4,7 @@ import type { Api, ChatFile } from "../api";
 import { type LiveFeed, useLive, useResync } from "../live";
 import { Icon } from "../icons";
 import { Empty, ErrorBanner, PageHead, TaskTag } from "../ui";
-import { ProposalCard } from "./Approvals";
+import { ProposalList } from "./Approvals";
 import { Transcript } from "./Transcript";
 import { Markdown } from "../markdown";
 import { AttachedFiles, Composer } from "../composer";
@@ -14,6 +14,8 @@ import { ErrorReport } from "../copy";
 import { PlayReply, ReadAloudToggle, useReadAloud } from "../voice/readAloud";
 import { Drive, type Exchange } from "./Drive";
 import { go } from "../router";
+import { ago, askText } from "../format";
+import { statusWords } from "./TaskView";
 
 type Turn = {
   key: number;
@@ -541,6 +543,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
             business, start with its name ("dms: …") or pick it below.
           </Empty>
         )}
+        {turns.length === 0 && !restoring && <RecentChats api={api} />}
         {turns.map((t) => (
           <div key={t.key} className="turn">
             <div className={`bubble me ${t.voice ? "is-voice" : ""}`}>
@@ -594,7 +597,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
                   <PlayReply readAloud={readAloud} id={`turn-${t.key}:reply`} text={t.reply} />
                 </div>
               )}
-              <Transcript messages={t.messages} readAloud={readAloud} id={`turn-${t.key}`} working={t.task?.status === "running" && latestTurnOf.get(t.task.id) === t.key} />
+              <Transcript messages={t.messages} readAloud={readAloud} id={`turn-${t.key}`} working={!!t.task && (t.task.status === "running" || t.task.status === "queued") && latestTurnOf.get(t.task.id) === t.key} />
               {t.task && isStopped(t.task) && latestTurnOf.get(t.task.id) === t.key && (
                 <p className="small muted">Stopped. Send a message to carry on, or open the task to retry it.</p>
               )}
@@ -605,7 +608,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
                   facts={[["Task", t.task.id], ["Business", t.task.vertical], ["Role", t.task.role], ["Asked", t.text.slice(0, 200)]]}
                 />
               )}
-              {t.task && latestTurnOf.get(t.task.id) === t.key && <InlineProposals api={api} proposals={chains[t.task.id]?.proposals ?? []} />}
+              {t.task && latestTurnOf.get(t.task.id) === t.key && <ProposalList api={api} proposals={chains[t.task.id]?.proposals ?? []} />}
             </div>
           </div>
         ))}
@@ -699,31 +702,38 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
   );
 }
 
-/** Approvals in the chat thread: the pending ones in full, the decided ones folded away. */
-function InlineProposals({ api, proposals }: { api: Api; proposals: Proposal[] }) {
-  if (!proposals.length) return null;
-  const pending = proposals.filter((p) => p.status === "pending");
-  const decided = proposals.filter((p) => p.status !== "pending");
+/** How many earlier conversations the empty chat offers. */
+const RECENT = 6;
+
+/**
+ * Under an empty chat: the last few things Dave asked, each with how it came out. Choosing one
+ * opens that conversation, where he can read it and carry it on with a reply. So a chat started
+ * on the phone is there to pick up on the PC, and yesterday's isn't lost behind "New chat".
+ */
+function RecentChats({ api }: { api: Api }) {
+  const [tasks, setTasks] = useState<Task[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .tasks(undefined, { feed: "1" })
+      .then((all) => live && setTasks(all.filter((t) => t.source === "chat").slice(0, RECENT)))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [api]);
+  if (!tasks?.length) return null;
   return (
-    <div className="inline-proposals">
-      {pending.length > 0 && (
-        <p className="small muted">
-          {pending.length === 1 ? "Waiting for your approval:" : `${pending.length} waiting for your approval:`}
-        </p>
-      )}
-      {pending.map((p) => (
-        <ProposalCard key={p.id} api={api} proposal={p} />
+    <div className="recent-chats">
+      <h3>Pick up where you left off</h3>
+      {tasks.map((t) => (
+        <a key={t.id} href={`#/task/${t.id}`}>
+          <p className="title">{askText(t.prompt).split("\n")[0]}</p>
+          <p className="sub">
+            {ago(t.createdAt)} · {t.status === "failed" ? (isStopped(t) ? "Stopped" : (t.note ?? "Didn't finish")) : t.status === "awaiting_approval" ? "Waiting for your approval" : (t.outcome ?? statusWords(t))}
+          </p>
+        </a>
       ))}
-      {decided.length > 0 && (
-        <details>
-          <summary className="small muted">
-            {decided.length} action{decided.length === 1 ? "" : "s"} done or decided
-          </summary>
-          {decided.map((p) => (
-            <ProposalCard key={p.id} api={api} proposal={p} />
-          ))}
-        </details>
-      )}
     </div>
   );
 }

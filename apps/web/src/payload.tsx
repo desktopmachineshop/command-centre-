@@ -43,6 +43,33 @@ const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const URL_RE = /^https?:\/\/\S+$/i;
 const IMAGE_RE = /\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#]\S*)?$/i;
 
+const HTML_RE = /<\/?(p|br|div|ul|ol|li|h[1-6]|strong|em|b|i|a|span|table|tr|td|blockquote)\b[^>]*>/i;
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", pound: "£", euro: "€" };
+
+/**
+ * HTML an action will send (an Odoo chatter message, an email body) as the text its reader will
+ * see: paragraphs and list items on their own lines, tags gone, entities decoded. For reading an
+ * approval; the stored payload is untouched.
+ */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\s*li\b[^>]*>/gi, "\n• ")
+    .replace(/<\/\s*(p|div|h[1-6]|ul|ol|tr|blockquote)\s*>/gi, "\n\n")
+    .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href: string, label: string) => (label.replace(/<[^>]+>/g, "").trim() === href ? href : `${label} (${href})`))
+    .replace(/<[^>]+>/g, "")
+    .replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (whole, e: string) => {
+      if (e[0] === "#") {
+        const code = e[1]!.toLowerCase() === "x" ? parseInt(e.slice(2), 16) : Number(e.slice(1));
+        return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : whole;
+      }
+      return ENTITIES[e.toLowerCase()] ?? whole;
+    })
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Turns any JSON value into a Readable, or null when there is nothing to show. */
 export function readable(value: unknown): Readable | null {
   if (value == null) return null;
@@ -51,7 +78,8 @@ export function readable(value: unknown): Readable | null {
     if (!s) return null;
     if (HEX.test(s)) return { kind: "colour", hex: s };
     if (URL_RE.test(s)) return IMAGE_RE.test(s) ? { kind: "image", url: s } : { kind: "link", url: s };
-    return { kind: "text", text: value };
+    // Markup is shown as the words its reader gets, not as tags.
+    return { kind: "text", text: HTML_RE.test(s) ? htmlToText(s) : value };
   }
   if (typeof value === "number") return { kind: "text", text: Number.isFinite(value) ? value.toLocaleString("en-GB") : String(value) };
   if (typeof value === "boolean") return { kind: "text", text: value ? "Yes" : "No" };

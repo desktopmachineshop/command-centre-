@@ -316,7 +316,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
             {phone ? (
               <a className="brand" href="#/inbox" aria-label="Command Centre, go to Inbox">
                 <BrandMark size={28} />
-                <span>{page === "task" ? "Task" : (current?.label ?? "Command Centre")}</span>
+                <span>{current?.label ?? "Command Centre"}</span>
               </a>
             ) : (
               <div className="crumbs small">
@@ -326,7 +326,7 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
                   <>
                     <a href="#/activity">Activity</a>
                     <Icon name="chevron" size={14} className="muted" />
-                    <strong>Task</strong>
+                    <strong>Conversation</strong>
                   </>
                 ) : (
                   <strong>{current?.label}</strong>

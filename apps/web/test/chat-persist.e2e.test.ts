@@ -205,7 +205,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
     await reply.waitFor({ timeout: 20_000 });
     // Reading order: the task, the conversation, then the box to reply in.
     const order = await page.evaluate(() => {
-      const conv = document.querySelector(".run-card")!;
+      const conv = document.querySelector(".thread .bubble.agent")!;
       const box = document.querySelector("form.reply-box")!;
       return conv.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING ? "conversation, then reply" : "reply first";
     });
@@ -224,7 +224,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
     await page.goto(`${base}/#/task/${TASK}`);
     const reply = page.locator("form.reply-box");
     await reply.waitFor({ timeout: 20_000 });
-    const box = reply.getByRole("textbox", { name: "Reply to the agent" });
+    const box = reply.getByRole("textbox", { name: "Reply" });
     await box.fill("Yes,");
 
     await reply.getByRole("button", { name: "Dictate" }).click();

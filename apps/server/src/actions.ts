@@ -477,7 +477,31 @@ export class ActionService {
     }
     this.hub.broadcast({ type: "proposal.updated", proposal: final! });
     await this.settleTask(final!);
+    // After settling (which marks the approval request read): an action that failed is told, whether
+    // Dave approved it or it ran by itself, so it never fails silently.
+    if (final!.status === "failed") await this.reportFailure(final!).catch((err) => console.error("[actions] failure notice", err));
     return final!;
+  }
+
+  /** Runs a failed action again, as it is (Dave pressed Try again). */
+  async retry(id: string): Promise<Proposal> {
+    return this.execute(id, ["failed"]);
+  }
+
+  private async reportFailure(proposal: Proposal): Promise<void> {
+    const error = (proposal.result as { error?: unknown } | null)?.error;
+    await this.ctx.notifier.notify({
+      title: `Didn't go through: ${proposal.summary.slice(0, 100)}`,
+      body: `${typeof error === "string" && error ? error.slice(0, 400) : "It failed without a message."}\nOpen it to try again.`,
+      url: proposal.taskId ? `/task/${proposal.taskId}` : `/approvals/${proposal.id}`,
+      category: "alert",
+      // Worth knowing now, not worth waking him: alerts default to urgent, which breaks quiet hours.
+      priority: "high",
+      vertical: proposal.vertical,
+      tag: `action-${proposal.id.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24)}`,
+      replaces: true,
+      data: { failedProposalId: proposal.id, ...(proposal.taskId ? { taskId: proposal.taskId } : {}) },
+    });
   }
 
   /** Called once a proposal is decided (notifications: marks its approval request read). */
