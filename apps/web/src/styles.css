@@ -3263,6 +3263,53 @@ a.stat:hover {
   font-size: var(--fs-xs);
   background: var(--surface-2);
 }
+/* On a phone a wide settings table becomes one block per row: the name, then its controls
+   labelled and wrapped, so nothing is cut off or scrolled sideways (.matrix.stack). */
+.shell.is-phone .matrix.stack thead {
+  display: none;
+}
+.shell.is-phone .matrix.stack,
+.shell.is-phone .matrix.stack tbody {
+  display: block;
+}
+.shell.is-phone .matrix.stack tr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.shell.is-phone .matrix.stack tr:last-child {
+  border-bottom: 0;
+}
+.shell.is-phone .matrix.stack th[scope="row"] {
+  flex: 1 0 100%;
+  padding: 0;
+  border: 0;
+  font-size: var(--fs-base);
+}
+.shell.is-phone .matrix.stack td {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+}
+.shell.is-phone .matrix.stack td::before {
+  content: attr(data-label);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.shell.is-phone .matrix.stack td[data-label="Test"]::before {
+  content: none;
+}
+.shell.is-phone .matrix.stack select {
+  width: auto;
+  min-height: 36px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
 .confirm {
   border-color: var(--warn);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent);

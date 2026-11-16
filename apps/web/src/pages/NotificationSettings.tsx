@@ -121,7 +121,7 @@ export function NotificationSettings({ api }: { api: Api }) {
       <div className="card" data-help-pane="notification-settings.categories">
         <h3>Categories</h3>
         <div className="table-wrap">
-          <table className="matrix">
+          <table className="matrix stack">
             <thead>
               <tr>
                 <th scope="col">Category</th>
@@ -138,10 +138,10 @@ export function NotificationSettings({ api }: { api: Api }) {
                 return (
                   <tr key={c}>
                     <th scope="row">{CATEGORY_LABELS[c]}</th>
-                    <td>
+                    <td data-label="On">
                       <input type="checkbox" aria-label={`${CATEGORY_LABELS[c]} on`} checked={s.enabled} onChange={(e) => setCategory(c, { enabled: e.target.checked })} />
                     </td>
-                    <td>
+                    <td data-label="Delivery">
                       <select aria-label={`${CATEGORY_LABELS[c]} delivery`} value={s.delivery} disabled={!s.enabled} onChange={(e) => setCategory(c, { delivery: e.target.value as never })}>
                         {DELIVERY.filter(([d]) => !(c === "digest" && d === "digest")).map(([d, label]) => (
                           <option key={d} value={d}>
@@ -150,10 +150,10 @@ export function NotificationSettings({ api }: { api: Api }) {
                         ))}
                       </select>
                     </td>
-                    <td>
+                    <td data-label="Sound">
                       <input type="checkbox" aria-label={`${CATEGORY_LABELS[c]} sound`} checked={s.sound} disabled={!s.enabled} onChange={(e) => setCategory(c, { sound: e.target.checked })} />
                     </td>
-                    <td>
+                    <td data-label="Priority">
                       <select aria-label={`${CATEGORY_LABELS[c]} priority`} value={s.priority} onChange={(e) => setCategory(c, { priority: e.target.value as NotificationPriority })}>
                         {NOTIFICATION_PRIORITIES.map((p) => (
                           <option key={p} value={p}>
@@ -162,7 +162,7 @@ export function NotificationSettings({ api }: { api: Api }) {
                         ))}
                       </select>
                     </td>
-                    <td>
+                    <td data-label="Test">
                       <button onClick={() => test({ category: c })}>Test</button>
                     </td>
                   </tr>

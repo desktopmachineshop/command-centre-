@@ -169,6 +169,8 @@ const AGENT_ENV = new Set([
   "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TZ", "TMPDIR", "TERM", "SHELL",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
   "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
+  // Claude Code's own switch for loading tool definitions on demand (docs/SETUP.md, "Faster answers").
+  "ENABLE_TOOL_SEARCH",
 ]);
 const SECRET_NAME = /TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL/i;
 

@@ -1149,6 +1149,16 @@ Odoo. (`bypassesBudget` in `apps/server/src/budget.ts`.)
 Spend is counted from finished runs, so runs already in flight when a cap is reached can go over
 it by their own cost. `/api/stats` shows today's cost per vertical and the configured budgets.
 
+**Faster answers.** With many tools connected, Claude Code loads tool definitions on demand: each
+run starts by looking up the tools it needs, which is an extra round trip (and now and then a
+first call with the wrong arguments). Setting `ENABLE_TOOL_SEARCH=false` on the server gives every
+run all its tools' definitions up front instead. Measured on two simple requests (a stock question
+and a reminder, Sonnet, a pretend Odoo): 8 seconds each with it off, against 12 to 32 seconds with
+it on. The price is a larger prompt: the first run after a quiet spell cost about $0.41 against
+$0.15, and later runs about the same as before once the prompt is cached. That counts against the
+daily budgets, so raise them if you turn this on. It is off (Claude Code's default behaviour)
+unless you set it.
+
 **Concurrency.** `AGENT_CONCURRENCY` (default 2) is the total number of runs at once.
 `AGENT_MAX_CONCURRENT_PER_VERTICAL` (default 1) caps each vertical, so one noisy vertical can't
 take every slot. A task whose vertical is full goes back on the queue for
