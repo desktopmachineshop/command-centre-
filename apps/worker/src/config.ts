@@ -23,6 +23,8 @@ const FileConfig = z.looseObject({
   claudeBin: z.string().optional(),
   /** Chromium or Chrome for video.capture (turns on the `browser` capability when it exists). */
   chromiumBin: z.string().optional(),
+  /** Whether the Reddit browser shows its window while it works: "hidden" (default) or "visible". Signing in always shows it. */
+  redditWindow: z.enum(["hidden", "visible"]).optional(),
   /** Signed-in browser profiles for capture, by name: paths to Playwright storage-state JSON files. */
   captureProfiles: z.record(z.string(), z.string()).optional(),
   /** Directories `claude.local` jobs may run in (besides the work dir). */
@@ -51,6 +53,8 @@ export interface WorkerConfig {
   pythonBin: string;
   davinciPresets: string[];
   chromiumBin: string | null;
+  /** Whether the Reddit browser shows its window while it works (handlers/reddit.ts). */
+  redditWindow: "hidden" | "visible";
   captureProfiles: Record<string, string>;
   /** Print machine-readable `CC_STATUS {...}` lines for the desktop app. */
   statusJson: boolean;
@@ -136,6 +140,7 @@ export function loadConfig(argv: string[] = process.argv.slice(2), env: NodeJS.P
     pythonBin: env.CC_PYTHON_BIN ?? file.pythonBin ?? defaultPython(),
     davinciPresets: file.davinciPresets ?? DEFAULT_DAVINCI_PRESETS,
     chromiumBin: env.CC_CHROMIUM_BIN ?? file.chromiumBin ?? null,
+    redditWindow: env.CC_REDDIT_WINDOW === "visible" || (env.CC_REDDIT_WINDOW !== "hidden" && file.redditWindow === "visible") ? "visible" : "hidden",
     captureProfiles: Object.fromEntries(Object.entries(file.captureProfiles ?? {}).map(([name, path]) => [name, resolve(path)])),
     statusJson: flags["status-json"] ?? false,
     appVersion: env.CC_APP_VERSION?.trim().slice(0, 32) || null,

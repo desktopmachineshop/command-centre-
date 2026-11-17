@@ -80,6 +80,7 @@ export async function createWorker(
       return redditChromium;
     },
     profileDir: redditProfileDir(config),
+    window: config.redditWindow,
     log,
   });
   /** What this computer can do now; run again after a setup.install job installed something. */

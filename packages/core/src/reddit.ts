@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /**
- * `social.reddit.browser`: the last hop of a Reddit post, reply or message done from a real Chrome
- * on Dave's PC (the desktop worker, capability `browser`) instead of from the server. Shared by
+ * `social.reddit.browser`: a Reddit post, reply or message, and the agents' reads and searches, done
+ * from a real Chrome on Dave's PC (the desktop worker, capability `browser`) instead of from the server. Shared by
  * the server's Reddit adapter (which builds the payload and reads the result the way session mode
  * reads old.reddit.com's answers) and the worker (apps/worker/src/handlers/reddit.ts), which
  * validates the payload again and only ever calls the fixed old.reddit.com paths below.
@@ -23,6 +23,14 @@ export const REDDIT_BROWSER_PATHS = {
   sent: "/message/sent.json",
   info: "/api/info.json",
 } as const;
+/**
+ * What `op: "read"` may fetch (as `<path>.json`, GET only): the listings, threads, searches,
+ * subreddit rules and user histories the read tools use (packages/research/src/reddit/read.ts), and
+ * nothing else. The worker checks the path against this itself, so a job can't read settings,
+ * private messages or anything else of the signed-in account through it.
+ */
+export const REDDIT_BROWSER_READ_PATH =
+  /^(?:\/search|\/comments\/[a-z0-9]{1,12}|\/r\/[A-Za-z0-9_]{1,30}\/(?:hot|new|top|rising|controversial|search|about|about\/rules)|\/user\/[A-Za-z0-9_-]{1,40}\/(?:about|overview|submitted|comments))$/;
 export type RedditBrowserAction = "comment" | "submit" | "compose";
 export type RedditBrowserRead = "inbox" | "sent" | "info";
 
@@ -39,6 +47,8 @@ export const RedditBrowserPayload = z.discriminatedUnion("op", [
   z.object({ op: z.literal("login"), timeoutSec: z.number().int().min(10).max(900).default(300) }),
   z.object({ op: z.enum(["comment", "submit", "compose"]), form: Form, username: Username }),
   z.object({ op: z.enum(["inbox", "sent", "info"]), query: Query, username: Username }),
+  /** A read or a search for the agents' Reddit tools: one GET of an allowed listing's JSON. */
+  z.object({ op: z.literal("read"), path: z.string().regex(REDDIT_BROWSER_READ_PATH, "a Reddit listing the read tools use"), query: Query, username: Username }),
 ]);
 export type RedditBrowserPayload = z.infer<typeof RedditBrowserPayload>;
 export type RedditBrowserPayloadInput = z.input<typeof RedditBrowserPayload>;

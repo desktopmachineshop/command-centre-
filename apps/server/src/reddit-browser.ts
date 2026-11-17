@@ -1,4 +1,5 @@
-import type { WorkerNode } from "@cc/core";
+import { REDDIT_BROWSER_JOB, RedditBrowserResult, type WorkerNode } from "@cc/core";
+import { RedditPcUnavailable, RedditReadError } from "@cc/research";
 import { type BrowserJobOptions, type BrowserJobs, PcOfflineError } from "@cc/social";
 import type { WorkerService } from "./workers";
 
@@ -62,4 +63,38 @@ export class WorkerBrowserJobs implements BrowserJobs {
       }
     }
   }
+}
+
+/** How long one read may take on the PC before the server reads another way. */
+const READ_TIMEOUT_MS = 45_000;
+
+/**
+ * The agents' Reddit reads and searches through Dave's signed-in browser on his PC
+ * (RedditReader's `browser` option): one `op: "read"` job per listing. Reddit's own answers (not
+ * found, private, rate limited) are thrown as RedditReadError, as the reader throws them from
+ * the server. Anything that means "this PC can't right now" (off, busy, signed out, blocked,
+ * the browser wouldn't start) is RedditPcUnavailable, and the reader carries on from the server.
+ */
+export function redditPcRead(jobs: BrowserJobs, account: { node?: string; username?: string }) {
+  return async (path: string, query: Record<string, string>): Promise<unknown> => {
+    let raw: unknown;
+    try {
+      raw = await jobs.run(REDDIT_BROWSER_JOB, { op: "read", path, query, ...(account.username ? { username: account.username } : {}) }, { node: account.node, timeoutMs: READ_TIMEOUT_MS, once: false });
+    } catch (err) {
+      throw new RedditPcUnavailable((err as Error).message);
+    }
+    const parsed = RedditBrowserResult.safeParse(raw);
+    if (!parsed.success) throw new RedditPcUnavailable("The PC sent back a Reddit result Command Centre couldn't read");
+    const r = parsed.data;
+    if (!r.ok) {
+      if (r.code === "RATELIMIT") throw new RedditReadError(`Reddit is rate limiting the PC's session${r.retryAfterSec ? `; it asks for about ${Math.ceil(r.retryAfterSec)}s` : ""}. Carry on with what you have and try again later.`, 429);
+      throw new RedditPcUnavailable(r.message);
+    }
+    const reason = (r.data as { reason?: unknown } | null)?.reason;
+    if (r.status === 404) throw new RedditReadError(reason === "banned" ? "That subreddit is banned" : "Reddit has nothing there (check the subreddit, user or thread id)", 404);
+    if (r.status === 403 && typeof reason === "string") throw new RedditReadError(`Reddit won't show that: the subreddit is ${reason === "gold_only" ? "for Reddit Premium members only" : reason}`, 403);
+    if (r.status === 429) throw new RedditReadError("Reddit is rate limiting the PC's session (HTTP 429). Carry on with what you have and try again later.", 429);
+    if (r.status < 200 || r.status >= 300 || r.data === undefined || r.data === null) throw new RedditPcUnavailable(`Reddit answered the PC with HTTP ${r.status}`);
+    return r.data;
+  };
 }

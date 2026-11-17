@@ -4,6 +4,7 @@ import {
   readRedirect,
   REDDIT_BROWSER_JOB,
   REDDIT_BROWSER_PATHS,
+  REDDIT_BROWSER_READ_PATH,
   RedditBrowserPayload,
   type RedditBrowserResult,
   type OldRedditMe,
@@ -14,33 +15,40 @@ import { findPlaywrightDir, loadPlaywrightFrom } from "../browser";
 import { defineHandler } from "./registry";
 
 /**
- * `social.reddit.browser`: posts, replies and messages to Reddit from this PC's Chrome (or Edge),
- * for when Reddit refuses Dave's session from the server (docs/plans/reddit-browser-worker.md).
+ * `social.reddit.browser`: posts, replies and messages to Reddit, and the agents' reads and
+ * searches, from this PC's Chrome (or Edge), for when Reddit refuses Dave's session from the
+ * server (docs/plans/reddit-browser-worker.md).
  *
  * - The browser is the one installed on the PC, driven by playwright-core (the same discovery as
- *   screen capture, ../browser.ts), in a **visible** window with a **profile of its own**
+ *   screen capture, ../browser.ts), with a **profile of its own**
  *   (`<worker data dir>/reddit-profile`): never Dave's everyday profile, so nothing else he is
  *   signed in to is touched, and Chrome doesn't complain about a profile in use.
+ * - It works **out of sight** by default (Chrome's own headless mode), because Dave doesn't want
+ *   to watch it; `window: "visible"` (worker.json `redditWindow`) puts the window on screen for
+ *   every job instead. Signing in always opens a visible window.
  * - Dave signs in to Reddit in that window himself (`op: "login"`, from the Devices page or
  *   `cc-worker reddit-login`). The worker never sees or stores his password; the profile keeps
  *   Reddit's cookies like any browser would.
  * - Each action is one request from inside that browser session (`context.request`: its cookies,
  *   this PC's address) to old.reddit.com's own form endpoint, with the modhash from
  *   /api/me.json, exactly as session mode sends it from the server. Only the fixed paths in
- *   @cc/core REDDIT_BROWSER_PATHS can be called. Reddit's JSON goes back to the server, which
- *   reads it as session mode does.
+ *   @cc/core REDDIT_BROWSER_PATHS can be called, and `op: "read"` only GETs the listings in
+ *   REDDIT_BROWSER_READ_PATH. Reddit's JSON goes back to the server, which reads it as session
+ *   mode does.
  * - Nothing here hides that it is automated: no stealth plugins, no patched navigator.webdriver,
- *   no User-Agent of its own (Chrome's own is sent), no proxies, no captcha solving. When Reddit
- *   blocks or challenges, the job fails with what Reddit said; Dave can deal with it in the window.
- * - One job at a time, in one window. The window stays open between jobs (so a reply doesn't
- *   flash a new window up each time) and closes after `idleCloseMs` without a job; if Dave closes
- *   it, the next job opens it again.
+ *   no User-Agent of its own (Chrome sends its own, hidden or not), no proxies, no captcha
+ *   solving. When Reddit blocks or challenges, the job fails with what Reddit said; Dave can open
+ *   the window (Sign in to Reddit) and deal with it.
+ * - One job at a time, in one browser. It stays running between jobs and closes after
+ *   `idleCloseMs` without one.
  */
 
 type Playwright = typeof import("playwright-core");
 
 export const REDDIT_OLD_URL = "https://old.reddit.com";
 const IDLE_CLOSE_MS = 15 * 60_000;
+/** How long a run of reads trusts the last "signed in as" answer. */
+const ME_KEEP_MS = 2 * 60_000;
 const LOGIN_POLL_MS = 2_000;
 
 export interface RedditBrowserOptions {
@@ -50,7 +58,13 @@ export interface RedditBrowserOptions {
   profileDir: string;
   /** Test only: a local fake of old.reddit.com. */
   baseUrl?: string;
-  /** Test only (CI has no display). On Dave's PC the window is always visible. */
+  /**
+   * Whether the browser shows a window while it works. "hidden" (the default): it runs out of
+   * sight, so Dave doesn't watch it happen; "visible": the window is on screen for every job.
+   * Signing in always opens a visible window, whichever this is, because Dave types into it.
+   */
+  window?: "hidden" | "visible";
+  /** Test only (CI has no display): never a visible window, not even for signing in. */
   headless?: boolean;
   idleCloseMs?: number;
   loginPollMs?: number;
@@ -77,6 +91,10 @@ function pageSummary(text: string): string {
 
 export class RedditBrowser {
   private context: BrowserContext | null = null;
+  /** Whether the open browser has a window on screen. */
+  private visible = false;
+  /** Who the session is, kept briefly so a run of reads doesn't ask Reddit each time. */
+  private known: { at: number; user: OldRedditMe } | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private idle: NodeJS.Timeout | undefined;
   private readonly base: string;
@@ -92,10 +110,15 @@ export class RedditBrowser {
     return run;
   }
 
-  /** The profile's window, opened if it isn't. */
-  private async open(): Promise<BrowserContext> {
+  /**
+   * The profile's browser, started if it isn't running, with or without a window as asked. One
+   * profile can't be open twice, so going between the two closes it and starts it again.
+   */
+  private async open(wantVisible: boolean): Promise<BrowserContext> {
     clearTimeout(this.idle);
-    if (this.context) return this.context;
+    const visible = this.options.headless ? false : wantVisible;
+    if (this.context && this.visible === visible) return this.context;
+    if (this.context) await this.close();
     if (!this.options.chromiumBin) throw new BrowserProblem("No Chrome or Edge was found on this PC, so it can't post to Reddit (install Chrome, or set chromiumBin in worker.json)");
     let pw: Playwright;
     try {
@@ -104,12 +127,14 @@ export class RedditBrowser {
       throw new BrowserProblem(`playwright-core couldn't be loaded on this PC: ${(err as Error).message}`);
     }
     try {
-      const context = await pw.chromium.launchPersistentContext(this.options.profileDir, { executablePath: this.options.chromiumBin, headless: this.options.headless ?? false });
+      const context = await pw.chromium.launchPersistentContext(this.options.profileDir, { executablePath: this.options.chromiumBin, headless: !visible });
       context.on("close", () => {
         if (this.context === context) this.context = null;
       });
       this.context = context;
-      this.options.log?.(`[reddit] opened the Reddit window (profile ${this.options.profileDir})`);
+      this.visible = visible;
+      this.known = null;
+      this.options.log?.(`[reddit] ${visible ? "opened the Reddit window" : "started the Reddit browser out of sight"} (profile ${this.options.profileDir})`);
       return context;
     } catch (err) {
       const msg = (err as Error).message.split("\n")[0] ?? "";
@@ -135,8 +160,9 @@ export class RedditBrowser {
   run(raw: unknown, signal?: AbortSignal): Promise<RedditBrowserResult> {
     const payload = RedditBrowserPayload.parse(raw);
     return this.serial(async () => {
+      const login = payload.op === "login";
       try {
-        const context = await this.open();
+        const context = await this.open(login || this.options.window === "visible");
         return await this.op(context, payload, signal);
       } catch (err) {
         if (err instanceof BrowserProblem) return fail("BROWSER", err.message);
@@ -147,20 +173,37 @@ export class RedditBrowser {
         }
         throw err;
       } finally {
-        this.rest();
+        // The sign-in window has done its job: close it, so the next job runs out of sight again.
+        if (login && this.options.window !== "visible" && !this.options.headless) await this.close();
+        else this.rest();
       }
     });
   }
 
   private async op(context: BrowserContext, payload: RedditBrowserPayload, signal?: AbortSignal): Promise<RedditBrowserResult> {
     if (payload.op === "login") return this.login(context, payload.timeoutSec * 1000, signal);
-    const me = await this.me(context);
-    if (!me.ok) return me;
+    // A read needs to know the session is signed in, not a fresh modhash: who it is is kept a short while.
+    const fresh = payload.op === "read" && this.known && Date.now() - this.known.at < ME_KEEP_MS ? this.known.user : null;
+    const me = fresh ? { ok: true as const, user: fresh } : await this.me(context);
+    if (!me.ok) {
+      this.known = null;
+      return me;
+    }
+    this.known = fresh ? this.known : { at: Date.now(), user: me.user };
     const user = publicUser(me.user);
     if (payload.username && me.user.name.toLowerCase() !== payload.username.toLowerCase()) {
       return { ...fail("WRONG_USER", `The PC's Reddit window is signed in as u/${me.user.name}, not u/${payload.username}. Sign in as u/${payload.username} there (Devices page, Sign in to Reddit), or change the account's handle.`), user };
     }
     if (payload.op === "whoami") return { ok: true, user, status: 200 };
+    if (payload.op === "read") {
+      // The schema already holds the path to the read tools' listings; checked again here, where it is used.
+      if (!REDDIT_BROWSER_READ_PATH.test(payload.path)) return { ...fail("BLOCKED", `Reading ${payload.path} isn't something this PC does for Command Centre`), user };
+      const res = await context.request.get(`${this.base}${payload.path}.json`, { params: { ...payload.query, raw_json: "1" }, maxRedirects: 0, failOnStatusCode: false, headers: { Accept: "application/json" } });
+      const answer = await this.answer(res, payload.path, user, false);
+      // Signed out since we last asked: forget who we thought it was.
+      if (!answer.ok && answer.code === "USER_REQUIRED") this.known = null;
+      return answer;
+    }
     if (!("form" in payload)) {
       const res = await context.request.get(`${this.base}${REDDIT_BROWSER_PATHS[payload.op]}`, { params: payload.query, maxRedirects: 0, failOnStatusCode: false, headers: { Accept: "application/json" } });
       return this.answer(res, REDDIT_BROWSER_PATHS[payload.op], user, false);
@@ -214,7 +257,7 @@ export class RedditBrowser {
       data = JSON.parse(text);
     } catch {
       const what = posting ? "check the account on Reddit before sending it again" : "nothing was read";
-      return { ...fail("BLOCKED", `Reddit answered ${path} with ${pageSummary(text)} instead of data (it may be asking for a captcha or blocking this PC; look at the Reddit window); ${what}`, { status: res.status() }), user };
+      return { ...fail("BLOCKED", `Reddit answered ${path} with ${pageSummary(text)} instead of data (it may be asking for a captcha or blocking this PC; press Sign in to Reddit on the Devices page to open the Reddit window and look); ${what}`, { status: res.status() }), user };
     }
     return { ok: true, user, status: res.status(), data };
   }

@@ -165,3 +165,30 @@ dropped PC not rerun, signed-out alert, Devices sign-in).
 machine has no display), a real Reddit sign-in, and open question 1: whether Reddit serves
 `old.reddit.com/api/*` to a Playwright-driven Chrome. The manual checklist above (sign in,
 **Test**, one reply in r/test, one expired-session run) is still to do on Dave's PC.
+
+## Changed 2026-11-17: out of sight, and reads too
+
+Dave asked for two things after using it: not to have to watch it, and for the agents' reading
+and searching to go through the PC as well as posting.
+
+- **No window by default.** The worker launches the same installed Chrome on the same profile
+  with `headless: true`; `redditWindow: "visible"` in `worker.json` (or `CC_REDDIT_WINDOW`)
+  brings the window back. A `login` job always opens a visible window, and when the worker is
+  set to hidden it closes that window afterwards so the next job starts out of sight. This
+  overrides "visibly open on Dave's PC" above: that line was for Dave's benefit, and it is his
+  to drop. **The "no stealth" line is unchanged**: nothing was added to make the windowless
+  browser look like anything else (no patched `navigator.webdriver`, no User-Agent change, no
+  plugins). If Reddit refuses it, the job fails with what Reddit said, and the visible setting
+  is the way back.
+- **`read` op.** `{ op: "read", path, query, username }`, where `path` must match
+  `REDDIT_BROWSER_READ_PATH` (the listings the read tools already use); checked by the schema
+  and again by the worker, which fetches `<old.reddit.com><path>.json` with the session's
+  cookies. Still no URL from the server. "Who am I" is cached for two minutes so a sweep's reads
+  don't each cost a second request.
+- **Reader.** `RedditReader` takes a `browser` transport and tries it first; the server passes
+  one (`redditPcRead`) when a browser-mode account exists. Reddit's own answers (not found,
+  private, rate limited) come back as `RedditReadError`; anything that means the PC can't
+  (offline, busy, signed out, blocked) is `RedditPcUnavailable`, and the reader carries on with
+  the API, public pages or feeds as before. Reads never wait for the PC.
+- **Not verified against the real Reddit**: tested with the same local stand-in as before.
+

@@ -83,6 +83,10 @@ function fakeOldReddit() {
       if (!authed) return json({ error: 403 }, 403);
       return json({ kind: "Listing", data: { children: [{ kind: "t1", data: { name: "t1_m1", body: "hello", limit: url.searchParams.get("limit") } }] } });
     }
+    // The read tools' listings: a subreddit's posts, a search, a thread.
+    if (url.pathname === "/r/hobbycnc/new.json") return json({ kind: "Listing", data: { children: [{ kind: "t3", data: { name: "t3_p1", title: "First cuts", limit: url.searchParams.get("limit"), raw: url.searchParams.get("raw_json") } }] } });
+    if (url.pathname === "/search.json") return json({ kind: "Listing", data: { children: [{ kind: "t3", data: { name: "t3_s1", title: `about ${url.searchParams.get("q")}` } }] } });
+    if (url.pathname === "/r/private_club/about.json") return json({ reason: "private", message: "Forbidden", error: 403 }, 403);
     return json({ error: 404 }, 404);
   });
   return { server, state };
@@ -108,7 +112,7 @@ describe.skipIf(!CHROMIUM)("posting to Reddit from this PC's browser", () => {
   let base = "";
   let reddit: RedditBrowser;
   const profileDir = mkdtempSync(join(tmpdir(), "cc-reddit-profile-"));
-  // Headless only because the test machine has no display; on Dave's PC the window is visible.
+  // `headless` because the test machine has no display: here even signing in has no window.
   const make = (over: Partial<ConstructorParameters<typeof RedditBrowser>[0]> = {}) =>
     new RedditBrowser({ chromiumBin: CHROMIUM, profileDir, baseUrl: base, headless: true, loginPollMs: 50, load: () => import("playwright-core"), ...over });
 
@@ -158,6 +162,30 @@ describe.skipIf(!CHROMIUM)("posting to Reddit from this PC's browser", () => {
     expect(fake.state.requests.map((r) => `${r.method} ${r.path}`)).toEqual(["GET /api/me.json", "POST /api/submit", "GET /api/me.json", "POST /api/compose", "GET /api/me.json", "GET /message/inbox.json"]);
   });
 
+  it("reads and searches for the agents' tools, asking who it is once for a run of reads", async () => {
+    expect(await reddit.run({ op: "read", path: "/r/hobbycnc/new", query: { limit: "5" } })).toMatchObject({ ok: true, status: 200, user: { name: "dave_dms" }, data: { data: { children: [{ data: { name: "t3_p1", limit: "5", raw: "1" } }] } } });
+    expect(await reddit.run({ op: "read", path: "/search", query: { q: "spindle", sort: "new" } })).toMatchObject({ ok: true, data: { data: { children: [{ data: { title: "about spindle" } }] } } });
+    // What Reddit says about a place it won't show goes back as it is, for the server to read.
+    expect(await reddit.run({ op: "read", path: "/r/private_club/about", query: {} })).toMatchObject({ ok: true, status: 403, data: { reason: "private" } });
+    expect(await reddit.run({ op: "read", path: "/comments/zzzz9", query: {} })).toMatchObject({ ok: true, status: 404 });
+    // Who it is signed in as was asked moments ago (the job before): a run of reads doesn't ask again each time.
+    expect(fake.state.requests.map((r) => `${r.method} ${r.path}`)).toEqual(["GET /r/hobbycnc/new.json", "GET /search.json", "GET /r/private_club/about.json", "GET /comments/zzzz9.json"]);
+    // The browser's own User-Agent and cookies, as for posting.
+    expect(fake.state.requests[0]).toMatchObject({ cookie: expect.stringContaining("reddit_session="), agent: expect.stringMatching(/Chrome/) });
+    // A browser that has only just started does ask first.
+    await reddit.close();
+    fake.state.requests = [];
+    expect(await reddit.run({ op: "read", path: "/r/hobbycnc/new", query: {} })).toMatchObject({ ok: true });
+    expect(fake.state.requests.map((r) => r.path)).toEqual(["/api/me.json", "/r/hobbycnc/new.json"]);
+  });
+
+  it("reads only the listings the read tools use: no settings, messages or anything else", async () => {
+    for (const path of ["/prefs", "/message/inbox", "/api/v1/me/prefs", "/r/hobbycnc/about/moderators", "/user/dave_dms/saved", "/r/hobbycnc/new.json", "/r/hobbycnc/../../prefs", "https://evil.example/r/a/new"]) {
+      expect(() => reddit.run({ op: "read", path, query: {} }), path).toThrow(/a Reddit listing the read tools use/);
+    }
+    expect(fake.state.requests).toEqual([]);
+  });
+
   it("asks for a fresh modhash once when Reddit refuses the first, then sends", async () => {
     fake.state.staleModhashOnce = true;
     expect(await reddit.run({ op: "comment", form: { thing_id: "t3_abc12", text: "again" } })).toMatchObject({ ok: true, status: 200 });
@@ -203,7 +231,8 @@ describe.skipIf(!CHROMIUM)("posting to Reddit from this PC's browser", () => {
       expect(await quick.run({ op: "whoami" })).toMatchObject({ ok: false, code: "USER_REQUIRED" });
       await new Promise((r) => setTimeout(r, 300));
       expect(await quick.run({ op: "whoami" })).toMatchObject({ ok: false, code: "USER_REQUIRED" });
-      expect(opened.filter((l) => l.includes("opened the Reddit window"))).toHaveLength(2);
+      // (Out of sight here: the test machine has no display.)
+      expect(opened.filter((l) => l.includes("started the Reddit browser out of sight"))).toHaveLength(2);
     } finally {
       await quick.close();
     }
