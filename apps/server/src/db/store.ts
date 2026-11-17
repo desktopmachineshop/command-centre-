@@ -245,6 +245,24 @@ export class Store {
     return toTask(rows[0]);
   }
 
+  /** A run's heartbeat: marks its task as still being worked on (see `requeueStaleRunning`). */
+  async touchRunningTask(id: string): Promise<void> {
+    await this.pool.query("update tasks set updated_at = now() where id = $1 and status = 'running'", [id]);
+  }
+
+  /**
+   * Puts back on the queue every task that says "running" but whose run has not been heard from
+   * for `staleSeconds`: the process running it died (a crash, a kill). Returns them.
+   */
+  async requeueStaleRunning(staleSeconds: number, note: string): Promise<Task[]> {
+    const { rows } = await this.pool.query(
+      `update tasks set status = 'queued', note = $2, updated_at = now()
+       where status = 'running' and updated_at <= now() - make_interval(secs => $1) returning *`,
+      [staleSeconds, note],
+    );
+    return rows.map(toTask);
+  }
+
   /** `setTaskStatus`, only if the task is still in one of `from` (null: it has moved on). */
   /** How many tasks this task handed off that haven't finished yet (queued, running or held by the budget). */
   async openHandoffs(taskId: string): Promise<number> {

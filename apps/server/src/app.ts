@@ -879,9 +879,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   const serverLog = new ServerLog(pool);
   const runTokens = new RunTokens();
-  // A "running" task untouched this long is a crashed run. pg-boss redelivers a job only after that.
-  const staleRunSeconds = Math.ceil(config.agent.timeoutMs / 1000) + 300;
-  const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency, staleRunSeconds + 300);
+  // A "running" task whose run hasn't said it is alive for this long is a crashed run: it frees its
+  // slot and is started again (Pipeline.recoverStale). Runs beat every minute.
+  const staleRunSeconds = 180;
+  // pg-boss redelivers a job only once a run has certainly ended: past the agent timeout.
+  const queue = overrides.queue ?? new PgBossTaskQueue(config.databaseUrl, config.agent.concurrency, Math.ceil(config.agent.timeoutMs / 1000) + 600);
   const budget = new BudgetService(store, verticals, notifier, { dailyBudgetUsd: config.agent.dailyBudgetUsd, timezone: config.timezone });
   // The buying and late lists: what the Odoo stock and deliveries pollers last saw (their checkpoints).
   const odooSnapshot = async () => {
@@ -1187,6 +1189,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await queue.work((taskId) => pipeline.runTask(taskId));
       // Tasks committed just before a crash but never enqueued.
       await pipeline.enqueueQueued();
+      await pipeline.recoverStale();
       // Deferred tasks from a day the server slept through; any still over budget re-defer.
       await pipeline.releaseDeferred();
       // Rollover and digest run regardless of SCHEDULES_ENABLED, which only gates vertical schedules.
@@ -1199,6 +1202,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
         rollover,
         socialPublish: publishScheduledPosts, // a no-op until a social account is set up
         paReminders: deliverReminders,
+        recoverStale: () => pipeline.recoverStale(),
         issuesAudit: runIssuesAudit,
         integrationsRefresh: () => refreshExpiringTokens({ service: integrations, notifier, fetch: overrides.integrationsFetch }), // --- integrations oauth ---
         storageHousekeeping: async () => {
@@ -1235,6 +1239,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       shippingNotes.start();
     },
     async stop() {
+      // First, while there is still time: runs in progress go back on the queue, to start again at the next boot.
+      await pipeline.shutdown();
       await claudeSetup.cancel();
       await codexSetup.cancel();
       for (const c of crons) c.stop();

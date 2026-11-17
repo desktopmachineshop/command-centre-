@@ -22,6 +22,11 @@ import type { RunTokens } from "./run-tokens";
 import type { VoiceConversations } from "./voice/conversations";
 import { prepareScratch, prepareWorkspace, skillReadRules } from "./workspace";
 
+/** On a task put back on the queue because the server was restarting. */
+export const INTERRUPTED_NOTE = "Interrupted by a server restart; starting again.";
+/** On the run that restart cut short. */
+export const INTERRUPTED_ERROR = "Interrupted by a server restart. The task started again when the server was back.";
+
 export interface PipelineDeps {
   store: Store;
   hub: Hub;
@@ -85,8 +90,13 @@ export interface RunGuards {
   /** Running tasks allowed per vertical; extra ones wait `busyRetrySeconds` and try again. */
   maxConcurrentPerVertical: number;
   busyRetrySeconds: number;
-  /** A "running" task untouched this long is treated as crashed and stops holding its slot. */
+  /**
+   * A "running" task whose run hasn't been heard from for this long is treated as crashed: it
+   * stops holding its slot and `recoverStale` starts it again. Runs say they are alive every
+   * `heartbeatSeconds` (default a third of this).
+   */
   staleRunSeconds: number;
+  heartbeatSeconds?: number;
   /** Identical prompts in the same vertical within this window are linked, not re-run. 0 disables. */
   dedupeWindowMinutes: number;
 }
@@ -109,6 +119,8 @@ export class Pipeline {
   private readonly running = new Map<string, { abort: AbortController; ended: Promise<void> }>();
   /** Tasks Stop has ended while their run was still winding down. */
   private readonly stopping = new Set<string>();
+  /** Tasks whose run this process cut short because it is shutting down (`shutdown`): they go back on the queue. */
+  private readonly interrupted = new Set<string>();
 
   constructor(private readonly deps: PipelineDeps) {}
 
@@ -358,6 +370,9 @@ export class Pipeline {
       return;
     }
     const task = claim.task;
+    // While this run lives it says so, so a run that died (the process crashed) is known within minutes.
+    const heartbeat = setInterval(() => void store.touchRunningTask(taskId).catch(() => {}), (guards.heartbeatSeconds ?? Math.max(5, guards.staleRunSeconds / 3)) * 1000);
+    heartbeat.unref?.();
     const abort = new AbortController();
     let ended = () => {};
     this.running.set(taskId, { abort, ended: new Promise<void>((resolve) => (ended = resolve)) });
@@ -410,7 +425,7 @@ export class Pipeline {
       const images = files.length && this.deps.chatFileImages ? await this.deps.chatFileImages(files) : [];
       const fileRules = files.length && !workbench.trusted ? (this.deps.chatFileReadRules?.(files) ?? []) : [];
       // Stopped while it was being set up (or by another server process): don't start the agent.
-      if ((await store.getTask(taskId))?.status !== "running") {
+      if (!this.interrupted.has(taskId) && (await store.getTask(taskId))?.status !== "running") {
         this.stopping.add(taskId);
         abort.abort();
       }
@@ -454,6 +469,12 @@ export class Pipeline {
         : await runner.run(request, onMessage).finally(() => progress.stop());
       if (abort.signal.aborted) progress.stop();
       await chain;
+      if (this.interrupted.has(taskId)) {
+        // The server is restarting: the task is already back on the queue (`shutdown`) and runs again
+        // when it is up. Not a failure of the task, so nothing is said about it.
+        await store.finishRun(run.id, { ...result, status: "failed", error: INTERRUPTED_ERROR });
+        return;
+      }
       await store.finishRun(run.id, result);
       if (openBefore.length) await this.replaceRevised(taskId, openBefore, run.startedAt).catch((err) => console.error("[pipeline] replace revised", err));
       // --- voice: store and broadcast the structured spoken answer of voice-mode runs ---
@@ -494,6 +515,7 @@ export class Pipeline {
           .finishRun(runId, { status: "failed", result: null, error: message, costUsd: null, sessionId: null })
           .catch((e) => console.error("[pipeline]", e));
       }
+      if (this.interrupted.has(taskId)) return; // back on the queue already (`shutdown`)
       if (this.stopping.has(taskId)) {
         hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "failed", STOPPED_NOTE) });
         return;
@@ -505,10 +527,33 @@ export class Pipeline {
       await this.afterRun(task, failedEvent, { status: "failed", result: null, error: message, pending: [] });
     } finally {
       if (token) runTokens.revoke(token);
+      clearInterval(heartbeat);
       this.running.delete(taskId);
       this.stopping.delete(taskId);
+      this.interrupted.delete(taskId);
       ended();
     }
+  }
+
+  /**
+   * The server is shutting down (a deploy, a restart): every run in this process is cut short and
+   * its task put back on the queue, so it starts again as soon as the server is up
+   * (`enqueueQueued` at boot). Without this the task stayed "running" until the stale-run window
+   * passed (the agent timeout plus five minutes), and held its business's run slot all that
+   * time, so nothing else for that business ran either. Waits briefly for the runs to end.
+   */
+  async shutdown(waitMs = 5000): Promise<string[]> {
+    const { store } = this.deps;
+    const ids = [...this.running.keys()];
+    for (const id of ids) {
+      this.interrupted.add(id);
+      await store.setTaskStatusIf(id, ["running"], "queued", INTERRUPTED_NOTE).catch((err) => console.error("[pipeline] shutdown", err));
+      this.running.get(id)?.abort.abort();
+    }
+    const ended = Promise.all(ids.map((id) => this.running.get(id)?.ended));
+    await Promise.race([ended, new Promise((resolve) => setTimeout(resolve, waitMs).unref?.())]);
+    if (ids.length) console.log(`[pipeline] shutting down: ${ids.length} task(s) back on the queue to start again`);
+    return ids;
   }
 
   /**
@@ -726,6 +771,20 @@ export class Pipeline {
   async enqueueQueued(): Promise<Task[]> {
     const tasks = await this.deps.store.listQueuedTasks();
     for (const task of tasks) await this.deps.queue.enqueue(task.id);
+    return tasks;
+  }
+
+  /**
+   * Starts again every task whose run died without the server being told (a crash or a kill, where
+   * `shutdown` never ran): "running" but silent for the stale-run window. Runs at boot and every minute.
+   */
+  async recoverStale(): Promise<Task[]> {
+    const tasks = await this.deps.store.requeueStaleRunning(this.deps.guards.staleRunSeconds, INTERRUPTED_NOTE);
+    for (const task of tasks) {
+      console.warn(`[pipeline] task ${task.id} was running with no agent behind it; starting it again`);
+      this.deps.hub.broadcast({ type: "task.updated", task });
+      await this.deps.queue.enqueue(task.id);
+    }
     return tasks;
   }
 
