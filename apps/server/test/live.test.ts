@@ -30,7 +30,7 @@ describe.skipIf(!DB_URL)("a failed run", () => {
   const runner = new ScriptedRunner("echo", (req) =>
     /silent/.test(req.prompt)
       ? { result: { status: "failed", result: null, error: null, costUsd: 0, sessionId: null } }
-      : { result: { status: "failed", result: null, error: "Claude usage limit reached; resets at 03:00", costUsd: 0, sessionId: null } },
+      : { result: { status: "failed", result: null, error: "Timed out after 15 minutes", costUsd: 0, sessionId: null } },
   );
 
   beforeAll(async () => {
@@ -45,7 +45,7 @@ describe.skipIf(!DB_URL)("a failed run", () => {
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "what sold best this week?" } });
     await ctx.queue.drain();
     const task = (await ctx.api(`/api/tasks/${body.task.id}`)).body.task;
-    expect(task).toMatchObject({ status: "failed", note: "Run failed: Claude usage limit reached; resets at 03:00" });
+    expect(task).toMatchObject({ status: "failed", note: "Run failed: Timed out after 15 minutes" });
 
     const silent = await ctx.api("/api/chat", { method: "POST", json: { text: "a silent failure" } });
     await ctx.queue.drain();

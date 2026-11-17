@@ -975,10 +975,12 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     guards: {
       maxConcurrentPerVertical: config.agent.maxConcurrentPerVertical,
       busyRetrySeconds: config.agent.busyRetrySeconds,
+      limitRetrySeconds: config.agent.limitRetrySeconds,
       staleRunSeconds,
       dedupeWindowMinutes: config.agent.dedupeWindowMinutes,
     },
     mcpServers: () => ["brain", ...Object.keys(extraMcpServers())],
+    timezone: config.timezone,
     voice: voiceConversations,
     chatFilesReadRule: chatFiles.readRule(),
     chatFileImages: (files) => chatFiles.images(files),

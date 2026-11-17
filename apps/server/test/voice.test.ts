@@ -113,9 +113,12 @@ describe.skipIf(!DB_URL)("voice API (integration)", () => {
     await ctx.queue.drain();
     // The task keeps just what Dave said: the voice rules go to the agent, not into the app.
     expect((await ctx.api(`/api/tasks/${voiced.id}`)).body.task.prompt).toBe("dms: has order 1042 shipped?");
-    expect(runner.requests[0]!.prompt).toMatch(/^dms: has order 1042 shipped\?\n\nVOICE MODE/);
-    expect(runner.requests[0]!.prompt).toContain('"type":"final"');
-    expect(runner.requests[1]!.prompt).toBe("dms: has order 1043 shipped?");
+    // (Two things Dave asks of one business may run side by side, so not by order.)
+    const prompts = runner.requests.map((r) => r.prompt);
+    const spoken = prompts.find((p) => p.startsWith("dms: has order 1042"))!;
+    expect(spoken).toMatch(/^dms: has order 1042 shipped\?\n\nVOICE MODE/);
+    expect(spoken).toContain('"type":"final"');
+    expect(prompts).toContain("dms: has order 1043 shipped?");
   });
 
   it("stores and broadcasts the structured response, and a reply resumes the same session", async () => {

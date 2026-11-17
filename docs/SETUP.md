@@ -1170,6 +1170,14 @@ take every slot. A task whose vertical is full goes back on the queue for
 in the same business: a chat message, or your reply on a task, may take one slot more than the
 cap (the total at once is still `AGENT_CONCURRENCY`).
 
+**Usage limits.** When a run fails because every agent account is at its usage limit (or the
+service is overloaded), the task doesn't fail: it waits `AGENT_LIMIT_RETRY_SECONDS` (default half an
+hour) and tries again, up to eight times, and says so where you would look ("The agents' usage
+limit is reached, so this is waiting. Trying again at 03:30."). If you asked for it and the app
+isn't on screen, you are told once that it is waiting. Only after the last try does it fail. The
+agents share your Claude subscription's limit with anything else that uses it (Claude Code
+included); connecting ChatGPT or an API key on the Accounts page gives them somewhere to fall back to.
+
 **Restarts.** When the server is told to stop (every deploy does this), the runs in progress are
 cut short and their tasks go straight back on the queue; they start again when the server is back
 up, usually within a minute. A run also says it is alive every minute, so when the process dies

@@ -186,7 +186,8 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
         {pendingSent && <div className="bubble me prewrap">{pendingSent.text}</div>}
         {(pendingSent || (working && !thread.some((s) => s.run.status === "running") && !liveOnly.length)) && (
           <div className="bubble agent">
-            <p className="msg system muted small working-line">{task.status === "queued" || pendingSent ? "Waiting to start…" : "Working on it…"}</p>
+            {/* Why it is waiting, when there is a reason (a usage limit, a restart). */}
+            <p className="msg system muted small working-line">{task.status === "queued" && task.note ? task.note : task.status === "queued" || pendingSent ? "Waiting to start…" : "Working on it…"}</p>
           </div>
         )}
         {runs.length === 0 && !working && task.status !== "failed" && task.status !== "deferred" && (
