@@ -161,7 +161,9 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
               )}
               <div className="bubble agent">
                 <Transcript messages={running ? [...run.messages, ...(live[run.id] ?? [])] : run.messages} readAloud={readAloud} id={run.id} working={running} />
-                {run.error && !(last && isStopped(task)) && (
+                {run.error?.startsWith("Interrupted by a server restart") ? (
+                  <p className="small muted thread-note">The server restarted while this was running, so it started again.</p>
+                ) : run.error && !(last && isStopped(task)) && (
                   <ErrorReport
                     title="This didn't finish"
                     error={run.error}

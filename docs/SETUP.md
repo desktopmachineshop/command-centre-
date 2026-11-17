@@ -1166,9 +1166,14 @@ unless you set it.
 **Concurrency.** `AGENT_CONCURRENCY` (default 2) is the total number of runs at once.
 `AGENT_MAX_CONCURRENT_PER_VERTICAL` (default 1) caps each vertical, so one noisy vertical can't
 take every slot. A task whose vertical is full goes back on the queue for
-`AGENT_BUSY_RETRY_SECONDS` (default 20) while the other verticals keep running. A run stuck
-"running" for longer than `AGENT_TIMEOUT_MS` plus 5 minutes (a crashed process) stops holding
-its slot.
+`AGENT_BUSY_RETRY_SECONDS` (default 20) while the other verticals keep running.
+
+**Restarts.** When the server is told to stop (every deploy does this), the runs in progress are
+cut short and their tasks go straight back on the queue; they start again when the server is back
+up, usually within a minute. A run also says it is alive every minute, so when the process dies
+without warning (a crash), its task is noticed within three minutes, frees its slot and starts
+again. Before, either case left the task "running" for the agent timeout plus five minutes, and
+because each business runs one task at a time, nothing else for that business ran in that time.
 
 **Duplicates.** An event whose prompt exactly matches a task already queued, running or deferred
 in the same vertical, created within `AGENT_DEDUPE_WINDOW_MINUTES` (default 10, `0` = off), isn't

@@ -55,6 +55,8 @@ export function startSystemJobs(options: {
   socialPublish?: () => Promise<unknown>;
   /** Delivers due PA reminders as pushes, every minute. */
   paReminders?: () => Promise<unknown>;
+  /** Starts again tasks whose run died without a word (a crash), every minute. */
+  recoverStale?: () => Promise<unknown>;
   /** Renews expiring Accounts-page sign-ins (Instagram, Threads), daily. */
   integrationsRefresh?: () => Promise<unknown>;
   /** Deletes old renders on the volume and warns when it's nearly full, nightly. */
@@ -71,6 +73,7 @@ export function startSystemJobs(options: {
   if (options.lowStockCron && options.lowStock) jobs.push(job("low-stock", options.lowStockCron, options.lowStock));
   if (options.socialPublish) jobs.push(job("social-scheduled", "* * * * *", options.socialPublish));
   if (options.paReminders) jobs.push(job("pa-reminders", "* * * * *", options.paReminders));
+  if (options.recoverStale) jobs.push(job("recover-stale", "* * * * *", options.recoverStale));
   if (options.integrationsRefresh) jobs.push(job("integrations-refresh", "17 4 * * *", options.integrationsRefresh));
   if (options.storageHousekeeping) jobs.push(job("storage-housekeeping", "43 3 * * *", options.storageHousekeeping));
   if (options.issuesAudit) jobs.push(job("issues-audit", "23 2 * * *", options.issuesAudit));
