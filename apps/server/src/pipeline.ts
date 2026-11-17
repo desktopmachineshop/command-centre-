@@ -363,7 +363,10 @@ export class Pipeline {
     if (!queued || (queued.status !== "queued" && queued.status !== "running")) return;
 
     const vertical = verticals.require(queued.vertical);
-    const claim = await store.claimTaskRun(taskId, { max: guards.maxConcurrentPerVertical, staleSeconds: guards.staleRunSeconds });
+    // What Dave asks for himself doesn't wait behind other work in the same business: a chat (or his
+    // reply) may take one slot more than the business's cap. The total at once is still AGENT_CONCURRENCY.
+    const asked = bypassesBudget(await store.getEvent(queued.eventId).catch(() => null)) || !!(await this.deps.voice?.daveWaiting(taskId).catch(() => false));
+    const claim = await store.claimTaskRun(taskId, { max: guards.maxConcurrentPerVertical + (asked ? 1 : 0), staleSeconds: guards.staleRunSeconds });
     if (claim.state === "gone") return;
     if (claim.state === "busy") {
       await this.deps.queue.enqueue(taskId, { delaySeconds: guards.busyRetrySeconds });

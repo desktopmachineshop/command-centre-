@@ -1166,7 +1166,9 @@ unless you set it.
 **Concurrency.** `AGENT_CONCURRENCY` (default 2) is the total number of runs at once.
 `AGENT_MAX_CONCURRENT_PER_VERTICAL` (default 1) caps each vertical, so one noisy vertical can't
 take every slot. A task whose vertical is full goes back on the queue for
-`AGENT_BUSY_RETRY_SECONDS` (default 20) while the other verticals keep running.
+`AGENT_BUSY_RETRY_SECONDS` (default 20) while the other verticals keep running. What you ask for yourself doesn't wait behind other work
+in the same business: a chat message, or your reply on a task, may take one slot more than the
+cap (the total at once is still `AGENT_CONCURRENCY`).
 
 **Restarts.** When the server is told to stop (every deploy does this), the runs in progress are
 cut short and their tasks go straight back on the queue; they start again when the server is back
