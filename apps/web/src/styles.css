@@ -1183,7 +1183,6 @@ section > h3 {
   line-height: 1.6;
   color: var(--s);
   background: color-mix(in srgb, var(--s) 12%, var(--surface));
-  text-transform: capitalize;
   white-space: nowrap;
 }
 .status::before {
@@ -1918,6 +1917,10 @@ a.stat:hover {
 }
 .action-type {
   font-size: var(--fs-xs);
+  color: var(--text-2);
+  padding: 1px 8px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
 }
 
 /* Social previews */
@@ -3159,6 +3162,7 @@ a.stat:hover {
   opacity: 0.85;
 }
 /* Each notification is shown in full; only a very long one is folded. */
+.activity-day > h3,
 .notification-day > h3 {
   margin: var(--sp-4) 0 var(--sp-2);
   font-weight: 650;
@@ -3308,6 +3312,30 @@ a.stat:hover {
 }
 .inbox-group > .card {
   margin-bottom: var(--sp-3);
+}
+.inbox-approval {
+  margin-bottom: var(--sp-4);
+}
+.inbox-approval > .card + .card {
+  margin-top: var(--sp-3);
+}
+.inbox-why {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--sp-2) var(--sp-2);
+  color: inherit;
+  text-decoration: none;
+}
+.inbox-why-said {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .inbox-card .title {
   margin: 6px 0 2px;

@@ -42,9 +42,15 @@ function issueLine(i: Issue): string {
 export function createBrainMcpServer(brain: Brain, options: BrainMcpOptions = {}): McpServer {
   const server = new McpServer({ name: "brain", version: "0.1.0" });
   const caller = options.caller ?? "agent";
-  const checkAgent = (agent: string) => {
+  /**
+   * The role id for what an agent wrote. The assistant is told it is "Dave's assistant", so it
+   * writes "assistant": that is the root role, the first id listed. Anything else must be a role id.
+   */
+  const checkAgent = (agent: string): string => {
     const known = options.agents?.();
+    if (known?.length && /^(the )?assistant$/i.test(agent.trim()) && !known.includes(agent)) return known[0]!;
     if (agent !== NO_AGENT && known && !known.includes(agent)) throw new Error(`agent must be a role id (${known.join(", ")}) or "none", not "${agent}"`);
+    return agent;
   };
   const fail = (message: string) => ({ ...text(message), isError: true });
 
@@ -135,8 +141,8 @@ export function createBrainMcpServer(brain: Brain, options: BrainMcpOptions = {}
     },
     async (a) => {
       try {
-        checkAgent(a.agent);
-        const { issue, duplicate } = await reportIssue(brain, { ...a, vertical: a.vertical ?? options.vertical ?? null, reportedBy: caller });
+        const agent = checkAgent(a.agent);
+        const { issue, duplicate } = await reportIssue(brain, { ...a, agent, vertical: a.vertical ?? options.vertical ?? null, reportedBy: caller });
         return text(duplicate ? `Already logged; added a History line to it:\n${issueLine(issue)}` : `Logged:\n${issueLine(issue)}`);
       } catch (err) {
         return fail((err as Error).message);
@@ -179,8 +185,8 @@ export function createBrainMcpServer(brain: Brain, options: BrainMcpOptions = {}
     },
     async ({ path, ...change }) => {
       try {
-        if (change.agent) checkAgent(change.agent);
-        return text(`Updated:\n${issueLine(await updateIssue(brain, path, { ...change, by: caller }))}`);
+        const agent = change.agent ? checkAgent(change.agent) : undefined;
+        return text(`Updated:\n${issueLine(await updateIssue(brain, path, { ...change, ...(agent ? { agent } : {}), by: caller }))}`);
       } catch (err) {
         return fail((err as Error).message);
       }

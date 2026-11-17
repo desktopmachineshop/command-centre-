@@ -1,10 +1,10 @@
 import { type AgentMessage, cardRefs, isStopped, type Proposal, type Task } from "@cc/core";
 import { useEffect, useState } from "react";
 import type { Api, ChatFile, TaskDetail } from "../api";
-import { ago, askText, emailAsk, readableEmailBody, usd } from "../format";
+import { ago, askText, emailAsk, readableEmailBody, statusWords, usd } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLive, useLoad } from "../live";
-import { ErrorBanner, Skeleton, TaskTag } from "../ui";
+import { ErrorBanner, Skeleton, VTag } from "../ui";
 import { ProposalList } from "./Approvals";
 import { sourceLabel } from "./Activity";
 import { runOpener, Transcript } from "./Transcript";
@@ -14,11 +14,7 @@ import { AttachedFiles, chatFilesOf, Composer } from "../composer";
 import { ReadAloudControl, useReadAloud } from "../voice/readAloud";
 import { Markdown } from "../markdown";
 
-/** A task's state in the words Dave would use. */
-export function statusWords(task: Pick<Task, "status" | "note">): string {
-  if (isStopped(task)) return "Stopped";
-  return { queued: "Waiting to start", running: "Working on it", awaiting_approval: "Waiting for your approval", done: "Done", failed: "Didn't finish", dropped: "Not run", deferred: "Held by the daily budget" }[task.status];
-}
+export { statusWords } from "../format";
 
 /** The kinds of record card (odoo.order) an agent's messages already show. */
 export function cardKindsIn(messages: AgentMessage[]): string[] {
@@ -124,7 +120,7 @@ export function TaskView({ api, feed, id }: { api: Api; feed: LiveFeed; id: stri
           <Icon name="back" size={16} /> Back
         </a>
         <span className="row small thread-state">
-          <TaskTag task={task} />
+          <VTag id={task.vertical} />
           <span className={`status ${task.status}`}>{statusWords(task)}</span>
         </span>
       </div>

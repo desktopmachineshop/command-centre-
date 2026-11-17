@@ -6,6 +6,7 @@ import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
 import { go } from "../router";
 import { Empty, ErrorBanner, PageHead, Skeleton, VTag } from "../ui";
+import { sourceLabel } from "./Activity";
 import { ProposalCard } from "./Approvals";
 import { NotificationMediaView, notificationLinks } from "./Notifications";
 
@@ -59,13 +60,24 @@ export function waitingOf(input: { approvals: Proposal[]; failedTasks: Task[]; u
   return { approvals: input.approvals, failed, messages };
 }
 
+/** Approvals that came from the same task, together and in order, so what they answer is said once. */
+export function approvalGroups(approvals: Proposal[]): { taskId: string | null; proposals: Proposal[] }[] {
+  const groups: { taskId: string | null; proposals: Proposal[] }[] = [];
+  for (const p of approvals) {
+    const group = p.taskId ? groups.find((g) => g.taskId === p.taskId) : undefined;
+    if (group) group.proposals.push(p);
+    else groups.push({ taskId: p.taskId ?? null, proposals: [p] });
+  }
+  return groups;
+}
+
 export const waitingCount = (w: Waiting): number => w.approvals.length + w.failed.length + w.messages.length;
 
 /** The Inbox's contents, live. Also what the Inbox's badge counts (App.tsx). */
 export function useWaiting(api: Api, feed: LiveFeed) {
   const [dismissed, setDismissed] = useState(loadDismissed);
   const { data, error, reload } = useLoad(
-    () => Promise.all([api.proposals("pending"), api.tasks("failed", { feed: "1" }), api.notifications({ unread: true, limit: 100 })]),
+    () => Promise.all([api.proposals("pending"), api.tasks("failed", { feed: "1" }), api.notifications({ unread: true, limit: 100 }), api.tasks("awaiting_approval").catch(() => [] as Task[])]),
     feed,
     (m) => m.type === "task.updated" || m.type === "proposal.updated" || m.type === "notifications.updated",
   );
@@ -79,7 +91,9 @@ export function useWaiting(api: Api, feed: LiveFeed) {
       // private mode: dismissed for this visit only
     }
   };
-  return { waiting, error, reload, dismissTask };
+  /** The tasks the approvals came from, by id: why each is being asked. */
+  const origins = new Map((data?.[3] ?? []).map((t) => [t.id, t] as const));
+  return { waiting, origins, error, reload, dismissTask };
 }
 
 /**
@@ -89,7 +103,7 @@ export function useWaiting(api: Api, feed: LiveFeed) {
  * is summed up in the daily digest.
  */
 export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
-  const { waiting, error, reload, dismissTask } = useWaiting(api, feed);
+  const { waiting, origins, error, reload, dismissTask } = useWaiting(api, feed);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -128,9 +142,25 @@ export function Inbox({ api, feed }: { api: Api; feed: LiveFeed }) {
           <h3>
             To approve <span className="count">{waiting.approvals.length}</span>
           </h3>
-          {waiting.approvals.slice(0, MAX_APPROVALS).map((p) => (
-            <ProposalCard key={p.id} api={api} proposal={p} />
-          ))}
+          {approvalGroups(waiting.approvals.slice(0, MAX_APPROVALS)).map((group) => {
+            const origin = group.taskId ? origins.get(group.taskId) : undefined;
+            return (
+              <div key={group.proposals[0]!.id} className="inbox-approval">
+                {/* Why he is being asked: what it answers, and what the assistant said about it. */}
+                {origin && (
+                  <a className="inbox-why" href={`#/task/${origin.id}`}>
+                    <span className="small muted">
+                      {sourceLabel(origin.source)} · {askText(origin.prompt).split("\n")[0]}
+                    </span>
+                    {origin.outcome && <span className="inbox-why-said">{origin.outcome}</span>}
+                  </a>
+                )}
+                {group.proposals.map((p) => (
+                  <ProposalCard key={p.id} api={api} proposal={p} />
+                ))}
+              </div>
+            );
+          })}
           {waiting.approvals.length > MAX_APPROVALS && (
             <p className="small">
               <a href="#/approvals">And {waiting.approvals.length - MAX_APPROVALS} more in Approvals</a>

@@ -376,13 +376,16 @@ export class Store {
   /** Tasks of a vertical whose status last changed within `[start, end)`. */
   async listTasksUpdatedBetween(vertical: string, statuses: TaskStatus[], start: Date, end: Date): Promise<Task[]> {
     const { rows } = await this.pool.query(
-      `select t.* from tasks t left join events e on e.id = t.event_id
+      `select t.*, e.source as event_source,
+         (select r.result from agent_runs r where r.task_id = t.id and r.result is not null order by r.started_at desc limit 1) as last_result
+       from tasks t left join events e on e.id = t.event_id
        where t.vertical = $1 and t.status = any($2::text[]) and t.updated_at >= $3 and t.updated_at < $4
          and not ${MAIL_FILTERING}
        order by t.updated_at`,
       [vertical, statuses, start, end],
     );
-    return rows.map(toTask);
+    // With where each came from and how it came out, for the daily digest.
+    return rows.map((row) => ({ ...toTask(row), source: row.event_source ?? null, outcome: answerPreview(row.last_result, 160) || null }));
   }
 
   async countTasks(vertical: string, status: TaskStatus): Promise<number> {

@@ -1,7 +1,7 @@
 import type { Proposal, StoredNotification, Task } from "@cc/core";
 import { describe, expect, it } from "vitest";
 import { sourceLabel } from "../src/pages/Activity";
-import { waitingCount, waitingOf } from "../src/pages/Inbox";
+import { approvalGroups, waitingCount, waitingOf } from "../src/pages/Inbox";
 
 const NOW = Date.parse("2026-11-16T22:00:00Z");
 const task = (id: string, over: Partial<Task> = {}): Task => ({
@@ -51,6 +51,11 @@ describe("what goes in the Inbox", () => {
     expect(w.failed.map((t) => t.id)).toEqual(["asked"]);
     expect(w.messages.map((n) => n.id)).toEqual(["answer", "reminder", "rfq", "alert"]);
     expect(waitingCount(w)).toBe(6);
+  });
+
+  it("keeps one task's approvals together", () => {
+    const p = (id: string, taskId: string | null) => ({ id, taskId }) as Proposal;
+    expect(approvalGroups([p("a", "t1"), p("b", "t2"), p("c", "t1"), p("d", null), p("e", null)]).map((g) => g.proposals.map((x) => x.id))).toEqual([["a", "c"], ["b"], ["d"], ["e"]]);
   });
 
   it("is empty when nothing needs him", () => {

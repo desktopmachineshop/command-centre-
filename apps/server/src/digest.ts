@@ -17,8 +17,9 @@ export interface Digest {
   costUsd: number;
   budgetUsd: number | null;
   counts: { done: number; failed: number; deferred: number; autoActions: number; pendingApprovals: number; jobs: number };
-  done: { id: string; title: string }[];
-  failed: { id: string; title: string }[];
+  /** `asked`: Dave asked for it (in Chat); the rest came in or ran by itself. `outcome`: the answer's first line. */
+  done: DigestTask[];
+  failed: DigestTask[];
   /** Proposals executed (or failed) under `auto-with-digest`: the report that policy promises. */
   autoActions: { id: string; actionType: string; summary: string; status: string }[];
   /** Pending approvals as of now, whatever the date. */
@@ -33,7 +34,22 @@ export interface Digest {
   markdown: string;
 }
 
-const titleOf = (t: Task) => ({ id: t.id, title: t.prompt.split("\n")[0]!.slice(0, 120) });
+export interface DigestTask {
+  id: string;
+  title: string;
+  asked: boolean;
+  outcome: string | null;
+}
+
+const titleOf = (t: Task): DigestTask => ({
+  id: t.id,
+  title: t.prompt.split("\n")[0]!.slice(0, 120),
+  asked: t.source === "chat",
+  // One line: what came of it, or (for a failure) why.
+  outcome: (t.status === "failed" ? (t.note ?? "").replace(/^Run failed:\s*/, "") : (t.outcome ?? "")).split("\n")[0]!.slice(0, 160) || null,
+});
+/** "Title: how it came out", or just the title when a filed event has nothing more to say. */
+const taskLine = (t: DigestTask) => (t.outcome && t.outcome !== t.title ? `${t.title}: ${t.outcome}` : t.title);
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
 /**
@@ -271,8 +287,10 @@ function render(d: Omit<Digest, "headline" | "markdown">): string {
   const section = (title: string, items: string[]) => {
     if (items.length) lines.push("", `## ${title}`, "", ...items.map((i) => `- ${i}`));
   };
-  section("Done", d.done.map((t) => t.title));
-  section("Failed", d.failed.map((t) => `${t.title} (task ${t.id})`));
+  // What needs a look first, then the work that ran without Dave, then what he asked for himself.
+  section("Failed", d.failed.map((t) => `${taskLine(t)} (task ${t.id})`));
+  section("Done without you", d.done.filter((t) => !t.asked).map(taskLine));
+  section("You asked", d.done.filter((t) => t.asked).map(taskLine));
   if (c.deferred) section("Deferred", [`${c.deferred} task(s) waiting for budget`]);
   section("Auto actions (auto-with-digest)", d.autoActions.map((a) => `${a.status}: ${a.actionType}: ${a.summary}`));
   section("Awaiting approval", d.pendingApprovals.map((p) => `${p.actionType}: ${p.summary}`));

@@ -156,7 +156,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Task page (Playwright)", () => {
 
     // The failed approval, under the answer that proposed it.
     const failed = page.locator(".inline-proposals .error-report");
-    expect(await failed.textContent()).toContain("email.reply failed: SMTP 535 authentication failed");
+    expect(await failed.textContent()).toContain("Email: reply failed: SMTP 535 authentication failed");
     await failed.getByRole("button", { name: /Copy error/ }).click();
     const copied2 = await page.evaluate(() => navigator.clipboard.readText());
     expect(copied2).toContain("Approval: p1");

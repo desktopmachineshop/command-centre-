@@ -583,8 +583,8 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
                         {stoppingId === t.task.id ? "Stopping…" : "Stop"}
                       </button>
                     )}
-                    <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open the task">
-                      {isStopped(t.task) ? "stopped" : t.task.status.replace("_", " ")}
+                    <a className={`status ${t.task.status}`} href={`#/task/${t.task.id}`} title="Open this conversation on its own page">
+                      {statusWords(t.task)}
                     </a>
                   </span>
                 </div>

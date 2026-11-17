@@ -18,6 +18,7 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { demoModels, FakeOdoo } from "@cc/odoo/testing";
+import { VerticalRegistry } from "@cc/verticals";
 import { createServer } from "../src/app";
 import { loadConfig } from "../src/config";
 
@@ -162,6 +163,14 @@ if (process.env.DEMO_SEED && !(await server.store.listTasks({ limit: 1 })).lengt
     payload: { accountId: "dms", from: { name: "Jane Doe", address: "jane@example.com" }, to: [{ name: "Desktop Machine Shop", address: "sales@example.com" }], subject: "Where is my spindle?", date: new Date().toISOString(), text: "Hi,\n\nI ordered a 300W spindle three weeks ago (S00042) and only the collets arrived. Where is it?\n\nJane", messageId: "<m1@example.com>" },
     dedupeKey: "email:dms:<m1@example.com>",
   });
+}
+
+// DEMO_RUN_SCHEDULE=morning-brief: fire one of the assistant's schedules now, as the scheduler would.
+if (process.env.DEMO_RUN_SCHEDULE) {
+  const root = new VerticalRegistry().root;
+  const schedule = (root.schedules ?? []).find((sch) => sch.id === process.env.DEMO_RUN_SCHEDULE);
+  if (!schedule) throw new Error(`No schedule ${process.env.DEMO_RUN_SCHEDULE} on the assistant`);
+  await server.pipeline.ingest({ source: "cron", vertical: "personal", kind: `schedule:${schedule.id}`, title: `Scheduled: ${schedule.id}`, payload: { prompt: schedule.prompt, scheduleId: schedule.id, role: root.id } });
 }
 
 const http = serve({ fetch: server.app.fetch, port: PORT, hostname: "127.0.0.1" }, () => {

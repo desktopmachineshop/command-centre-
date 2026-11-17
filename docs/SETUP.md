@@ -735,6 +735,10 @@ brain, or `BRAIN_DIR=~/brain pnpm --filter @cc/brain mcp` against a local folder
 > The variables below are the alternative.
 
 
+Each message becomes one task, whichever of your inboxes it reached: the same message in two
+accounts (two accounts set up on one mailbox, or a message sent to two of your addresses) is
+matched by its Message-ID and handled once.
+
 Inboxes feed the command centre over IMAP, and replies go out over SMTP, so any provider works:
 Gmail, Google Workspace, Microsoft 365 / Outlook.com, or Odoo's own mail server.
 
@@ -1177,7 +1181,10 @@ At `DIGEST_CRON` (default `30 18 * * *`, in `DAY_TIMEZONE`; set `off` to disable
 `SCHEDULES_ENABLED=false`, which only turns off vertical schedules) the server writes
 a digest for each vertical that had activity. It covers:
 
-- tasks done and failed;
+- tasks that failed, with why;
+- tasks done, in two lists, each with how it came out: **Done without you** (what came in or ran
+  on a schedule) and **You asked** (what you asked for in Chat). Mail that was only sorted is not
+  listed;
 - tasks deferred;
 - actions executed under the `auto-with-digest` policy (the report that policy promises);
 - approvals still pending;

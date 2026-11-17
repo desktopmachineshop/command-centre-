@@ -48,7 +48,10 @@ export function emailEvent(
       mailbox: account.mailbox,
       ...email,
     },
-    dedupeKey: `email:${account.id}:${email.messageId ?? fallbackId}`,
+    // One task per message, however many inboxes it reached: two accounts set up on the same
+    // mailbox (or a message sent to two of Dave's addresses) used to make one task each, with
+    // every reply, approval and notification doubled. Without a Message-ID it is per account.
+    dedupeKey: email.messageId ? `email:${email.messageId}` : `email:${account.id}:${fallbackId}`,
   };
 }
 

@@ -1,7 +1,7 @@
 import { type Proposal, proposalCardRefs } from "@cc/core";
 import { type FormEvent, useState } from "react";
 import type { Api } from "../api";
-import { ago } from "../format";
+import { actionLabel, ago } from "../format";
 import { Icon } from "../icons";
 import { type LiveFeed, useLoad } from "../live";
 import { go, routeQuery } from "../router";
@@ -97,7 +97,7 @@ function BatchCard({ api, items }: { api: Api; items: Proposal[] }) {
     <div className="card proposal batch is-pending" data-batch={batchId}>
       <div className="proposal-head small">
         <span className="row">
-          <VTag id={first.vertical} /> {kinds.map((k) => <code key={k} className="action-type">{k}</code>)}
+          <VTag id={first.vertical} /> {kinds.map((k) => <span key={k} className="action-type" title={k}>{actionLabel(k)}</span>)}
         </span>
         <span className="muted">batch of {items.length}</span>
       </div>
@@ -195,6 +195,9 @@ function ConfirmAction({ api, unit, action }: { api: Api; unit: Proposal[]; acti
   );
 }
 
+/** Payload fields that only name the record an action is about (see `proposalCardRefs` in @cc/core). */
+const RECORD_KEYS = ["id", "ids", "model", "product_id", "order_id", "partner_id"];
+
 export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; proposal: Proposal; /** Card kinds the answer above already shows (a thread doesn't draw the same record twice). */ shownKinds?: readonly string[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +224,7 @@ export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; pro
     <div className={`card proposal ${proposal.status === "pending" ? "is-pending" : ""}`}>
       <div className="proposal-head small">
         <span className="row">
-          <VTag id={proposal.vertical} /> <code className="action-type">{proposal.actionType}</code>
+          <VTag id={proposal.vertical} /> <span className="action-type" title={proposal.actionType}>{actionLabel(proposal.actionType)}</span>
         </span>
         <Status value={proposal.status} label={replacedBy(proposal) ? "replaced" : undefined} />
       </div>
@@ -232,7 +235,7 @@ export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; pro
       {social && <SocialProposalBody proposal={proposal} accounts={socialAccounts} />}
       {proposal.status === "failed" && (
         <ErrorReport
-          title={`${proposal.actionType} failed`}
+          title={`${actionLabel(proposal.actionType)} failed`}
           error={failureText(proposal.result)}
           facts={[
             ["Approval", proposal.id],
@@ -249,7 +252,8 @@ export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; pro
         // Open unless the card already shows the content (a social post, a video to watch).
         <details className="proposal-details" open={!social && !video}>
           <summary className="muted small">Details</summary>
-          <PayloadView payload={proposal.payload} />
+          {/* The record's card says which record it is: its id and model needn't be read as well. */}
+          <PayloadView payload={proposal.payload} skip={proposalCardRefs(proposal.actionType, proposal.payload).length ? RECORD_KEYS : []} />
         </details>
       )}
       {proposal.status === "executed" && proposal.result != null && <ProposalResult result={proposal.result} />}

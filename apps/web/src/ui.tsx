@@ -47,7 +47,9 @@ export function TaskTag({ task }: { task: { vertical: string; role?: string | nu
 
 /** A status pill. The class is `status <value>`, so CSS colours it by status. */
 export function Status({ value, label }: { value: string; label?: string }) {
-  return <span className={`status ${value}`}>{label ?? value.replace(/_/g, " ")}</span>;
+  // Sentence case: "Awaiting approval", "Waiting for your approval".
+  const text = label ?? value.replace(/_/g, " ");
+  return <span className={`status ${value}`}>{text.charAt(0).toUpperCase() + text.slice(1)}</span>;
 }
 
 export function PageHead({ title, sub, children }: { title: ReactNode; sub?: ReactNode; children?: ReactNode }) {
