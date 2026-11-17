@@ -54,7 +54,7 @@ export interface PipelineDeps {
   /** Most handoffs in one chain of tasks (default MAX_HANDOFF_DEPTH). */
   maxHandoffDepth?: number;
   /** Voice conversations: replies that continue a task, spoken responses, and reports back from handoffs. */
-  voice?: Pick<VoiceConversations, "beforeRun" | "afterRun" | "report" | "hasPending" | "followUps" | "discardPending" | "replyFiles">;
+  voice?: Pick<VoiceConversations, "beforeRun" | "afterRun" | "report" | "hasPending" | "daveWaiting" | "followUps" | "discardPending" | "replyFiles">;
   /** For events whose triage asks for a push (`push`), e.g. an incoming RFQ. */
   notifier?: Notifier;
   /** Seconds between progress pushes during a long run (default 120; 0 turns them off). */
@@ -383,7 +383,8 @@ export class Pipeline {
     let token: string | null = null;
     try {
       const event = await store.getEvent(queued.eventId);
-      if (!claim.budgetOverride && !bypassesBudget(event)) {
+      // Dave's own requests run whatever the budget: a chat, what it handed on, and his reply on any task.
+      if (!claim.budgetOverride && !bypassesBudget(event) && !(await this.deps.voice?.daveWaiting(taskId))) {
         const breach = await budget.check(vertical);
         if (breach) {
           hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "deferred", budget.note(vertical, breach)) });

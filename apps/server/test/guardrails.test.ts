@@ -174,6 +174,21 @@ describe.skipIf(!DB_URL)("budgets, retry and rollover", () => {
     expect((await webhook("dms", "Order 3")).status).toBe("deferred");
   });
 
+  it("runs Dave's own reply even when the business is over its budget", async () => {
+    runner.defaultCost = 1.5;
+    const first = await webhook("dms", "Order 1"); // spends the day's budget
+    expect((await webhook("dms", "Order 2")).status).toBe("deferred");
+    // He replies on the task that ran: that is his request, so it isn't held until midnight.
+    const reply = await ctx.api(`/api/tasks/${first.id}/reply`, { method: "POST", json: { text: "send it tomorrow instead" } });
+    expect(reply.status).toBe(202);
+    await ctx.queue.drain();
+    const after = (await ctx.api(`/api/tasks/${first.id}`)).body;
+    expect(after.task.status).toBe("done");
+    expect(after.runs).toHaveLength(2);
+    // Work that came in by itself is still held.
+    expect((await webhook("dms", "Order 3")).status).toBe("deferred");
+  });
+
   it("re-queues deferred tasks when the day rolls over", async () => {
     runner.defaultCost = 1.5;
     await webhook("dms", "Order 1");

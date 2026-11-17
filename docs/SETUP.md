@@ -1151,7 +1151,7 @@ asked for it. Budgets only hold back work that started itself: schedules, webhoo
 Odoo. (`bypassesBudget` in `apps/server/src/budget.ts`.)
 
 Spend is counted from finished runs, so runs already in flight when a cap is reached can go over
-it by their own cost. `/api/stats` shows today's cost per vertical and the configured budgets.
+it by their own cost. `/api/stats` shows today's cost per vertical and the configured budgets. Your own requests are never held by a budget: a chat message, the work it hands to a specialist, and your reply on any task all run.
 
 **Faster answers.** With many tools connected, Claude Code loads tool definitions on demand: each
 run starts by looking up the tools it needs, which is an extra round trip (and now and then a
