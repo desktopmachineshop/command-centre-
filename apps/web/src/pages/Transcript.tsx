@@ -62,11 +62,10 @@ export function splitTranscript(messages: AgentMessage[], working = false): { tr
 export function Transcript({ messages, readAloud, id = "", working = false }: { messages: AgentMessage[]; readAloud?: ReturnType<typeof useReadAloud>; id?: string; working?: boolean }) {
   const { trace, answer } = splitTranscript(messages, working);
   const hasCalls = trace.some(isCall);
-  const problems = trace.some((m) => m.type === "tool_result" && m.isError);
   return (
     <div className={`transcript ${working ? "is-working" : ""}`}>
       {hasCalls && (
-        <details className={`steps ${working ? "is-working" : ""} ${problems && !working ? "has-error" : ""}`}>
+        <details className={`steps ${working ? "is-working" : ""}`}>
           <summary>{stepsSummary(trace, working && !answer.some(said))}</summary>
           <div className="steps-body">
             {trace.map((m, i) => (

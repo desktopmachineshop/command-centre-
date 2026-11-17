@@ -241,6 +241,9 @@ describe("push payloads", () => {
     expect(held.title).toBe("3 notifications during quiet hours");
     expect(held.body).toBe("2 agent messages, 1 reminders\n• A\n• B\n• C");
     expect(held.tag).toBe("quiet-summary");
+    // It opens the Inbox when something in it needs him; a night of only digests and orders, Notifications.
+    expect(held.url).toBe("/inbox");
+    expect(heldSummary([{ title: "D", category: "digest" }, { title: "O", category: "orders" }]).url).toBe("/notifications");
     expect(
       quickBriefingBody({ pendingApprovals: 2, tasks: { total: 5, done: 3, failed: 1, open: 1 }, costUsd: 1.234, budgetUsd: 10, unread: 1 }),
     ).toBe("2 approvals waiting\nTasks today: 5 (3 done, 1 failed, 1 open)\nSpent today: $1.23 of $10.00\n1 unread notification");

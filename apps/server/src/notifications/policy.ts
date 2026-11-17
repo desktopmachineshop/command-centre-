@@ -292,6 +292,9 @@ export function collapsedPayload(category: NotificationCategory, extra: number, 
   };
 }
 
+/** The kinds of notification the app's Inbox shows (apps/web/src/pages/Inbox.tsx), approvals included. */
+const INBOX_CATEGORIES: ReadonlySet<NotificationCategory> = new Set(["approval", "alert", "reminder", "quotes", "agent", "briefing"]);
+
 /** The one push at the end of quiet hours for everything held. */
 export function heldSummary(held: Pick<StoredNotification, "title" | "category">[], unread?: number): PushPayload {
   const counts = new Map<NotificationCategory, number>();
@@ -302,7 +305,8 @@ export function heldSummary(held: Pick<StoredNotification, "title" | "category">
   return {
     title: `${held.length} notification${held.length === 1 ? "" : "s"} during quiet hours`,
     body: [byCategory, ...lines].join("\n"),
-    url: "/notifications",
+    // What needs him is in the Inbox; a night of only digests and orders is read in Notifications.
+    url: held.some((h) => INBOX_CATEGORIES.has(h.category)) ? "/inbox" : "/notifications",
     category: "system",
     priority: "normal",
     tag: "quiet-summary",

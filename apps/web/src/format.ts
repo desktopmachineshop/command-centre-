@@ -98,12 +98,11 @@ function toolSource(name: string): string | null {
 }
 
 /**
- * One line for a run of tool calls: "4 steps: Odoo, Brain" (and "1 problem" when a call failed),
+ * One line for a run of tool calls: "4 steps: Odoo, Brain",
  * or, while the run is still going, what it is doing now.
  */
 export function stepsSummary(steps: { type: string; name?: string; isError?: boolean }[], working = false): string {
   const calls = steps.filter((s) => s.type === "tool_use");
-  const problems = steps.filter((s) => s.type === "tool_result" && s.isError).length;
   if (working) {
     const last = calls[calls.length - 1];
     return last?.name ? `Working: ${toolLabel(last.name)}…` : "Working on it…";
@@ -112,7 +111,9 @@ export function stepsSummary(steps: { type: string; name?: string; isError?: boo
   const sources = [...new Set(calls.map((c) => (c.name ? toolSource(c.name) : null)).filter((s): s is string => !!s))];
   const n = calls.length || 1;
   const head = `${n} step${n === 1 ? "" : "s"}`;
-  return `${head}${sources.length ? `: ${sources.join(", ")}` : ""}${problems ? ` · ${problems} problem${problems === 1 ? "" : "s"}` : ""}`;
+  // A call that failed along the way is the agent's to deal with (it usually just tries another way);
+  // it is marked inside the unfolded steps, not flagged here. A run that failed says so itself.
+  return `${head}${sources.length ? `: ${sources.join(", ")}` : ""}`;
 }
 
 /** An email task's prompt, split into what Dave reads: the title line, the email itself, and whether a machine sent it. */
