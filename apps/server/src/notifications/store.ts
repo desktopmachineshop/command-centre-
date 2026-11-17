@@ -270,6 +270,15 @@ export class NotificationStore {
 
   // --- Quick briefing counts ---
 
+  /** Whether a briefing other than the quick one (the morning brief) has arrived since `since`. */
+  async briefedSince(userId: string, since: Date): Promise<boolean> {
+    const { rows } = await this.pool.query(
+      "select 1 from notifications where user_id = $1 and category = 'briefing' and tag is distinct from 'quick-briefing' and created_at >= $2 limit 1",
+      [userId, since],
+    );
+    return rows.length > 0;
+  }
+
   async quickCounts(since: Date): Promise<{ pendingApprovals: number; tasks: { total: number; done: number; failed: number; open: number } }> {
     const [p, t] = await Promise.all([
       this.pool.query("select count(*)::int as n from proposals where status = 'pending'"),

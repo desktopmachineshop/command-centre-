@@ -291,4 +291,18 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     expect(briefs[0]!.payload.body).toMatch(/approvals? waiting\nTasks today: \d+/);
     expect(briefs[0]!.payload.url).toMatch(/^\/briefing\//);
   });
+
+  it("skips the quick briefing on a day the morning brief has already arrived", async () => {
+    await ctx.api("/api/notifications/prefs", { method: "PUT", json: { quickBriefing: { enabled: true, time: "07:30" } } });
+    now = new Date("2026-07-06T06:00:00Z"); // 07:00 BST
+    await notifications().send({ title: "Morning brief", body: "Calendar clear today.", category: "briefing" });
+    now = new Date("2026-07-06T06:30:00Z");
+    const before = transport.sent.length;
+    await notifications().tick();
+    expect(transport.sent.slice(before).filter((s) => s.payload.title === "Quick briefing")).toEqual([]);
+    // The next day, with no morning brief (a weekend), it is sent as before.
+    now = new Date("2026-07-07T06:30:00Z");
+    await notifications().tick();
+    expect(transport.sent.slice(before).filter((s) => s.payload.title === "Quick briefing")).toHaveLength(1);
+  });
 });
