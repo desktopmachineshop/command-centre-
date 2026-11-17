@@ -386,7 +386,7 @@ export const CATALOG: readonly KindDef[] = [
     label: "Reddit (posts from my PC)",
     section: "social",
     description:
-      "For when Reddit won't take your own login from the server: posts, replies and messages go out from a Chrome window on your PC that you signed in to yourself (Devices page, Sign in to Reddit). The PC must be on with the desktop app open for anything to go out; until then approved ones wait. Same approvals and the same slow pace as your own login. This automates your account outside Reddit's official API, which Reddit's terms may not allow: the account can be rate limited or banned. Setup steps: docs/SETUP.md, \"Reddit from your own PC\".",
+      "For when Reddit won't take your own login from the server: posts, replies and messages go out from Chrome on your PC, which you signed in to yourself (Devices page, Sign in to Reddit) and which works out of sight. The agents' Reddit reading and searching goes through it too while the PC is on. The PC must be on with the desktop app open for anything to go out; until then approved ones wait. Same approvals and the same slow pace as your own login. This automates your account outside Reddit's official API, which Reddit's terms may not allow: the account can be rate limited or banned. Setup steps: docs/SETUP.md, \"Reddit from your own PC\".",
     multi: true,
     fields: [
       vertical,

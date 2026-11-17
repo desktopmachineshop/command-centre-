@@ -15,6 +15,7 @@ import {
   createSocialExecutors,
   accountSpeaksFor,
   accountVerticals,
+  isRedditBrowserAccount,
   isRedditSessionAccount,
   redditApiReadAuth,
   parseSessionCookie,
@@ -100,7 +101,7 @@ import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
-import { WorkerBrowserJobs } from "./reddit-browser";
+import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
 
 export interface Overrides {
   runner?: AgentRunner;
@@ -798,6 +799,15 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // outside input can't fetch pages at all (as with WebFetch), only read what is stored.
   const redditReader = new RedditReader({
     fetch: overrides.redditFetch,
+    // A "Reddit (posts from my PC)" account: reads and searches go through that PC's signed-in
+    // browser too, which Reddit answers where it refuses this server. With the PC off they fall
+    // back to the ways below.
+    browser: () => {
+      const account = social.current.accounts.find((a) => a.platform === "reddit" && isRedditBrowserAccount(a));
+      if (!account) return null;
+      const node = account.credentials.browserNode;
+      return redditPcRead(redditBrowserJobs, { node: node && node !== "any" ? node : undefined, username: account.handle?.replace(/^@/, "").replace(/^\/?u\//i, "") || undefined });
+    },
     // An account connected through a Reddit app: its reads go to the Data API, which answers what the
     // public site refuses a server (subreddit rules).
     api: async () => {

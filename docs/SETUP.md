@@ -2013,24 +2013,32 @@ As Railway JSON instead of the Accounts page (`SOCIAL_ACCOUNTS`):
 Use this when session mode can't work from the server: its **Test** fails with *Reddit refused
 the session check (HTTP 403)*, or Reddit keeps signing the copied cookie out or asking for a
 captcha. Reddit refuses many data-centre addresses (Railway's among them) whatever the cookie.
-Browser mode does the last step from where your sign-in really lives: **a Chrome (or Edge)
-window on your PC**, driven by the desktop app's worker, the same one that records video
-captures.
+Browser mode does the last step from where your sign-in really lives: **Chrome (or Edge) on your
+PC**, driven by the desktop app's worker, the same one that records video captures. It works out
+of sight: you see a window only when you sign in.
 
 > **Read this first.** Like session mode, this automates your personal Reddit account outside
 > Reddit's official API. Reddit's User Agreement may not allow that, and Reddit can rate-limit,
 > shadow-ban or ban an account it thinks is automated. It is your account and your call. A real
-> browser makes hiding easy, so the lines are drawn harder here: the window is a normal,
-> **visible** Chrome with Chrome's own "controlled by automated test software" bar, sending
-> Chrome's own User-Agent. There are **no** stealth or fingerprint plugins, no tricks with
+> browser makes hiding from Reddit easy, so the lines are drawn harder here: it is your installed
+> Chrome, sending Chrome's own User-Agent, and it still tells any site that asks that it is being
+> automated. It runs without a window (your choice, so you don't have to watch it), which hides
+> it from you, not from Reddit. There are **no** stealth or fingerprint plugins, no tricks with
 > `navigator.webdriver`, no proxies or address changes, no captcha solving, no second accounts
 > and no voting. When Reddit blocks or challenges, the action fails and says what Reddit showed;
-> you can deal with it yourself in that window.
+> press **Sign in to Reddit on this PC** to open the window and deal with it yourself.
 
 **What works:** the same as session mode, through the same actions and approvals:
 `social.reply`, `social.post`, `social.dm`, Reddit posts in a `social.campaign`, and watching
 the inbox. **Every Reddit post, reply and message still waits for your approval**, and the same
 pacing applies (10 minutes apart, 8 a day by default).
+
+**Reading and searching too.** Once a browser-mode account is connected, the agents' Reddit read
+tools (search, a subreddit's posts, a thread, a subreddit's rules, a user's history: what the
+sweeps and research use) ask the PC first, so Reddit sees them come from your signed-in browser
+instead of the server. Reads are spaced a couple of seconds apart and answered from a short
+cache. When the PC is off, busy or signed out, a read falls back to the server's own ways of
+reading (which Reddit often refuses from Railway); it doesn't wait for the PC.
 
 **What it needs:** the PC on, the desktop app open and connected (the Devices page shows it
 **Online** with the `browser` capability, which the **Media production** role sets up), and that
@@ -2071,20 +2079,26 @@ again.
 next action fails with *Reddit isn't signed in … press Sign in to Reddit on that PC*, and you get
 the **Reddit sign-in expired** alert. Press the button again and sign in.
 
-**The window.** It opens for the first Reddit job, stays open between jobs (so replies don't
-flash a new window up each time), and closes after 15 minutes without one; the next job opens it
-again. Minimising it is fine. Closing it in the middle of a job fails that job. Jobs run one at a
-time.
+**The browser.** It starts for the first Reddit job with **no window**, stays running between
+jobs, and closes after 15 minutes without one; the next job starts it again. Jobs run one at a
+time. Signing in is the one thing that shows a window: it opens for you to sign in and closes
+again afterwards. To watch it work instead, put `"redditWindow": "visible"` in `worker.json` (or
+set `CC_REDDIT_WINDOW=visible`) and restart the desktop app; then closing the window in the
+middle of a job fails that job. If Reddit treats the windowless browser differently (more
+sign-outs or blocks than before), that setting is the way back.
 
 **How it works.** The adapter builds exactly the requests session mode sends and hands each to the
 PC as a `social.reddit.browser` job (`op` `comment`, `submit`, `compose`, `inbox`, `sent`, `info`,
-`whoami`, `login`; schema in `packages/core/src/reddit.ts`). The worker
+`whoami`, `login`, and `read` for the read tools; schema in `packages/core/src/reddit.ts`). The worker
 (`apps/worker/src/handlers/reddit.ts`) asks `old.reddit.com/api/me.json` for the modhash from
 inside the window's session, sends the one fixed old.reddit.com form endpoint for that op (it
 never takes a URL from the server), and returns Reddit's JSON, which the server reads as session
 mode does. Reads (whoami, inbox) are removed from the job list once read; posts stay there as a
 record. Server side: `packages/social/src/adapters/reddit/browser.ts`,
-`apps/server/src/reddit-browser.ts`. The Reddit read tools don't go through the PC.
+`apps/server/src/reddit-browser.ts`. A `read` job names one of the listings the read tools use
+(`REDDIT_BROWSER_READ_PATH`: search, a subreddit's listings and rules, a thread, a user's
+history) and nothing else; the worker checks the path again and fetches `old.reddit.com<path>.json`.
+The reader (`packages/research/src/reddit/client.ts`) tries the PC before the API or public pages.
 
 **Not verified with a real account or on Windows.** Built and tested on Linux against a local
 stand-in for old.reddit.com, driven through Playwright's Chromium (signing in through the login

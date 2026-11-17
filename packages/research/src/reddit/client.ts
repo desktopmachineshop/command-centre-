@@ -35,6 +35,14 @@ export class RedditReadError extends Error {
   }
 }
 
+/** The PC that reads Reddit can't right now (off, busy, signed out, blocked): read from the server instead. */
+export class RedditPcUnavailable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RedditPcUnavailable";
+  }
+}
+
 /** The JSON endpoint refused (blocked or rate limited): the caller may try the feed. */
 class Refused extends RedditReadError {}
 
@@ -51,6 +59,14 @@ export interface RedditReaderOptions {
    * refuses a server (subreddit rules among it).
    */
   api?: () => Promise<{ token: string; userAgent: string } | null | undefined>;
+  /**
+   * Reads through Dave's own signed-in browser on his PC, when a "Reddit (posts from my PC)"
+   * account is connected: given a listing's path and query, answers Reddit's JSON for it. Tried
+   * first, because that session is the one Reddit doesn't refuse. It throws RedditReadError for
+   * what Reddit said (not found, private, rate limited), and `RedditPcUnavailable` when the PC is
+   * off, busy or signed out, in which case the read carries on the usual way from the server.
+   */
+  browser?: () => ((path: string, query: Record<string, string>) => Promise<unknown>) | null | undefined;
   /** Where the Data API is. Default https://oauth.reddit.com. */
   apiBaseUrl?: string;
   /** Where a session cookie is also tried when www refuses. Default https://old.reddit.com. */
@@ -128,9 +144,9 @@ export class RedditReader {
     this.sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
-  /** True when requests carry a signed-in session's cookie. */
+  /** True when requests carry a signed-in session's cookie (or go through Dave's signed-in browser). */
   get signedIn(): boolean {
-    return !!this.options.cookie?.() || this.apiSeen;
+    return !!this.options.cookie?.() || this.apiSeen || !!this.options.browser?.();
   }
 
   /** True while Reddit is only letting this server read its feeds (the JSON was refused recently). */
@@ -151,6 +167,21 @@ export class RedditReader {
       if (this.signedIn !== this.wasSignedIn) {
         this.wasSignedIn = this.signedIn;
         this.jsonRefusedUntil = 0;
+      }
+      // Dave's own browser on his PC first: the session Reddit answers. One read at a time, spaced
+      // like every other request here.
+      const viaPc = this.options.browser?.();
+      if (viaPc) {
+        const now = this.now().getTime();
+        const wait = Math.max(this.lastRequest + (this.options.minIntervalMs ?? 1500) - now, 0);
+        if (wait > 0) await this.sleep(wait);
+        this.lastRequest = this.now().getTime();
+        try {
+          return (await viaPc(path, strings(query))) as T;
+        } catch (err) {
+          // The PC can't right now: carry on from the server. What Reddit itself said is the answer.
+          if (!(err instanceof RedditPcUnavailable)) throw err;
+        }
       }
       // An account connected through a Reddit app reads through the Data API, which isn't blocked.
       const api = await this.options.api?.().catch(() => null);
