@@ -88,6 +88,8 @@ const Env = z.object({
   AGENT_MAX_CONCURRENT_PER_VERTICAL: z.coerce.number().int().positive().default(1),
   /** How long a task waits before trying again when its vertical is at its run limit. */
   AGENT_BUSY_RETRY_SECONDS: z.coerce.number().positive().default(20),
+  /** How long a task waits before trying again after every account hit its usage limit. */
+  AGENT_LIMIT_RETRY_SECONDS: z.coerce.number().positive().default(30 * 60),
   /** An identical prompt for the same vertical within this window is linked, not re-run. 0 turns it off. */
   AGENT_DEDUPE_WINDOW_MINUTES: z.coerce.number().min(0).default(10),
 
@@ -345,6 +347,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       dailyBudgetUsd: e.AGENT_DAILY_BUDGET_USD,
       maxConcurrentPerVertical: e.AGENT_MAX_CONCURRENT_PER_VERTICAL,
       busyRetrySeconds: e.AGENT_BUSY_RETRY_SECONDS,
+      limitRetrySeconds: e.AGENT_LIMIT_RETRY_SECONDS,
       dedupeWindowMinutes: e.AGENT_DEDUPE_WINDOW_MINUTES,
     },
     schedulesEnabled: e.SCHEDULES_ENABLED,

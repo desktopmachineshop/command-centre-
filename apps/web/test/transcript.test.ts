@@ -23,7 +23,8 @@ describe("tool names for reading", () => {
   it("sums a run of calls up in one line", () => {
     const steps = [use("ToolSearch"), result("ToolSearch"), use("mcp__odoo__search_orders"), result("mcp__odoo__search_orders"), use("mcp__brain__search"), result("mcp__brain__search"), use("mcp__odoo__get_order"), result("mcp__odoo__get_order")];
     expect(stepsSummary(steps)).toBe("4 steps: Odoo, Brain");
-    expect(stepsSummary([use("mcp__mail__send"), result("mcp__mail__send", true)])).toBe("1 step: Mail · 1 problem");
+    // A call that failed on the way isn't flagged on the folded line.
+    expect(stepsSummary([use("mcp__mail__send"), result("mcp__mail__send", true)])).toBe("1 step: Mail");
     expect(stepsSummary(steps, true)).toBe("Working: Odoo: get order…");
     expect(stepsSummary([{ type: "system" }], true)).toBe("Working on it…");
   });

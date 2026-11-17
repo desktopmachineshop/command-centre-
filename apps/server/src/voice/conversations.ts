@@ -108,6 +108,15 @@ export class VoiceConversations {
     return rows.length > 0;
   }
 
+  /** True when a reply from Dave himself is waiting for the task's next run. */
+  async daveWaiting(taskId: string): Promise<boolean> {
+    const { rows } = await this.store.pool.query(
+      "select 1 from task_replies where task_id = $1 and consumed_at is null and (author is null or author = 'dave') limit 1",
+      [taskId],
+    );
+    return rows.length > 0;
+  }
+
   async reply(taskId: string, text: string, voice: boolean, files?: ChatFilesContext): Promise<Task | null> {
     const queued = await this.store.transaction(async (tx) => {
       const { rows } = await tx.pool.query("select status from tasks where id = $1 for update", [taskId]);

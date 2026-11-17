@@ -6,12 +6,15 @@ import type { Notifier } from "./push";
 
 /**
  * The budget rule: Dave's own chat requests are never held back by a budget,
- * because he asked for them explicitly. Everything else (schedules, webhooks,
+ * because he asked for them explicitly; so does the work a chat hands to a specialist, and a
+ * run that answers Dave's own reply on any task (Pipeline.runTask). Everything else (schedules, webhooks,
  * email, Odoo) is deferred once a cap is reached. An explicit retry also
  * bypasses the budget, once.
  */
-export function bypassesBudget(event: Pick<Event, "source"> | null): boolean {
-  return event?.source === "chat";
+export function bypassesBudget(event: Pick<Event, "source" | "kind" | "payload"> | null): boolean {
+  if (event?.source === "chat") return true;
+  // Work the assistant handed to a specialist for something Dave asked in chat is still his request.
+  return event?.source === "system" && event.kind === "handoff" && event.payload?.originSource === "chat";
 }
 
 export interface BudgetBreach {

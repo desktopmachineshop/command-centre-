@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentRunner } from "@cc/agent-runtime";
+import { type AgentRunner, isUsageLimit } from "@cc/agent-runtime";
 import type { Brain } from "@cc/brain";
 import { type AgentMessage, type Event, findRole, NewEvent, type NotificationCategory, type Proposal, ROOT_ROLE_ID, STOPPED_NOTE, type Task, type TaskStatus, type TriageResult } from "@cc/core";
 import type { Triager } from "@cc/triage";
@@ -22,12 +22,20 @@ import type { RunTokens } from "./run-tokens";
 import type { VoiceConversations } from "./voice/conversations";
 import { prepareScratch, prepareWorkspace, skillReadRules } from "./workspace";
 
+/** How a task waiting for a usage limit to pass is marked (its note starts with this). */
+export const LIMIT_NOTE = "The agents' usage limit is reached, so this is waiting.";
+/** How long a task waits before trying again after a usage limit, and how many times it does. */
+export const LIMIT_RETRY_SECONDS = 30 * 60;
+export const LIMIT_RETRIES = 8;
+
 /** On a task put back on the queue because the server was restarting. */
 export const INTERRUPTED_NOTE = "Interrupted by a server restart; starting again.";
 /** On the run that restart cut short. */
 export const INTERRUPTED_ERROR = "Interrupted by a server restart. The task started again when the server was back.";
 
 export interface PipelineDeps {
+  /** For times said to Dave ("trying again at 03:30"). Default Europe/London. */
+  timezone?: string;
   store: Store;
   hub: Hub;
   triager: Triager;
@@ -54,7 +62,7 @@ export interface PipelineDeps {
   /** Most handoffs in one chain of tasks (default MAX_HANDOFF_DEPTH). */
   maxHandoffDepth?: number;
   /** Voice conversations: replies that continue a task, spoken responses, and reports back from handoffs. */
-  voice?: Pick<VoiceConversations, "beforeRun" | "afterRun" | "report" | "hasPending" | "followUps" | "discardPending" | "replyFiles">;
+  voice?: Pick<VoiceConversations, "beforeRun" | "afterRun" | "report" | "hasPending" | "daveWaiting" | "followUps" | "discardPending" | "replyFiles">;
   /** For events whose triage asks for a push (`push`), e.g. an incoming RFQ. */
   notifier?: Notifier;
   /** Seconds between progress pushes during a long run (default 120; 0 turns them off). */
@@ -90,6 +98,8 @@ export interface RunGuards {
   /** Running tasks allowed per vertical; extra ones wait `busyRetrySeconds` and try again. */
   maxConcurrentPerVertical: number;
   busyRetrySeconds: number;
+  /** How long a task waits before trying again after a usage limit (default LIMIT_RETRY_SECONDS). */
+  limitRetrySeconds?: number;
   /**
    * A "running" task whose run hasn't been heard from for this long is treated as crashed: it
    * stops holding its slot and `recoverStale` starts it again. Runs say they are alive every
@@ -363,7 +373,10 @@ export class Pipeline {
     if (!queued || (queued.status !== "queued" && queued.status !== "running")) return;
 
     const vertical = verticals.require(queued.vertical);
-    const claim = await store.claimTaskRun(taskId, { max: guards.maxConcurrentPerVertical, staleSeconds: guards.staleRunSeconds });
+    // What Dave asks for himself doesn't wait behind other work in the same business: a chat (or his
+    // reply) may take one slot more than the business's cap. The total at once is still AGENT_CONCURRENCY.
+    const asked = bypassesBudget(await store.getEvent(queued.eventId).catch(() => null)) || !!(await this.deps.voice?.daveWaiting(taskId).catch(() => false));
+    const claim = await store.claimTaskRun(taskId, { max: guards.maxConcurrentPerVertical + (asked ? 1 : 0), staleSeconds: guards.staleRunSeconds });
     if (claim.state === "gone") return;
     if (claim.state === "busy") {
       await this.deps.queue.enqueue(taskId, { delaySeconds: guards.busyRetrySeconds });
@@ -383,7 +396,8 @@ export class Pipeline {
     let token: string | null = null;
     try {
       const event = await store.getEvent(queued.eventId);
-      if (!claim.budgetOverride && !bypassesBudget(event)) {
+      // Dave's own requests run whatever the budget: a chat, what it handed on, and his reply on any task.
+      if (!claim.budgetOverride && !bypassesBudget(event) && !(await this.deps.voice?.daveWaiting(taskId))) {
         const breach = await budget.check(vertical);
         if (breach) {
           hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "deferred", budget.note(vertical, breach)) });
@@ -476,6 +490,9 @@ export class Pipeline {
         return;
       }
       await store.finishRun(run.id, result);
+      // Every account is at its usage limit (or the service is overloaded): that passes by itself, so
+      // the task waits and tries again instead of failing. The reply it was answering stays unanswered.
+      if (isUsageLimit(result) && !this.stopping.has(taskId) && (await this.waitForLimit(task, event, daveAsked, result.error ?? ""))) return;
       if (openBefore.length) await this.replaceRevised(taskId, openBefore, run.startedAt).catch((err) => console.error("[pipeline] replace revised", err));
       // --- voice: store and broadcast the structured spoken answer of voice-mode runs ---
       await this.deps.voice?.afterRun(task, run.id, result, turn).catch((err) => console.error("[voice]", err));
@@ -734,6 +751,41 @@ export class Pipeline {
     } catch (err) {
       console.error(`[pipeline] report back for task ${task.id}`, err);
     }
+  }
+
+  /**
+   * A run failed on a usage or rate limit with no other account to fall back on. The task goes back
+   * on the queue to run again in `AGENT_LIMIT_RETRY_SECONDS` (half an hour), up to `LIMIT_RETRIES` times (a subscription's
+   * limit resets within hours); after that it fails like any other, and this returns false. The
+   * first time, Dave is told what he asked for is waiting, unless he can see it on screen.
+   */
+  private async waitForLimit(task: Task, event: Event | null, daveAsked: boolean, error: string): Promise<boolean> {
+    const { store, hub, queue, notifier } = this.deps;
+    const waits = (await store.listRuns(task.id)).filter((r) => isUsageLimit({ status: r.status === "failed" ? "failed" : "succeeded", result: r.result, error: r.error, costUsd: r.costUsd, sessionId: r.sessionId })).length;
+    if (waits > LIMIT_RETRIES) return false;
+    const delaySeconds = this.deps.guards.limitRetrySeconds ?? LIMIT_RETRY_SECONDS;
+    const at = new Date(Date.now() + delaySeconds * 1000);
+    const when = at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: this.deps.timezone ?? "Europe/London" });
+    const requeued = await store.setTaskStatusIf(task.id, ["running"], "queued", `${LIMIT_NOTE} Trying again at ${when}. (${error.trim().slice(0, 200)})`);
+    if (!requeued) return false;
+    hub.broadcast({ type: "task.updated", task: requeued });
+    await queue.enqueue(task.id, { delaySeconds });
+    if (waits === 1 && daveAsked && notifier && !hub.watching()) {
+      await notifier
+        .notify({
+          title: `Waiting for the usage limit: ${(event?.title ?? task.prompt).split("\n")[0]!.slice(0, 80)}`,
+          body: `The agents' usage limit is reached, so this is waiting. It tries again at ${when} and carries on by itself.`,
+          url: `/task/${task.id}`,
+          category: "agent",
+          priority: "normal",
+          vertical: task.vertical,
+          tag: taskTag(task.id),
+          replaces: true,
+          data: { taskId: task.id },
+        })
+        .catch((err) => console.error("[pipeline] limit notice failed:", (err as Error).message));
+    }
+    return true;
   }
 
   /**

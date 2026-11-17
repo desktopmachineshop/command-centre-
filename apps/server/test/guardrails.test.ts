@@ -174,6 +174,21 @@ describe.skipIf(!DB_URL)("budgets, retry and rollover", () => {
     expect((await webhook("dms", "Order 3")).status).toBe("deferred");
   });
 
+  it("runs Dave's own reply even when the business is over its budget", async () => {
+    runner.defaultCost = 1.5;
+    const first = await webhook("dms", "Order 1"); // spends the day's budget
+    expect((await webhook("dms", "Order 2")).status).toBe("deferred");
+    // He replies on the task that ran: that is his request, so it isn't held until midnight.
+    const reply = await ctx.api(`/api/tasks/${first.id}/reply`, { method: "POST", json: { text: "send it tomorrow instead" } });
+    expect(reply.status).toBe(202);
+    await ctx.queue.drain();
+    const after = (await ctx.api(`/api/tasks/${first.id}`)).body;
+    expect(after.task.status).toBe("done");
+    expect(after.runs).toHaveLength(2);
+    // Work that came in by itself is still held.
+    expect((await webhook("dms", "Order 3")).status).toBe("deferred");
+  });
+
   it("re-queues deferred tasks when the day rolls over", async () => {
     runner.defaultCost = 1.5;
     await webhook("dms", "Order 1");
@@ -213,10 +228,16 @@ describe.skipIf(!DB_URL)("concurrency per vertical and dedupe", () => {
   afterAll(async () => ctx?.server.stop());
   beforeEach(async () => truncate(ctx));
 
+  /** Work that came in by itself (not Dave asking), for one business. */
+  const incoming = async (title: string) => {
+    const made = await ctx.server.pipeline.ingest({ source: "webhook", vertical: "dms", kind: "ping", title, payload: { text: title } });
+    return made!.task;
+  };
+
   it("runs one task per vertical at a time without blocking other verticals", async () => {
     const release = runner.hold();
-    const first = await chat("dms: count the spindles");
-    const second = await chat("dms: count the collets");
+    const first = await incoming("count the spindles");
+    const second = await incoming("count the collets");
     const other = await chat("plan my week");
     await until(() => runner.running === 2);
     // Give the waiting dms task a few requeue cycles to prove it stays queued.
@@ -231,6 +252,20 @@ describe.skipIf(!DB_URL)("concurrency per vertical and dedupe", () => {
     expect([await statusOf(first.id), await statusOf(second.id), await statusOf(other.id)]).toEqual(["done", "done", "done"]);
     expect(runner.maxActive.get("dms")).toBe(1);
     expect(runner.maxTotal).toBe(2);
+  });
+
+  it("lets what Dave asks for run alongside other work in the same business", async () => {
+    const release = runner.hold();
+    const automated = await incoming("sort the supplier mail");
+    await until(() => runner.running === 1);
+    // His chat to the same business doesn't wait for it.
+    const asked = await chat("dms: how many spindles are left?");
+    await until(() => runner.running === 2);
+    expect(await statusOf(automated.id)).toBe("running");
+    expect(await statusOf(asked.id)).toBe("running");
+    release();
+    await ctx.queue.drain();
+    expect([await statusOf(automated.id), await statusOf(asked.id)]).toEqual(["done", "done"]);
   });
 
   it("does not let a crashed run hold its vertical's slot forever", async () => {

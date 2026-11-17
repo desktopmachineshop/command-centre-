@@ -1,6 +1,6 @@
 import type { AgentRunner, AgentRunRequest } from "@cc/agent-runtime";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { INTERRUPTED_ERROR, INTERRUPTED_NOTE } from "../src/pipeline";
+import { INTERRUPTED_ERROR, INTERRUPTED_NOTE, LIMIT_NOTE, LIMIT_RETRIES } from "../src/pipeline";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 /** Runs until it is aborted (as a real agent would be when the server stops), unless told to answer. */
@@ -8,8 +8,11 @@ class HangingRunner implements AgentRunner {
   readonly name = "hang";
   started = 0;
   answer = false;
+  /** How many more runs find every account at its usage limit. */
+  limitTimes = 0;
   async run(request: AgentRunRequest) {
     this.started++;
+    if (this.limitTimes-- > 0) return { status: "failed" as const, result: null, error: "Claude usage limit reached; resets at 03:00", costUsd: 0, sessionId: null };
     if (this.answer) return { status: "succeeded" as const, result: "Done after the restart.", error: null, costUsd: 0, sessionId: null };
     await new Promise<void>((resolve) => request.signal?.addEventListener("abort", () => resolve()));
     return { status: "failed" as const, result: null, error: "Aborted", costUsd: 0, sessionId: null };
@@ -22,7 +25,7 @@ describe.skipIf(!DB_URL)("a server restart while an agent is working", () => {
 
   beforeAll(async () => {
     await resetDatabase(DB_URL!);
-    ctx = await makeServer({ runner });
+    ctx = await makeServer({ runner, env: { AGENT_LIMIT_RETRY_SECONDS: "0.2" } });
   });
   afterAll(async () => {
     await ctx?.server.stop();
@@ -81,6 +84,49 @@ describe.skipIf(!DB_URL)("a server restart while an agent is working", () => {
     const after = await store.pool.query("select updated_at > now() - interval '10 seconds' as fresh from tasks where id = $1", [rows[0].id]);
     expect(after.rows[0].fresh).toBe(true);
     await store.pool.query("update tasks set status = 'done' where id = $1", [rows[0].id]);
+  });
+
+  it("waits and tries again when the usage limit is reached, instead of failing", async () => {
+    runner.answer = true;
+    runner.limitTimes = 1; // the limit has passed by the second try
+    ctx.notifier.sent.length = 0;
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "count the stock" } });
+    const id = body.task.id as string;
+    await ctx.queue.drain();
+    const done = (await ctx.api(`/api/tasks/${id}`)).body;
+    expect(done.task).toMatchObject({ status: "done", note: null });
+    expect(done.runs.map((r: { status: string }) => r.status)).toEqual(["failed", "succeeded"]);
+    // Dave asked for it and wasn't looking: told once that it was waiting (not that it failed), then the answer.
+    expect(ctx.notifier.sent.map((n) => n.title)).toEqual(["Waiting for the usage limit: count the stock", "count the stock"]);
+    expect(ctx.notifier.sent[0]!.body).toMatch(/tries again at \d\d:\d\d and carries on by itself/);
+  });
+
+  it("says why it is waiting while it waits", async () => {
+    runner.limitTimes = 1;
+    const made = await ctx.server.pipeline.ingest({ source: "webhook", vertical: "dms", kind: "ping", title: "An order", payload: { text: "x" } });
+    // Caught between the first try and the next.
+    let seen: { status: string; note: string | null } | null = null;
+    for (let i = 0; i < 200 && !seen; i++) {
+      const t = (await ctx.api(`/api/tasks/${made!.task.id}`)).body.task;
+      if (t.status === "queued" && t.note) seen = t;
+      else await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(seen!.note).toContain(LIMIT_NOTE);
+    expect(seen!.note).toMatch(/Trying again at \d\d:\d\d\./);
+    await ctx.queue.drain();
+    expect((await ctx.api(`/api/tasks/${made!.task.id}`)).body.task.status).toBe("done");
+  });
+
+  it("gives up after enough tries at the limit, and says so", async () => {
+    runner.limitTimes = Infinity;
+    const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "count the parcels" } });
+    const id = body.task.id as string;
+    await ctx.queue.drain();
+    const failed = (await ctx.api(`/api/tasks/${id}`)).body;
+    expect(failed.task.status).toBe("failed");
+    expect(failed.task.note).toBe("Run failed: Claude usage limit reached; resets at 03:00");
+    expect(failed.runs).toHaveLength(LIMIT_RETRIES + 1);
+    runner.limitTimes = 0;
   });
 
   it("does nothing when no agent is working", async () => {
