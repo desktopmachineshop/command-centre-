@@ -213,7 +213,7 @@ export function NotificationSettings({ api }: { api: Api }) {
 
       <div className="card" data-help-pane="notification-settings.quiet-hours">
         <h3>Quick briefing</h3>
-        <p className="muted small">A push with today's counts (approvals waiting, tasks, spend). No agent run.</p>
+        <p className="muted small">A push with today's counts (approvals waiting, tasks, spend). No agent run. Skipped on days the morning brief has already arrived.</p>
         <div className="row wrap">
           <label className="small">
             <input

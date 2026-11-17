@@ -1487,8 +1487,10 @@ is held and, when quiet hours end, arrives as **one summary push** listing what 
 
 Off by default. When on, at the set time (default 07:30) you get a `briefing` push with today's
 counts: approvals waiting, tasks so far, spend against budget, and unread notifications. It is a
-system job, not an agent run, so it costs nothing. The agent-written morning brief (above) is
-separate and is also sent as a `briefing`.
+system job, not an agent run, so it costs nothing. You get one briefing a morning: on a day the
+agent-written morning brief (above, weekdays at 07:00) has already arrived, the quick briefing is
+skipped, so in practice it covers the days without a morning brief. Set its time after the
+morning brief's.
 
 ### Devices
 

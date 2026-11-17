@@ -216,13 +216,17 @@ export class NotificationService implements Notifier {
     return changed;
   }
 
-  /** Once a minute: release what quiet hours held, and send the quick briefing when due. */
+  /**
+   * Once a minute: release what quiet hours held, and send the quick briefing when due. One
+   * briefing a morning: on a day the morning brief has already arrived, the quick one is skipped.
+   */
   async tick(userId = DEFAULT_USER): Promise<void> {
     const now = this.now();
     const prefs = await this.prefs(userId);
     await this.releaseHeld(prefs, now, userId);
     if (quickBriefingDue(now, prefs) && (await this.store.claimRun(userId, "quick-briefing", localDayOf(now, prefs.quietHours.timezone)))) {
-      await this.sendQuickBriefing(userId);
+      const tz = prefs.quietHours.timezone;
+      if (!(await this.store.briefedSince(userId, localInstant(localDayOf(now, tz), "00:00", tz)))) await this.sendQuickBriefing(userId);
     }
   }
 

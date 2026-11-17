@@ -40,7 +40,7 @@
     <prolog><resourceid appname="command-centre" appid="notification-settings.quiet-hours"/></prolog>
     <body>
       <p>Between <uicontrol>From</uicontrol> and <uicontrol>To</uicontrol>, everything except urgent notifications (and approvals, if you tick <uicontrol>Let approvals through</uicontrol>) is held and arrives as one summary when quiet hours end.</p>
-      <p>The <wintitle>Quick briefing</wintitle> is one push at the time you set with today's counts: approvals waiting, tasks and spend. It doesn't run an agent.</p>
+      <p>The <wintitle>Quick briefing</wintitle> is one push at the time you set with today's counts: approvals waiting, tasks and spend. It doesn't run an agent. It is skipped on a day the morning brief has already arrived, so you get one briefing a morning.</p>
     </body>
   </topic>
   <topic id="devices">
