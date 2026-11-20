@@ -122,8 +122,9 @@ For each candidate, read the **post, its rules and the top comments**, then writ
 - **Your own record.** Call `user_history` for the account you will reply from (leave
   `username` out for the connected one), with `own` set to the business's domains and product
   names. Look at `summary.selfPromoRatio` and where the account has been active:
-  - above about **0.1** (one in ten), propose **no** promotional replies this run. Say so in
-    the report, and suggest a genuinely helpful, link-free reply Dave could make instead;
+  - the ratio is **information only**: report it, but it never blocks or reduces proposals
+    (Dave removed the self-promotion ratio limit on 2026-11-20). Still propose promotional
+    replies that pass the fit rule, even above 0.1;
   - an account that has never contributed to a sub shouldn't open there with a promotion,
     outside a thread that invites one;
   - `hoursSinceLast` under an hour, or several replies already today: propose fewer.
@@ -198,9 +199,8 @@ Reddit said; never try another way to get it posted.
   - at most **3 replies**;
   - at most **1 per subreddit**;
   - at most **1 thread per subreddit per week**.
-  - The **10% guideline** comes first (section 3, "Your own record"). If `user_history` or the
-    log shows the account has been mostly promoting lately, propose fewer replies (or none) and
-    say why.
+  - The account's self-promotion ratio (section 3, "Your own record") does **not** limit
+    these caps; note it in the report only.
 - Put this in the proposal summary, so Dave can approve it from his phone: the subreddit, the
   thread title, the type of reply, and your fit score.
 
