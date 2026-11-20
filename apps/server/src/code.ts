@@ -163,13 +163,15 @@ export function createCodeExecutors(
     if (base && !BRANCH.test(base)) throw new Error("payload.base must be a branch name");
     return { branch, title, body: body.slice(0, 60_000), base };
   };
-  const api = async <T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; json: T }> => {
+  const api = async <T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; json: T; accepted?: string }> => {
     const res = await (o.fetch ?? fetch)(`${(o.apiBase ?? "https://api.github.com").replace(/\/+$/, "")}${path}`, {
       method: init.method ?? "GET",
       headers: { authorization: `Bearer ${o.token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", ...(init.body ? { "content-type": "application/json" } : {}) },
       body: init.body ? JSON.stringify(init.body) : undefined,
     });
-    return { status: res.status, json: (await res.json().catch(() => ({}))) as T };
+    // On a 403 GitHub names the permission a fine-grained token was missing in this header.
+    const accepted = res.headers?.get?.("x-accepted-github-permissions") ?? undefined;
+    return { status: res.status, json: (await res.json().catch(() => ({}))) as T, ...(accepted ? { accepted } : {}) };
   };
 
   const issueNote = async (payload: Record<string, unknown>) => {
@@ -214,14 +216,14 @@ export function createCodeExecutors(
           const d = directIssue(payload);
           const where = repoOf(ctx.vertical);
           const open = await api<{ number: number; title: string; html_url: string; pull_request?: unknown }[]>(`/repos/${where.repo}/issues?state=open&per_page=100`);
-          if (open.status === 403 || open.status === 401) throw new Error(githubIssueAccess(open.status, where.repo));
+          if (open.status === 403 || open.status === 401) throw new Error(githubIssueAccess(open, where.repo, "read issues"));
           const same = Array.isArray(open.json) ? open.json.find((i) => !i.pull_request && i.title.trim().toLowerCase() === d.title.toLowerCase()) : undefined;
           if (same) return { number: same.number, url: same.html_url, already: true };
           const created = await api<{ number?: number; html_url?: string; message?: string }>(`/repos/${where.repo}/issues`, {
             method: "POST",
             body: { title: d.title, body: `${d.body}\n\n_Opened by the Command Centre Software Lead._`, labels: d.labels },
           });
-          if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created.status, where.repo));
+          if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created, where.repo, "create issues"));
           if (created.status >= 300 || !created.json.number) throw new Error(`GitHub refused the issue: ${created.json.message ?? `HTTP ${created.status}`}`);
           return { number: created.json.number, url: created.json.html_url ?? `https://github.com/${where.repo}/issues/${created.json.number}`, already: false, labels: d.labels };
         }
@@ -232,7 +234,7 @@ export function createCodeExecutors(
         // The marker finds an issue filed before a failed write-back, so it is never filed twice.
         const marker = `<!-- brain:${path} -->`;
         const found = await api<{ number: number; html_url: string; body?: string | null; pull_request?: unknown }[]>(`/repos/${where.repo}/issues?state=all&labels=from-brain&per_page=100`);
-        if (found.status === 403 || found.status === 401) throw new Error(githubIssueAccess(found.status, where.repo));
+        if (found.status === 403 || found.status === 401) throw new Error(githubIssueAccess(found, where.repo, "read issues"));
         const existing = Array.isArray(found.json) ? found.json.find((i) => !i.pull_request && i.body?.includes(marker)) : undefined;
         let number: number;
         let link: string;
@@ -260,7 +262,7 @@ export function createCodeExecutors(
             method: "POST",
             body: { title: title.slice(0, 250), body: body.slice(0, 60_000), labels },
           });
-          if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created.status, where.repo));
+          if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created, where.repo, "create issues"));
           if (created.status >= 300 || !created.json.number) throw new Error(`GitHub refused the issue: ${created.json.message ?? `HTTP ${created.status}`}`);
           number = created.json.number;
           link = created.json.html_url ?? url(number);
@@ -284,7 +286,7 @@ export function createCodeExecutors(
           body: { body: `${c.body}\n\n_From the Command Centre Software Lead._` },
         });
         if (created.status === 404) throw new Error(`There is no issue or pull request #${c.number} in ${where.repo}`);
-        if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created.status, where.repo));
+        if (created.status === 403 || created.status === 401) throw new Error(githubIssueAccess(created, where.repo, `comment on #${c.number}`));
         if (created.status >= 300 || !created.json.id) throw new Error(`GitHub refused the comment: ${created.json.message ?? `HTTP ${created.status}`}`);
         return { number: c.number, url: created.json.html_url };
       },
@@ -379,9 +381,14 @@ function parseMerge(payload: Record<string, unknown>): { number: number; method:
   return { number, method };
 }
 
-/** A 401/403 on issues, in words Dave can act on. */
-function githubIssueAccess(status: number, repo: string): string {
-  return status === 401
-    ? "GitHub rejected GITHUB_TOKEN (401): it is wrong, expired or revoked. Make a new fine-grained token and update GITHUB_TOKEN in Railway."
-    : `GITHUB_TOKEN may not create issues on ${repo} (403). Edit the fine-grained token on GitHub: Repository permissions → Issues → Read and write.`;
+/** A 401/403 on issues, in words Dave can act on, with GitHub's own reason and the permission it wanted. */
+export function githubIssueAccess(res: { status: number; json: unknown; accepted?: string }, repo: string, doing: string): string {
+  if (res.status === 401) return "GitHub rejected GITHUB_TOKEN (401): it is wrong, expired or revoked. Make a new fine-grained token and update GITHUB_TOKEN in Railway.";
+  const message = (res.json as { message?: unknown } | null)?.message;
+  const why = typeof message === "string" && message ? `: ${message}` : "";
+  const wanted = res.accepted ? ` GitHub wanted: ${res.accepted}.` : "";
+  return (
+    `GITHUB_TOKEN may not ${doing} on ${repo} (403${why}).${wanted} ` +
+    "Check that the token in Railway is the one you edited, that it includes this repository, and that Repository permissions → Issues is Read and write."
+  );
 }
