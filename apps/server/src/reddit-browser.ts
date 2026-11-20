@@ -81,12 +81,19 @@ export function redditPcRead(jobs: BrowserJobs, account: { node?: string; userna
     try {
       raw = await jobs.run(REDDIT_BROWSER_JOB, { op: "read", path, query, ...(account.username ? { username: account.username } : {}) }, { node: account.node, timeoutMs: READ_TIMEOUT_MS, once: false });
     } catch (err) {
-      throw new RedditPcUnavailable((err as Error).message);
+      const message = (err as Error).message;
+      console.warn(`[reddit] reading ${path} through the PC failed, reading from the server instead: ${message}`);
+      // A desktop app from before PC reading (17 Nov) runs posts but refuses the read op's payload.
+      if (/Invalid social\.reddit\.browser payload/.test(message)) {
+        throw new RedditPcUnavailable("the desktop app on the PC is too old to read Reddit (it can post, but reading came in a later version): update the desktop app on that PC (Devices page) and reads will go through it");
+      }
+      throw new RedditPcUnavailable(message);
     }
     const parsed = RedditBrowserResult.safeParse(raw);
     if (!parsed.success) throw new RedditPcUnavailable("The PC sent back a Reddit result Command Centre couldn't read");
     const r = parsed.data;
     if (!r.ok) {
+      if (r.code !== "RATELIMIT") console.warn(`[reddit] the PC couldn't read ${path} (${r.code}), reading from the server instead: ${r.message}`);
       if (r.code === "RATELIMIT") throw new RedditReadError(`Reddit is rate limiting the PC's session${r.retryAfterSec ? `; it asks for about ${Math.ceil(r.retryAfterSec)}s` : ""}. Carry on with what you have and try again later.`, 429);
       throw new RedditPcUnavailable(r.message);
     }
