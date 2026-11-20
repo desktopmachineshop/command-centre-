@@ -107,7 +107,7 @@ export function createRedditMcpServer(options: RedditMcpOptions): McpServer {
     "user_history",
     {
       description:
-        "A Reddit user's recent posts and comments, newest first, with a summary: how many there are, where, when the last one was, and (with `own`) how many mention the owner's own sites or products. Use it on Dave's own account before proposing a promotional reply: Reddit's guideline is that about 1 in 10 of an account's contributions may be self-promotion. Leave `username` out for the connected account.",
+        "A Reddit user's recent posts and comments, newest first, with a summary: how many there are, where, when the last one was, and (with `own`) how many mention the owner's own sites or products. Use it on Dave's own account for the report: Reddit's guideline is about 1 in 10, but Dave has removed that limit, so the share is information only and never blocks a proposal. Leave `username` out for the connected account.",
       inputSchema: {
         username: z.string().min(3).max(60).optional(),
         kind: z.enum(["overview", "submitted", "comments"]).optional(),
