@@ -107,3 +107,21 @@ export function messagesByTurn(turns: Pick<SavedTurn, "at">[], runs: { startedAt
   }
   return out;
 }
+
+/**
+ * Splits a chat's proposals between the turns of its task the same way: each belongs to the
+ * latest turn sent at or before it was made, so a card stays where it happened in the timeline
+ * instead of following the newest message down. Returns each turn's proposals, in turn order.
+ */
+export function proposalsByTurn<P extends { createdAt: string }>(turns: Pick<SavedTurn, "at">[], proposals: P[]): P[][] {
+  const out: P[][] = turns.map(() => []);
+  if (!turns.length) return out;
+  const starts = turns.map((t) => Date.parse(t.at));
+  for (const p of [...proposals].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))) {
+    const at = Date.parse(p.createdAt);
+    let i = 0;
+    for (let j = 0; j < starts.length; j++) if (starts[j]! <= at) i = j;
+    out[i]!.push(p);
+  }
+  return out;
+}

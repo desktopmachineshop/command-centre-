@@ -8,7 +8,7 @@ import { ProposalList } from "./Approvals";
 import { Transcript } from "./Transcript";
 import { Markdown } from "../markdown";
 import { AttachedFiles, Composer } from "../composer";
-import { chatExpired, clearChat, loadChat, messagesByTurn, saveChat } from "../chat-store";
+import { chatExpired, clearChat, loadChat, messagesByTurn, proposalsByTurn, saveChat } from "../chat-store";
 import { useStickToBottom } from "../scroll";
 import { ErrorReport } from "../copy";
 import { PlayReply, ReadAloudToggle, useReadAloud } from "../voice/readAloud";
@@ -385,9 +385,15 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
     };
   }, []);
 
-  // Proposals show inline on the latest turn of each task (follow-ups continue the same task).
+  // Follow-ups continue the same task: its latest turn carries the live controls.
   const latestTurnOf = new Map(turns.flatMap((t) => (t.task ? [[t.task.id, t.key] as const] : [])));
   const { chains, refresh: refreshChains } = useChainProposals(api, feed, [...latestTurnOf.keys()]);
+  // Each card sits on the turn it was made during, so the chat stays in time order.
+  const proposalsOf = new Map<number, Proposal[]>();
+  for (const id of latestTurnOf.keys()) {
+    const mine = turns.filter((t) => t.task?.id === id);
+    proposalsByTurn(mine, chains[id]?.proposals ?? []).forEach((ps, n) => proposalsOf.set(mine[n]!.key, ps));
+  }
 
   // Newest at the bottom, followed as it streams in (unless scrolled up to read).
   const lastTurn = turns[turns.length - 1];
@@ -609,7 +615,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
                   facts={[["Task", t.task.id], ["Business", t.task.vertical], ["Role", t.task.role], ["Asked", t.text.slice(0, 200)]]}
                 />
               )}
-              {t.task && latestTurnOf.get(t.task.id) === t.key && <ProposalList api={api} proposals={chains[t.task.id]?.proposals ?? []} />}
+              <ProposalList api={api} proposals={proposalsOf.get(t.key) ?? []} />
             </div>
           </div>
         ))}
