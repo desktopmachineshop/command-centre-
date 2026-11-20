@@ -22,9 +22,10 @@ const time = z.enum(["hour", "day", "week", "month", "year", "all"]);
 
 /**
  * Read-only Reddit tools at /mcp/reddit: find threads (a subreddit's listing, search), read one
- * with its comments, read a subreddit's rules, and read a user's recent history. They use
- * Reddit's public pages (./client.ts), need no Reddit app, and never post: replying is a
- * `social.reply` proposal, which Dave approves.
+ * with its comments, read a subreddit's rules, and read a user's recent history. They read
+ * through Dave's signed-in browser on his PC when a "Reddit (posts from my PC)" account is
+ * connected, else from the server (./client.ts); they need no Reddit app, and never post:
+ * replying is a `social.reply` proposal, which Dave approves.
  */
 export function createRedditMcpServer(options: RedditMcpOptions): McpServer {
   const server = new McpServer({ name: "reddit", version: "0.1.0" });
@@ -38,7 +39,14 @@ export function createRedditMcpServer(options: RedditMcpOptions): McpServer {
       const limited = reader.feedsOnly
         ? { access: `Feeds only: Reddit is refusing its full data to this server${reader.signedIn ? "" : " (no Reddit account is connected)"}, so answers have no scores, comment nesting, locked flags or subreddit rules, and Reddit allows about one read a minute. Make each call count.` }
         : {};
-      return ok({ notice: REDDIT_CONTENT_NOTICE, fetchedAt: now().toISOString(), ...limited, ...value });
+      // With a "Reddit (posts from my PC)" account, say which way this answer came, and why not the PC.
+      const pc = reader.pcStatus;
+      const via = !pc
+        ? {}
+        : pc.via === "pc"
+          ? { readVia: "Dave's PC (his signed-in Reddit browser)" }
+          : { readVia: `the server, because the PC couldn't: ${pc.why}` };
+      return ok({ notice: REDDIT_CONTENT_NOTICE, fetchedAt: now().toISOString(), ...via, ...limited, ...value });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -64,7 +72,7 @@ export function createRedditMcpServer(options: RedditMcpOptions): McpServer {
     "search_posts",
     {
       description:
-        'Search Reddit posts, site-wide or in one subreddit, newest first by default. Reddit search syntax works in `query`: quotes for a phrase, OR, title:word, self:yes, subreddit:name, flair:name. e.g. "requirements management tool" OR "alternative to DOORS". Results are posts only; read one with get_thread.',
+        'Search Reddit posts, site-wide or in one subreddit, newest first by default. With a "Reddit (posts from my PC)" account connected, searches and reads go through Dave\'s signed-in browser on his PC (`readVia` says which way each answer came, and why when not the PC). Reddit search syntax works in `query`: quotes for a phrase, OR, title:word, self:yes, subreddit:name, flair:name. e.g. "requirements management tool" OR "alternative to DOORS". Results are posts only; read one with get_thread.',
       inputSchema: {
         query: z.string().min(2).max(300),
         subreddit: z.string().min(2).max(60).optional(),

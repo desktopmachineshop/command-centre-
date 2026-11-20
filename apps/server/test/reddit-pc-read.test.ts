@@ -35,6 +35,11 @@ describe("reading Reddit through Dave's PC", () => {
     const off: BrowserJobs = { run: async () => Promise.reject(new PcOfflineError()) };
     await expect(redditPcRead(off, {})("/search", { q: "x" })).rejects.toThrow(RedditPcUnavailable);
   });
+
+  it("names an outdated desktop app as the reason, when the PC refuses the read op itself", async () => {
+    const old: BrowserJobs = { run: async () => Promise.reject(new Error("The PC couldn't do the Reddit job: Invalid social.reddit.browser payload: ✖ Invalid input → at op")) };
+    await expect(redditPcRead(old, {})("/search", { q: "x" })).rejects.toThrow(/desktop app on the PC is too old to read Reddit/);
+  });
 });
 
 describe("the read tools' reader with a PC connected", () => {
@@ -74,6 +79,22 @@ describe("the read tools' reader with a PC connected", () => {
     });
     expect(await reader.get("/r/hobbycnc/new", {})).toEqual(listing);
     expect(fromServer).toEqual(["/r/hobbycnc/new.json"]);
+    expect(reader.pcStatus).toEqual({ via: "server", why: expect.stringMatching(/isn't connected/) });
+  });
+
+  it("says why the PC didn't read it when the server can't either", async () => {
+    const off: BrowserJobs = { run: async () => Promise.reject(new PcOfflineError()) };
+    const reader = new RedditReader({ browser: () => redditPcRead(off, {}), fetch: async () => html(), sleep: async () => {} });
+    await expect(reader.get("/r/hobbycnc/about", {})).rejects.toThrow(/^Your PC couldn't read this from Reddit \(The PC that posts to Reddit isn't connected.*so the server tried: Reddit refused/);
+  });
+
+  it("reports a read the PC answered", async () => {
+    const studio = pc(() => ({ ok: true, user, status: 200, data: listing }));
+    const reader = new RedditReader({ browser: () => redditPcRead(studio, {}), fetch: async () => html(), sleep: async () => {} });
+    expect(reader.pcStatus).toEqual({ via: "pc" });
+    await reader.get("/r/hobbycnc/new", {});
+    expect(reader.pcStatus).toEqual({ via: "pc" });
+    expect(new RedditReader({ fetch: async () => html() }).pcStatus).toBeNull();
   });
 
   it("gives Reddit's own answer (not found) without trying another way", async () => {

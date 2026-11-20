@@ -137,6 +137,8 @@ export class RedditReader {
   private wasSignedIn = false;
   /** The last read had a Reddit app account to read through. */
   private apiSeen = false;
+  /** Why the PC didn't answer the last read (null when it did, or no PC is connected). */
+  private pcMiss: string | null = null;
 
   constructor(private readonly options: RedditReaderOptions = {}) {
     this.fetch = options.fetch ?? ((input, init) => fetch(input, init));
@@ -147,6 +149,15 @@ export class RedditReader {
   /** True when requests carry a signed-in session's cookie (or go through Dave's signed-in browser). */
   get signedIn(): boolean {
     return !!this.options.cookie?.() || this.apiSeen || !!this.options.browser?.();
+  }
+
+  /**
+   * How the last read went when a PC is connected to read through: "pc" when it answered, or why
+   * it couldn't (and the server answered instead). Null when no PC is connected.
+   */
+  get pcStatus(): { via: "pc" } | { via: "server"; why: string } | null {
+    if (!this.options.browser?.()) return null;
+    return this.pcMiss === null ? { via: "pc" } : { via: "server", why: this.pcMiss };
   }
 
   /** True while Reddit is only letting this server read its feeds (the JSON was refused recently). */
@@ -177,52 +188,73 @@ export class RedditReader {
         if (wait > 0) await this.sleep(wait);
         this.lastRequest = this.now().getTime();
         try {
-          return (await viaPc(path, strings(query))) as T;
+          const value = (await viaPc(path, strings(query))) as T;
+          this.pcMiss = null;
+          return value;
         } catch (err) {
           // The PC can't right now: carry on from the server. What Reddit itself said is the answer.
-          if (!(err instanceof RedditPcUnavailable)) throw err;
-        }
-      }
-      // An account connected through a Reddit app reads through the Data API, which isn't blocked.
-      const api = await this.options.api?.().catch(() => null);
-      this.apiSeen = !!api;
-      if (api) {
-        try {
-          return await this.json<T>(`${this.options.apiBaseUrl ?? REDDIT_API}${path}`, query, { Authorization: `bearer ${api.token}`, "User-Agent": api.userAgent }, false);
-        } catch (err) {
-          // Refused or signed out there: fall back to the public site; anything else (not found, private) is the answer.
-          if (!(err instanceof Refused)) throw err;
-        }
-      }
-      let refused: RedditReadError = new Refused("Reddit is refusing its JSON to this server (HTTP 403)", 403);
-      if (!this.feedsOnly) {
-        try {
-          return await this.json<T>(this.url(path, ".json", {}), query);
-        } catch (err) {
-          if (!(err instanceof Refused)) throw err;
-          refused = err;
-        }
-        // Signed in with a session cookie: the classic site, where that session posts, may answer when www won't.
-        if (this.options.cookie?.()) {
-          try {
-            return await this.json<T>(`${this.options.oldBaseUrl ?? REDDIT_OLD}${path}.json`, query);
-          } catch (err) {
-            if (!(err instanceof Refused)) throw err;
+          if (!(err instanceof RedditPcUnavailable)) {
+            this.pcMiss = null;
+            throw err;
           }
+          this.pcMiss = err.message;
         }
-        this.jsonRefusedUntil = this.now().getTime() + (this.options.jsonRetryMs ?? 15 * 60_000);
+      } else {
+        this.pcMiss = null;
       }
-      if (!feed) {
-        const hint = this.signedIn
-          ? " Reddit is blocking this server right now: try again later."
-          : " Reddit only lets this server read its public feeds, which don't carry this (subreddit rules and descriptions are among what they lack). Connect a Reddit account on the Accounts page (your own login, or a Reddit app) for full reads.";
-        throw new RedditReadError(`${refused.message}.${hint}`, refused.status);
+      try {
+        return await this.fromServer<T>(path, query, feed);
+      } catch (err) {
+        // Say why the PC didn't read it too, or the caller only hears that the server is blocked.
+        if (viaPc && this.pcMiss !== null && err instanceof RedditReadError) {
+          throw new RedditReadError(`Your PC couldn't read this from Reddit (${this.pcMiss.replace(/\.$/, "")}), so the server tried: ${err.message}`, err.status);
+        }
+        throw err;
       }
-      return feed(await this.atom(path, query, refused));
     });
     if (this.cache.size > 300) this.cache.clear();
     this.cache.set(key, { at: this.now().getTime(), value });
     return value;
+  }
+
+  /** The server's own ways of reading: the Data API, the public JSON, the classic site, the feed. */
+  private async fromServer<T>(path: string, query: Query, feed?: (entries: AtomEntry[]) => T): Promise<T> {
+    // An account connected through a Reddit app reads through the Data API, which isn't blocked.
+    const api = await this.options.api?.().catch(() => null);
+    this.apiSeen = !!api;
+    if (api) {
+      try {
+        return await this.json<T>(`${this.options.apiBaseUrl ?? REDDIT_API}${path}`, query, { Authorization: `bearer ${api.token}`, "User-Agent": api.userAgent }, false);
+      } catch (err) {
+        // Refused or signed out there: fall back to the public site; anything else (not found, private) is the answer.
+        if (!(err instanceof Refused)) throw err;
+      }
+    }
+    let refused: RedditReadError = new Refused("Reddit is refusing its JSON to this server (HTTP 403)", 403);
+    if (!this.feedsOnly) {
+      try {
+        return await this.json<T>(this.url(path, ".json", {}), query);
+      } catch (err) {
+        if (!(err instanceof Refused)) throw err;
+        refused = err;
+      }
+      // Signed in with a session cookie: the classic site, where that session posts, may answer when www won't.
+      if (this.options.cookie?.()) {
+        try {
+          return await this.json<T>(`${this.options.oldBaseUrl ?? REDDIT_OLD}${path}.json`, query);
+        } catch (err) {
+          if (!(err instanceof Refused)) throw err;
+        }
+      }
+      this.jsonRefusedUntil = this.now().getTime() + (this.options.jsonRetryMs ?? 15 * 60_000);
+    }
+    if (!feed) {
+      const hint = this.signedIn
+        ? " Reddit is blocking this server right now: try again later."
+        : " Reddit only lets this server read its public feeds, which don't carry this (subreddit rules and descriptions are among what they lack). Connect a Reddit account on the Accounts page (your own login, or a Reddit app) for full reads.";
+      throw new RedditReadError(`${refused.message}.${hint}`, refused.status);
+    }
+    return feed(await this.atom(path, query, refused));
   }
 
   private serial<T>(fn: () => Promise<T>): Promise<T> {
