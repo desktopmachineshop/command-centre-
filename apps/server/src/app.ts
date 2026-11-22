@@ -99,6 +99,7 @@ import { integrationOAuth } from "./integrations/oauth"; // --- integrations oau
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
+import { seedLearning } from "./learning";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
@@ -1050,7 +1051,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone } }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -1193,6 +1194,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await brain.init(); // brain: seed the starter notes
       await seedHowWeWork(brain, pool, verticals); // each business's how-we-work note, from the old org chart (./how-we-work.ts)
       await seedCompetitorRegistries(brain, pool, verticals); // each business's empty competitor registry (./competitors.ts)
+      await seedLearning(brain, pool); // learning: the README and starter topic map (./learning.ts)
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       await storage.init(); // storage: index media from before the index, load the cache
       void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical

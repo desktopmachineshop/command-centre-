@@ -1124,7 +1124,7 @@ export class ScreenWakeLock {
 // ---------- Headset / steering-wheel button ----------
 
 /** A WAV of silence; looping it keeps this page the "now playing" app so media buttons reach it. */
-function silentWav(seconds = 10, rate = 8000): Blob {
+export function silentWav(seconds = 10, rate = 8000): Blob {
   const n = seconds * rate;
   const buf = new ArrayBuffer(44 + n);
   const v = new DataView(buf);

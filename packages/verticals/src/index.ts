@@ -16,7 +16,7 @@ import openv from "./openv";
 import { chiefOfStaff } from "./org";
 import personal from "./personal";
 
-export { chiefOfStaff } from "./org";
+export { chiefOfStaff, DAILY_LESSON_ID } from "./org";
 export { mergeOrgEdit, RETIRED_ROLES } from "./org-merge";
 export { COMPETITOR_WATCH_ID, competitorRegistryPath, REDDIT_SCOUT_ID, SCOUT_WAITS_FOR_ACCOUNT } from "./marketing";
 export { INTERNAL_AUTO_POLICIES } from "./policies";

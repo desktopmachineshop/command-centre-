@@ -14,6 +14,7 @@ import { Connections } from "./pages/Connections";
 import { Devices } from "./pages/Devices";
 import { Activity } from "./pages/Activity";
 import { Inbox, useWaiting, waitingCount } from "./pages/Inbox";
+import { Learning } from "./pages/Learning";
 import { Login } from "./pages/Login";
 import { Org } from "./pages/Org";
 import { Settings } from "./pages/Settings";
@@ -146,6 +147,7 @@ export const NAV: NavItem[] = [
   { key: "converse", label: "Converse", icon: "drive", group: "Work" },
   { key: "social", label: "Social", icon: "social", group: "Business" },
   { key: "org", label: "Businesses", icon: "org", group: "Business" },
+  { key: "learning", label: "Learning", icon: "learn", group: "Knowledge" },
   { key: "brain", label: "Brain", icon: "brain", group: "Knowledge" },
   { key: "accounts", label: "Accounts", icon: "link", group: "System" },
   { key: "devices", label: "Devices", icon: "devices", group: "System" },
@@ -253,6 +255,9 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
       break;
     case "social":
       body = <Social api={api} feed={feed} />;
+      break;
+    case "learning":
+      body = <Learning api={api} feed={feed} path={id ? decodeURIComponent(id) : undefined} />;
       break;
     case "brain":
       body = <Brain api={api} path={id ? decodeURIComponent(id) : undefined} />;

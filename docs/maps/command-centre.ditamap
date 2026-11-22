@@ -33,6 +33,7 @@
   </topichead>
 
   <topichead navtitle="Knowledge">
+    <topicref href="../topics/knowledge/learning.dita"/>
     <topicref href="../topics/knowledge/brain.dita"/>
   </topichead>
 

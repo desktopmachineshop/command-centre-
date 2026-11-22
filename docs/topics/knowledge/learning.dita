@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE topic PUBLIC "-//OASIS//DTD DITA Topic//EN" "topic.dtd">
+<topic id="learning">
+  <title>Learning: a 30-minute lesson a day</title>
+  <shortdesc>Your career coach writes a lesson every morning on AI, robotics and PLCs, SaaS and requirements, maker topics or the tools market. Read it or listen to it in the car, and watch your scoreboard grow.</shortdesc>
+  <prolog>
+    <resourceid appname="command-centre" appid="learning"/>
+  </prolog>
+  <body>
+    <p>Every day at 05:40 the assistant picks a topic from your topic map (<filepath>learning/topics.md</filepath> in the Brain) and writes a lesson of about 30 minutes into <filepath>learning/lessons/</filepath>. The morning brief's last line tells you what it is; tap it to open <uicontrol>Learning</uicontrol>.</p>
+    <ul>
+      <li><uicontrol>Listen</uicontrol> reads the lesson aloud with a free voice: the server's own voice, or this device's if the server has none. <uicontrol>Voice</uicontrol> on the player changes it, just for lessons. Headset, car and lock-screen buttons play, pause and skip a paragraph, and the screen stays on while it plays.</li>
+      <li><uicontrol>Read</uicontrol> opens the text, with a <uicontrol>Try it</uicontrol> exercise and a quiz at the end.</li>
+      <li><uicontrol>Mark as read</uicontrol> or <uicontrol>Mark as listened</uicontrol> when you finish, with an optional star rating. <uicontrol>Not done</uicontrol> undoes it.</li>
+    </ul>
+  </body>
+  <topic id="pick">
+    <title>Pick another topic</title>
+    <prolog><resourceid appname="command-centre" appid="learning.pick"/></prolog>
+    <body>
+      <p><uicontrol>Pick another topic</uicontrol> lists what you asked for and what's up next. <uicontrol>Make this lesson</uicontrol>, or type in <uicontrol>Teach me about…</uicontrol> and choose <uicontrol>Ask</uicontrol>: the coach writes it now and it appears in a few minutes. You can also ask in Chat ("teach me about harmonic drives"), and anything you show interest in is added to the topic map.</p>
+    </body>
+  </topic>
+  <topic id="scoreboard">
+    <title>Scoreboard</title>
+    <prolog><resourceid appname="command-centre" appid="learning.scoreboard"/></prolog>
+    <body>
+      <p>Your streak (days in a row with a lesson done), lessons done, learning time and this week, then lessons a week over the last 12 weeks, lessons by track, and badges. It is counted from each lesson's frontmatter in the Brain.</p>
+    </body>
+  </topic>
+</topic>

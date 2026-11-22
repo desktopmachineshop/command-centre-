@@ -5029,3 +5029,245 @@ a.button-link.call-button {
 .record-card-ref {
   font-size: var(--fs-xs);
 }
+
+/* --- Learning (pages/Learning.tsx): today's lesson, the scoreboard, the lesson player --- */
+.track-chip {
+  display: inline-block;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-full);
+  padding: 1px 10px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+.learning-today h3 {
+  margin: var(--sp-1) 0 var(--sp-2);
+  font-size: var(--fs-lg);
+}
+.learning-actions {
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.learning-actions button.big {
+  min-height: 48px;
+  padding: 0 var(--sp-5);
+  font-size: var(--fs-md);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  min-width: 0;
+}
+.stat-value {
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+.stat-label {
+  font-size: var(--fs-sm);
+}
+.stat-sub {
+  font-size: var(--fs-xs);
+}
+.scoreboard h4 {
+  margin: var(--sp-4) 0 var(--sp-2);
+  color: var(--text-2);
+}
+.week-bars {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+  height: 72px;
+  align-items: end;
+  border-bottom: 1px solid var(--border);
+}
+.week-bar {
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 2px;
+  cursor: default;
+}
+.week-bar:hover {
+  background: var(--accent-soft);
+}
+.week-fill {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+}
+.week-axis {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-xs);
+}
+.track-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-2);
+}
+.track-bars li {
+  display: grid;
+  grid-template-columns: minmax(90px, 11rem) 1fr 2rem;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.track-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.track-bar {
+  height: 10px;
+  background: var(--surface-2);
+  border-radius: 0 4px 4px 0;
+  overflow: hidden;
+}
+.track-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 0 4px 4px 0;
+}
+.track-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.badges {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.badges li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-full);
+  padding: 4px 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.badges li.earned {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+.suggestions .title {
+  margin: var(--sp-1) 0 0;
+  font-weight: 600;
+}
+.ask-topic {
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+  flex-wrap: wrap;
+}
+.ask-topic input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.filters {
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.done-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--success);
+  font-weight: 600;
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.lesson-page header h2 {
+  margin-bottom: var(--sp-1);
+}
+.lesson-player {
+  position: sticky;
+  top: var(--sp-2);
+  z-index: 2;
+}
+.lesson-player progress {
+  width: 100%;
+  height: 6px;
+  margin: var(--sp-2) 0;
+  accent-color: var(--accent);
+}
+.player-buttons {
+  justify-content: center;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+}
+.player-buttons button {
+  min-width: 48px;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+.player-buttons button svg + svg {
+  margin-left: -10px;
+}
+.player-buttons .play-big {
+  min-width: 72px;
+  min-height: 72px;
+  border-radius: var(--r-full);
+}
+.now-reading {
+  font-size: var(--fs-lg);
+  line-height: var(--lh-read);
+  max-height: 9.5em;
+  overflow-y: auto;
+  margin: var(--sp-2) 0;
+}
+.lesson-body .md {
+  line-height: var(--lh-read);
+  font-size: var(--fs-md);
+}
+.stars {
+  gap: 2px;
+  align-items: center;
+  margin-bottom: var(--sp-3);
+}
+.stars .small {
+  margin-right: var(--sp-2);
+}
+button.star {
+  min-width: 40px;
+  min-height: 40px;
+  font-size: 1.25rem;
+  color: var(--text-3);
+  padding: 0;
+}
+button.star.on {
+  color: var(--warn);
+}
+/* --- end learning --- */
