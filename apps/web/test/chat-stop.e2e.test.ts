@@ -96,7 +96,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: stopping the agent (Playwright)", 
     await chooser.setFiles({ name: "photo.png", mimeType: "image/png", buffer: Buffer.from([137, 80, 78, 71]) });
     await page.locator(".composer-files .file-chip.is-ready", { hasText: "photo.png" }).waitFor();
     await box.fill("what is in this photo of the mill");
-    await box.press("Enter");
+    await box.press("Control+Enter");
     const sent = page.locator(".bubble.me", { hasText: "what is in this photo of the mill" });
     await sent.waitFor();
 
@@ -110,7 +110,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: stopping the agent (Playwright)", 
 
     // The corrected message starts the chat afresh (it was the task's first message), with the file.
     await box.fill("what is in this photo of the lathe");
-    await box.press("Enter");
+    await box.press("Control+Enter");
     await expect.poll(() => calls.filter((c) => c.path === "/chat").at(-1)?.body).toEqual({
       text: "what is in this photo of the lathe",
       files: ["0".repeat(31) + "1"],

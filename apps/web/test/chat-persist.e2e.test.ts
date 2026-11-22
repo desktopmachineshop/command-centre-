@@ -124,7 +124,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
     const box = page.getByRole("textbox", { name: "Message" });
     await box.waitFor({ timeout: 20_000 });
     await box.fill("has order 1042 shipped?");
-    await box.press("Enter");
+    await box.press("Control+Enter");
     await page.locator(".bubble.me", { hasText: "has order 1042 shipped?" }).waitFor();
 
     // Away and back: the question is still there, with its answer from the task.
@@ -151,7 +151,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: a lasting conversation and dictati
 
     // New chat clears it straight away.
     await page.getByRole("textbox", { name: "Message" }).fill("again?");
-    await page.getByRole("textbox", { name: "Message" }).press("Enter");
+    await page.getByRole("textbox", { name: "Message" }).press("Control+Enter");
     await page.locator(".turn").first().waitFor();
     await page.getByRole("button", { name: "New chat" }).click();
     expect(await page.locator(".turn").count()).toBe(0);

@@ -29,7 +29,7 @@
     <title>Reply</title>
     <prolog><resourceid appname="command-centre" appid="inbox.task.reply"/></prolog>
     <body>
-      <p>When a task has answered (it is done, didn't finish, or is waiting for approval), the box under the conversation carries it on: answer its question, change the plan, or ask for something else. The task runs again with your reply and its earlier work, and your reply shows in the conversation straight away. While it is still working there is no box: reply as soon as it has answered. Enter sends; Shift+Enter starts a new line; the microphone dictates.</p>
+      <p>When a task has answered (it is done, didn't finish, or is waiting for approval), the box under the conversation carries it on: answer its question, change the plan, or ask for something else. The task runs again with your reply and its earlier work, and your reply shows in the conversation straight away. While it is still working there is no box: reply as soon as it has answered. Enter starts a new line; tap <uicontrol>Send</uicontrol>, or press Ctrl+Enter (⌘+Enter on a Mac) on a computer, to send it; the microphone dictates.</p>
     </body>
   </topic>
 </topic>

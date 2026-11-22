@@ -607,7 +607,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Drive page (Playwright, mocked speech)",
     const box = page.getByRole("textbox", { name: "Message" });
     await box.waitFor({ timeout: 20_000 });
     await box.fill("has order 1042 shipped?");
-    await box.press("Enter");
+    await box.press("Control+Enter");
     await page.locator(".turn").first().waitFor();
 
     // Chat is quiet by default, whatever was chosen before.

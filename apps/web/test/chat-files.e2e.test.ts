@@ -113,7 +113,7 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: attaching, pasting and dropping fi
     await page.getByRole("button", { name: "Remove prices.csv" }).click();
     await box.fill("what do you make of these?");
     if (process.env.TASK_SHOTS) await page.screenshot({ path: `${process.env.TASK_SHOTS}/chat-files-composer.png` });
-    await box.press("Enter");
+    await box.press("Control+Enter");
 
     await expect.poll(() => calls.find((c) => c.path === "/chat")?.body).toMatchObject({
       text: "what do you make of these?",
