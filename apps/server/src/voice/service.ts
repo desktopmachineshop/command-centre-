@@ -221,7 +221,7 @@ export class VoiceService {
    * VoiceNotInstalledError (and starts downloading) and a keyed provider's failure is thrown.
    * `instructions`: a speaking style, for the models that take one (OpenAI gpt-4o-mini-tts).
    */
-  async narrate(text: string, voice: string | undefined, opts: { instructions?: string } = {}): Promise<{ audio: Uint8Array; mime: string; provider: string }> {
+  async narrate(text: string, voice: string | undefined, opts: { instructions?: string; speed?: number } = {}): Promise<{ audio: Uint8Array; mime: string; provider: string }> {
     const local = this.options.local;
     const localVoice = voice && local && findVoice(voice) ? voice : undefined;
     const elevenVoice = voice?.startsWith(ELEVENLABS_PREFIX) ? voice.slice(ELEVENLABS_PREFIX.length) : undefined;
@@ -233,6 +233,8 @@ export class VoiceService {
       format: "mp3",
       language: this.options.language,
       instructions: opts.instructions,
+      // A pace for the server's own voices; keyed voices keep their natural one.
+      ...(opts.speed && tts.provider === "local" ? { speed: opts.speed } : {}),
       fallback: false,
     });
     return { audio: result.audio, mime: result.mime, provider: tts.provider };

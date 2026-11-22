@@ -23,6 +23,11 @@ export const PRONUNCIATION_PATH = "learning/pronunciation.md";
 
 /** Free and natural (Kokoro, self-hosted) unless Dave picks another narrator on the Learning page. */
 export const DEFAULT_NARRATOR = "kokoro:bf_emma";
+/**
+ * The server's own voices read lessons a touch slower than they chat (the default is 1.05): easier
+ * to follow while driving. Measured on Kokoro: about 165 words a minute with the pauses.
+ */
+export const NARRATION_SPEED = 0.95;
 /** How keyed voices that take a style (OpenAI gpt-4o-mini-tts) should read. */
 export const NARRATOR_STYLE =
   "You are narrating an educational podcast for an experienced British engineer. Warm, curious and unhurried, like a good radio presenter: natural rises and falls, light emphasis on the key word of each sentence, and a breath between ideas. Never rushed, never sing-song.";
@@ -86,6 +91,23 @@ spelling here (or move it up) and the next recording uses it.
 
 // ---------- checking by ear (pure) ----------
 
+/**
+ * One spelling for British and American variants, so the recogniser (which writes American)
+ * isn't marked wrong for "synchronization" or "millimeter". Pure.
+ */
+export function oneSpelling(word: string): string {
+  return word
+    .toLowerCase()
+    .replace(/is(ation|ations|e|es|ed|ing|er|ers)$/, "iz$1")
+    .replace(/ys(e|es|ed|ing)$/, "yz$1")
+    .replace(/tre(s?)$/, "ter$1")
+    .replace(/our(s|ed|ing|ite|ites)?$/, "or$1")
+    .replace(/ogue(s?)$/, "og$1")
+    .replace(/ogued$/, "oged")
+    .replace(/lled$/, "led")
+    .replace(/lling$/, "ling");
+}
+
 /** Words, keeping their case (to tell terms from ordinary words) and their position. */
 const tokens = (t: string) =>
   t
@@ -118,8 +140,8 @@ function lcs(a: string[], b: string[]): boolean[] {
  */
 export function compareHeard(expected: string, heard: string): { score: number; missing: string[]; terms: string[] } {
   const raw = tokens(expected);
-  const want = raw.map((w) => w.toLowerCase());
-  const said = tokens(heard).map((w) => w.toLowerCase());
+  const want = raw.map(oneSpelling);
+  const said = tokens(heard).map(oneSpelling);
   const hit = lcs(want, said);
   // Spacing isn't pronunciation: "Ether-cat" heard as "Ethercat", or "TwinCAT" as "twin cat", is right.
   const joined = said.join("");
@@ -235,7 +257,7 @@ export interface NarrationDeps {
   brain: Pick<Brain, "read" | "write" | "list">;
   storage: Pick<Storage, "put" | "delete">;
   /** One piece of speech in the narrator's voice (VoiceService.narrate). */
-  narrate: (text: string, voice: string | undefined, opts: { instructions?: string }) => Promise<{ audio: Uint8Array }>;
+  narrate: (text: string, voice: string | undefined, opts: { instructions?: string; speed?: number }) => Promise<{ audio: Uint8Array }>;
   /** Recognition of 16 kHz mono samples, when the server's own recogniser is installed. */
   transcribe?: (() => ((samples: Float32Array) => Promise<string>) | null) | null;
   /** Public URL of a stored file (/media/<id>). */
@@ -277,7 +299,7 @@ export async function recordLesson(deps: NarrationDeps, path: string, onProgress
   const pieces = narrationPieces(script);
   if (!pieces.length) throw new Error("nothing to read in this lesson");
   const voice = await narratorOf(deps.brain);
-  const opts = { instructions: NARRATOR_STYLE };
+  const opts = { instructions: NARRATOR_STYLE, speed: NARRATION_SPEED };
   const listen = deps.transcribe?.() ?? null;
 
   const chunks: Buffer[] = [];

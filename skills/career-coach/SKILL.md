@@ -99,9 +99,10 @@ section at the end and follow it.
 
 ## Writing a lesson
 
-**Length: 30 minutes, read or listened.** Write 4,300 to 4,800 words of lesson (spoken at about
-150 words a minute that's 30 minutes), plus a short "Try it" and quiz that a reader works through
-in the time he'd otherwise spend listening longer. Count roughly; under 3,800 words is too short.
+**Length: 30 minutes, read or listened.** Write 4,800 to 5,200 words of lesson (the narrator reads
+at about 165 words a minute, so that's 30 minutes), plus a short "Try it" and quiz that a reader
+works through in the time he'd otherwise spend listening longer. Count roughly; under 4,300 words
+is too short.
 
 **It must work by ear.** Dave is often driving, and the lesson is recorded as written:
 - Write in full spoken sentences, like a good podcast host explaining to one engineer. No tables,
