@@ -5304,3 +5304,13 @@ button.star.on {
   flex: 1 1 16rem;
   min-width: 0;
 }
+.lesson-check .check ul {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-left: var(--sp-5);
+  overscroll-behavior: contain;
+}
+.lesson-check {
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
