@@ -17,6 +17,9 @@ describe("checking a recording by ear (pure)", () => {
     expect(one).toMatchObject({ missing: ["opc"], terms: ["opc"] });
     expect(soundsOff(one)).toBe(true);
     expect(soundsOff(compareHeard("It was a very good day for the whole team at the plant.", "it was a very good way for the whole team at the plant"))).toBe(false);
+    // British and American spellings are the same word.
+    expect(compareHeard("That determinism makes precise synchronisation possible, to a tenth of a millimetre.", "that determinism makes precise synchronization possible to a tenth of a millimeter").missing).toEqual([]);
+    expect(compareHeard("The colour was analysed and catalogued, then travelled.", "the color was analyzed and cataloged then traveled").missing).toEqual([]);
     // Numbers and short words don't count: recognisers write them their own way.
     expect(compareHeard("It runs at 100 hertz on a bus.", "it runs at one hundred hertz on the bus").score).toBe(1);
     const bad = compareHeard("Beckhoff makes TwinCAT controllers.", "back off makes twin cat controllers");

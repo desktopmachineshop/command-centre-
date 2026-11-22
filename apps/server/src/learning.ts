@@ -38,8 +38,8 @@ export type TrackId = (typeof LEARNING_TRACKS)[number]["id"];
 const TRACK_IDS = new Set<string>(LEARNING_TRACKS.map((t) => t.id));
 const trackOf = (v: unknown): TrackId => (typeof v === "string" && TRACK_IDS.has(v.toLowerCase()) ? (v.toLowerCase() as TrackId) : "interest");
 
-/** Speaking pace of the voices (words a minute) and a reader's pace, for the time estimates. */
-export const LISTEN_WPM = 150;
+/** The narrator's pace (words a minute, pauses included, measured on Kokoro at 0.95) and a reader's, for the time estimates. */
+export const LISTEN_WPM = 165;
 export const READ_WPM = 230;
 
 export const README_BODY = `# Learning

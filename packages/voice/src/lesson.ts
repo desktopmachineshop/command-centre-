@@ -138,10 +138,10 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
   return { sections, parts };
 }
 
-/** Rough minutes left from part `from` at the voices' pace (150 words a minute). Pure. */
+/** Rough minutes left from part `from` at the voices' pace (165 words a minute). Pure. */
 export function minutesLeft(parts: Part[], from: number): number {
   const words = parts.slice(from).reduce((n, p) => n + p.text.split(/\s+/).length, 0);
-  return Math.ceil(words / 150);
+  return Math.ceil(words / 165);
 }
 
 /** Seconds of silence after a piece: the cadence of a narrated lesson. */

@@ -49,7 +49,7 @@ describe("learning (pure)", () => {
       path: "learning/lessons/2026-11-20-carbide.md",
       title: "Why carbide costs more",
       frontmatter: { type: "lesson", track: "market", status: "done", completed: "2026-11-21T08:00:00Z", completed_mode: "listen", minutes_spent: 28, rating: 4 },
-      words: 4500,
+      words: 4950,
       updatedAt: "2026-11-21T08:00:00Z",
     })!;
     expect(l).toMatchObject({ track: "market", status: "done", created: "2026-11-20", completedMode: "listen", minutesSpent: 28, rating: 4, listenMinutes: 30 });
@@ -134,7 +134,7 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     expect(empty.body.tracks.map((t: { id: string }) => t.id)).toContain("robotics");
 
     const path = `learning/lessons/${empty.body.today}-ethercat.md`;
-    const put = await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: raw(`type: lesson\ntrack: robotics\ntitle: EtherCAT clocks\nstatus: ready\ncreated: ${empty.body.today}\nminutes: 30`, 4500) } });
+    const put = await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: raw(`type: lesson\ntrack: robotics\ntitle: EtherCAT clocks\nstatus: ready\ncreated: ${empty.body.today}\nminutes: 30`, 4950) } });
     expect(put.status).toBe(200);
 
     const listed = await ctx.api("/api/learning");
