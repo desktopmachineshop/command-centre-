@@ -95,7 +95,12 @@ describe.skipIf(!existsSync(CHROMIUM))("Chat: approvals inline (Playwright)", ()
     const box = page.getByPlaceholder("What needs doing?");
     await box.waitFor({ timeout: 20_000 });
     await box.fill("Post the spindle tram video");
+    // Plain Enter is a new line, never a send (a phone's return key must not send).
     await box.press("Enter");
+    expect(await box.inputValue()).toBe("Post the spindle tram video\n");
+    expect(await page.locator(".turn").count()).toBe(0);
+    await box.fill("Post the spindle tram video");
+    await box.press("Control+Enter");
 
     const card = page.locator(".inline-proposals .card.proposal.is-pending");
     await card.waitFor({ timeout: 15_000 });

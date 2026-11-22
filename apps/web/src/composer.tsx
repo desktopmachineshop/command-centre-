@@ -8,7 +8,9 @@ import { Waveform } from "./voice/Waveform";
 
 /**
  * The message box shared by the Chat page and a task's "Reply to the agent": a text box,
- * the dictation mic and Send. Enter sends, Shift+Enter is a new line. The mic dictates
+ * the dictation mic and Send. Enter is a new line everywhere, so a phone's return key never
+ * sends by accident: on a phone you tap Send, and on a computer Ctrl+Enter (⌘+Enter on a Mac)
+ * sends too. The mic dictates
  * into the box (nothing is sent by itself): while it listens, a live waveform follows the
  * voice and the words appear as they're said; ✓ keeps them, ✕ throws them away. Send while
  * dictating finishes listening, then sends everything said. The mic is hidden where the
@@ -195,7 +197,7 @@ export function Composer({
       rows={panel ? 1 : 2}
       onPaste={onPaste}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) {
           e.preventDefault();
           e.currentTarget.form?.requestSubmit();
         }
