@@ -8,7 +8,8 @@
     "./speakable": "./src/speakable.ts",
     "./response": "./src/response.ts",
     "./local": "./src/local/index.ts",
-    "./sentences": "./src/sentences.ts"
+    "./sentences": "./src/sentences.ts",
+    "./lesson": "./src/lesson.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

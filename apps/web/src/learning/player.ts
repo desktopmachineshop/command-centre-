@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Api, VoiceConfig } from "../api";
-import { readLearningVoice, speakerFor } from "../voice/choice";
+import { speakerFor } from "../voice/choice";
 import { BrowserSpeaker, hasSynthesis, loadVoices, pickVoice, ScreenWakeLock, ServerSpeaker, type Speaker, silentWav } from "../voice/speech";
 import type { Part } from "./script";
 
@@ -21,12 +21,12 @@ const writePos = (path: string, i: number) => {
 };
 
 /**
- * Reads a lesson aloud, a paragraph at a time, with the Learning page's voice (a free one unless
- * Dave picks another). Pause, skip back and forward by paragraph or section; the place is kept per
+ * Reads a lesson aloud live, a paragraph at a time, with the lesson narrator's voice: the stand-in
+ * until the server has recorded it (learning/recording.ts plays the recording). Pause, skip back and forward by paragraph or section; the place is kept per
  * lesson on this device. Headset, car and lock-screen buttons play, pause and skip (Media Session),
  * and the screen stays on while it plays.
  */
-export function useLessonPlayer(api: Pick<Api, "speak">, config: VoiceConfig | null, path: string, parts: Part[], title: string) {
+export function useLessonPlayer(api: Pick<Api, "speak">, config: VoiceConfig | null, path: string, parts: Part[], title: string, voice: string) {
   const [index, setIndex] = useState(() => Math.min(readPos(path), Math.max(0, parts.length - 1)));
   const [playing, setPlaying] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -67,11 +67,11 @@ export function useLessonPlayer(api: Pick<Api, "speak">, config: VoiceConfig | n
   const makeSpeaker = useCallback(async () => {
     const lang = config?.language ?? "en-GB";
     const browser = hasSynthesis() ? new BrowserSpeaker(pickVoice(await loadVoices(), lang), lang) : null;
-    const s = speakerFor(api, config, readLearningVoice() ?? "device", browser);
+    const s = speakerFor(api, config, voice, browser);
     if (!s) throw new Error("This device can't speak, and the server has no voice.");
     if (s instanceof ServerSpeaker) s.unlock();
     return s;
-  }, [api, config]);
+  }, [api, config, voice]);
 
   const play = useCallback(
     async (from = indexRef.current) => {

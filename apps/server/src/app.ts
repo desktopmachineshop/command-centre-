@@ -100,6 +100,7 @@ import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrati
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
 import { seedLearning, writeActivityNote } from "./learning";
+import { LessonRecorder, narratorOf, setNarrator } from "./learning-audio";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
@@ -1051,7 +1052,26 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone } }));
+  // --- learning: lessons recorded once, carefully, by the narrator (./learning-audio.ts) ---
+  const lessonRecorder = new LessonRecorder({
+    brain,
+    storage,
+    narrate: (text, voice, opts) => voiceService.narrate(text, voice, opts),
+    // The server's own recogniser listens back to each sentence, once it is installed.
+    transcribe: () =>
+      localSpeech?.asrReady
+        ? (samples) => {
+            const stream = localSpeech.openStream(() => {});
+            stream.accept(samples);
+            return stream.finish();
+          }
+        : null,
+    mediaUrl: (id) => `/media/${id}`,
+    log: (line) => console.log(line),
+  });
+  const learningNarration = { recorder: lessonRecorder, narrator: () => narratorOf(brain), setNarrator: (voice: string) => setNarrator(brain, voice) };
+  // --- end learning ---
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration } }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -1199,6 +1219,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await seedHowWeWork(brain, pool, verticals); // each business's how-we-work note, from the old org chart (./how-we-work.ts)
       await seedCompetitorRegistries(brain, pool, verticals); // each business's empty competitor registry (./competitors.ts)
       await seedLearning(brain, pool); // learning: the README and starter topic map (./learning.ts)
+      if (process.env.NODE_ENV !== "test") lessonRecorder.start(); // learning: records new lessons in the background
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       await storage.init(); // storage: index media from before the index, load the cache
       void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical
@@ -1264,6 +1285,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       for (const c of crons) c.stop();
       for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();
+      lessonRecorder.stop();
       stopHeartbeat();
       await email.stop();
       voiceFront?.stop();

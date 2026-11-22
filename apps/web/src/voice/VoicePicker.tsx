@@ -24,19 +24,8 @@ export function fallbackNote(header: string): string {
  * server's voices, grouped by speed, or the device's own. A voice that isn't downloaded starts
  * downloading when chosen (the default speaks meanwhile); Preview plays a sample.
  */
-export function VoicePicker({
-  api,
-  config,
-  learning = false,
-  sample = SAMPLE,
-}: {
-  api: Pick<Api, "voices" | "installVoice" | "speak">;
-  config: VoiceConfig | null;
-  /** The Learning page's own voice (voice/choice.ts readLearningVoice) instead of this device's. */
-  learning?: boolean;
-  sample?: string;
-}) {
-  const [choice, setChoice] = useVoiceChoice(learning);
+export function VoicePicker({ api, config, sample = SAMPLE }: { api: Pick<Api, "voices" | "installVoice" | "speak">; config: VoiceConfig | null; sample?: string }) {
+  const [choice, setChoice] = useVoiceChoice();
   const [list, setList] = useState<VoiceList | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);

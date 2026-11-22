@@ -309,6 +309,27 @@ export type Lesson = {
   words: number;
   listenMinutes: number;
   readMinutes: number;
+  /** The narrated recording, once the server has made it. */
+  audio: LessonAudio | null;
+};
+export type LessonAudio = {
+  id: string;
+  url: string;
+  voice: string;
+  seconds: number;
+  chapters: { title: string; at: number }[];
+  recorded: string;
+  checked: number;
+  flagged: { text: string; missing: string[]; heard: string }[];
+};
+/** The narrator and what the recorder is doing (server learning-audio.ts). */
+export type Narration = {
+  narrator: string;
+  available: boolean;
+  reason: string | null;
+  current: { path: string; done: number; total: number } | null;
+  queued: string[];
+  lastError: { path: string; error: string } | null;
 };
 export type LearningSuggestion = { track: string; title: string; why: string };
 export type LearningStats = {
@@ -334,6 +355,7 @@ export type LearningView = {
   suggestions: { requested: LearningSuggestion[]; fromWork: LearningSuggestion[]; upNext: LearningSuggestion[]; backlog: number };
   stats: LearningStats;
   topicsPath: string;
+  narration: Narration | null;
 };
 // --- end learning ---
 
@@ -541,6 +563,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     lesson: (path: string) => call<{ lesson: Lesson; body: string }>(`/learning/lesson?path=${encodeURIComponent(path)}`),
     completeLesson: (path: string, mode: "read" | "listen", extra: { minutes?: number; rating?: number } = {}) => post<{ ok: true }>("/learning/complete", { path, mode, ...extra }),
     reopenLesson: (path: string) => post<{ ok: true }>("/learning/reopen", { path }),
+    narration: () => call<Narration | null>("/learning/narration"),
+    setNarrator: (voice: string) => call<Narration>("/learning/narrator", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice }) }),
+    recordLesson: (path: string) => post<Narration>("/learning/record", { path }),
     requestLesson: (topic: string, track?: string) => post<{ taskId: string | null }>("/learning/request", { topic, ...(track ? { track } : {}) }),
     // --- end learning ---
     /** `due` is local Europe/London `YYYY-MM-DDTHH:MM`; `recurrence` is e.g. "weekdays", "weekly:mon,thu", "monthly:15" or "none". */
