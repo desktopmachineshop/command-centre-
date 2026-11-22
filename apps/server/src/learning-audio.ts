@@ -105,7 +105,25 @@ export function oneSpelling(word: string): string {
     .replace(/ogue(s?)$/, "og$1")
     .replace(/ogued$/, "oged")
     .replace(/lled$/, "led")
-    .replace(/lling$/, "ling");
+    .replace(/lling$/, "ling")
+    .replace(/(def|off|lic|pret)ence(s?)$/, "$1ense$2")
+    .replace(/^tonne(s?)$/, "ton$1")
+    .replace(/^programme(s?)$/, "program$1")
+    .replace(/^aluminium$/, "aluminum")
+    .replace(/^grey$/, "gray");
+}
+
+/**
+ * A word's consonants, without "r" and doubled letters: what's left when a British voice meets an
+ * American recogniser, which hears the short "o" of "shock", "clock" or "shops" as "shark",
+ * "clerk", "sharps". Only used for ordinary words, never for names and jargon. Pure.
+ */
+export function skeleton(word: string): string {
+  return word
+    .toLowerCase()
+    .replace(/ck/g, "k")
+    .replace(/[aeiouyr]/g, "")
+    .replace(/(.)\1+/g, "$1");
 }
 
 /** Words, keeping their case (to tell terms from ordinary words) and their position. */
@@ -153,6 +171,15 @@ export function compareHeard(expected: string, heard: string): { score: number; 
     const withPrev = want[i - 1] ? want[i - 1] + w : "";
     if ((withNext && joined.includes(withNext)) || (withPrev && joined.includes(withPrev)) || (w.length >= 5 && joined.includes(w))) hit[i] = true;
     else if (said.some((h) => h.length >= 5 && w.length < h.length && rawJoined.includes(h) && h.includes(w))) hit[i] = true;
+  }
+  // An ordinary word heard with the same consonants is an accent, not a mispronunciation.
+  const isTerm = (i: number) => (i > 0 && /[A-Z]/.test(raw[i]!)) || /[A-Z].*[A-Z]/.test(raw[i]!);
+  for (let i = 0; i < want.length; i++) {
+    if (hit[i] || isTerm(i)) continue;
+    const s = skeleton(want[i]!);
+    const w = want[i]!;
+    // Words with no consonants left ("ore" heard as "aur") match a similar vowel-only word.
+    if (s.length >= 2 ? said.some((h) => skeleton(h) === s) : said.some((h) => skeleton(h) === s && Math.abs(h.length - w.length) <= 1)) hit[i] = true;
   }
   const counted = raw.map((w, i) => ({ w: want[i]!, hit: hit[i]!, counts: w.length > 2 && !/\d/.test(w), term: (i > 0 && /[A-Z]/.test(w)) || /[A-Z].*[A-Z]/.test(w) }));
   const total = counted.filter((c) => c.counts).length;

@@ -615,6 +615,7 @@ function RecordingCard({
   const chapter = audio.chapters[p.chapter];
   const flagged = audio.flagged.length;
   return (
+    <>
     <div className="card lesson-player" aria-label="Listen to this lesson">
       <div className="row between small">
         <span className="muted clip">{chapter?.title ?? lesson.title}</span>
@@ -685,6 +686,9 @@ function RecordingCard({
           </button>
         </p>
       )}
+    </div>
+    {/* Not inside the player: the player stays pinned at the top, so a long list there couldn't scroll. */}
+    <article className="card lesson-check">
       <details className="check small">
         <summary className="muted">
           Checked by ear: {audio.checked ? (flagged ? `${flagged} of ${audio.checked} sentences may sound off` : `all ${audio.checked} sentences clear`) : "not checked"}
@@ -715,7 +719,8 @@ function RecordingCard({
           </p>
         )}
       </details>
-    </div>
+    </article>
+    </>
   );
 }
 

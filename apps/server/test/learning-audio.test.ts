@@ -20,6 +20,13 @@ describe("checking a recording by ear (pure)", () => {
     // British and American spellings are the same word.
     expect(compareHeard("That determinism makes precise synchronisation possible, to a tenth of a millimetre.", "that determinism makes precise synchronization possible to a tenth of a millimeter").missing).toEqual([]);
     expect(compareHeard("The colour was analysed and catalogued, then travelled.", "the color was analyzed and cataloged then traveled").missing).toEqual([]);
+    expect(compareHeard("Defence buyers need export licences for ninety tonnes.", "defense buyers need export licenses for ninety tons").missing).toEqual([]);
+    // A British vowel heard by an American recogniser is an accent, not an error, for ordinary words...
+    expect(compareHeard("That is a supply shock for machine shops restocking.", "that is a supply shark for machine sharps restarking").missing).toEqual([]);
+    expect(compareHeard("Distributed clocks keep time.", "distributed clerks keep time").missing).toEqual([]);
+    // ...but names and jargon must be heard as written.
+    expect(compareHeard("Mining.com and Kitco reported highs.", "mining dart calm and kicko reported highs").terms).toEqual(["kitco"]);
+    expect(compareHeard("The ore comes from scheelite.", "the aur comes from shelight").missing).toEqual(["scheelite"]);
     // Numbers and short words don't count: recognisers write them their own way.
     expect(compareHeard("It runs at 100 hertz on a bus.", "it runs at one hundred hertz on the bus").score).toBe(1);
     const bad = compareHeard("Beckhoff makes TwinCAT controllers.", "back off makes twin cat controllers");
