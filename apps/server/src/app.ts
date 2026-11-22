@@ -30,7 +30,7 @@ import {
 } from "@cc/social";
 import { createRedditMcpServer, createResearchMcpServer, RedditReader, type SafeFetchOptions } from "@cc/research";
 import type { Triager } from "@cc/triage";
-import { VerticalRegistry } from "@cc/verticals";
+import { DAILY_LESSON_ID, VerticalRegistry } from "@cc/verticals";
 import { createGoogleTokenProvider, type GoogleTokenProvider, mediaIdsIn } from "@cc/storage";
 import { createVoiceProviders, type SpeechToText, type TextToSpeech } from "@cc/voice";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -99,7 +99,7 @@ import { integrationOAuth } from "./integrations/oauth"; // --- integrations oau
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
-import { seedLearning } from "./learning";
+import { seedLearning, writeActivityNote } from "./learning";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
@@ -1129,7 +1129,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (!started || !config.schedulesEnabled) return;
     // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
     const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
-    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, (v, s) => scheduleShouldFire(brain, v, s.id, (id) => social.current.accounts.some((a) => a.platform === "reddit" && accountSpeaksFor(a, id))));
+    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, async (v, s) => {
+      // learning: the daily lesson first notes what Dave dealt with yesterday, for "From your work" (./learning.ts).
+      if (s.id === DAILY_LESSON_ID) await writeActivityNote(brain, pool, new Date(), config.timezone).catch((err) => console.error("[learning] activity note:", (err as Error).message));
+      return scheduleShouldFire(brain, v, s.id, (id) => social.current.accounts.some((a) => a.platform === "reddit" && accountSpeaksFor(a, id)));
+    });
   };
   org.onChange(() => {
     restartSchedules();

@@ -59,7 +59,7 @@ function TrackChip({ track, tracks }: { track: string; tracks: LearningTrack[] }
 function TodayCard({ view }: { view: LearningView }) {
   const l = view.todays;
   if (!l) {
-    const next = view.suggestions.requested[0] ?? view.suggestions.upNext[0];
+    const next = view.suggestions.requested[0] ?? view.suggestions.fromWork?.[0] ?? view.suggestions.upNext[0];
     return (
       <article className="card learning-today">
         <p className="muted small">Today's lesson</p>
@@ -188,15 +188,16 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
     setTopic("");
   };
   const seen = new Set<string>();
-  const list: (LearningSuggestion & { requested: boolean })[] = [];
-  for (const [items, requested] of [
-    [view.suggestions.requested, true],
-    [view.suggestions.upNext, false],
+  const list: (LearningSuggestion & { from: string | null })[] = [];
+  for (const [items, from] of [
+    [view.suggestions.requested, "requested"],
+    [view.suggestions.fromWork ?? [], "from your work"],
+    [view.suggestions.upNext, null],
   ] as const) {
     for (const s of items) {
       if (seen.has(s.title.toLowerCase())) continue;
       seen.add(s.title.toLowerCase());
-      list.push({ ...s, requested });
+      list.push({ ...s, from });
     }
   }
   return (
@@ -213,7 +214,7 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
                 <div className="row between">
                   <span className="row">
                     <TrackChip track={s.track} tracks={view.tracks} />
-                    {s.requested && <span className="muted small">requested</span>}
+                    {s.from && <span className="muted small">{s.from}</span>}
                   </span>
                   {sent ? (
                     asked[key] ? (

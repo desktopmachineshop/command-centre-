@@ -331,7 +331,7 @@ export type LearningView = {
   today: string;
   todays: Lesson | null;
   lessons: Lesson[];
-  suggestions: { requested: LearningSuggestion[]; upNext: LearningSuggestion[]; backlog: number };
+  suggestions: { requested: LearningSuggestion[]; fromWork: LearningSuggestion[]; upNext: LearningSuggestion[]; backlog: number };
   stats: LearningStats;
   topicsPath: string;
 };

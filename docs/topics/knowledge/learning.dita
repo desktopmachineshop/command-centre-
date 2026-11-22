@@ -19,6 +19,7 @@
     <prolog><resourceid appname="command-centre" appid="learning.pick"/></prolog>
     <body>
       <p><uicontrol>Pick another topic</uicontrol> lists what you asked for and what's up next. <uicontrol>Make this lesson</uicontrol>, or type in <uicontrol>Teach me about…</uicontrol> and choose <uicontrol>Ask</uicontrol>: the coach writes it now and it appears in a few minutes. You can also ask in Chat ("teach me about harmonic drives"), and anything you show interest in is added to the topic map.</p>
+      <p>Topics marked <uicontrol>from your work</uicontrol> come from what you've been dealing with: each morning, before the lesson, the server notes the day before's chats, your replies and the work you asked for or that ran on schedule in <filepath>learning/activity/</filepath>, and the coach turns it into topics. Mail and social messages only count there (how many, about what); their text never reaches the coach.</p>
     </body>
   </topic>
   <topic id="scoreboard">

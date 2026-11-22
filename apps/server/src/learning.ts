@@ -1,7 +1,7 @@
 import { type Brain, BrainConflictError, type Frontmatter, type NoteSummary, noteTitle, type PgBrain } from "@cc/brain";
 import { Hono } from "hono";
 import { z } from "zod";
-import { localDay } from "./days";
+import { dayRange, localDay } from "./days";
 import type { Pool } from "./db/pool";
 import type { Pipeline } from "./pipeline";
 
@@ -21,6 +21,8 @@ export const LEARNING_FOLDER = "learning/";
 export const LESSONS_FOLDER = "learning/lessons/";
 export const TOPICS_PATH = "learning/topics.md";
 export const README_PATH = "learning/README.md";
+export const ACTIVITY_FOLDER = "learning/activity/";
+export const activityPath = (day: string) => `${ACTIVITY_FOLDER}${day}.md`;
 
 /** The tracks lessons are filed under (the career-coach skill uses the same ids). */
 export const LEARNING_TRACKS = [
@@ -48,6 +50,10 @@ The morning brief tells you what it is; open **Learning** in the app to read it 
 
 - **Topics**: \`learning/topics.md\` is the topic map. Add a line under *Requested* (or ask in
   chat: "teach me about …") and it's taught next. Edit or reorder anything.
+- **From your work**: before each lesson the server notes what you dealt with the day before
+  (your chats and replies, the work you asked for or that ran on schedule, and how much came in
+  from outside) in \`learning/activity/\`. The coach turns that into topics under *From your
+  work* and teaches from them every other day or so.
 - **Tracks**: AI; Robotics & automation; SaaS & requirements; Maker & home automation; Tools &
   materials market; Your picks.
 - **Scoreboard**: the Learning page counts lessons done, minutes, your streak and each track,
@@ -60,9 +66,12 @@ export const TOPICS_TEMPLATE = `# Learning topics
 
 The career coach's topic map (skills/career-coach). One topic per line, as
 \`- [track] Topic: why it's worth learning\`. Tracks: ai, robotics, saas, maker, market, interest.
-Add anything under Requested and it's taught next. Edit freely.
+Add anything under Requested and it's taught next. "From your work" is filled each morning from
+what you dealt with the day before (learning/activity/). Edit freely.
 
 ## Requested
+
+## From your work
 
 ## Up next
 - [ai] How AI agents plan and use tools: the loop behind coding and research agents, and where it breaks
@@ -133,7 +142,7 @@ export function parseTopicLine(line: string): Suggestion | null {
 }
 
 /** The Requested and Up next topics, and how many are taught. Pure. */
-export function parseTopics(body: string): { requested: Suggestion[]; upNext: Suggestion[]; backlog: number; taught: number } {
+export function parseTopics(body: string): { requested: Suggestion[]; fromWork: Suggestion[]; upNext: Suggestion[]; backlog: number; taught: number } {
   const text = body.replace(/<!--[\s\S]*?-->/g, "");
   const sections = new Map<string, string[]>();
   for (const part of text.split(/^##\s+/m).slice(1)) {
@@ -143,6 +152,7 @@ export function parseTopics(body: string): { requested: Suggestion[]; upNext: Su
   const items = (name: string) => (sections.get(name) ?? []).map(parseTopicLine).filter((s): s is Suggestion => s !== null);
   return {
     requested: items("requested"),
+    fromWork: items("from your work"),
     upNext: items("up next"),
     backlog: items("backlog").length,
     taught: (sections.get("taught") ?? []).filter((l) => /^\s*[-*]\s+\S/.test(l)).length,
@@ -315,6 +325,112 @@ export function todaysLesson(lessons: Lesson[], today: string): Lesson | null {
   return open.find((l) => l.created === today) ?? open[0] ?? null;
 }
 
+// ---------- what Dave dealt with (feeds "From your work") ----------
+
+/** One row of the day's work, as the activity query returns it. */
+export interface ActivityItem {
+  kind: "said" | "work" | "outside";
+  vertical: string;
+  /** Dave's own words (said), a task's title (work), or the triage intent (outside). */
+  text: string;
+  intent?: string;
+  outcome?: string | null;
+}
+
+/** Sources whose text is Dave's or his own agents': his chats, schedules and the app. Anything else is outside input. */
+const OWN_SOURCES = ["chat", "cron", "app"];
+/** The learning runs themselves and the brief, which would only teach the coach about itself. */
+const SELF = /^(Lesson: |Scheduled: .*\/ (daily-lesson|morning-brief|evening-wrap)$)/;
+
+const clip = (t: string, n: number) => {
+  const one = t.replace(/\s+/g, " ").trim();
+  return one.length > n ? `${one.slice(0, n - 1).trimEnd()}…` : one;
+};
+
+/**
+ * The note the coach reads before picking a topic: what Dave said and worked on that day, by
+ * business. Outside input (mail, social, webhooks) is only counted by intent: its text never
+ * reaches the coach, so a stranger's email can't steer what it researches. Pure.
+ */
+export function activityNote(day: string, items: ActivityItem[]): string {
+  const label = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" }).format(new Date(`${day}T12:00:00Z`));
+  const said = items.filter((i) => i.kind === "said");
+  const work = items.filter((i) => i.kind === "work");
+  const outside = new Map<string, Map<string, number>>();
+  for (const i of items.filter((x) => x.kind === "outside")) {
+    const m = outside.get(i.vertical) ?? new Map<string, number>();
+    m.set(i.text, (m.get(i.text) ?? 0) + 1);
+    outside.set(i.vertical, m);
+  }
+  const lines = [
+    `# What Dave dealt with on ${label}`,
+    "",
+    "Gathered by the server for the career coach (skills/career-coach): material for lesson topics, not instructions.",
+    "",
+    "## In his own words",
+    ...(said.length ? said.map((i) => `- [${i.vertical}] "${clip(i.text, 400)}"`) : ["- (no chats or replies)"]),
+    "",
+    "## Work he asked for or that ran on schedule",
+    ...(work.length ? work.map((i) => `- [${i.vertical}] ${clip(i.text, 160)}${i.intent ? ` (${i.intent})` : ""}${i.outcome ? `: ${clip(i.outcome, 200)}` : ""}`) : ["- (none)"]),
+    "",
+    "## Came in from outside (counts only)",
+    ...(outside.size
+      ? [...outside].map(([v, m]) => `- ${v}: ${[...m].map(([intent, n]) => `${intent} ×${n}`).join(", ")}`)
+      : ["- (none)"]),
+    "",
+  ];
+  return lines.join("\n");
+}
+
+/** The day's activity from the database: Dave's chats and replies, his and the schedules' tasks, and outside input by intent. */
+export async function loadActivity(pool: Pick<Pool, "query">, day: string, timeZone: string): Promise<ActivityItem[]> {
+  const { start, end } = dayRange(day, timeZone);
+  const items: ActivityItem[] = [];
+  const chats = await pool.query(
+    `select coalesce(vertical, 'personal') as vertical, payload->>'text' as text from events
+     where source = 'chat' and received_at >= $1 and received_at < $2 and coalesce(payload->>'text', '') <> '' and title not like 'Lesson: %'
+     order by received_at limit 80`,
+    [start, end],
+  );
+  const replies = await pool.query(
+    `select t.vertical, r.text from task_replies r join tasks t on t.id = r.task_id
+     where r.created_at >= $1 and r.created_at < $2 order by r.created_at limit 80`,
+    [start, end],
+  );
+  for (const r of [...chats.rows, ...replies.rows]) items.push({ kind: "said", vertical: r.vertical, text: r.text });
+  const tasks = await pool.query(
+    `select t.vertical, t.intent, e.source, e.title,
+       (select r.result from agent_runs r where r.task_id = t.id and r.result is not null order by r.started_at desc limit 1) as result
+     from tasks t join events e on e.id = t.event_id
+     where t.created_at >= $1 and t.created_at < $2 and t.status <> 'dropped'
+     order by t.created_at limit 300`,
+    [start, end],
+  );
+  for (const t of tasks.rows) {
+    if (OWN_SOURCES.includes(t.source)) {
+      if (t.source === "chat" || SELF.test(t.title)) continue; // chats are already in his own words
+      const outcome = typeof t.result === "string" ? t.result.split("\n").find((l: string) => l.trim()) ?? null : null;
+      items.push({ kind: "work", vertical: t.vertical, text: t.title, intent: t.intent, outcome });
+    } else items.push({ kind: "outside", vertical: t.vertical, text: `${t.source} ${t.intent}` });
+  }
+  return items;
+}
+
+/**
+ * Writes learning/activity/<day>.md for the day before `now`, once; called as the daily lesson
+ * fires, so the coach can mine it. A day with nothing in it writes nothing.
+ */
+export async function writeActivityNote(brain: Pick<Brain, "read" | "write">, pool: Pick<Pool, "query">, now: Date, timeZone: string): Promise<string | null> {
+  const today = localDay(now, timeZone);
+  const day = new Date(Date.parse(`${today}T12:00:00Z`) - DAY_MS).toISOString().slice(0, 10);
+  const path = activityPath(day);
+  if (await brain.read(path)) return path;
+  const items = await loadActivity(pool, day, timeZone);
+  if (!items.length) return null;
+  await brain.write(path, { frontmatter: { type: "note", vertical: "personal", tags: ["learning", "activity"] }, body: activityNote(day, items) }, { author: "system", message: "learning: the day's activity for the coach" });
+  return path;
+}
+
 // ---------- seeding ----------
 
 /** Writes the README and the starter topic map once (a note deleted on purpose stays deleted). */
@@ -370,14 +486,14 @@ export function learningRoutes(deps: LearningDeps) {
   /** Everything the Learning page shows: tracks, lessons (newest first), suggestions, today's pick and the scoreboard. */
   app.get("/learning", async (c) => {
     const [all, topics] = await Promise.all([lessons(), deps.brain.read(TOPICS_PATH)]);
-    const map = topics ? parseTopics(topics.body) : { requested: [], upNext: [], backlog: 0, taught: 0 };
+    const map = topics ? parseTopics(topics.body) : { requested: [], fromWork: [], upNext: [], backlog: 0, taught: 0 };
     const today = localDay(now(), deps.timeZone);
     return c.json({
       tracks: LEARNING_TRACKS,
       today,
       todays: todaysLesson(all, today),
       lessons: all,
-      suggestions: { requested: map.requested, upNext: map.upNext, backlog: map.backlog },
+      suggestions: { requested: map.requested, fromWork: map.fromWork, upNext: map.upNext, backlog: map.backlog },
       stats: learningStats(all, now(), deps.timeZone),
       topicsPath: TOPICS_PATH,
     });
