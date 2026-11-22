@@ -38,6 +38,7 @@
   "inbox.task": "topics/work/task.html",
   "inbox.task.reply": "topics/work/task.html#reply",
   "learning": "topics/knowledge/learning.html",
+  "learning.narrator": "topics/knowledge/learning.html#narrator",
   "learning.pick": "topics/knowledge/learning.html#pick",
   "learning.scoreboard": "topics/knowledge/learning.html#scoreboard",
   "navigation": "topics/start/find-your-way.html",

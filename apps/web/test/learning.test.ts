@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { lessonScript, minutesLeft } from "../src/learning/script";
-import { freeVoiceDefault } from "../src/voice/choice";
 
 const LESSON = `---
 type: lesson
@@ -48,11 +47,27 @@ describe("lesson script (what the player speaks)", () => {
     expect(minutesLeft(s.parts, 0)).toBeGreaterThan(0);
     expect(minutesLeft(s.parts, s.parts.length)).toBe(0);
   });
+});
 
-  it("defaults lessons to the server's own free voice, else the device's", () => {
-    const v = (id: string, tier: string, status = "ready", isDefault = false) => ({ id, tier, status, isDefault });
-    expect(freeVoiceDefault([v("eleven:a", "elevenlabs"), v("kokoro:bf_emma", "natural"), v("piper:cori", "fast", "ready", true)])).toBe("piper:cori");
-    expect(freeVoiceDefault([v("eleven:a", "elevenlabs"), v("piper:alba", "fast", "missing")])).toBe("device");
-    expect(freeVoiceDefault([v("kokoro:bf_emma", "natural")])).toBe("kokoro:bf_emma");
+describe("recorded lessons (player helpers)", () => {
+  const chapters = [{ at: 0 }, { at: 4.1 }, { at: 120 }];
+  it("finds the chapter playing, and where 'previous' goes", async () => {
+    const { chapterAt, clock, previousChapterStart } = await import("../src/learning/recording");
+    expect(chapterAt(chapters, 0)).toBe(0);
+    expect(chapterAt(chapters, 4.05)).toBe(1);
+    expect(chapterAt(chapters, 500)).toBe(2);
+    expect(previousChapterStart(chapters, 130)).toBe(120); // restart this chapter
+    expect(previousChapterStart(chapters, 121)).toBe(4.1); // just started it: the one before
+    expect(previousChapterStart(chapters, 1)).toBe(0);
+    expect(clock(65)).toBe("1:05");
+    expect(clock(3729)).toBe("1:02:09");
+  });
+});
+
+describe("narrator names", () => {
+  it("names a voice the server doesn't list", async () => {
+    const { prettyVoice } = await import("../src/pages/Learning");
+    expect(prettyVoice("kokoro:bf_emma")).toBe("Emma (Kokoro)");
+    expect(prettyVoice("piper:jenny_dioco")).toBe("Jenny Dioco (Piper)");
   });
 });

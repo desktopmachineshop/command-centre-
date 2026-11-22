@@ -10,7 +10,7 @@ export type BackendKind = "local" | "gdrive";
  * Locally `media` is `DATA_DIR/media` (as before) and the others `DATA_DIR/storage/<folder>`;
  * the vertical is in the index only, so local paths (and /media URLs) never move.
  */
-export const FOLDERS = ["media", "renders", "footage", "attachments", "assets"] as const;
+export const FOLDERS = ["media", "renders", "footage", "attachments", "assets", "audio"] as const;
 export type Folder = (typeof FOLDERS)[number];
 export const isFolder = (f: unknown): f is Folder => typeof f === "string" && (FOLDERS as readonly string[]).includes(f);
 

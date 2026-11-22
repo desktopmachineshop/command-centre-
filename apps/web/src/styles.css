@@ -5271,3 +5271,36 @@ button.star.on {
   color: var(--warn);
 }
 /* --- end learning --- */
+/* Learning: the recorded lesson's player and the narrator */
+.lesson-player input.seek {
+  width: 100%;
+  margin: var(--sp-2) 0;
+  accent-color: var(--accent);
+}
+.lesson-player .player-buttons button {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.lesson-player .chapters ol {
+  margin: var(--sp-2) 0 0;
+  padding-left: var(--sp-5);
+}
+.lesson-player .chapters button.is-on {
+  font-weight: 700;
+}
+.lesson-player .check {
+  margin-top: var(--sp-3);
+}
+.lesson-player .check ul {
+  padding-left: var(--sp-5);
+}
+.nowrap {
+  white-space: nowrap;
+}
+.narrator-row {
+  gap: var(--sp-2);
+}
+.narrator-row select {
+  flex: 1 1 16rem;
+  min-width: 0;
+}

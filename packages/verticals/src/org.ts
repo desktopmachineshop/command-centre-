@@ -25,6 +25,7 @@ const DAILY_LESSON = `Write today's learning lesson for Dave. Follow the career-
 4. Pick today's topic as the skill says (Requested first, then From your work at least every other day, then rotate tracks, timely news preferred, never a repeat).
 5. Research it on the web where it is recent or specific, then write the lesson (4,300 to 4,800 words, spoken style, the skill's headings and frontmatter, status ready) to "learning/lessons/<date>-<slug>.md".
 6. Update "learning/topics.md" (one write, with step 3's additions): move the topic to Taught and top Up next back up to three to five topics across the tracks.
+7. Update "learning/pronunciation.md" (one write) as the skill says ("Pronunciation"): add the lesson's terms a voice could get wrong, and work through "To check". The server records the lesson after you finish.
 
 Do not propose any action (no notify: the morning brief mentions the lesson), and do not use the mail tools. Finish with one line: the title and track.`;
 

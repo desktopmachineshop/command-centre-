@@ -18,6 +18,7 @@ const lesson = (over: Partial<Lesson>): Lesson => ({
   words: 4500,
   listenMinutes: 30,
   readMinutes: 30,
+  audio: null,
   ...over,
 });
 const done = (day: string, over: Partial<Lesson> = {}) =>

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { dayRange, localDay } from "./days";
 import type { Pool } from "./db/pool";
+import { type LessonAudio, type LessonRecorder, PRONUNCIATION_PATH, PRONUNCIATION_TEMPLATE, type RecorderState } from "./learning-audio";
 import type { Pipeline } from "./pipeline";
 
 /**
@@ -48,6 +49,11 @@ topic and writes a lesson of about 30 minutes, read or listened to, into \`learn
 The morning brief tells you what it is; open **Learning** in the app to read it or press
 **Listen** (a free voice, changeable on the page) and mark it done when you finish.
 
+- **Narrated**: each lesson is recorded once, a few minutes after it's written, with a natural
+  voice (free, on the server; pick another under *Narrator* on the Learning page). Terms are said
+  the way \`learning/pronunciation.md\` says, and every sentence is checked by ear; anything that
+  still sounds off is listed there under *To check* and on the lesson. Recordings are stored with
+  your other files (Google Drive, when connected: Command Centre/Personal/audio).
 - **Topics**: \`learning/topics.md\` is the topic map. Add a line under *Requested* (or ask in
   chat: "teach me about …") and it's taught next. Edit or reorder anything.
 - **From your work**: before each lesson the server notes what you dealt with the day before
@@ -197,6 +203,8 @@ export interface Lesson {
   words: number;
   listenMinutes: number;
   readMinutes: number;
+  /** The narrated recording (learning-audio.ts), once made. */
+  audio: LessonAudio | null;
 }
 
 const str = (v: unknown): string => (typeof v === "string" ? v : v instanceof Date ? v.toISOString() : "");
@@ -216,6 +224,8 @@ export function lessonOf(note: Pick<NoteSummary, "path" | "title" | "frontmatter
   const done = fm.status === "done";
   const mode = fm.completed_mode === "read" || fm.completed_mode === "listen" ? fm.completed_mode : null;
   const rating = num(fm.rating);
+  const a = fm.audio as LessonAudio | undefined;
+  const audio = a && typeof a === "object" && typeof a.url === "string" && typeof a.seconds === "number" ? a : null;
   return {
     path: note.path,
     title: note.title,
@@ -229,9 +239,10 @@ export function lessonOf(note: Pick<NoteSummary, "path" | "title" | "frontmatter
     minutesSpent: done ? (num(fm.minutes_spent) ?? stated ?? listen) : null,
     rating: done && rating !== null && rating >= 1 && rating <= 5 ? Math.round(rating) : null,
     words,
-    listenMinutes: listen,
+    listenMinutes: audio ? Math.max(1, Math.round(audio.seconds / 60)) : listen,
     // Reading the text, plus the Try it exercise and the quiz.
     readMinutes: stated ?? Math.max(1, Math.round(words / READ_WPM + 8)),
+    audio,
   };
 }
 
@@ -438,6 +449,7 @@ export async function seedLearning(brain: Brain, pool: Pick<Pool, "query">): Pro
   const seeds: [string, Frontmatter, string][] = [
     [README_PATH, { type: "playbook", vertical: "personal" }, README_BODY],
     [TOPICS_PATH, { type: "note", vertical: "personal", tags: ["learning"] }, TOPICS_TEMPLATE],
+    [PRONUNCIATION_PATH, { type: "playbook", vertical: "personal", tags: ["learning"] }, PRONUNCIATION_TEMPLATE],
   ];
   for (const [path, frontmatter, body] of seeds) {
     try {
@@ -456,6 +468,12 @@ export interface LearningDeps {
   brain: Pick<PgBrain, "read" | "write" | "summaries" | "appendJournal">;
   pipeline: Pick<Pipeline, "ingest">;
   timeZone: string;
+  /** Narrated recordings (learning-audio.ts); absent where recording is off (tests). */
+  narration?: {
+    recorder: Pick<LessonRecorder, "request" | "state">;
+    narrator: () => Promise<string>;
+    setNarrator: (voice: string) => Promise<void>;
+  };
   now?: () => Date;
 }
 
@@ -496,7 +514,31 @@ export function learningRoutes(deps: LearningDeps) {
       suggestions: { requested: map.requested, fromWork: map.fromWork, upNext: map.upNext, backlog: map.backlog },
       stats: learningStats(all, now(), deps.timeZone),
       topicsPath: TOPICS_PATH,
+      narration: await narrationState(),
     });
+  });
+
+  const narrationState = async (): Promise<({ narrator: string } & RecorderState) | null> =>
+    deps.narration ? { narrator: await deps.narration.narrator(), ...deps.narration.recorder.state() } : null;
+
+  /** The narrator, and what the recorder is doing (the lesson page follows a recording's progress). */
+  app.get("/learning/narration", async (c) => c.json(await narrationState()));
+
+  /** Picks the narrator for recordings from now on: a voice id from /voice/voices, or "" for the server's default voice. */
+  app.put("/learning/narrator", async (c) => {
+    if (!deps.narration) return c.json({ error: "recording is off on this server" }, 400);
+    const { voice } = z.object({ voice: z.string().max(120) }).parse(await c.req.json());
+    await deps.narration.setNarrator(voice);
+    return c.json(await narrationState());
+  });
+
+  /** Records a lesson (again): after a new narrator, or a pronunciation fixed. */
+  app.post("/learning/record", async (c) => {
+    if (!deps.narration) return c.json({ error: "recording is off on this server" }, 400);
+    const { path } = z.object({ path: LessonPath }).parse(await c.req.json());
+    if (!(await deps.brain.read(path))) return c.json({ error: "no such lesson" }, 404);
+    deps.narration.recorder.request(path);
+    return c.json(await narrationState(), 202);
   });
 
   app.get("/learning/lesson", async (c) => {

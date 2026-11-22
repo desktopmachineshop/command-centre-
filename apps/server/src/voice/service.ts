@@ -215,6 +215,29 @@ export class VoiceService {
     return this.speakWith(tts, text, voice, opts);
   }
 
+  /**
+   * One piece of a recording (a narrated lesson, apps/server/src/learning-audio.ts): not cached,
+   * and never swapped for another voice halfway through, so a voice that isn't downloaded throws
+   * VoiceNotInstalledError (and starts downloading) and a keyed provider's failure is thrown.
+   * `instructions`: a speaking style, for the models that take one (OpenAI gpt-4o-mini-tts).
+   */
+  async narrate(text: string, voice: string | undefined, opts: { instructions?: string } = {}): Promise<{ audio: Uint8Array; mime: string; provider: string }> {
+    const local = this.options.local;
+    const localVoice = voice && local && findVoice(voice) ? voice : undefined;
+    const elevenVoice = voice?.startsWith(ELEVENLABS_PREFIX) ? voice.slice(ELEVENLABS_PREFIX.length) : undefined;
+    if (elevenVoice && !this.options.elevenlabs) throw new Error("ElevenLabs isn't connected (Accounts)");
+    const tts: TextToSpeech | undefined = localVoice ? this.localTtsFor(local!) : elevenVoice ? this.options.elevenlabs : this.tts;
+    if (!tts) throw new Error("no voice: connect OpenAI or ElevenLabs, or let the server download its own");
+    const result = await (tts as LocalTextToSpeech).synthesize(text, {
+      voice: localVoice ?? elevenVoice ?? undefined,
+      format: "mp3",
+      language: this.options.language,
+      instructions: opts.instructions,
+      fallback: false,
+    });
+    return { audio: result.audio, mime: result.mime, provider: tts.provider };
+  }
+
   private async speakWith(tts: TextToSpeech, text: string, voice: string | undefined, opts: { fallback?: boolean }): Promise<{ audio: Uint8Array; mime: string; cached: boolean; voice?: string }> {
     const key = `${tts.provider}:${tts.model}:${voice ?? tts.defaultVoice}:${text}`;
     const hit = this.cache.get(key);

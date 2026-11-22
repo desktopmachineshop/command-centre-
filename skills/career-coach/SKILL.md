@@ -22,6 +22,7 @@ businesses or tell him what his business should do. Teach the subject; he'll mak
 | The topic map: requested, up next, backlog, taught | `learning/topics.md` |
 | Each lesson | `learning/lessons/YYYY-MM-DD-<kebab-slug>.md` |
 | What he dealt with each day (written by the server) | `learning/activity/YYYY-MM-DD.md` |
+| How the narrator says terms | `learning/pronunciation.md` |
 | How it works (for Dave) | `learning/README.md` |
 
 The Learning page in the app reads these. It lists every lesson, plays it aloud with a free
@@ -102,7 +103,7 @@ section at the end and follow it.
 150 words a minute that's 30 minutes), plus a short "Try it" and quiz that a reader works through
 in the time he'd otherwise spend listening longer. Count roughly; under 3,800 words is too short.
 
-**It must work by ear.** Dave is often driving:
+**It must work by ear.** Dave is often driving, and the lesson is recorded as written:
 - Write in full spoken sentences, like a good podcast host explaining to one engineer. No tables,
   no code blocks, no diagrams in the main sections, no "see the figure", no "as shown above".
   Spell out symbols and units the first time ("ten micrometres", "EtherCAT, the fieldbus").
@@ -164,6 +165,24 @@ Rules:
   demand or policy cause). UK pricing in pounds where it matters.
 - UK English, UK dates ("Mon 23 Nov").
 - `title` is specific and interesting, not "Introduction to X". `summary` is one sentence.
+
+## Pronunciation (the recording)
+
+The server records each lesson once with a natural voice and checks every sentence by ear. It
+says terms the way `learning/pronunciation.md` says, as `- Term: how to say it` lines. Your part:
+
+- Before saving a lesson, read the note. For each product name, company, acronym or jargon word
+  in the lesson that isn't listed and that a voice could plausibly get wrong, add a line under
+  "Say it like this": the term exactly as written in the lesson, then a respelling that sounds
+  right ("EtherCAT: Ether-cat", "INCOSE: In-coze", "Nm: newton metres"). Spell an acronym that is
+  said letter by letter with spaces ("OPC: O P C"); leave out ones said as a word (NASA, RAM).
+- Don't respell what a voice already says well (ordinary English, "Beckhoff", "Siemens"): a
+  respelling can make it worse. Standards' numbers ("IEC 61131-3") are read correctly without an
+  entry; write them as normal.
+- Work through "To check": these are words the listen-back flagged in an earlier recording. For
+  each, add or improve a "Say it like this" line, or delete it if it was the recogniser's mistake
+  (common with names), then remove it from "To check".
+- Keep the note to one `write` per run, in the same step as the topic map.
 
 ## Saving it
 

@@ -29,8 +29,9 @@ FROM node:22-slim
 # git: agents' code checkouts. ca-certificates: HTTPS for git and the Claude API.
 # bsdutils: `script`, the terminal "Connect Claude" runs `claude setup-token` in.
 # bzip2: unpacks the self-hosted speech models (downloaded once into /data/models/voice).
+# ffmpeg: records narrated lessons into one MP3 each (apps/server/src/learning-audio.ts).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates bsdutils bzip2 \
+  && apt-get install -y --no-install-recommends git ca-certificates bsdutils bzip2 ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 # Claude Code CLI, the agent driver. Pin with --build-arg CLAUDE_CODE_VERSION=x.y.z.
 ARG CLAUDE_CODE_VERSION=latest
