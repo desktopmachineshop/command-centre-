@@ -31,6 +31,7 @@ import { type StorageApiDeps, storageApiRoutes } from "./storage";
 import { type VoiceApiDeps, voiceApiRoutes } from "./voice";
 import { type DesktopApiDeps, desktopApiRoutes } from "./desktop";
 import { type HelpConfig, helpRoutes } from "./help";
+import { type LearningDeps, learningRoutes } from "../learning";
 
 export interface ApiDeps {
   store: Store;
@@ -74,6 +75,8 @@ export interface ApiDeps {
   davinci?: DavinciRenders;
   /** Cards: live records for the references in agents' ```card blocks (see ../cards.ts). */
   cards?: CardService;
+  /** Learning page: lessons, the scoreboard, lesson requests (see ../learning.ts). */
+  learning?: Omit<LearningDeps, "brain" | "pipeline">;
 }
 
 const limit = z.coerce.number().int().min(1).max(200).default(50);
@@ -466,6 +469,7 @@ export function apiRoutes(deps: ApiDeps) {
   }
   // /pa/*: the Today page.
   if (deps.pa) app.route("/", paApiRoutes(deps.pa));
+  if (deps.learning) app.route("/", learningRoutes({ ...deps.learning, brain, pipeline })); // learning
   if (deps.integrations) app.route("/", integrationRoutes(deps.integrations, deps.claudeSetup, deps.codexSetup));
   if (deps.help) app.route("/", helpRoutes(deps.help));
 

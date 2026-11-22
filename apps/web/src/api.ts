@@ -292,6 +292,51 @@ export type VoiceConfig = {
   calendar: boolean;
 };
 
+// --- learning (career coach): lessons in the brain, the scoreboard (server src/learning.ts) ---
+export type LearningTrack = { id: string; name: string; description: string };
+export type Lesson = {
+  path: string;
+  title: string;
+  track: string;
+  topic: string;
+  summary: string;
+  status: "ready" | "done";
+  created: string;
+  completedAt: string | null;
+  completedMode: "read" | "listen" | null;
+  minutesSpent: number | null;
+  rating: number | null;
+  words: number;
+  listenMinutes: number;
+  readMinutes: number;
+};
+export type LearningSuggestion = { track: string; title: string; why: string };
+export type LearningStats = {
+  completed: number;
+  minutes: number;
+  ready: number;
+  read: number;
+  listened: number;
+  streak: number;
+  bestStreak: number;
+  doneToday: boolean;
+  thisWeek: number;
+  byTrack: { track: string; name: string; completed: number; minutes: number }[];
+  weeks: { start: string; completed: number; minutes: number }[];
+  averageRating: number | null;
+  badges: { id: string; label: string; earned: boolean; detail: string }[];
+};
+export type LearningView = {
+  tracks: LearningTrack[];
+  today: string;
+  todays: Lesson | null;
+  lessons: Lesson[];
+  suggestions: { requested: LearningSuggestion[]; fromWork: LearningSuggestion[]; upNext: LearningSuggestion[]; backlog: number };
+  stats: LearningStats;
+  topicsPath: string;
+};
+// --- end learning ---
+
 /** A self-hosted voice (GET /api/voice/voices). */
 export type VoiceOption = {
   id: string;
@@ -491,6 +536,13 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     compose: (campaign: Campaign) => post<Proposal>("/social/compose", campaign),
     // --- pa ---
     today: (day?: string) => call<TodayView>(`/pa/today${day ? `?day=${day}` : ""}`),
+    // --- learning ---
+    learning: () => call<LearningView>("/learning"),
+    lesson: (path: string) => call<{ lesson: Lesson; body: string }>(`/learning/lesson?path=${encodeURIComponent(path)}`),
+    completeLesson: (path: string, mode: "read" | "listen", extra: { minutes?: number; rating?: number } = {}) => post<{ ok: true }>("/learning/complete", { path, mode, ...extra }),
+    reopenLesson: (path: string) => post<{ ok: true }>("/learning/reopen", { path }),
+    requestLesson: (topic: string, track?: string) => post<{ taskId: string | null }>("/learning/request", { topic, ...(track ? { track } : {}) }),
+    // --- end learning ---
     /** `due` is local Europe/London `YYYY-MM-DDTHH:MM`; `recurrence` is e.g. "weekdays", "weekly:mon,thu", "monthly:15" or "none". */
     getReminder: (id: string) => call<Reminder>(`/pa/reminders/${id}`),
     addReminder: (r: { text: string; due: string; recurrence?: string | null; phone?: string | null }) => post<Reminder>("/pa/reminders", r),

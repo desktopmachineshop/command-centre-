@@ -156,7 +156,10 @@ describe("org tree", () => {
       vertical: "personal",
       aliases: ["assistant", "cos", "chief", "chief-of-staff"],
       mcpServers: ["brain", "pa", "mail"],
-      schedules: [{ id: "morning-brief", cron: "0 7 * * 1-5", timezone: "Europe/London", enabled: true }],
+      schedules: [
+        { id: "morning-brief", cron: "0 7 * * 1-5", timezone: "Europe/London", enabled: true },
+        { id: "daily-lesson", cron: "40 5 * * *", timezone: "Europe/London", enabled: true },
+      ],
       stats: { openTasks: 2, doneTasks: 5, pendingApprovals: 2 },
     });
     expect(tree.root.stats.costUsd).toBeCloseTo(0.6);

@@ -76,6 +76,15 @@ export interface StoredNote extends Note {
   updatedAt: string;
 }
 
+/** A note's metadata without its body (PgBrain.summaries). */
+export interface NoteSummary {
+  path: string;
+  title: string;
+  frontmatter: Frontmatter;
+  words: number;
+  updatedAt: string;
+}
+
 export interface PgBrainOptions {
   /** Called after every change. */
   onChange?: (path: string) => void;
@@ -174,6 +183,21 @@ export class PgBrain implements Brain {
       [prefix],
     );
     return rows.map((r) => r.path);
+  }
+
+  /**
+   * Every note under `folder` without its body: path, title, frontmatter, word count and last save.
+   * For pages that list many notes by their frontmatter (the Learning scoreboard).
+   */
+  async summaries(folder = ""): Promise<NoteSummary[]> {
+    const prefix = folderPrefix(folder);
+    const { rows } = await this.pool.query(
+      `select path, title, frontmatter, updated_at,
+              coalesce(array_length(regexp_split_to_array(nullif(btrim(body), ''), '\\s+'), 1), 0) as words
+       from brain_notes where $1 = '' or left(path, length($1)) = $1 order by path collate "C"`,
+      [prefix],
+    );
+    return rows.map((r) => ({ path: r.path, title: r.title, frontmatter: r.frontmatter ?? {}, words: Number(r.words), updatedAt: new Date(r.updated_at).toISOString() }));
   }
 
   /** Full-text search (English stemming, prefix matches); title and path outrank frontmatter, then body. */

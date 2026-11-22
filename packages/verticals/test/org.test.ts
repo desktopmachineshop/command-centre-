@@ -31,7 +31,7 @@ describe("the assistant and its specialists", () => {
     expect(of("openv")).toEqual(["reddit-scout:true", "competitor-watch:true"]);
     expect(of("opend")).toEqual(["reddit-scout:true", "competitor-watch:true"]);
     expect(of("3dpandme")).toEqual(["reddit-scout:true", "competitor-watch:true"]);
-    expect(chiefOfStaff.schedules.map((s) => s.id)).toEqual(["morning-brief"]);
+    expect(chiefOfStaff.schedules.map((s) => s.id)).toEqual(["morning-brief", "daily-lesson"]);
   });
 
   it("gives every business that markets itself the Reddit and research tools, the scout and the competitor watch", () => {

@@ -21,6 +21,7 @@ apps:
       /notification-settings: notification-settings
       /social: social
       /org: org
+      /learning/**: learning
       /brain/**: brain
       /accounts: accounts
       /devices: devices

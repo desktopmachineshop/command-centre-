@@ -24,8 +24,19 @@ export function fallbackNote(header: string): string {
  * server's voices, grouped by speed, or the device's own. A voice that isn't downloaded starts
  * downloading when chosen (the default speaks meanwhile); Preview plays a sample.
  */
-export function VoicePicker({ api, config }: { api: Pick<Api, "voices" | "installVoice" | "speak">; config: VoiceConfig | null }) {
-  const [choice, setChoice] = useVoiceChoice();
+export function VoicePicker({
+  api,
+  config,
+  learning = false,
+  sample = SAMPLE,
+}: {
+  api: Pick<Api, "voices" | "installVoice" | "speak">;
+  config: VoiceConfig | null;
+  /** The Learning page's own voice (voice/choice.ts readLearningVoice) instead of this device's. */
+  learning?: boolean;
+  sample?: string;
+}) {
+  const [choice, setChoice] = useVoiceChoice(learning);
   const [list, setList] = useState<VoiceList | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -63,7 +74,7 @@ export function VoicePicker({ api, config }: { api: Pick<Api, "voices" | "instal
         const voices = await loadVoices();
         const s = new BrowserSpeaker(pickVoice(voices, config?.language ?? "en-GB"), config?.language ?? "en-GB");
         speaker.current = s;
-        await s.speak(SAMPLE);
+        await s.speak(sample);
       } else {
         const s = new ServerSpeaker((text) =>
           api.speak(text, choice || undefined, {
@@ -75,7 +86,7 @@ export function VoicePicker({ api, config }: { api: Pick<Api, "voices" | "instal
         s.unlock();
         await s.speakStream(
           (async function* () {
-            yield SAMPLE;
+            yield sample;
           })(),
         );
       }

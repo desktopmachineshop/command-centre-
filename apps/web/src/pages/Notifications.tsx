@@ -193,9 +193,16 @@ export function Briefing({ api, feed, id }: { api: Api; feed: LiveFeed; id?: str
             {n.body
               .split("\n")
               .filter(Boolean)
-              .map((line, i) => (
-                <li key={i}>{line}</li>
-              ))}
+              .map((line, i) =>
+                // The brief's last line is the day's lesson (skills/career-coach): it opens Learning.
+                /^learning:/i.test(line.trim()) ? (
+                  <li key={i}>
+                    <a href="#/learning">{line}</a>
+                  </li>
+                ) : (
+                  <li key={i}>{line}</li>
+                ),
+              )}
           </ul>
           <NotificationMediaView media={n.media} title={n.title} />
         </article>

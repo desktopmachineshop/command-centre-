@@ -30,7 +30,7 @@ import {
 } from "@cc/social";
 import { createRedditMcpServer, createResearchMcpServer, RedditReader, type SafeFetchOptions } from "@cc/research";
 import type { Triager } from "@cc/triage";
-import { VerticalRegistry } from "@cc/verticals";
+import { DAILY_LESSON_ID, VerticalRegistry } from "@cc/verticals";
 import { createGoogleTokenProvider, type GoogleTokenProvider, mediaIdsIn } from "@cc/storage";
 import { createVoiceProviders, type SpeechToText, type TextToSpeech } from "@cc/voice";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -99,6 +99,7 @@ import { integrationOAuth } from "./integrations/oauth"; // --- integrations oau
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
+import { seedLearning, writeActivityNote } from "./learning";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
@@ -1050,7 +1051,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // Worker uploads and local chunk uploads carry their own credentials, so they sit before /api's auth.
   app.route("/api", storagePublicRoutes(storageDeps)); // storage
   app.route("/api", desktopPublicRoutes(desktopDeps)); // desktop: link handshake and installer upload
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone } }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -1128,7 +1129,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     if (!started || !config.schedulesEnabled) return;
     // Vertical and role schedules, plus the Chief of Staff's (the morning brief) in its home vertical.
     const root = { vertical: verticals.rootVertical, role: verticals.root.id, schedules: verticals.root.schedules };
-    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, (v, s) => scheduleShouldFire(brain, v, s.id, (id) => social.current.accounts.some((a) => a.platform === "reddit" && accountSpeaksFor(a, id))));
+    scheduleCrons = startSchedules(verticals.all(), (e) => pipeline.ingest(e), root, async (v, s) => {
+      // learning: the daily lesson first notes what Dave dealt with yesterday, for "From your work" (./learning.ts).
+      if (s.id === DAILY_LESSON_ID) await writeActivityNote(brain, pool, new Date(), config.timezone).catch((err) => console.error("[learning] activity note:", (err as Error).message));
+      return scheduleShouldFire(brain, v, s.id, (id) => social.current.accounts.some((a) => a.platform === "reddit" && accountSpeaksFor(a, id)));
+    });
   };
   org.onChange(() => {
     restartSchedules();
@@ -1193,6 +1198,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await brain.init(); // brain: seed the starter notes
       await seedHowWeWork(brain, pool, verticals); // each business's how-we-work note, from the old org chart (./how-we-work.ts)
       await seedCompetitorRegistries(brain, pool, verticals); // each business's empty competitor registry (./competitors.ts)
+      await seedLearning(brain, pool); // learning: the README and starter topic map (./learning.ts)
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       await storage.init(); // storage: index media from before the index, load the cache
       void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical
