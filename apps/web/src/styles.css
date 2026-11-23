@@ -5495,3 +5495,15 @@ button.star.on {
   gap: var(--sp-2);
   row-gap: var(--sp-1);
 }
+/* Settings, Voice: the lesson narrator under the device's own voice */
+.settings-sub {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+}
+.settings-sub h4 {
+  margin: 0 0 var(--sp-1);
+}
+.narrator-link {
+  margin: var(--sp-3) 0;
+}

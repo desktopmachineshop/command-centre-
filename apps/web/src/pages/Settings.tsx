@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useInstall } from "../install";
 import { useUpdate } from "../update";
-import type { Api, VoiceConfig } from "../api";
+import type { Api, Narration, VoiceConfig } from "../api";
 import { VoicePicker } from "../voice/VoicePicker";
+import { NarratorPicker } from "../learning/NarratorPicker";
 import { DriveSettings } from "../voice/drivePrefs";
 import { Icon } from "../icons";
 import { PageHead } from "../ui";
@@ -22,8 +23,11 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
   const [checking, setChecking] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null);
+  /** Who records lessons (Learning): null where the server doesn't record them. */
+  const [narration, setNarration] = useState<Narration | null>(null);
   useEffect(() => {
     api.voiceConfig().then(setVoiceConfig).catch(() => setVoiceConfig(null));
+    api.narration().then(setNarration).catch(() => setNarration(null));
   }, [api]);
 
   const enablePush = async () => {
@@ -99,6 +103,12 @@ export function Settings({ api, onSignOut }: { api: Api; onSignOut: () => void }
         </div>
         <p className="muted small">The voice this device speaks with, in Converse and when reading replies aloud. Fast voices start at once; the most natural ones pause a little before each sentence.</p>
         <VoicePicker api={api} config={voiceConfig} />
+        {narration && (
+          <div className="settings-sub">
+            <h4>Lesson narrator</h4>
+            <NarratorPicker api={api} narration={narration} onChange={() => void api.narration().then(setNarration).catch(() => {})} />
+          </div>
+        )}
       </div>
       <div className="card">
         <div className="card-head">
