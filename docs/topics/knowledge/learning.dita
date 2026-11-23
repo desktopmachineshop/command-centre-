@@ -27,7 +27,7 @@
     <prolog><resourceid appname="command-centre" appid="learning.narrator"/></prolog>
     <body>
       <p><uicontrol>Narrator</uicontrol>, at the bottom of Learning, picks the voice lessons are recorded with. <uicontrol>Preview</uicontrol> plays a sample. The server's own voices are free with no limits; OpenAI and ElevenLabs voices cost per minute.</p>
-      <p>Every sentence is checked by ear: the server's speech recognition listens back, and an acronym it can't make out is tried spelled out. Under the player, <uicontrol>Checked by ear</uicontrol> lists anything that still sounds off. Fix the word in the pronunciation list, then choose <uicontrol>Re-record</uicontrol>. Recordings are kept with your other files, on Google Drive when it's connected (<filepath>Command Centre/Personal/audio</filepath>).</p>
+      <p>Every sentence is checked by ear: the server's speech recognition listens back, and an acronym it can't make out is tried spelled out. Under the player, <uicontrol>Checked by ear</uicontrol> lists anything that still sounds off. The same pronunciation list also applies to Converse and Chat's <uicontrol>Read aloud</uicontrol>, with any voice, within about a minute of an edit. Fix the word in the pronunciation list, then choose <uicontrol>Re-record</uicontrol>. Recordings are kept with your other files, on Google Drive when it's connected (<filepath>Command Centre/Personal/audio</filepath>).</p>
     </body>
   </topic>
   <topic id="scoreboard">

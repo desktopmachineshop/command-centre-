@@ -29,6 +29,7 @@ const providerError = (err: unknown) =>
  * - GET  /voice/config            which server speech providers exist (none: the PWA uses browser speech)
  * - POST /voice/transcribe        audio (raw body or multipart "file") → {text}
  * - POST /voice/speak             {text, voice?} → audio
+ * - GET  /voice/pronunciation   the brain's pronunciation list, for the browser voice
  * - GET  /voice/briefing          deterministic spoken summary
  * - GET  /voice/approvals/next    the next pending proposal, described for reading aloud
  * - POST /tasks/:id/reply         {text, voice?, files?} continues a task's conversation (files: ids from POST /chat/files)
@@ -89,6 +90,9 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
       return c.json(providerError(err), 502);
     }
   });
+
+  /** The pronunciation list, for the browser's own voice (the server's voices apply it in /voice/speak). */
+  app.get("/voice/pronunciation", async (c) => c.json({ entries: [...((await service.options.pronunciation?.().catch(() => undefined)) ?? new Map<string, string>()).entries()] }));
 
   app.get("/voice/voices", async (c) => c.json(await service.voices()));
 

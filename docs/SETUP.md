@@ -2664,6 +2664,16 @@ Drive mode (`#/drive`, or the **Drive mode** button on Chat) runs Command Centre
 huge talk button, answers read aloud, approvals read out and decided by voice. It is built for
 the phone in the car, so it shows almost nothing to read.
 
+### Pronunciation
+
+Everything spoken (Drive mode, Chat's **Read aloud**, and lesson recordings) says terms the way
+the brain's `learning/pronunciation.md` does (`- Term: how to say it`; a term with a capital
+matches exactly, an all-lowercase one any case). The server's and keyed voices get the respelled
+text in `POST /api/voice/speak` (`VoiceService.speak`); the browser's own voice loads the list
+from `GET /api/voice/pronunciation` (`apps/web/src/voice/pronunciation.ts`). The list is cached
+for a minute (`cachedPronunciation`, `apps/server/src/learning-audio.ts`), and only what is
+said changes, never what is shown.
+
 ### In the car
 
 1. Pair the phone with the car (or a headset) over Bluetooth. Open Command Centre and tap

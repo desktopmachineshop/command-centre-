@@ -1,4 +1,5 @@
 import type { Proposal, Task } from "@cc/core";
+import { applyLexicon, type Lexicon } from "@cc/voice/lesson";
 import { type ElevenLabsVoiceChoice, plural, type SpeechToText, speakable, spokenUsd, type TextToSpeech, truncate } from "@cc/voice";
 import { findVoice, type LocalSpeech, LocalTextToSpeech } from "@cc/voice/local";
 import type { VerticalRegistry } from "@cc/verticals";
@@ -41,6 +42,8 @@ export interface VoiceServiceOptions {
   cacheMaxChars?: number;
   cacheEntries?: number;
   now?: () => Date;
+  /** The brain's pronunciation list (learning/pronunciation.md), applied to every text /voice/speak says. */
+  pronunciation?: () => Promise<Lexicon>;
 }
 
 export interface Briefing {
@@ -192,6 +195,8 @@ export class VoiceService {
     voice?: string,
     opts: { fallback?: boolean } = {},
   ): Promise<{ audio: Uint8Array; mime: string; cached: boolean; voice?: string; fellBack?: { provider: string; reason: string } }> {
+    // Said the way the pronunciation list says; what is shown is never touched. The cache key is the said text.
+    text = applyLexicon(text, await this.options.pronunciation?.().catch(() => undefined));
     const local = this.options.local;
     const localVoice = voice && local && findVoice(voice) ? voice : undefined;
     // "elevenlabs:<voice id>": a voice from the Accounts page's list, spoken by ElevenLabs whatever the default provider.

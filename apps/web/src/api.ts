@@ -1,6 +1,7 @@
 import type { Event, Job, SetupRoleId, OrgConfig, OrgConfigVersion, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
 import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
 import type { CardResult } from "@cc/core";
+import { setPronunciationSource } from "./voice/pronunciation";
 import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
 
 /**
@@ -439,6 +440,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
   };
   const post = <T>(path: string, json?: unknown, headers?: Record<string, string>) =>
     call<T>(path, { method: "POST", body: json === undefined ? undefined : JSON.stringify(json), headers });
+
+  // The browser's own voice says terms the way the brain's pronunciation list does (voice/pronunciation.ts).
+  setPronunciationSource(() => call<{ entries: [string, string][] }>("/voice/pronunciation").then((r) => r.entries));
 
   return {
     wsUrl: `${base.replace(/^http/, "ws") || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`}/ws`,
