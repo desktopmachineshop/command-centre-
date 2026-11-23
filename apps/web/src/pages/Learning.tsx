@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Api, LearningStats, LearningSuggestion, LearningTrack, LearningView, Lesson, LessonAudio, LessonProgress, Narration, VoiceConfig, VoiceList } from "../api";
 import { Icon } from "../icons";
 import { useLessonPlayer } from "../learning/player";
-import { localPlaceKey, useLessonAudio } from "../learning/global-player";
+import { localPlace, progressPercent, startingPlace, useLessonAudio } from "../learning/global-player";
 import { chapterAt, clock, SPEEDS } from "../learning/recording";
 import { estimateMarks, lessonScript, minutesLeft, partAt, type Script } from "../learning/script";
 import { type LiveFeed, useLoad } from "../live";
@@ -41,6 +41,29 @@ export function Learning({ api, feed, path }: { api: Api; feed: LiveFeed; path?:
   );
 }
 
+/** How far through a lesson Dave is: a tick once done, else the percentage and a thin bar. */
+export function LessonProgressBadge({ lesson, bar = true }: { lesson: Pick<Lesson, "status" | "completedMode" | "percent">; bar?: boolean }) {
+  if (lesson.status === "done") {
+    return (
+      <span className="done-mark">
+        <Icon name="check" size={14} /> {lesson.completedMode === "listen" ? "Listened" : "Read"}
+      </span>
+    );
+  }
+  const pct = lesson.percent ?? 0;
+  if (pct <= 0) return <span className="muted small">Not started</span>;
+  return (
+    <span className="lesson-pct" title={`${pct}% done`}>
+      {bar && (
+        <span className="pct-bar" aria-hidden="true">
+          <span style={{ width: `${pct}%` }} />
+        </span>
+      )}
+      <span className="small">{pct}%</span>
+    </span>
+  );
+}
+
 function TrackChip({ track, tracks }: { track: string; tracks: LearningTrack[] }) {
   return <span className="track-chip">{tracks.find((t) => t.id === track)?.name ?? track}</span>;
 }
@@ -63,16 +86,17 @@ function TodayCard({ view }: { view: LearningView }) {
     <article className="card learning-today">
       <p className="muted small">{l.created === view.today ? "Today's lesson" : `Waiting since ${dayLabel(l.created)}`}</p>
       <h3>{l.title}</h3>
-      <p className="row small">
+      <p className="row wrap small lesson-meta">
         <TrackChip track={l.track} tracks={view.tracks} />
-        <span className="muted">
+        <span className="muted nowrap">
           {l.listenMinutes} min listen · {l.readMinutes} min read
         </span>
+        <LessonProgressBadge lesson={l} />
       </p>
       {l.summary && <p>{l.summary}</p>}
       <div className="row learning-actions">
         <button className="primary big" onClick={() => go(lessonHref(l.path, true))}>
-          <Icon name="play" /> Listen
+          <Icon name="play" /> {(l.percent ?? 0) > 0 ? "Continue" : "Listen"}
         </button>
         <button className="big" onClick={() => go(lessonHref(l.path))}>
           <Icon name="learn" /> Read
@@ -274,13 +298,7 @@ function Library({ view }: { view: LearningView }) {
                 <TrackChip track={l.track} tracks={view.tracks} />
                 <span className="muted">{dayLabel(l.created)}</span>
               </span>
-              {l.status === "done" ? (
-                <span className="done-mark">
-                  <Icon name="check" size={14} /> {l.completedMode === "listen" ? "Listened" : "Read"}
-                </span>
-              ) : (
-                <span className="muted">{l.listenMinutes} min</span>
-              )}
+              {l.status === "done" || (l.percent ?? 0) > 0 ? <LessonProgressBadge lesson={l} /> : <span className="muted">{l.listenMinutes} min</span>}
             </div>
             <p className="title">{l.title}</p>
             {l.summary && <p className="small clip">{l.summary}</p>}
@@ -465,25 +483,7 @@ type Listened = { current: () => number };
 /** What the listening card tells the page: the part being spoken, and how to play from a part. */
 type Sync = { speaking: number | null; playing: boolean; playFrom: ((part: number) => void) | null; listenedPart: number | null; listenedAt: number };
 
-/** This device's listening place for a lesson: seconds, and when it was saved (ms). */
-function localPlace(path: string): { t: number; at: number } | null {
-  try {
-    const raw = localStorage.getItem(localPlaceKey(path));
-    if (!raw) return null;
-    const v = JSON.parse(raw) as { t?: number; at?: number } | number;
-    return typeof v === "number" ? { t: v, at: 0 } : typeof v?.t === "number" ? { t: v.t, at: v.at ?? 0 } : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Where to start the recording: this device's place or the server's, whichever was saved last. Pure. */
-export function startingPlace(localP: { t: number; at: number } | null, server: LessonProgress | null): number {
-  const s = server?.audioSeconds ?? null;
-  const sAt = server?.audioAt ? Date.parse(server.audioAt) : 0;
-  if (localP && (s === null || localP.at >= sAt)) return localP.t;
-  return s ?? 0;
-}
+export { startingPlace };
 
 function LessonView({
   api,
@@ -554,6 +554,7 @@ function LessonView({
           <span className="muted">
             {dayLabel(lesson.created)} · {lesson.listenMinutes} min listen · {lesson.readMinutes} min read
           </span>
+          <LessonProgressBadge lesson={{ ...lesson, percent: lesson.percent ?? progressPercent(lesson, progress, script.parts.length) }} />
         </p>
       </header>
 
@@ -568,7 +569,7 @@ function LessonView({
           listened={listened}
           stop={stop}
           onSync={setSync}
-          onFinished={() => void complete("listen")}
+          onEnded={onChange}
           onFindPlace={jumpToText}
           rerecord={narration?.available ? record : null}
           rerecording={Boolean(recording || waiting)}
@@ -717,7 +718,7 @@ function ReadingView({
         const part = top ? Number(top.dataset.part) : null;
         if (part === null || Number.isNaN(part)) return;
         onRead(part);
-        void api.saveProgress(path, { readPart: part }).catch(() => {});
+        void api.saveProgress(path, { readPart: part, readTotal: script.parts.length }).catch(() => {});
       }, 2000);
     };
     addEventListener("scroll", onScroll, { passive: true });
@@ -725,7 +726,7 @@ function ReadingView({
       removeEventListener("scroll", onScroll);
       if (timer) clearTimeout(timer);
     };
-  }, [api, path, sync.playing]);
+  }, [api, path, sync.playing, script.parts.length]);
 
   return (
     <article className="card lesson-body" ref={root}>
@@ -778,7 +779,7 @@ function RecordingCard({
   listened,
   stop,
   onSync,
-  onFinished,
+  onEnded,
   onFindPlace,
   rerecord,
   rerecording,
@@ -792,7 +793,8 @@ function RecordingCard({
   listened: Listened;
   stop: { current: () => void };
   onSync: (s: Sync) => void;
-  onFinished: () => void;
+  /** The recording played to the end (the player marks it listened): reload to show it. */
+  onEnded: () => void;
   onFindPlace: (part: number) => void;
   rerecord: (() => Promise<void>) | null;
   rerecording: boolean;
@@ -803,10 +805,10 @@ function RecordingCard({
   const mine = p.loaded?.path === lesson.path;
   const other = p.loaded && !mine ? p.loaded : null;
   const start = useMemo(() => startingPlace(localPlace(lesson.path), serverProgress), [lesson.path, serverProgress]);
-  const loadThis = () => p.load({ path: lesson.path, title: lesson.title, audio, marks }, start);
+  const loadThis = () => p.load({ path: lesson.path, title: lesson.title, audio, marks, done: lesson.status === "done" }, start);
   // Load it (paused) when nothing else is playing; never cut off another lesson by just opening this one.
   useEffect(() => {
-    if (mine) p.load({ path: lesson.path, title: lesson.title, audio, marks });
+    if (mine) p.load({ path: lesson.path, title: lesson.title, audio, marks, done: lesson.status === "done" });
     else if (!p.loaded) loadThis();
   }, [lesson.path, audio.url]);
 
@@ -824,6 +826,13 @@ function RecordingCard({
   }, [speaking, mine, p.playing, Math.floor(time / 5)]);
   listened.current = p.minutesListened;
   stop.current = () => mine && p.pause();
+  // Played to the end: the player has marked it listened; show that.
+  useEffect(() => {
+    if (mine && p.finished && lesson.status !== "done") {
+      const t = setTimeout(onEnded, 1500);
+      return () => clearTimeout(t);
+    }
+  }, [mine, p.finished]);
 
   // The full player scrolls away with the page; while it's out of view the mini player stands in.
   const card = useRef<HTMLDivElement | null>(null);
@@ -932,12 +941,9 @@ function RecordingCard({
         </div>
         <p className="muted small">Keeps playing while you use the rest of the app.</p>
         {mine && p.error && <p className="error small">{p.error}</p>}
-        {mine && p.finished && lesson.status !== "done" && (
-          <p className="row">
-            <span>That's the lesson.</span>
-            <button className="primary" onClick={onFinished}>
-              Mark as listened
-            </button>
+        {mine && p.finished && (
+          <p className="row done-mark" role="status">
+            <Icon name="check" size={14} /> That's the lesson: marked as listened.
           </p>
         )}
       </div>
@@ -1014,6 +1020,16 @@ function LiveCard({
   useEffect(() => {
     onSync({ speaking: player.playing ? player.index : null, playing: player.playing, playFrom: (p) => void player.play(p), listenedPart: player.index > 0 ? player.index : null, listenedAt: 0 });
   }, [player.index, player.playing]);
+  // While the live voice reads, notifications stay quiet too (with a heartbeat, as for recordings).
+  useEffect(() => {
+    void api.setListening(player.playing).catch(() => {});
+    if (!player.playing) return;
+    const t = setInterval(() => void api.setListening(true).catch(() => {}), 30_000);
+    return () => {
+      clearInterval(t);
+      void api.setListening(false).catch(() => {});
+    };
+  }, [player.playing]);
   return (
     <div className={`card lesson-player ${query.get("listen") === "1" ? "is-first" : ""}`} aria-label="Listen to this lesson">
       {status && (

@@ -301,7 +301,6 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
     <LessonPlayerProvider api={api}>
     <VerticalsContext.Provider value={verticals}>
      <CardsContext.Provider value={api.cards}>
-      <PauseLessonForConverse page={page} />
       <ShellFrame className={`shell ${phone ? "is-phone" : "is-desktop"} page-${page || "inbox"}`} lessonPage={page === "learning" && id ? decodeURIComponent(id) : null}>
         {!phone && (
           <aside className="sidebar">
@@ -461,16 +460,6 @@ function ShellFrame({ className, lessonPage, children }: { className: string; le
       <MiniPlayer hidden={!showMini} />
     </div>
   );
-}
-
-/** Converse talks and listens: a lesson playing underneath would talk over it, so it pauses. */
-function PauseLessonForConverse({ page }: { page: string | undefined }) {
-  const player = useLessonAudio();
-  const pause = player.pause;
-  useEffect(() => {
-    if (page === "converse" || page === "drive") pause();
-  }, [page, pause]);
-  return null;
 }
 
 /** The phone's "More" sheet: every destination not in the tab bar. */

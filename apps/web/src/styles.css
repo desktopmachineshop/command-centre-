@@ -5419,3 +5419,71 @@ button.star.on {
 .lesson-player.is-recording {
   position: static;
 }
+
+/* Learning: how far through each lesson */
+.lesson-pct {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.pct-bar {
+  display: inline-block;
+  width: 56px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.pct-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-full);
+}
+
+/* Converse: lessons to play */
+.drive-lessons {
+  width: 100%;
+  max-width: 520px;
+  margin: var(--sp-3) auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.drive-lessons > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.drive-lesson-list {
+  width: 100%;
+  margin: 0;
+}
+.drive-lesson {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: left;
+  min-height: 48px;
+}
+.drive-lesson-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.drive-lesson-text .clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lesson-meta {
+  gap: var(--sp-2);
+  row-gap: var(--sp-1);
+}

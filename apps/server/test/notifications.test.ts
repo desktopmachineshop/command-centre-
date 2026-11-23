@@ -47,6 +47,19 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     await reset();
   });
 
+  it("goes quiet while a lesson plays: no sound, vibration or re-alerting, except urgent", async () => {
+    expect((await ctx.api("/api/learning/listening", { method: "PUT", json: { playing: true } })).body).toEqual({ playing: true });
+    await notifications().notify({ title: "Task done", body: "b", category: "agent", tag: "task-1", renotify: true });
+    expect(transport.sent[0]!.payload).toMatchObject({ title: "Task done", silent: true, renotify: false });
+    transport.sent.length = 0;
+    await notifications().notify({ title: "Server down", body: "b", category: "alert", priority: "urgent" });
+    expect(transport.sent[0]!.payload).toMatchObject({ title: "Server down", silent: false });
+    transport.sent.length = 0;
+    await ctx.api("/api/learning/listening", { method: "PUT", json: { playing: false } });
+    await notifications().notify({ title: "After", body: "b", category: "agent", tag: "task-2", renotify: true });
+    expect(transport.sent[0]!.payload).toMatchObject({ title: "After", silent: false, renotify: true });
+  });
+
   it("keeps notify({title, body}) working: stored as agent and pushed to every device", async () => {
     await ctx.server.actions; // server wired
     await notifications().notify({ title: "Hello", body: "World" });

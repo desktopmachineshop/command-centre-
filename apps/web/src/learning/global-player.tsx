@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { Api, LessonAudio } from "../api";
+import type { Api, Lesson, LessonAudio, LessonProgress } from "../api";
 import { Icon } from "../icons";
 import { go } from "../router";
 import { ScreenWakeLock } from "../voice/speech";
@@ -11,6 +11,8 @@ export interface LoadedLesson {
   title: string;
   audio: LessonAudio;
   marks: number[];
+  /** Already marked done (so reaching the end doesn't mark it again). */
+  done?: boolean;
 }
 
 export interface LessonPlayer {
@@ -67,6 +69,37 @@ const local = {
 };
 export const localPlaceKey = (path: string) => `cc.lesson.t:${path}`;
 
+/** This device's listening place for a lesson: seconds, and when it was saved (ms). */
+export function localPlace(path: string): { t: number; at: number } | null {
+  try {
+    const raw = localStorage.getItem(localPlaceKey(path));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { t?: number; at?: number } | number;
+    return typeof v === "number" ? { t: v, at: 0 } : typeof v?.t === "number" ? { t: v.t, at: v.at ?? 0 } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The lesson page's own percentage (the list's, when opened straight from a link). Pure. */
+export function progressPercent(lesson: Pick<Lesson, "status" | "audio">, progress: LessonProgress | null, parts: number): number {
+  if (lesson.status === "done") return 100;
+  if (!progress) return 0;
+  const listened = progress.audioSeconds !== null && lesson.audio?.seconds ? progress.audioSeconds / lesson.audio.seconds : 0;
+  const read = progress.readPart !== null && parts ? (progress.readPart + 1) / parts : 0;
+  return Math.min(99, Math.round(Math.max(listened, read) * 100));
+}
+
+/** Where to start the recording: this device's place or the server's, whichever was saved last. Pure. */
+export function startingPlace(localP: { t: number; at: number } | null, server: LessonProgress | null): number {
+  const s = server?.audioSeconds ?? null;
+  const sAt = server?.audioAt ? Date.parse(server.audioAt) : 0;
+  if (localP && (s === null || localP.at >= sAt)) return localP.t;
+  return s ?? 0;
+}
+
+
+
 /** How often the listening place goes to the server while playing (and always on pause). */
 const SAVE_EVERY_MS = 15_000;
 
@@ -75,7 +108,7 @@ const SAVE_EVERY_MS = 15_000;
  * lock-screen and car controls, the screen wake lock, and the listening place (on this device at
  * once, on the server every 15 s and on pause, so another device picks up from it).
  */
-export function LessonPlayerProvider({ api, children }: { api: Pick<Api, "saveProgress">; children: ReactNode }) {
+export function LessonPlayerProvider({ api, children }: { api: Pick<Api, "saveProgress" | "setListening" | "completeLesson">; children: ReactNode }) {
   const el = useRef<HTMLAudioElement | null>(null);
   const [loaded, setLoaded] = useState<LoadedLesson | null>(null);
   const loadedRef = useRef(loaded);
@@ -136,19 +169,39 @@ export function LessonPlayerProvider({ api, children }: { api: Pick<Api, "savePr
         }
       }
     };
+    // While it plays, the server keeps notifications quiet (no buzzing mid-lesson); a heartbeat keeps that up.
+    let beat: ReturnType<typeof setInterval> | null = null;
+    const listening = (on: boolean) => {
+      if (beat) clearInterval(beat);
+      beat = on ? setInterval(() => void api.setListening(true).catch(() => {}), 30_000) : null;
+      void api.setListening(on).catch(() => {});
+    };
     const onPlay = () => {
       setPlaying(true);
       setFinished(false);
       wake.current ??= new ScreenWakeLock();
       void wake.current.acquire();
+      listening(true);
     };
     const onPause = () => {
       setPlaying(false);
       last.current = null;
       save(true);
       void wake.current?.release();
+      listening(false);
     };
-    const onEnded = () => setFinished(true);
+    const onEnded = () => {
+      setFinished(true);
+      // Played to the end: it's listened. Marked done here, so nobody has to tap anything in the car.
+      const l = loadedRef.current;
+      if (l && !l.done) {
+        const minutes = Math.round(listened.current / 60);
+        l.done = true;
+        void api.completeLesson(l.path, "listen", minutes >= 5 ? { minutes: Math.min(minutes, 240) } : {}).catch(() => {
+          l.done = false;
+        });
+      }
+    };
     const onError = () => {
       if (a.getAttribute("src")) setError("The recording couldn't be played. Try again, or read it instead.");
     };
@@ -162,11 +215,12 @@ export function LessonPlayerProvider({ api, children }: { api: Pick<Api, "savePr
     addEventListener("pagehide", onHide);
     return () => {
       removeEventListener("pagehide", onHide);
+      if (beat) clearInterval(beat);
       a.pause();
       a.removeAttribute("src");
       el.current = null;
     };
-  }, [save]);
+  }, [save, api]);
 
   const load = useCallback((lesson: LoadedLesson, at = 0) => {
     const a = el.current;

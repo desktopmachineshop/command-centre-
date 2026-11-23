@@ -629,6 +629,8 @@ export const migrations: { id: string; sql: string }[] = [
         audio_seconds real,
         audio_at timestamptz,
         read_part int,
+        -- How many spoken parts the lesson has, so the reading place is a percentage.
+        read_total int,
         read_at timestamptz
       );
     `,

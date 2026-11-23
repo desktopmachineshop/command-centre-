@@ -59,6 +59,12 @@ export interface NotificationServiceOptions {
   onUnreadChange?: (unread: number, userId: string) => void;
   /** Today's spend for the quick briefing. */
   spend?: (since: Date) => Promise<{ costUsd: number; budgetUsd: number | null }>;
+  /**
+   * True while Dave is listening to something (a lesson playing on one of his devices): pushes
+   * still arrive, but without sound or vibration and never re-alerting, so the phone doesn't buzz
+   * in his pocket or the car every time an agent finishes. Urgent ones still sound.
+   */
+  hushed?: () => boolean;
 }
 
 /**
@@ -162,12 +168,14 @@ export class NotificationService implements Notifier {
     const unread = await this.store.unreadCount(userId);
     this.options.onUnreadChange?.(unread, userId);
 
+    const hush = priority !== "urgent" && Boolean(this.options.hushed?.());
     if (route.kind === "push") {
-      await this.deliver(userId, pushPayload({ ...stored, renotify: n.renotify }, settings.sound, unread), priority, options);
+      await this.deliver(userId, pushPayload({ ...stored, renotify: hush ? false : n.renotify }, settings.sound && !hush, unread), priority, options);
     } else if (route.kind === "collapse") {
       const since = new Date(now.getTime() - prefs.rateLimit.windowMinutes * 60_000);
       const { collapsed } = await this.store.windowCounts(userId, n.category, since);
-      await this.deliver(userId, collapsedPayload(n.category, collapsed, n.title, settings.sound, unread), priority, {});
+      const payload = collapsedPayload(n.category, collapsed, n.title, settings.sound && !hush, unread);
+      await this.deliver(userId, hush ? { ...payload, renotify: false } : payload, priority, {});
     }
     return stored;
   }
