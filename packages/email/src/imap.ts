@@ -26,6 +26,12 @@ export interface ImapSession {
   waitForMail(timeoutMs: number, signal: AbortSignal): Promise<void>;
   /** Appends a sent message to the Sent folder; returns its path, or null if there is none. */
   appendToSent(raw: Buffer): Promise<string | null>;
+  /**
+   * Which of these Message-IDs have been answered from this mailbox: a message in the Sent folder
+   * whose In-Reply-To or References names it (Dave replying from his phone or mail app). Opens the
+   * Sent folder, so use a session of its own. Empty where there is no Sent folder.
+   */
+  sentRepliesTo(messageIds: string[]): Promise<string[]>;
   close(): Promise<void>;
 }
 
@@ -62,6 +68,13 @@ export const imapflowConnector: ImapConnector = async (account) => {
     lastError = err;
   });
   await client.connect();
+  /** The Sent folder: the one flagged \\Sent, else one with a usual name. */
+  const sentFolder = async (): Promise<string | null> => {
+    const boxes = await client.list();
+    const sent =
+      boxes.find((b) => b.specialUse === "\\Sent") ?? boxes.find((b) => SENT_NAMES.some((n) => n.toLowerCase() === b.path.toLowerCase()));
+    return sent?.path ?? null;
+  };
 
   return {
     async open(mailbox) {
@@ -109,13 +122,26 @@ export const imapflowConnector: ImapConnector = async (account) => {
       });
     },
     async appendToSent(raw) {
-      const boxes = await client.list();
-      const sent =
-        boxes.find((b) => b.specialUse === "\\Sent") ??
-        boxes.find((b) => SENT_NAMES.some((n) => n.toLowerCase() === b.path.toLowerCase()));
+      const sent = await sentFolder();
       if (!sent) return null;
-      await client.append(sent.path, raw, ["\\Seen"]);
-      return sent.path;
+      await client.append(sent, raw, ["\\Seen"]);
+      return sent;
+    },
+    async sentRepliesTo(messageIds) {
+      const sent = await sentFolder();
+      if (!sent || !messageIds.length) return [];
+      await client.mailboxOpen(sent, { readOnly: true });
+      const answered: string[] = [];
+      for (const raw of messageIds) {
+        const id = raw.trim().replace(/^<|>$/g, "");
+        if (!id) continue;
+        // IMAP HEADER search is a substring match, so the bare id finds "<id>" in either header.
+        const hit =
+          (await client.search({ header: { "in-reply-to": id } }, { uid: true })) || [];
+        const viaRefs = hit.length ? hit : (await client.search({ header: { references: id } }, { uid: true })) || [];
+        if (viaRefs.length) answered.push(raw);
+      }
+      return answered;
     },
     async close() {
       try {

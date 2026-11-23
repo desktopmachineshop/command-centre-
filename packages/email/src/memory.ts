@@ -74,6 +74,21 @@ export class MemoryMailbox {
         this.sent.push(raw);
         return "Sent";
       },
+      sentRepliesTo: async (ids) => {
+        const out: string[] = [];
+        for (const raw of ids) {
+          const id = raw.trim().replace(/^<|>$/g, "");
+          for (const m of this.sent) {
+            const mail = await parseEmail(m);
+            const names = [mail.inReplyTo ?? "", ...mail.references].map((r) => r.replace(/^<|>$/g, ""));
+            if (names.includes(id)) {
+              out.push(raw);
+              break;
+            }
+          }
+        }
+        return out;
+      },
       close: async () => {
         closed = true;
       },

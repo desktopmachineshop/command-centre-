@@ -20,7 +20,7 @@
     <title>Approve or reject</title>
     <prolog><resourceid appname="command-centre" appid="approvals.decide"/></prolog>
     <body>
-      <p><uicontrol>Approve</uicontrol> runs the action straight away (a scheduled social campaign is queued for its time). <uicontrol>Reject</uicontrol> drops it. If an approved action fails, its card shows the error, with <uicontrol>Copy error</uicontrol> and the <uicontrol>Full error</uicontrol>.</p>
+      <p><uicontrol>Approve</uicontrol> runs the action straight away (a scheduled social campaign is queued for its time). <uicontrol>Reject</uicontrol> drops it. A suggested email reply cancels itself once you have answered that email yourself (from your phone, Gmail or Outlook): every few minutes the server looks in the mailbox's Sent folder, and the card shows <uicontrol>cancelled</uicontrol> with the reason. If an approved action fails, its card shows the error, with <uicontrol>Copy error</uicontrol> and the <uicontrol>Full error</uicontrol>.</p>
     </body>
   </topic>
   <topic id="confirm">

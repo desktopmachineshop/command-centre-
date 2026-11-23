@@ -112,6 +112,7 @@ describe("connection tests", () => {
       fetchSource: async () => null,
       waitForMail: async () => {},
       appendToSent: async () => null,
+      sentRepliesTo: async () => [],
       close: async () => {},
     });
     const data = { vertical: "dms", address: "shop@example.com", imapHost: "imap.example.com", smtpHost: "smtp.example.com" };
