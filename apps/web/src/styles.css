@@ -5314,3 +5314,108 @@ button.star.on {
   padding-top: var(--sp-3);
   padding-bottom: var(--sp-3);
 }
+
+/* Learning: the app-wide lesson player's mini bar (learning/global-player.tsx) */
+.mini-player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2) max(var(--sp-3), env(safe-area-inset-right)) calc(var(--sp-2) + env(safe-area-inset-bottom)) max(var(--sp-3), env(safe-area-inset-left));
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08);
+  overflow: hidden;
+}
+.shell.is-phone .mini-player {
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  padding-bottom: var(--sp-2);
+}
+.shell.is-desktop .mini-player {
+  left: var(--sidebar-w, 0px);
+}
+.mini-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+}
+.mini-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: left;
+  padding: var(--sp-1) var(--sp-2);
+}
+.mini-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.mini-text .clip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mini-player .icon-btn {
+  min-width: 40px;
+  min-height: 40px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.mini-play {
+  border-radius: var(--r-full);
+}
+.shell.has-mini-player .main {
+  padding-bottom: calc(var(--sp-10) + 64px);
+}
+.shell.is-phone.has-mini-player .main {
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--sp-6) + 64px);
+}
+
+/* Learning: the text kept in step with the voice */
+.lesson-block {
+  border-radius: var(--r-md, 8px);
+  margin: 0 calc(-1 * var(--sp-2));
+  padding: 0 var(--sp-2);
+  transition: background-color var(--dur-1, 120ms) ease;
+  scroll-margin: 140px 0;
+}
+.lesson-block.can-play {
+  cursor: pointer;
+}
+.lesson-block.is-speaking {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.lesson-block.is-selected {
+  outline: 1px dashed var(--accent);
+}
+.play-from {
+  margin: 0 0 var(--sp-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.follow-toggle {
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.sync-bar {
+  gap: var(--sp-2);
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+}
+
+/* A recorded lesson's player scrolls with the page: the mini player takes over when it's out of view. */
+.lesson-player.is-recording {
+  position: static;
+}

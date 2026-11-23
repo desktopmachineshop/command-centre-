@@ -81,3 +81,15 @@ describe("this device's voice uses the pronunciation list", () => {
     setSpeechLexicon([]);
   });
 });
+
+describe("picking up where you left off", () => {
+  it("starts from this device's place or the server's, whichever is newer", async () => {
+    const { startingPlace } = await import("../src/pages/Learning");
+    const server = { audioSeconds: 600, audioAt: "2026-11-23T10:00:00Z", readPart: null, readAt: null };
+    expect(startingPlace(null, server)).toBe(600);
+    expect(startingPlace({ t: 120, at: Date.parse("2026-11-23T09:00:00Z") }, server)).toBe(600); // the phone listened later
+    expect(startingPlace({ t: 700, at: Date.parse("2026-11-23T11:00:00Z") }, server)).toBe(700);
+    expect(startingPlace({ t: 50, at: 0 }, null)).toBe(50);
+    expect(startingPlace(null, null)).toBe(0);
+  });
+});

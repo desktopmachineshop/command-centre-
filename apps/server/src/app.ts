@@ -100,7 +100,7 @@ import { integrationOAuth } from "./integrations/oauth"; // --- integrations oau
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
-import { seedLearning, writeActivityNote } from "./learning";
+import { LessonProgress, seedLearning, writeActivityNote } from "./learning";
 import { LessonRecorder, narratorOf, PronunciationList, setNarrator } from "./learning-audio";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
@@ -1088,7 +1088,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     lexicon: () => pronunciation.lexicon(),
   };
   // --- end learning ---
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration } }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration, progress: new LessonProgress(pool) } }));
   app.route(
     "/mcp",
     mcpRoutes({

@@ -27,6 +27,7 @@ import { BrandMark, Icon, type IconName } from "./icons";
 import { routeQuery, useRoute } from "./router";
 import { useMedia, useTheme } from "./theme";
 import { setSpeechLexicon } from "./voice/speech";
+import { LessonPlayerProvider, MiniPlayer, useLessonAudio } from "./learning/global-player";
 import { ThemeCycle, ThemeToggle, type VerticalInfo, VerticalsContext } from "./ui";
 
 // --- auth: cookie session (or a stored admin token), first-run setup, sign-in ---
@@ -297,9 +298,11 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
   const spend = stats.data ? usd(stats.data.costTodayUsd) : null;
 
   return (
+    <LessonPlayerProvider api={api}>
     <VerticalsContext.Provider value={verticals}>
      <CardsContext.Provider value={api.cards}>
-      <div className={`shell ${phone ? "is-phone" : "is-desktop"} page-${page || "inbox"}`}>
+      <PauseLessonForConverse page={page} />
+      <ShellFrame className={`shell ${phone ? "is-phone" : "is-desktop"} page-${page || "inbox"}`} lessonPage={page === "learning" && id ? decodeURIComponent(id) : null}>
         {!phone && (
           <aside className="sidebar">
             <a className="brand" href="#/inbox">
@@ -438,10 +441,36 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
             )}
           </MoreSheet>
         )}
-      </div>
+      </ShellFrame>
      </CardsContext.Provider>
     </VerticalsContext.Provider>
+    </LessonPlayerProvider>
   );
+}
+
+/**
+ * The shell's frame, with the lesson mini player docked at the bottom while a lesson is loaded and
+ * Dave is anywhere but that lesson's page (`has-mini-player` leaves room for it).
+ */
+function ShellFrame({ className, lessonPage, children }: { className: string; lessonPage: string | null; children: ReactNode }) {
+  const player = useLessonAudio();
+  const showMini = Boolean(player.loaded && (player.loaded.path !== lessonPage || !player.fullPlayerVisible));
+  return (
+    <div className={`${className}${showMini ? " has-mini-player" : ""}`}>
+      {children}
+      <MiniPlayer hidden={!showMini} />
+    </div>
+  );
+}
+
+/** Converse talks and listens: a lesson playing underneath would talk over it, so it pauses. */
+function PauseLessonForConverse({ page }: { page: string | undefined }) {
+  const player = useLessonAudio();
+  const pause = player.pause;
+  useEffect(() => {
+    if (page === "converse" || page === "drive") pause();
+  }, [page, pause]);
+  return null;
 }
 
 /** The phone's "More" sheet: every destination not in the tab bar. */

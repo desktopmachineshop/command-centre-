@@ -315,6 +315,11 @@ export interface LessonAudio {
   voice: string;
   seconds: number;
   chapters: { title: string; at: number }[];
+  /**
+   * Where each spoken part (paragraph) of the lesson starts, in seconds: the reading view follows
+   * the recording, and a tap on a paragraph plays from it. Index = part (@cc/voice/lesson).
+   */
+  marks?: number[];
   recorded: string;
   /** Sentences checked by ear, and those that still sounded off. */
   checked: number;
@@ -373,6 +378,8 @@ export async function recordLesson(deps: NarrationDeps, path: string, onProgress
   const chunks: Buffer[] = [];
   let samples = 0;
   const chapters: LessonAudio["chapters"] = [];
+  const marks: number[] = new Array(script.parts.length).fill(0);
+  const seen = new Set<number>();
   const flagged: LessonAudio["flagged"] = [];
   let checked = 0;
   for (let i = 0; i < pieces.length; i++) {
@@ -413,6 +420,10 @@ export async function recordLesson(deps: NarrationDeps, path: string, onProgress
       }
       if (soundsOff(result) && result.missing.length) flagged.push({ text: piece.text, missing: result.missing, heard });
     }
+    if (!seen.has(piece.part)) {
+      seen.add(piece.part);
+      marks[piece.part] = Math.round((samples / MIX_RATE) * 10) / 10;
+    }
     chunks.push(take.pcm, silence(piece.pause));
     samples += take.pcm.length / 2 + Math.round(piece.pause * MIX_RATE);
     onProgress(i + 1, pieces.length);
@@ -427,6 +438,7 @@ export async function recordLesson(deps: NarrationDeps, path: string, onProgress
     voice: voice || "default",
     seconds: Math.round(samples / MIX_RATE),
     chapters,
+    marks,
     recorded: new Date().toISOString(),
     checked,
     flagged: flagged.slice(0, 40),

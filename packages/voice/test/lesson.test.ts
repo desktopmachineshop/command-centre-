@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyLexicon, lessonScript, narrationPieces, PAUSES, parseLexicon, pronounce, standardNumbers, ukLetters } from "../src/lesson";
+import { applyLexicon, estimateMarks, lessonScript, narrationPieces, partAt, PAUSES, parseLexicon, pronounce, standardNumbers, ukLetters } from "../src/lesson";
 
 describe("lessons as speech", () => {
   it("reads the pronunciation note, skipping what's still to check", () => {
@@ -54,5 +54,34 @@ describe("lessons as speech", () => {
       ["Two.", PAUSES.heading],
       ["Last one.", PAUSES.paragraph],
     ]);
+  });
+
+  it("gives every block of the text, each tied to the part it is when spoken (for the reading view)", () => {
+    const body = "# Title\n\n## One\nFirst para.\nSame para.\n\n- Item.\n\n## Try it\n```\nx = 1\n```\nDo it.\n\n## Quiz\n1. Q?\n   **Answer:** A.\n";
+    const s = lessonScript(body, "Title");
+    expect(s.blocks.map((b) => [b.source, b.part, b.heading ?? null])).toEqual([
+      ["# Title", 0, 1],
+      ["## One", 1, 2],
+      ["First para.\nSame para.", 2, null],
+      ["- Item.", 3, null],
+      ["## Try it", null, 2],
+      ["```\nx = 1\n```", null, null],
+      ["Do it.", null, null],
+      ["## Quiz", 4, 2],
+      ["1. Q?", 5, null],
+      ["   **Answer:** A.", 6, null],
+    ]);
+    // Every spoken part has exactly one block, in order.
+    expect(s.blocks.filter((b) => b.part !== null).map((b) => b.part)).toEqual(s.parts.map((_, i) => i));
+    expect(narrationPieces(s).map((p) => p.part)).toEqual([0, 1, 2, 2, 3, 4, 5, 6]);
+  });
+
+  it("finds the part playing, and estimates part starts for old recordings", () => {
+    expect(partAt([0, 4, 10], 0)).toBe(0);
+    expect(partAt([0, 4, 10], 9.9)).toBe(1);
+    expect(partAt([0, 4, 10], 60)).toBe(2);
+    const marks = estimateMarks([{ section: 0, text: "one two" }, { section: 0, text: "three four five six seven eight" }], 100);
+    expect(marks[0]).toBe(0);
+    expect(marks[1]).toBeCloseTo(33.3, 0);
   });
 });

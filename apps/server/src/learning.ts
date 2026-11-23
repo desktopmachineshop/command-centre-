@@ -205,6 +205,56 @@ export interface Lesson {
   readMinutes: number;
   /** The narrated recording (learning-audio.ts), once made. */
   audio: LessonAudio | null;
+  /** Where Dave got to, listening and reading (LessonProgress), when he has started it. */
+  progress?: Progress | null;
+}
+
+/** Where Dave got to in a lesson: the recording's position and the paragraph (part) he read to. */
+export interface Progress {
+  audioSeconds: number | null;
+  audioAt: string | null;
+  readPart: number | null;
+  readAt: string | null;
+}
+
+/** Each lesson's place, kept in Postgres (written every few seconds while listening, so not the brain). */
+export class LessonProgress {
+  constructor(private readonly pool: Pick<Pool, "query">) {}
+
+  private static row(r: { audio_seconds: number | null; audio_at: Date | null; read_part: number | null; read_at: Date | null }): Progress {
+    return {
+      audioSeconds: r.audio_seconds === null ? null : Number(r.audio_seconds),
+      audioAt: r.audio_at ? new Date(r.audio_at).toISOString() : null,
+      readPart: r.read_part,
+      readAt: r.read_at ? new Date(r.read_at).toISOString() : null,
+    };
+  }
+
+  async get(path: string): Promise<Progress | null> {
+    const { rows } = await this.pool.query("select * from lesson_progress where path = $1", [path]);
+    return rows[0] ? LessonProgress.row(rows[0]) : null;
+  }
+
+  async all(): Promise<Map<string, Progress>> {
+    const { rows } = await this.pool.query("select * from lesson_progress");
+    return new Map(rows.map((r) => [r.path as string, LessonProgress.row(r)]));
+  }
+
+  /** Saves the listening place and/or the reading place (each stamped now). */
+  async set(path: string, patch: { audioSeconds?: number; readPart?: number }, now = new Date()): Promise<Progress> {
+    const { rows } = await this.pool.query(
+      `insert into lesson_progress (path, audio_seconds, audio_at, read_part, read_at)
+       values ($1, $2::real, case when $2::real is null then null else $4::timestamptz end, $3::int, case when $3::int is null then null else $4::timestamptz end)
+       on conflict (path) do update set
+         audio_seconds = coalesce(excluded.audio_seconds, lesson_progress.audio_seconds),
+         audio_at = coalesce(excluded.audio_at, lesson_progress.audio_at),
+         read_part = coalesce(excluded.read_part, lesson_progress.read_part),
+         read_at = coalesce(excluded.read_at, lesson_progress.read_at)
+       returning *`,
+      [path, patch.audioSeconds ?? null, patch.readPart ?? null, now],
+    );
+    return LessonProgress.row(rows[0]);
+  }
 }
 
 const str = (v: unknown): string => (typeof v === "string" ? v : v instanceof Date ? v.toISOString() : "");
@@ -468,6 +518,8 @@ export interface LearningDeps {
   brain: Pick<PgBrain, "read" | "write" | "summaries" | "appendJournal">;
   pipeline: Pick<Pipeline, "ingest">;
   timeZone: string;
+  /** Listening and reading places (absent: none kept). */
+  progress?: Pick<LessonProgress, "get" | "set" | "all">;
   /** Narrated recordings (learning-audio.ts); absent where recording is off (tests). */
   narration?: {
     recorder: Pick<LessonRecorder, "request" | "state">;
@@ -505,7 +557,8 @@ export function learningRoutes(deps: LearningDeps) {
 
   /** Everything the Learning page shows: tracks, lessons (newest first), suggestions, today's pick and the scoreboard. */
   app.get("/learning", async (c) => {
-    const [all, topics] = await Promise.all([lessons(), deps.brain.read(TOPICS_PATH)]);
+    const [all, topics, places] = await Promise.all([lessons(), deps.brain.read(TOPICS_PATH), deps.progress?.all().catch(() => null) ?? null]);
+    if (places) for (const l of all) l.progress = places.get(l.path) ?? null;
     const map = topics ? parseTopics(topics.body) : { requested: [], fromWork: [], upNext: [], backlog: 0, taught: 0 };
     const today = localDay(now(), deps.timeZone);
     return c.json({
@@ -557,6 +610,21 @@ export function learningRoutes(deps: LearningDeps) {
     const lesson = lessonOf({ path: note.path, title: noteTitle(note), frontmatter: note.frontmatter, words, updatedAt: str(note.frontmatter.updated) || new Date().toISOString() });
     if (!lesson) return c.json({ error: "not a lesson" }, 400);
     return c.json({ lesson, body: note.body });
+  });
+
+  /** Where Dave got to in a lesson, listening and reading. */
+  app.get("/learning/progress", async (c) => {
+    const path = LessonPath.parse(c.req.query("path"));
+    return c.json((await deps.progress?.get(path)) ?? { audioSeconds: null, audioAt: null, readPart: null, readAt: null });
+  });
+
+  /** Saves the listening place (seconds into the recording) and/or the reading place (a part index). */
+  app.put("/learning/progress", async (c) => {
+    const body = z
+      .object({ path: LessonPath, audioSeconds: z.number().min(0).max(24 * 3600).optional(), readPart: z.number().int().min(0).max(100_000).optional() })
+      .parse(await c.req.json());
+    if (!deps.progress) return c.json({ error: "progress isn't kept on this server" }, 400);
+    return c.json(await deps.progress.set(body.path, { audioSeconds: body.audioSeconds, readPart: body.readPart }));
   });
 
   /** Marks a lesson done: how (read or listened), optionally the minutes spent and a 1-5 rating. */

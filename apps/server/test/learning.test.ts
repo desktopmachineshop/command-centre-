@@ -213,6 +213,19 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     }
   });
 
+  it("keeps the listening and reading places, each with its own time, and lists them with the lessons", async () => {
+    const { body } = await ctx.api("/api/learning");
+    const path = body.lessons[0].path;
+    expect((await ctx.api(`/api/learning/progress?path=${encodeURIComponent(path)}`)).body).toEqual({ audioSeconds: null, audioAt: null, readPart: null, readAt: null });
+    const listened = await ctx.api("/api/learning/progress", { method: "PUT", json: { path, audioSeconds: 312.5 } });
+    expect(listened.body).toMatchObject({ audioSeconds: 312.5, readPart: null });
+    const read = await ctx.api("/api/learning/progress", { method: "PUT", json: { path, readPart: 14 } });
+    expect(read.body).toMatchObject({ audioSeconds: 312.5, readPart: 14 });
+    expect(Date.parse(read.body.readAt)).toBeGreaterThanOrEqual(Date.parse(read.body.audioAt));
+    expect((await ctx.api("/api/learning")).body.lessons[0].progress).toMatchObject({ audioSeconds: 312.5, readPart: 14 });
+    expect((await ctx.api("/api/learning/progress", { method: "PUT", json: { path: "people/x.md", readPart: 1 } })).status).toBe(400);
+  });
+
   it("files a requested topic and hands the coach a chat task to write it", async () => {
     const res = await ctx.api("/api/learning/request", { method: "POST", json: { topic: "Harmonic drive gearboxes", track: "robotics" } });
     expect(res.status).toBe(201);

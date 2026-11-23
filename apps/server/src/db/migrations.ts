@@ -619,4 +619,18 @@ export const migrations: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // learning: where Dave got to in each lesson, listening and reading, so the phone in the car and
+    // the PC at the desk pick up from the same place (apps/server/src/learning.ts LessonProgress).
+    id: "0028_lesson_progress",
+    sql: `
+      create table if not exists lesson_progress (
+        path text primary key,
+        audio_seconds real,
+        audio_at timestamptz,
+        read_part int,
+        read_at timestamptz
+      );
+    `,
+  },
 ];

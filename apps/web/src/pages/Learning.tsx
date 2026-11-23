@@ -1,9 +1,10 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { Api, LearningStats, LearningSuggestion, LearningTrack, LearningView, Lesson, LessonAudio, Narration, VoiceConfig, VoiceList } from "../api";
+import type { Api, LearningStats, LearningSuggestion, LearningTrack, LearningView, Lesson, LessonAudio, LessonProgress, Narration, VoiceConfig, VoiceList } from "../api";
 import { Icon } from "../icons";
 import { useLessonPlayer } from "../learning/player";
-import { chapterAt, clock, SPEEDS, useRecordingPlayer } from "../learning/recording";
-import { lessonScript, minutesLeft } from "../learning/script";
+import { localPlaceKey, useLessonAudio } from "../learning/global-player";
+import { chapterAt, clock, SPEEDS } from "../learning/recording";
+import { estimateMarks, lessonScript, minutesLeft, partAt, type Script } from "../learning/script";
 import { type LiveFeed, useLoad } from "../live";
 import { Markdown } from "../markdown";
 import { go, useRouteQuery } from "../router";
@@ -415,6 +416,7 @@ function LessonPage({ api, path, onChange, tracks }: { api: Api; path: string; o
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<VoiceConfig | null>(null);
   const [narration, setNarration] = useState<Narration | null>(null);
+  const [progress, setProgress] = useState<LessonProgress | null | undefined>(undefined);
   const load = () =>
     api
       .lesson(path)
@@ -422,9 +424,11 @@ function LessonPage({ api, path, onChange, tracks }: { api: Api; path: string; o
       .catch((e: Error) => setError(e.message));
   useEffect(() => {
     setData(null);
+    setProgress(undefined);
     void load();
     api.voiceConfig().then(setConfig).catch(() => setConfig(null));
     api.narration().then(setNarration).catch(() => setNarration(null));
+    api.progress(path).then(setProgress).catch(() => setProgress(null));
   }, [path]);
   // While this lesson is being recorded (or waits to be), follow it, and load the recording when it's done.
   const busy = narration && (narration.current?.path === path || narration.queued.includes(path));
@@ -439,16 +443,18 @@ function LessonPage({ api, path, onChange, tracks }: { api: Api; path: string; o
     return () => clearInterval(t);
   }, [busy, path]);
   if (error) return <p className="error">{error}</p>;
-  if (!data) return <p className="muted">Loading…</p>;
+  if (!data || progress === undefined) return <p className="muted">Loading…</p>;
   const record = async () => setNarration(await api.recordLesson(path));
   return (
     <LessonView
+      key={path}
       api={api}
       config={config}
       narration={narration}
       record={record}
       lesson={data.lesson}
       body={data.body}
+      progress={progress}
       tracks={tracks}
       onChange={() => void load().then(onChange)}
     />
@@ -456,6 +462,28 @@ function LessonPage({ api, path, onChange, tracks }: { api: Api; path: string; o
 }
 
 type Listened = { current: () => number };
+/** What the listening card tells the page: the part being spoken, and how to play from a part. */
+type Sync = { speaking: number | null; playing: boolean; playFrom: ((part: number) => void) | null; listenedPart: number | null; listenedAt: number };
+
+/** This device's listening place for a lesson: seconds, and when it was saved (ms). */
+function localPlace(path: string): { t: number; at: number } | null {
+  try {
+    const raw = localStorage.getItem(localPlaceKey(path));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { t?: number; at?: number } | number;
+    return typeof v === "number" ? { t: v, at: 0 } : typeof v?.t === "number" ? { t: v.t, at: v.at ?? 0 } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Where to start the recording: this device's place or the server's, whichever was saved last. Pure. */
+export function startingPlace(localP: { t: number; at: number } | null, server: LessonProgress | null): number {
+  const s = server?.audioSeconds ?? null;
+  const sAt = server?.audioAt ? Date.parse(server.audioAt) : 0;
+  if (localP && (s === null || localP.at >= sAt)) return localP.t;
+  return s ?? 0;
+}
 
 function LessonView({
   api,
@@ -464,6 +492,7 @@ function LessonView({
   record,
   lesson,
   body,
+  progress,
   tracks,
   onChange,
 }: {
@@ -473,6 +502,7 @@ function LessonView({
   record: () => Promise<void>;
   lesson: Lesson;
   body: string;
+  progress: LessonProgress | null;
   tracks: LearningTrack[];
   onChange: () => void;
 }) {
@@ -481,6 +511,14 @@ function LessonView({
   const stop = useRef<() => void>(() => {});
   const [rating, setRating] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const script = useMemo(() => lessonScript(body, lesson.title), [body, lesson.title]);
+  const [sync, setSync] = useState<Sync>({ speaking: null, playing: false, playFrom: null, listenedPart: null, listenedAt: 0 });
+  // Where Dave read to (a part), kept here as he scrolls and saved to the server when he settles.
+  const [readPart, setReadPart] = useState<{ part: number; at: number } | null>(
+    progress?.readPart != null ? { part: progress.readPart, at: progress.readAt ? Date.parse(progress.readAt) : 0 } : null,
+  );
+  const [scrollTo, setScrollTo] = useState<{ part: number; n: number } | null>(null);
+  const jumpToText = (part: number) => setScrollTo((s) => ({ part, n: (s?.n ?? 0) + 1 }));
 
   const complete = async (mode: "read" | "listen") => {
     setErr(null);
@@ -496,6 +534,13 @@ function LessonView({
   };
   const recording = narration?.current?.path === lesson.path ? narration.current : null;
   const waiting = narration?.queued.includes(lesson.path);
+  const sectionTitle = (part: number) => script.sections[script.parts[part]?.section ?? 0]?.title ?? lesson.title;
+
+  // Whispersync: offer to carry the place over when one is clearly ahead of the other.
+  const listenedPart = sync.listenedPart;
+  const readAhead = readPart && listenedPart !== null && readPart.at > sync.listenedAt && readPart.part > listenedPart + 1 && !sync.playing;
+  const listenAhead =
+    !sync.playing && listenedPart !== null && (readPart !== null ? sync.listenedAt > readPart.at && listenedPart > readPart.part + 1 : listenedPart > 1);
 
   return (
     <section className="lesson-page">
@@ -515,11 +560,16 @@ function LessonView({
       {lesson.audio ? (
         <RecordingCard
           key={lesson.audio.id}
+          api={api}
           audio={lesson.audio}
           lesson={lesson}
+          script={script}
+          serverProgress={progress}
           listened={listened}
           stop={stop}
+          onSync={setSync}
           onFinished={() => void complete("listen")}
+          onFindPlace={jumpToText}
           rerecord={narration?.available ? record : null}
           rerecording={Boolean(recording || waiting)}
           progress={recording}
@@ -529,10 +579,11 @@ function LessonView({
           api={api}
           config={config}
           lesson={lesson}
-          body={body}
+          script={script}
           narrator={narration?.narrator ?? ""}
           listened={listened}
           stop={stop}
+          onSync={setSync}
           onFinished={() => void complete("listen")}
           status={
             recording
@@ -547,9 +598,30 @@ function LessonView({
         />
       )}
 
-      <article className="card lesson-body">
-        <Markdown text={body.replace(/^#\s+.*\n+/, "")} />
-      </article>
+      {(readAhead || listenAhead) && (
+        <div className="card sync-bar row wrap" role="status">
+          <Icon name="refresh" size={16} />
+          {readAhead && readPart && sync.playFrom && (
+            <button className="small" onClick={() => sync.playFrom?.(readPart.part)}>
+              Listen from where you read: {sectionTitle(readPart.part)}
+            </button>
+          )}
+          {listenAhead && listenedPart !== null && (
+            <button className="small" onClick={() => jumpToText(listenedPart)}>
+              Read from where you listened: {sectionTitle(listenedPart)}
+            </button>
+          )}
+        </div>
+      )}
+
+      <ReadingView
+        api={api}
+        path={lesson.path}
+        script={script}
+        sync={sync}
+        scrollTo={scrollTo}
+        onRead={(part) => setReadPart({ part, at: Date.now() })}
+      />
 
       <article className="card lesson-done">
         {lesson.status === "done" ? (
@@ -589,150 +661,333 @@ function LessonView({
   );
 }
 
-/** The recorded lesson: chapters, seeking, speed, and what the listen-back check found. */
+/**
+ * The lesson's text, block by block, kept in step with the voice: the paragraph being spoken is
+ * highlighted (and followed, unless Dave turns that off or is scrolling himself), a tap on a
+ * paragraph offers to listen from there, and where he reads to is saved once he stops scrolling.
+ */
+function ReadingView({
+  api,
+  path,
+  script,
+  sync,
+  scrollTo,
+  onRead,
+}: {
+  api: Api;
+  path: string;
+  script: Script;
+  sync: Sync;
+  scrollTo: { part: number; n: number } | null;
+  onRead: (part: number) => void;
+}) {
+  const [follow, setFollow] = useState(true);
+  const [selected, setSelected] = useState<number | null>(null);
+  const root = useRef<HTMLElement | null>(null);
+  const userScrolled = useRef(0);
+  const autoScrolled = useRef(0);
+
+  const scrollToPart = (part: number, smooth = true) => {
+    const el = root.current?.querySelector(`[data-part="${part}"]`);
+    if (!el) return;
+    autoScrolled.current = Date.now();
+    el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+  };
+
+  // Follow the voice: when the spoken part changes, bring it into view (not while Dave is scrolling).
+  useEffect(() => {
+    if (!follow || !sync.playing || sync.speaking === null) return;
+    if (Date.now() - userScrolled.current < 6000) return;
+    scrollToPart(sync.speaking);
+  }, [sync.speaking, sync.playing, follow]);
+  useEffect(() => {
+    if (scrollTo) scrollToPart(scrollTo.part);
+  }, [scrollTo]);
+
+  // Where Dave reads to: the first spoken part at the top of the screen, saved when he settles.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onScroll = () => {
+      if (Date.now() - autoScrolled.current > 1200) userScrolled.current = Date.now();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (sync.playing || Date.now() - autoScrolled.current < 1500) return;
+        const blocks = [...(root.current?.querySelectorAll<HTMLElement>("[data-part]") ?? [])];
+        const top = blocks.find((b) => b.getBoundingClientRect().bottom > 90);
+        const part = top ? Number(top.dataset.part) : null;
+        if (part === null || Number.isNaN(part)) return;
+        onRead(part);
+        void api.saveProgress(path, { readPart: part }).catch(() => {});
+      }, 2000);
+    };
+    addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      removeEventListener("scroll", onScroll);
+      if (timer) clearTimeout(timer);
+    };
+  }, [api, path, sync.playing]);
+
+  return (
+    <article className="card lesson-body" ref={root}>
+      {sync.playFrom && (
+        <label className="row small muted follow-toggle">
+          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+          Follow the voice
+        </label>
+      )}
+      <div className="md">
+        {script.blocks.map((b, i) =>
+          b.heading === 1 ? null : (
+            <div
+              key={i}
+              {...(b.part !== null ? { "data-part": b.part } : {})}
+              className={`lesson-block${b.part !== null && b.part === sync.speaking ? " is-speaking" : ""}${b.part !== null && sync.playFrom ? " can-play" : ""}${selected === b.part && b.part !== null ? " is-selected" : ""}`}
+              onClick={(e) => {
+                if (b.part === null || !sync.playFrom || (e.target as HTMLElement).closest("a, button")) return;
+                setSelected(selected === b.part ? null : b.part);
+              }}
+            >
+              <Markdown text={b.source} />
+              {selected === b.part && b.part !== null && sync.playFrom && (
+                <button
+                  type="button"
+                  className="small primary play-from"
+                  onClick={() => {
+                    sync.playFrom?.(b.part!);
+                    setSelected(null);
+                  }}
+                >
+                  <Icon name="play" size={14} /> Listen from here
+                </button>
+              )}
+            </div>
+          ),
+        )}
+      </div>
+    </article>
+  );
+}
+
+/** The recorded lesson, played by the app-wide player: chapters, seeking, speed, the listen-back check. */
 function RecordingCard({
+  api,
   audio,
   lesson,
+  script,
+  serverProgress,
   listened,
   stop,
+  onSync,
   onFinished,
+  onFindPlace,
   rerecord,
   rerecording,
   progress,
 }: {
+  api: Api;
   audio: LessonAudio;
   lesson: Lesson;
+  script: Script;
+  serverProgress: LessonProgress | null;
   listened: Listened;
   stop: { current: () => void };
+  onSync: (s: Sync) => void;
   onFinished: () => void;
+  onFindPlace: (part: number) => void;
   rerecord: (() => Promise<void>) | null;
   rerecording: boolean;
   progress: { done: number; total: number } | null;
 }) {
-  const p = useRecordingPlayer(audio, lesson.path, lesson.title);
+  const p = useLessonAudio();
+  const marks = useMemo(() => (audio.marks?.length === script.parts.length ? audio.marks : estimateMarks(script.parts, audio.seconds)), [audio, script]);
+  const mine = p.loaded?.path === lesson.path;
+  const other = p.loaded && !mine ? p.loaded : null;
+  const start = useMemo(() => startingPlace(localPlace(lesson.path), serverProgress), [lesson.path, serverProgress]);
+  const loadThis = () => p.load({ path: lesson.path, title: lesson.title, audio, marks }, start);
+  // Load it (paused) when nothing else is playing; never cut off another lesson by just opening this one.
+  useEffect(() => {
+    if (mine) p.load({ path: lesson.path, title: lesson.title, audio, marks });
+    else if (!p.loaded) loadThis();
+  }, [lesson.path, audio.url]);
+
+  const time = mine ? p.time : start;
+  const duration = mine ? p.duration : audio.seconds;
+  const speaking = partAt(marks, time);
+  const playFrom = (part: number) => {
+    if (!mine) loadThis();
+    p.seek(marks[part] ?? 0);
+    p.play();
+  };
+  const serverAt = serverProgress?.audioAt ? Date.parse(serverProgress.audioAt) : 0;
+  useEffect(() => {
+    onSync({ speaking: mine ? speaking : null, playing: mine && p.playing, playFrom, listenedPart: time > 1 ? speaking : null, listenedAt: mine && p.playing ? Date.now() : Math.max(serverAt, localPlace(lesson.path)?.at ?? 0) });
+  }, [speaking, mine, p.playing, Math.floor(time / 5)]);
   listened.current = p.minutesListened;
-  stop.current = p.stop;
-  const chapter = audio.chapters[p.chapter];
+  stop.current = () => mine && p.pause();
+
+  // The full player scrolls away with the page; while it's out of view the mini player stands in.
+  const card = useRef<HTMLDivElement | null>(null);
+  const setVisible = p.setFullPlayerVisible;
+  useEffect(() => {
+    const el = card.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setVisible(Boolean(e?.isIntersecting)), { threshold: 0.15 });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      setVisible(false);
+    };
+  }, [setVisible]);
+  const chapter = audio.chapters[chapterAt(audio.chapters, time)];
   const flagged = audio.flagged.length;
+  const use = <T,>(fn: () => T) => () => {
+    if (!mine) loadThis();
+    return fn();
+  };
   return (
     <>
-    <div className="card lesson-player" aria-label="Listen to this lesson">
-      <div className="row between small">
-        <span className="muted clip">{chapter?.title ?? lesson.title}</span>
-        <span className="muted nowrap">
-          {clock(p.time)} / {clock(p.duration)}
-        </span>
-      </div>
-      <input
-        type="range"
-        className="seek"
-        min={0}
-        max={Math.max(1, Math.floor(p.duration))}
-        step={1}
-        value={Math.floor(p.time)}
-        onChange={(e) => p.seek(Number(e.target.value))}
-        aria-label="Position"
-        aria-valuetext={`${clock(p.time)} of ${clock(p.duration)}`}
-      />
-      <div className="row player-buttons">
-        <button aria-label="Previous chapter" title="Previous chapter" onClick={p.prevChapter}>
-          <Icon name="back" />
-          <Icon name="back" />
-        </button>
-        <button aria-label="Back 15 seconds" title="Back 15 seconds" onClick={() => p.skip(-15)}>
-          −15
-        </button>
-        <button className="primary play-big" aria-label={p.playing ? "Pause" : "Play"} onClick={p.toggle}>
-          <Icon name={p.playing ? "pause" : "play"} size={28} />
-        </button>
-        <button aria-label="Forward 30 seconds" title="Forward 30 seconds" onClick={() => p.skip(30)}>
-          +30
-        </button>
-        <button aria-label="Next chapter" title="Next chapter" onClick={p.nextChapter} disabled={p.chapter >= audio.chapters.length - 1}>
-          <Icon name="chevron" />
-          <Icon name="chevron" />
-        </button>
-      </div>
-      <div className="row between wrap small">
-        <label className="row">
-          Speed
-          <select value={p.speed} onChange={(e) => p.setSpeed(Number(e.target.value))} aria-label="Speed">
-            {SPEEDS.map((s) => (
-              <option key={s} value={s}>
-                {s}×
-              </option>
-            ))}
-          </select>
-        </label>
-        <details className="chapters">
-          <summary>Chapters</summary>
-          <ol>
-            {audio.chapters.map((c, i) => (
-              <li key={`${c.at}-${i}`}>
-                <button className={`link ${i === chapterAt(audio.chapters, p.time) ? "is-on" : ""}`} onClick={() => p.seek(c.at)}>
-                  <span className="muted">{clock(c.at)}</span> {c.title}
-                </button>
-              </li>
-            ))}
-          </ol>
-        </details>
-      </div>
-      {p.error && <p className="error small">{p.error}</p>}
-      {p.finished && lesson.status !== "done" && (
-        <p className="row">
-          <span>That's the lesson.</span>
-          <button className="primary" onClick={onFinished}>
-            Mark as listened
-          </button>
-        </p>
-      )}
-    </div>
-    {/* Not inside the player: the player stays pinned at the top, so a long list there couldn't scroll. */}
-    <article className="card lesson-check">
-      <details className="check small">
-        <summary className="muted">
-          Checked by ear: {audio.checked ? (flagged ? `${flagged} of ${audio.checked} sentences may sound off` : `all ${audio.checked} sentences clear`) : "not checked"}
-        </summary>
-        {flagged > 0 && (
-          <ul>
-            {audio.flagged.map((f, i) => (
-              <li key={i}>
-                <strong>{f.missing.join(", ")}</strong> in “{f.text}” <span className="muted">(heard “{f.heard}”)</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="muted">
-          Fix a word in <a href={`#/brain/${encodeURIComponent("learning/pronunciation.md")}`}>the pronunciation list</a>, then re-record.
-        </p>
-        {rerecord && (
-          <p>
-            {rerecording ? (
-              <span className="muted" role="status">
-                Re-recording{progress?.total ? `: ${Math.round((progress.done / progress.total) * 100)}%` : "…"}
-              </span>
-            ) : (
-              <button className="small" onClick={() => void rerecord()}>
-                Re-record
-              </button>
-            )}
+      <div className="card lesson-player is-recording" aria-label="Listen to this lesson" ref={card}>
+        {other && (
+          <p className="small muted row between wrap" role="status">
+            <span>Playing: {other.title}</span>
+            <button className="small" onClick={() => { loadThis(); setTimeout(() => p.play(), 0); }}>
+              Play this lesson instead
+            </button>
           </p>
         )}
-      </details>
-    </article>
+        <div className="row between small">
+          <span className="muted clip">{chapter?.title ?? lesson.title}</span>
+          <span className="muted nowrap">
+            {clock(time)} / {clock(duration)}
+          </span>
+        </div>
+        <input
+          type="range"
+          className="seek"
+          min={0}
+          max={Math.max(1, Math.floor(duration))}
+          step={1}
+          value={Math.floor(time)}
+          onChange={(e) => {
+            if (!mine) loadThis();
+            p.seek(Number(e.target.value));
+          }}
+          aria-label="Position"
+          aria-valuetext={`${clock(time)} of ${clock(duration)}`}
+        />
+        <div className="row player-buttons">
+          <button aria-label="Previous chapter" title="Previous chapter" onClick={use(p.prevChapter)}>
+            <Icon name="back" />
+            <Icon name="back" />
+          </button>
+          <button aria-label="Back 15 seconds" title="Back 15 seconds" onClick={use(() => p.skip(-15))}>
+            −15
+          </button>
+          <button
+            className="primary play-big"
+            aria-label={mine && p.playing ? "Pause" : "Play"}
+            onClick={() => {
+              if (!mine) {
+                loadThis();
+                setTimeout(() => p.play(), 0);
+              } else p.toggle();
+            }}
+          >
+            <Icon name={mine && p.playing ? "pause" : "play"} size={28} />
+          </button>
+          <button aria-label="Forward 30 seconds" title="Forward 30 seconds" onClick={use(() => p.skip(30))}>
+            +30
+          </button>
+          <button aria-label="Next chapter" title="Next chapter" onClick={use(p.nextChapter)} disabled={chapterAt(audio.chapters, time) >= audio.chapters.length - 1}>
+            <Icon name="chevron" />
+            <Icon name="chevron" />
+          </button>
+        </div>
+        <div className="row between wrap small">
+          <label className="row">
+            Speed
+            <select value={p.speed} onChange={(e) => p.setSpeed(Number(e.target.value))} aria-label="Speed">
+              {SPEEDS.map((s) => (
+                <option key={s} value={s}>
+                  {s}×
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="link small" onClick={() => onFindPlace(speaking)}>
+            Find my place in the text
+          </button>
+          <details className="chapters">
+            <summary>Chapters</summary>
+            <ol>
+              {audio.chapters.map((c, i) => (
+                <li key={`${c.at}-${i}`}>
+                  <button className={`link ${i === chapterAt(audio.chapters, time) ? "is-on" : ""}`} onClick={use(() => p.seek(c.at))}>
+                    <span className="muted">{clock(c.at)}</span> {c.title}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </details>
+        </div>
+        <p className="muted small">Keeps playing while you use the rest of the app.</p>
+        {mine && p.error && <p className="error small">{p.error}</p>}
+        {mine && p.finished && lesson.status !== "done" && (
+          <p className="row">
+            <span>That's the lesson.</span>
+            <button className="primary" onClick={onFinished}>
+              Mark as listened
+            </button>
+          </p>
+        )}
+      </div>
+      {/* Not inside the player: the player stays pinned at the top, so a long list there couldn't scroll. */}
+      <article className="card lesson-check">
+        <details className="check small">
+          <summary className="muted">
+            Checked by ear: {audio.checked ? (flagged ? `${flagged} of ${audio.checked} sentences may sound off` : `all ${audio.checked} sentences clear`) : "not checked"}
+          </summary>
+          {flagged > 0 && (
+            <ul>
+              {audio.flagged.map((f, i) => (
+                <li key={i}>
+                  <strong>{f.missing.join(", ")}</strong> in “{f.text}” <span className="muted">(heard “{f.heard}”)</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="muted">
+            Fix a word in <a href={`#/brain/${encodeURIComponent("learning/pronunciation.md")}`}>the pronunciation list</a>, then re-record.
+          </p>
+          {rerecord && (
+            <p>
+              {rerecording ? (
+                <span className="muted" role="status">
+                  Re-recording{progress?.total ? `: ${Math.round((progress.done / progress.total) * 100)}%` : "…"}
+                </span>
+              ) : (
+                <button className="small" onClick={() => void rerecord()}>
+                  Re-record
+                </button>
+              )}
+            </p>
+          )}
+        </details>
+      </article>
     </>
   );
 }
 
-/** Before the recording exists: the live voice reads it, paragraph by paragraph. */
+/** Before the recording exists: the live voice reads it, paragraph by paragraph (on this page only). */
 function LiveCard({
   api,
   config,
   lesson,
-  body,
+  script,
   narrator,
   listened,
   stop,
+  onSync,
   onFinished,
   status,
   record,
@@ -740,22 +995,25 @@ function LiveCard({
   api: Api;
   config: VoiceConfig | null;
   lesson: Lesson;
-  body: string;
+  script: Script;
   narrator: string;
   listened: Listened;
   stop: { current: () => void };
+  onSync: (s: Sync) => void;
   onFinished: () => void;
   status: string | null;
   record: (() => Promise<void>) | null;
 }) {
   const query = useRouteQuery();
-  const script = useMemo(() => lessonScript(body, lesson.title), [body, lesson.title]);
   const player = useLessonPlayer(api, config, lesson.path, script.parts, lesson.title, narrator);
   listened.current = player.minutesListened;
   stop.current = player.stop;
   const part = script.parts[player.index];
   const section = part ? script.sections[part.section] : undefined;
   const sectionIndex = part?.section ?? 0;
+  useEffect(() => {
+    onSync({ speaking: player.playing ? player.index : null, playing: player.playing, playFrom: (p) => void player.play(p), listenedPart: player.index > 0 ? player.index : null, listenedAt: 0 });
+  }, [player.index, player.playing]);
   return (
     <div className={`card lesson-player ${query.get("listen") === "1" ? "is-first" : ""}`} aria-label="Listen to this lesson">
       {status && (
@@ -794,7 +1052,6 @@ function LiveCard({
           <Icon name="chevron" />
         </button>
       </div>
-      {player.playing && part && <p className="now-reading">{part.text}</p>}
       {player.error && <p className="error small">{player.error}</p>}
       {player.finished && lesson.status !== "done" && (
         <p className="row">
