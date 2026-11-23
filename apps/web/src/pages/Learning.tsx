@@ -4,6 +4,7 @@ import { Icon } from "../icons";
 import { useLessonPlayer } from "../learning/player";
 import { localPlace, progressPercent, startingPlace, useLessonAudio } from "../learning/global-player";
 import { chapterAt, clock, SPEEDS } from "../learning/recording";
+import { prettyVoice } from "../learning/NarratorPicker";
 import { estimateMarks, lessonScript, minutesLeft, partAt, type Script } from "../learning/script";
 import { type LiveFeed, useLoad } from "../live";
 import { Markdown } from "../markdown";
@@ -29,11 +30,15 @@ export function Learning({ api, feed, path }: { api: Api; feed: LiveFeed; path?:
       {view.error && <p className="error">{view.error}</p>}
       {view.data && (
         <>
-          <TodayCard view={view.data} />
+          <TodayCard api={api} view={view.data} onChange={view.reload} />
           <Scoreboard stats={view.data.stats} />
           <Choose api={api} view={view.data} onAsked={view.reload} />
           <Library view={view.data} />
-          <NarratorCard api={api} narration={view.data.narration} onChange={view.reload} />
+          {view.data.narration && (
+            <p className="muted small narrator-link">
+              Lessons are read by {prettyNarrator(view.data.narration.narrator)}. <a href="#/settings">Change the narrator in Settings, Voice</a>.
+            </p>
+          )}
         </>
       )}
       {!view.data && !view.error && <p className="muted">Loading…</p>}
@@ -43,6 +48,7 @@ export function Learning({ api, feed, path }: { api: Api; feed: LiveFeed; path?:
 
 /** How far through a lesson Dave is: a tick once done, else the percentage and a thin bar. */
 export function LessonProgressBadge({ lesson, bar = true }: { lesson: Pick<Lesson, "status" | "completedMode" | "percent">; bar?: boolean }) {
+  if (lesson.status === "skipped") return <span className="muted small skipped-mark">Skipped</span>;
   if (lesson.status === "done") {
     return (
       <span className="done-mark">
@@ -68,7 +74,7 @@ function TrackChip({ track, tracks }: { track: string; tracks: LearningTrack[] }
   return <span className="track-chip">{tracks.find((t) => t.id === track)?.name ?? track}</span>;
 }
 
-function TodayCard({ view }: { view: LearningView }) {
+function TodayCard({ api, view, onChange }: { api: Api; view: LearningView; onChange: () => void }) {
   const l = view.todays;
   if (!l) {
     const next = view.suggestions.requested[0] ?? view.suggestions.fromWork?.[0] ?? view.suggestions.upNext[0];
@@ -100,6 +106,9 @@ function TodayCard({ view }: { view: LearningView }) {
         </button>
         <button className="big" onClick={() => go(lessonHref(l.path))}>
           <Icon name="learn" /> Read
+        </button>
+        <button className="ghost small skip-btn" onClick={() => void api.skipLesson(l.path).then(onChange)} title="Not interested: skip this lesson">
+          Skip
         </button>
       </div>
     </article>
@@ -184,6 +193,15 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
   const [topic, setTopic] = useState("");
   const [track, setTrack] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const skip = async (s: { title: string; track?: string }) => {
+    setErr(null);
+    try {
+      await api.skipTopic(s.title, s.track);
+      onAsked();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
   const ask = async (s: { title: string; track?: string }) => {
     setErr(null);
     try {
@@ -224,11 +242,13 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
             const sent = key in asked;
             return (
               <li key={key} className="item static">
-                <div className="row between">
-                  <span className="row">
-                    <TrackChip track={s.track} tracks={view.tracks} />
-                    {s.from && <span className="muted small">{s.from}</span>}
-                  </span>
+                <div className="row wrap">
+                  <TrackChip track={s.track} tracks={view.tracks} />
+                  {s.from && <span className="muted small">{s.from}</span>}
+                </div>
+                <p className="title">{s.title}</p>
+                {s.why && <p className="small muted">{s.why}</p>}
+                <div className="row suggestion-actions">
                   {sent ? (
                     asked[key] ? (
                       <a className="small" href={`#/task/${asked[key]}`}>
@@ -238,11 +258,14 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
                       <span className="small muted">Asked</span>
                     )
                   ) : (
-                    <button onClick={() => void ask(s)}>Make this lesson</button>
+                    <>
+                      <button onClick={() => void ask(s)}>Make this lesson</button>
+                      <button className="ghost small" onClick={() => void skip(s)} title="Not interested: never write this one">
+                        Skip
+                      </button>
+                    </>
                   )}
                 </div>
-                <p className="title">{s.title}</p>
-                {s.why && <p className="small muted">{s.why}</p>}
               </li>
             );
           })}
@@ -269,7 +292,8 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
 
 function Library({ view }: { view: LearningView }) {
   const [track, setTrack] = useState("");
-  const [status, setStatus] = useState<"" | "ready" | "done">("");
+  // What's still to do comes first; All and Done are a tap away.
+  const [status, setStatus] = useState<"" | "ready" | "done" | "skipped">("ready");
   const shown = view.lessons.filter((l) => (!track || l.track === track) && (!status || l.status === status));
   return (
     <article className="card">
@@ -279,6 +303,7 @@ function Library({ view }: { view: LearningView }) {
           <option value="">All</option>
           <option value="ready">To do</option>
           <option value="done">Done</option>
+          <option value="skipped">Skipped</option>
         </select>
         <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Track">
           <option value="">Every track</option>
@@ -289,7 +314,7 @@ function Library({ view }: { view: LearningView }) {
           ))}
         </select>
       </div>
-      {shown.length === 0 && <p className="muted small">{view.lessons.length ? "None match." : "No lessons yet. The first arrives tomorrow morning, or ask for one above."}</p>}
+      {shown.length === 0 && <p className="muted small">{view.lessons.length ? (status === "ready" && !track ? "Nothing to do: every lesson is done. Choose All to see them." : "None match.") : "No lessons yet. The first arrives tomorrow morning, or ask for one above."}</p>}
       <ul className="list">
         {shown.map((l) => (
           <li key={l.path} className="item" onClick={() => go(lessonHref(l.path))}>
@@ -309,123 +334,9 @@ function Library({ view }: { view: LearningView }) {
   );
 }
 
-// ---------- the narrator ----------
+export { prettyVoice } from "../learning/NarratorPicker";
 
-/** "kokoro:bf_emma" → "Emma (Kokoro)", for a voice the server doesn't list right now. Pure. */
-export function prettyVoice(id: string): string {
-  const [family = "", name = id] = id.includes(":") ? id.split(":") : ["", id];
-  const bare = name.replace(/^[ab][fm]_/, "").replace(/_/g, " ");
-  const cap = (t: string) => t.replace(/\b\w/g, (c) => c.toUpperCase());
-  return family ? `${cap(bare)} (${cap(family)})` : cap(bare);
-}
-
-/**
- * Who records the lessons. The server's own voices are free and have no limits; "most natural"
- * ones (Kokoro) take a little longer to record, which doesn't matter for a lesson recorded at dawn.
- */
-function NarratorCard({ api, narration, onChange }: { api: Api; narration: Narration | null; onChange: () => void }) {
-  const [list, setList] = useState<VoiceList | null>(null);
-  const [config, setConfig] = useState<VoiceConfig | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
-  const audio = useRef<HTMLAudioElement | null>(null);
-  useEffect(() => {
-    api.voices().then(setList).catch(() => setList(null));
-    api.voiceConfig().then(setConfig).catch(() => setConfig(null));
-    return () => audio.current?.pause();
-  }, [api]);
-  if (!narration) return null;
-  const voices = list?.voices ?? [];
-  const keyed = config?.tts && config.tts.provider !== "local";
-  const chosen = voices.find((v) => v.id === narration.narrator);
-  const choose = async (id: string) => {
-    setNote(null);
-    try {
-      await api.setNarrator(id);
-      const v = voices.find((x) => x.id === id);
-      if (v && v.status !== "ready" && v.tier !== "elevenlabs") void api.installVoice(id).then(setList).catch(() => {});
-      setNote(
-        v?.tier === "elevenlabs" || (!v && keyed)
-          ? "New lessons will be recorded with this voice. It's a paid voice: a 30-minute lesson is about 27,000 characters of speech."
-          : "New lessons will be recorded with this voice (free, on the server). To re-record a lesson, open it and choose Re-record.",
-      );
-      onChange();
-    } catch (e) {
-      setNote((e as Error).message);
-    }
-  };
-  const preview = async () => {
-    audio.current?.pause();
-    setPlaying(true);
-    setNote(null);
-    try {
-      const blob = await api.speak("Welcome back. Today we're looking at how EtherCAT keeps a hundred axes in step, and why it matters on the factory floor.", narration.narrator || undefined, { fallback: false });
-      const a = new Audio(URL.createObjectURL(blob));
-      audio.current = a;
-      a.onended = () => setPlaying(false);
-      await a.play();
-    } catch (e) {
-      setPlaying(false);
-      setNote((e as Error).message.includes("downloading") || (e as Error).message.includes("409") ? "That voice is still downloading. Try again in a minute." : (e as Error).message);
-    }
-  };
-  const group = (tier: string) => voices.filter((v) => v.tier === tier);
-  return (
-    <article className="card narrator">
-      <h3>Narrator</h3>
-      <p className="muted small">
-        Each lesson is recorded once, before you need it: whole sentences with natural pauses, terms said the way{" "}
-        <a href={`#/brain/${encodeURIComponent("learning/pronunciation.md")}`}>the pronunciation list</a> says, and every sentence checked by ear.
-      </p>
-      <div className="row wrap narrator-row">
-        <select value={narration.narrator} onChange={(e) => void choose(e.target.value)} aria-label="Narrator">
-          {keyed && <option value="">{`Server voice (${config!.tts!.provider}, paid)`}</option>}
-          {group("natural").length > 0 && (
-            <optgroup label="Most natural: free, on the server">
-              {group("natural").map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label} · {v.description.split(" · ")[0]}
-                  {v.status === "ready" ? "" : v.status === "installing" ? " (downloading…)" : ` (downloads ${v.sizeMb} MB)`}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {group("fast").length > 0 && (
-            <optgroup label="Fast: free, less natural">
-              {group("fast").map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label} · {v.description.split(" · ")[0]}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {group("elevenlabs").length > 0 && (
-            <optgroup label="ElevenLabs (paid)">
-              {group("elevenlabs").map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {!voices.some((v) => v.id === narration.narrator) && narration.narrator && <option value={narration.narrator}>{prettyVoice(narration.narrator)}</option>}
-        </select>
-        <button type="button" onClick={() => (playing ? (audio.current?.pause(), setPlaying(false)) : void preview())}>
-          {playing ? "Stop" : "Preview"}
-        </button>
-      </div>
-      {chosen && chosen.status !== "ready" && chosen.tier !== "elevenlabs" && <p className="muted small">{chosen.label} is downloading ({chosen.sizeMb} MB); recordings wait for it.</p>}
-      {!narration.available && <p className="error small">Recording is off: {narration.reason}. Lessons are read live instead.</p>}
-      {narration.current && (
-        <p className="muted small" role="status">
-          Recording {narration.current.total ? `${Math.round((narration.current.done / narration.current.total) * 100)}%` : "…"}
-          {narration.queued.length ? `, ${narration.queued.length} more waiting` : ""}.
-        </p>
-      )}
-      {note && <p className="muted small">{note}</p>}
-    </article>
-  );
-}
+const prettyNarrator = (id: string) => (id ? prettyVoice(id) : "the server's default voice");
 
 // ---------- one lesson ----------
 
@@ -625,7 +536,14 @@ function LessonView({
       />
 
       <article className="card lesson-done">
-        {lesson.status === "done" ? (
+        {lesson.status === "skipped" ? (
+          <div className="row between">
+            <span className="muted">Skipped. It won't be offered again, and the coach steers clear of the topic.</span>
+            <button className="small" onClick={() => void api.reopenLesson(lesson.path).then(onChange)}>
+              Undo skip
+            </button>
+          </div>
+        ) : lesson.status === "done" ? (
           <div className="row between">
             <span className="done-mark">
               <Icon name="check" /> {lesson.completedMode === "listen" ? "Listened" : "Read"}
@@ -653,6 +571,16 @@ function LessonView({
                 Mark as read
               </button>
               <button onClick={() => void complete("listen")}>Mark as listened</button>
+              <button
+                className="ghost"
+                onClick={() => {
+                  stop.current();
+                  void api.skipLesson(lesson.path).then(onChange);
+                }}
+                title="Not interested: skip this lesson"
+              >
+                Skip this lesson
+              </button>
             </div>
           </>
         )}

@@ -15,6 +15,7 @@
       <li>Every lesson shows how far through it you are: a percentage (the further of listened and read) and a bar, and <uicontrol>Listened</uicontrol> or <uicontrol>Read</uicontrol> with a tick once done. A recording played to the end marks itself listened, so there's nothing to tap in the car.</li>
       <li>In <uicontrol>Converse</uicontrol>, say "what lessons have I got" to hear them with how far through each is, then "play lesson two", "play today's lesson", "continue my lesson" or "play the lesson about carbide". <uicontrol>Lessons</uicontrol> under the talk button lists them to tap. A lesson pauses while Converse listens or talks and carries on afterwards; "pause the lesson" stops it.</li>
       <li>While a lesson plays, notifications still arrive but without sound or vibration (urgent ones excepted), so the phone doesn't buzz through it.</li>
+      <li>Not interested? <uicontrol>Skip</uicontrol> on today's lesson, or <uicontrol>Skip this lesson</uicontrol> on its page, takes it off To do, Converse and the recording queue (<uicontrol>Undo skip</uicontrol> brings it back; <uicontrol>Skipped</uicontrol> in the list's filter shows them). <uicontrol>Skip</uicontrol> beside a suggested topic means it's never written. Either way the topic goes under <uicontrol>Skipped</uicontrol> in the topic map, and the coach steers clear of it.</li>
       <li><uicontrol>Read</uicontrol> opens the text, with a <uicontrol>Try it</uicontrol> exercise and a quiz at the end.</li>
       <li><uicontrol>Mark as read</uicontrol> or <uicontrol>Mark as listened</uicontrol> when you finish, with an optional star rating. <uicontrol>Not done</uicontrol> undoes it.</li>
     </ul>
@@ -31,7 +32,7 @@
     <title>Narrator and pronunciation</title>
     <prolog><resourceid appname="command-centre" appid="learning.narrator"/></prolog>
     <body>
-      <p><uicontrol>Narrator</uicontrol>, at the bottom of Learning, picks the voice lessons are recorded with. <uicontrol>Preview</uicontrol> plays a sample. The server's own voices are free with no limits; OpenAI and ElevenLabs voices cost per minute.</p>
+      <p><uicontrol>Lesson narrator</uicontrol>, in Settings under <uicontrol>Voice</uicontrol> beside the voice this device speaks with, picks the voice lessons are recorded with (Learning links to it). <uicontrol>Preview</uicontrol> plays a sample. The server's own voices are free with no limits; OpenAI and ElevenLabs voices cost per minute.</p>
       <p>Every sentence is checked by ear: the server's speech recognition listens back, and an acronym it can't make out is tried spelled out. Under the player, <uicontrol>Checked by ear</uicontrol> lists anything that still sounds off. Fix the word in the pronunciation list, then choose <uicontrol>Re-record</uicontrol>. The same list is used for everything the app says aloud, Converse replies included, so a fix there applies everywhere; in Converse you can also just say "you're saying Beckhoff wrong, it's…" and the assistant updates it. Speech uses UK English: British voices, a lone Z said "zed", and British respellings in the list. Recordings are kept with your other files, on Google Drive when it's connected (<filepath>Command Centre/Personal/audio</filepath>).</p>
     </body>
   </topic>
