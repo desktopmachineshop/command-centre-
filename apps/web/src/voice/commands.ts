@@ -4,6 +4,8 @@
  * "approve the quote for Jane" is a request for the agent, never an approval.
  */
 
+import { type LessonPick, spokenNumber } from "../learning/converse";
+
 export type VoiceMode = "push" | "conversational";
 
 export type Command =
@@ -25,6 +27,12 @@ export type Command =
   | { kind: "talkTo"; target: string }
   /** "who am I talking to?" */
   | { kind: "whoami" }
+  /** "what lessons have I got": the lessons waiting, read out with how far through each is. */
+  | { kind: "lessons" }
+  /** "play today's lesson", "continue my lesson", "play lesson two", "play the lesson on carbide". */
+  | { kind: "playLesson"; pick: LessonPick }
+  /** "pause the lesson". */
+  | { kind: "pauseLesson" }
   /** A request for the agent; `role` (with its `vertical`) when a role was named, e.g. "ask customer support whether ...". */
   | { kind: "chat"; text: string; vertical?: string; role?: string };
 
@@ -93,7 +101,16 @@ const PHRASES: [RegExp, Command][] = [
   [/^(?:conversation(?:al)? mode|switch to conversation(?:al)? mode|hands free(?: mode)?)$/, { kind: "mode", mode: "conversational" }],
   [/^(?:push to talk(?: mode)?|switch to push to talk(?: mode)?)$/, { kind: "mode", mode: "push" }],
   [/^(?:who am i (?:talking|speaking) (?:to|with)|whos this|who is this|who are you|whos listening|who am i with)$/, { kind: "whoami" }],
+  [/^(?:(?:what|which) lessons?(?: (?:are there|are waiting|are ready|do i have|have i got|is there|is waiting))?|(?:list|read)(?: out)?(?: my| the)? lessons|(?:my )?lessons|whats my lesson(?: today)?|whats (?:on )?(?:in )?learning)$/, { kind: "lessons" }],
+  [/^(?:play|start|put on|read me|listen to)(?: me)?(?: (?:my|the|todays))* (?:lesson|learning)(?: for today| today)?$/, { kind: "playLesson", pick: { kind: "today" } }],
+  [/^(?:continue|resume|carry on(?: with)?|back to|unpause)(?: (?:my|the))? (?:lesson|learning)$/, { kind: "playLesson", pick: { kind: "continue" } }],
+  [/^(?:pause|stop)(?: (?:my|the))? (?:lesson|learning)$/, { kind: "pauseLesson" }],
 ];
+
+/** "play lesson two", "play the second lesson", "lesson number 3". */
+const LESSON_NUMBER = /^(?:(?:play|start|put on)(?: me)?(?: the)? )?(?:lesson (?:number )?(\w+)|(\w+) lesson)$/;
+/** "play the lesson on carbide prices", "play me something about EtherCAT". */
+const LESSON_TOPIC = /^(?:play|start|put on|read me|listen to)(?: me)?(?: the| a)? (?:lesson|something) (?:on|about) (.+)$/;
 
 /** "talk to X", "put me through to X", "switch to X"; X is resolved against the org by `resolveRole`. */
 const TALK_TO = /^(?:(?:can i |could i |i want to |id like to |let me )?(?:talk|speak) (?:to|with)|switch to|put me through to|connect me (?:to|with)|transfer me to|get me|back to) (?:the |my )?(.+)$/;
@@ -104,6 +121,11 @@ export function parseCommand(utterance: string, aliases: Aliases = buildAliases(
   if (!text) return null;
   const bare = text.replace(FILLER, "").replace(/[:,]/g, " ").replace(/\s+/g, " ").trim();
   for (const [re, cmd] of PHRASES) if (re.test(bare)) return cmd;
+  const numbered = bare.match(LESSON_NUMBER);
+  const n = numbered ? spokenNumber(numbered[1] ?? numbered[2] ?? "") : null;
+  if (n) return { kind: "playLesson", pick: { kind: "number", n } };
+  const topic = bare.match(LESSON_TOPIC);
+  if (topic) return { kind: "playLesson", pick: { kind: "topic", text: topic[1]! } };
   // A short "talk to ..." switches who you're talking to; a long one ("talk to me about the VAT return") is a request.
   const talk = bare.match(TALK_TO);
   if (talk && talk[1]!.split(" ").length <= 6) return { kind: "talkTo", target: talk[1]! };

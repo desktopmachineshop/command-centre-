@@ -173,6 +173,10 @@ describe.skipIf(!ffmpeg)("recording a lesson (ffmpeg)", () => {
     expect(audio.chapters.map((c) => c.title)).toEqual(["OPC and friends", "Why this matters now", "Quiz"]);
     expect(audio.chapters[0]!.at).toBe(0);
     expect(audio.chapters[1]!.at).toBeGreaterThan(1.5); // the title, then a section's pause
+    // Each spoken part's start: in order, the first at 0, chapters among them.
+    expect(audio.marks![0]).toBe(0);
+    expect(audio.marks).toEqual([...audio.marks!].sort((a, b) => a - b));
+    for (const c of audio.chapters) expect(audio.marks).toContain(c.at);
     expect(audio.flagged.map((f) => f.missing)).toEqual([["beckhoff"]]);
     expect(audio.seconds).toBeGreaterThan(5);
     expect(stored).toEqual([{ name: "2026-11-23-opc.mp3", bytes: expect.any(Number), folder: "audio" }]);

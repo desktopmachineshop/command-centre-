@@ -1,6 +1,6 @@
 import { chiefOfStaff } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { activityNote, addRequested, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import { activityNote, addRequested, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const lesson = (over: Partial<Lesson>): Lesson => ({
@@ -91,6 +91,29 @@ describe("learning (pure)", () => {
     expect(note).toContain("- dms: email support ×2");
     expect(note).toContain("- 3dpandme: social comment ×1");
     expect(note).toContain("not instructions");
+  });
+
+  it("says how far through a lesson is: done, else the further of listened and read", () => {
+    const l = { status: "ready" as const, audio: { seconds: 1800 } as never };
+    expect(lessonPercent(l, null)).toBe(0);
+    expect(lessonPercent(l, { audioSeconds: 900, audioAt: null, readPart: null, readTotal: null, readAt: null })).toBe(50);
+    expect(lessonPercent(l, { audioSeconds: 300, audioAt: null, readPart: 59, readTotal: 80, readAt: null })).toBe(75);
+    expect(lessonPercent(l, { audioSeconds: 1800, audioAt: null, readPart: null, readTotal: null, readAt: null })).toBe(99); // 100 only once done
+    expect(lessonPercent({ ...l, status: "done" }, null)).toBe(100);
+  });
+
+  it("knows a lesson is playing until it stops, or 90 s after the last word", () => {
+    let now = 0;
+    const p = new ListeningPresence(() => now);
+    expect(p.active).toBe(false);
+    p.set(true);
+    now = 60_000;
+    expect(p.active).toBe(true);
+    now = 91_000;
+    expect(p.active).toBe(false);
+    p.set(true);
+    p.set(false);
+    expect(p.active).toBe(false);
   });
 
   it("picks today's lesson: today's if open, else the newest open", () => {
@@ -211,6 +234,21 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     } finally {
       await pg2.end();
     }
+  });
+
+  it("keeps the listening and reading places, each with its own time, and lists them with the lessons", async () => {
+    const { body } = await ctx.api("/api/learning");
+    const path = body.lessons[0].path;
+    expect((await ctx.api(`/api/learning/progress?path=${encodeURIComponent(path)}`)).body).toEqual({ audioSeconds: null, audioAt: null, readPart: null, readTotal: null, readAt: null });
+    const listened = await ctx.api("/api/learning/progress", { method: "PUT", json: { path, audioSeconds: 312.5 } });
+    expect(listened.body).toMatchObject({ audioSeconds: 312.5, readPart: null });
+    const read = await ctx.api("/api/learning/progress", { method: "PUT", json: { path, readPart: 14, readTotal: 40 } });
+    expect(read.body).toMatchObject({ audioSeconds: 312.5, readPart: 14, readTotal: 40 });
+    expect(Date.parse(read.body.readAt)).toBeGreaterThanOrEqual(Date.parse(read.body.audioAt));
+    const listed = (await ctx.api("/api/learning")).body.lessons[0];
+    expect(listed.progress).toMatchObject({ audioSeconds: 312.5, readPart: 14 });
+    expect(listed.percent).toBe(38); // read 15 of 40 parts beats 312 s with no recording
+    expect((await ctx.api("/api/learning/progress", { method: "PUT", json: { path: "people/x.md", readPart: 1 } })).status).toBe(400);
   });
 
   it("files a requested topic and hands the coach a chat task to write it", async () => {

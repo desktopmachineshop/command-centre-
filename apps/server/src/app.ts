@@ -100,7 +100,7 @@ import { integrationOAuth } from "./integrations/oauth"; // --- integrations oau
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
-import { seedLearning, writeActivityNote } from "./learning";
+import { LessonProgress, ListeningPresence, seedLearning, writeActivityNote } from "./learning";
 import { LessonRecorder, narratorOf, PronunciationList, setNarrator } from "./learning-audio";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
@@ -267,8 +267,11 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   // --- end brain ---
   // --- Notifications: inbox, preferences, quiet hours, rate limits, devices (src/notifications) ---
+  // learning: a lesson playing on one of Dave's devices keeps notifications quiet (./learning.ts).
+  const listening = new ListeningPresence();
   const notifications = new NotificationService(new NotificationStore(pool), overrides.pushTransport ?? new WebPushTransport(config.vapid), {
     timezone: config.timezone,
+    hushed: () => listening.active,
     now: overrides.notificationClock,
     onUnreadChange: (unread) => hub.broadcast({ type: "notifications.updated", unread }),
     spend: async (since) => ({ costUsd: await store.costSince(since), budgetUsd: config.agent.dailyBudgetUsd ?? null }),
@@ -1088,7 +1091,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     lexicon: () => pronunciation.lexicon(),
   };
   // --- end learning ---
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration } }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration, progress: new LessonProgress(pool), listening } }));
   app.route(
     "/mcp",
     mcpRoutes({

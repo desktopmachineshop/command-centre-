@@ -311,13 +311,21 @@ export type Lesson = {
   readMinutes: number;
   /** The narrated recording, once the server has made it. */
   audio: LessonAudio | null;
+  /** Where Dave got to, listening and reading, once started. */
+  progress?: LessonProgress | null;
+  /** How far through it is, 0-100 (100 once done). */
+  percent?: number;
 };
+/** Where Dave got to in a lesson: the recording's position and the part (paragraph) he read to. */
+export type LessonProgress = { audioSeconds: number | null; audioAt: string | null; readPart: number | null; readTotal?: number | null; readAt: string | null };
 export type LessonAudio = {
   id: string;
   url: string;
   voice: string;
   seconds: number;
   chapters: { title: string; at: number }[];
+  /** Where each spoken part starts (seconds); absent on recordings made before they were kept. */
+  marks?: number[];
   recorded: string;
   checked: number;
   flagged: { text: string; missing: string[]; heard: string }[];
@@ -565,6 +573,12 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     reopenLesson: (path: string) => post<{ ok: true }>("/learning/reopen", { path }),
     narration: () => call<Narration | null>("/learning/narration"),
     pronunciation: () => call<{ entries: [string, string][] }>("/learning/pronunciation"),
+    progress: (path: string) => call<LessonProgress>(`/learning/progress?path=${encodeURIComponent(path)}`),
+    /** `keepalive`: still sent if the page is closing. */
+    /** A lesson is playing (or stopped) here: the server keeps notifications quiet while one plays. */
+    setListening: (playing: boolean) => call<{ playing: boolean }>("/learning/listening", { method: "PUT", body: JSON.stringify({ playing }), keepalive: !playing }),
+    saveProgress: (path: string, place: { audioSeconds?: number; readPart?: number; readTotal?: number }, opts: { keepalive?: boolean } = {}) =>
+      call<LessonProgress>("/learning/progress", { method: "PUT", body: JSON.stringify({ path, ...place }), keepalive: opts.keepalive }),
     setNarrator: (voice: string) => call<Narration>("/learning/narrator", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice }) }),
     recordLesson: (path: string) => post<Narration>("/learning/record", { path }),
     requestLesson: (topic: string, track?: string) => post<{ taskId: string | null }>("/learning/request", { topic, ...(track ? { track } : {}) }),

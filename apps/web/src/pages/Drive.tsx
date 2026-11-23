@@ -1,7 +1,12 @@
 import { speakable } from "@cc/voice/speakable";
 import { createPortal } from "react-dom";
 import { type MutableRefObject, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { type Api, ApiError, type NextApproval, type VoiceConfig } from "../api";
+import { type Api, ApiError, type LearningView, type Lesson, type NextApproval, type VoiceConfig } from "../api";
+import { Icon } from "../icons";
+import { lessonsLine, lessonsToOffer, pickLesson } from "../learning/converse";
+import { localPlace, startingPlace, useLessonAudio } from "../learning/global-player";
+import { go } from "../router";
+import { LessonProgressBadge } from "./Learning";
 import { type LiveFeed, useLive } from "../live";
 import { ProgressNarrator } from "../progress";
 import { type Aliases, buildAliases, buildRoleBook, describeRole, parseCommand, resolveRole, type RoleBook, type RoleChoice, type VoiceMode } from "../voice/commands";
@@ -103,6 +108,30 @@ export function Drive({
 }) {
   const onExchangeRef = useRef(onExchange);
   onExchangeRef.current = onExchange;
+  // --- lessons: listed and played from Converse, in the app-wide lesson player ---
+  const lessonPlayer = useLessonAudio();
+  const playerRef = useRef(lessonPlayer);
+  playerRef.current = lessonPlayer;
+  /** The lessons last read out, so "play lesson two" means the second of them. */
+  const offeredRef = useRef<Lesson[]>([]);
+  /** A lesson to start once Converse has finished saying it's starting. */
+  const pendingLesson = useRef<Lesson | null>(null);
+  /** Converse paused the lesson to talk or listen: it resumes when the conversation is over. */
+  const pausedForUs = useRef(false);
+  const [lessonView, setLessonView] = useState<LearningView | null>(null);
+  const [showLessons, setShowLessons] = useState(false);
+  const startLesson = useCallback((l: Lesson) => {
+    if (!l.audio) return;
+    const p = playerRef.current;
+    p.load({ path: l.path, title: l.title, audio: l.audio, marks: l.audio.marks ?? [], done: l.status === "done" }, startingPlace(localPlace(l.path), l.progress ?? null));
+    pausedForUs.current = false;
+    p.play();
+  }, []);
+  const loadLessons = useCallback(async () => {
+    const view = await api.learning();
+    setLessonView(view);
+    return view;
+  }, [api]);
   const [state, dispatch] = useReducer(driveReducer, undefined, () =>
     // Push to talk is off unless chosen: Converse listens again after each answer.
     // Listening for a follow-up after each answer is on unless switched off in Settings.
@@ -429,6 +458,46 @@ export function Drive({
           }
           return;
         }
+        case "lessons":
+          try {
+            const view = await loadLessons();
+            const offered = lessonsToOffer(view);
+            offeredRef.current = offered;
+            setShowLessons(true);
+            say(lessonsLine(offered, view.lessons.filter((l) => l.status !== "done").length), s.followUp ? "command" : "none");
+          } catch {
+            say("I couldn't get your lessons.");
+          }
+          return;
+        case "playLesson":
+          try {
+            const view = await loadLessons();
+            const lesson = pickLesson(view, cmd.pick, offeredRef.current);
+            if (!lesson) {
+              say(
+                cmd.pick.kind === "topic"
+                  ? `I couldn't find a lesson about ${cmd.pick.text}. Say "what lessons have I got" to hear them.`
+                  : "There's no lesson to play yet. Today's arrives in the morning.",
+                s.followUp ? "command" : "none",
+              );
+              return;
+            }
+            if (!lesson.audio) {
+              say(`${lesson.title} isn't recorded yet. It'll be ready in a few minutes, or you can read it in Learning.`);
+              return;
+            }
+            const at = startingPlace(localPlace(lesson.path), lesson.progress ?? null);
+            pendingLesson.current = lesson;
+            say(`Playing ${lesson.title}${at > 60 ? `, from ${Math.floor(at / 60)} minutes in` : ""}.`, "none");
+          } catch {
+            say("I couldn't get your lessons.");
+          }
+          return;
+        case "pauseLesson":
+          pausedForUs.current = false;
+          playerRef.current.pause();
+          say(playerRef.current.loaded ? `Paused. Say "continue my lesson" when you're ready.` : "No lesson is playing.");
+          return;
         case "chat":
           try {
             // A role named in the request wins; a business named on its own means that business, not the chosen role.
@@ -674,6 +743,26 @@ export function Drive({
     if (phase === "speaking") return speakerRef.current?.level ?? null;
     return null;
   };
+  // A lesson playing goes quiet while Converse listens or talks, and carries on once the
+  // conversation is over; one asked for starts once Converse has said so.
+  useEffect(() => {
+    const p = playerRef.current;
+    const talking = state.phase === "listening" || state.phase === "speaking" || state.phase === "sending";
+    if (talking && p.playing) {
+      pausedForUs.current = true;
+      p.pause();
+    }
+    if (state.phase !== "idle") return;
+    if (pendingLesson.current) {
+      const l = pendingLesson.current;
+      pendingLesson.current = null;
+      startLesson(l);
+    } else if (pausedForUs.current && p.loaded) {
+      pausedForUs.current = false;
+      p.play();
+    }
+  }, [state.phase, state.seq, startLesson]);
+
   const busy = state.phase === "sending";
 
   return (
@@ -753,6 +842,46 @@ export function Drive({
       <p className="drive-caption" aria-live="polite">
         {caption}
       </p>
+
+      <div className="drive-lessons">
+        <button
+          type="button"
+          className="small"
+          aria-expanded={showLessons}
+          onClick={() => {
+            const open = !showLessons;
+            setShowLessons(open);
+            if (open) void loadLessons().catch(() => {});
+          }}
+        >
+          <Icon name="learn" size={16} /> Lessons
+        </button>
+        {showLessons && (
+          <ul className="list drive-lesson-list" aria-label="Lessons">
+            {!lessonView && <li className="muted small">Loading…</li>}
+            {lessonView && lessonsToOffer(lessonView, 8).length === 0 && <li className="muted small">No lessons waiting.</li>}
+            {lessonView &&
+              lessonsToOffer(lessonView, 8).map((l, i) => (
+                <li key={l.path} className="item static">
+                  <button
+                    type="button"
+                    className="ghost drive-lesson"
+                    onClick={() => (l.audio ? startLesson(l) : go(`learning/${encodeURIComponent(l.path)}`))}
+                    title={l.audio ? "Play" : "Not recorded yet: open it to read"}
+                  >
+                    <Icon name={l.audio ? "play" : "learn"} size={16} />
+                    <span className="drive-lesson-text">
+                      <span className="clip">
+                        {i + 1}. {l.title}
+                      </span>
+                      <LessonProgressBadge lesson={l} />
+                    </span>
+                  </button>
+                </li>
+              ))}
+          </ul>
+        )}
+      </div>
 
       {state.expect === "confirm" && state.confirm && (
         <div className="drive-actions" role="group" aria-label="Confirm">

@@ -9,7 +9,13 @@ import { speakable } from "./speakable";
 
 /** One paragraph to speak, and the section it belongs to. `heading` marks a section or sub-heading. */
 export type Part = { section: number; text: string; heading?: boolean };
-export type Script = { sections: { title: string; first: number }[]; parts: Part[] };
+/**
+ * One block of a lesson's text as written (a heading, paragraph, list item or code block), and the
+ * spoken part it is, if any: the reading view shows blocks, the recording says parts, so the two
+ * can follow each other.
+ */
+export type Block = { source: string; part: number | null; heading?: number };
+export type Script = { sections: { title: string; first: number }[]; parts: Part[]; blocks: Block[] };
 
 /** Term → how to say it, e.g. "EtherCAT" → "Ether-cat". */
 export type Lexicon = Map<string, string>;
@@ -109,38 +115,57 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
   const lines = body.replace(/\r\n?/g, "\n").replace(/^---\n[\s\S]*?\n---\n/, "").replace(/<!--[\s\S]*?-->/g, "").split("\n");
   const sections: Script["sections"] = [];
   const parts: Part[] = [];
+  const blocks: Block[] = [];
   let skip = false;
   let inFence = false;
+  let fence: string[] = [];
   let para: string[] = [];
-  const flush = (heading = false) => {
-    const text = speakable(pronounce(para.join("\n"), lexicon), { maxChars: 6000 });
+  /** One block of the text; spoken (a part) when it has words to say outside a reading-only section. */
+  const add = (source: string[], say: string[] | null, heading?: number) => {
+    const src = source.join("\n");
+    if (!src.trim()) return;
+    let part: number | null = null;
+    if (say && !skip) {
+      const text = speakable(pronounce(say.join("\n"), lexicon), { maxChars: 6000 });
+      if (text) {
+        if (sections.length === 0) sections.push({ title: title ?? "Introduction", first: parts.length });
+        part = parts.length;
+        parts.push({ section: sections.length - 1, text, ...(heading ? { heading: true } : {}) });
+      }
+    }
+    blocks.push({ source: src, part, ...(heading ? { heading } : {}) });
+  };
+  const flush = () => {
+    if (para.length) add(para, para);
     para = [];
-    if (!text || skip) return;
-    if (sections.length === 0) sections.push({ title: title ?? "Introduction", first: parts.length });
-    parts.push({ section: sections.length - 1, text, ...(heading ? { heading: true } : {}) });
   };
   for (const line of lines) {
     if (/^\s*(```|~~~)/.test(line)) {
-      flush();
+      if (!inFence) {
+        flush();
+        fence = [line];
+      } else {
+        fence.push(line);
+        add(fence, null);
+        fence = [];
+      }
       inFence = !inFence;
       continue;
     }
-    if (inFence) continue;
+    if (inFence) {
+      fence.push(line);
+      continue;
+    }
     const h = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
     if (h) {
       flush();
+      const level = h[1]!.length;
       const heading = h[2]!.trim();
-      if (h[1]!.length <= 2) {
-        skip = h[1]!.length === 2 && UNSPOKEN.test(heading);
-        if (!skip) {
-          sections.push({ title: heading, first: parts.length });
-          para = [`${heading}.`];
-          flush(true);
-        }
-      } else if (!skip) {
-        para = [`${heading}.`];
-        flush(true);
+      if (level <= 2) {
+        skip = level === 2 && UNSPOKEN.test(heading);
+        if (!skip) sections.push({ title: heading, first: parts.length });
       }
+      add([line], [`${heading}.`], level);
       continue;
     }
     if (!line.trim()) {
@@ -152,7 +177,30 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
     para.push(line);
   }
   flush();
-  return { sections, parts };
+  if (inFence) add(fence, null);
+  return { sections, parts, blocks };
+}
+
+/**
+ * Where each spoken part starts in a recording made before recordings kept their own marks:
+ * spread by words over its length. Pure.
+ */
+export function estimateMarks(parts: Part[], seconds: number): number[] {
+  const words = parts.map((p) => p.text.split(/\s+/).length + 2); // + a pause's worth
+  const total = words.reduce((a, b) => a + b, 0) || 1;
+  let at = 0;
+  return words.map((w) => {
+    const start = (at / total) * seconds;
+    at += w;
+    return Math.round(start * 10) / 10;
+  });
+}
+
+/** The part playing at `t` seconds, given each part's start. Pure. */
+export function partAt(marks: number[], t: number): number {
+  let i = 0;
+  for (let j = 0; j < marks.length; j++) if (marks[j]! <= t + 0.05) i = j;
+  return i;
 }
 
 /** Rough minutes left from part `from` at the voices' pace (165 words a minute). Pure. */
@@ -165,7 +213,7 @@ export function minutesLeft(parts: Part[], from: number): number {
 export const PAUSES = { sentence: 0.3, paragraph: 0.75, heading: 0.9, section: 1.5 } as const;
 
 /** One sentence of a recording: what to say, the silence after it, and its section. */
-export type NarrationPiece = { section: number; text: string; pause: number };
+export type NarrationPiece = { section: number; part: number; text: string; pause: number };
 
 /**
  * The recording's pieces: each paragraph split into sentences (never mid-sentence at a comma,
@@ -186,7 +234,7 @@ export function narrationPieces(script: Script): NarrationPiece[] {
           : part.heading
             ? PAUSES.heading
             : PAUSES.paragraph;
-      out.push({ section: part.section, text, pause });
+      out.push({ section: part.section, part: i, text, pause });
     });
   });
   return out;
