@@ -269,7 +269,8 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
 
 function Library({ view }: { view: LearningView }) {
   const [track, setTrack] = useState("");
-  const [status, setStatus] = useState<"" | "ready" | "done">("");
+  // What's still to do comes first; All and Done are a tap away.
+  const [status, setStatus] = useState<"" | "ready" | "done">("ready");
   const shown = view.lessons.filter((l) => (!track || l.track === track) && (!status || l.status === status));
   return (
     <article className="card">
@@ -289,7 +290,7 @@ function Library({ view }: { view: LearningView }) {
           ))}
         </select>
       </div>
-      {shown.length === 0 && <p className="muted small">{view.lessons.length ? "None match." : "No lessons yet. The first arrives tomorrow morning, or ask for one above."}</p>}
+      {shown.length === 0 && <p className="muted small">{view.lessons.length ? (status === "ready" && !track ? "Nothing to do: every lesson is done. Choose All to see them." : "None match.") : "No lessons yet. The first arrives tomorrow morning, or ask for one above."}</p>}
       <ul className="list">
         {shown.map((l) => (
           <li key={l.path} className="item" onClick={() => go(lessonHref(l.path))}>
