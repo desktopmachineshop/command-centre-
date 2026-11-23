@@ -61,6 +61,8 @@ const displayName: Field = { key: "displayName", label: "Display name", type: "t
 const inbound: Field = { key: "inbound", label: "Watch for comments, mentions and DMs", type: "boolean", default: true };
 const options: Field = { key: "options", label: "Advanced options (JSON)", type: "json", help: "Platform settings, e.g. Discord channel ids or Reddit subreddits." };
 
+const AGENT_CHOICES = ["claude", "codex", "gemini"] as const;
+
 export const CATALOG: readonly KindDef[] = [
   // --- AI ---
   {
@@ -98,21 +100,37 @@ export const CATALOG: readonly KindDef[] = [
     affects: ["runner"],
   },
   {
+    kind: "gemini",
+    label: "Google AI Studio (Gemini)",
+    section: "ai",
+    description:
+      "Runs agents on Google's Gemini models with an API key from Google AI Studio, then choose it under Agent route. Gemini uses the agents' tools (notes, actions, Odoo...) but has no shell, so coding tasks move on to the next agent in the route.",
+    multi: false,
+    fields: [
+      { key: "apiKey", label: "API key", type: "secret", placeholder: "AIza…" },
+      { key: "model", label: "Model", type: "text", placeholder: "gemini-pro-latest", help: "Leave blank for Google's current Pro model (gemini-pro-latest), or e.g. gemini-flash-latest for faster, cheaper runs." },
+    ],
+    affects: ["runner"],
+    helpUrl: "https://aistudio.google.com/apikey",
+  },
+  {
     kind: "agents",
     label: "Agent route",
     section: "ai",
     description:
-      "Which subscription the agents run on. \"Then\" moves to the other one when the first hits its usage limit (or isn't connected). The Anthropic API key, if set, is always the last resort.",
+      "Which agents run tasks, in order. Each one after the first takes over when the one before hits its usage limit, isn't connected or can't do the task, or fails before it has done anything. The Anthropic API key, if set, is always the last resort.",
     multi: false,
     fields: [
       {
-        key: "route",
+        key: "first",
         label: "Run agents on",
         type: "select",
-        options: ["claude", "codex", "claude-then-codex", "codex-then-claude"],
+        options: AGENT_CHOICES,
         default: "claude",
-        help: "claude = Claude subscription; codex = ChatGPT plan; claude-then-codex = Claude, then ChatGPT at its limit; codex-then-claude = ChatGPT, then Claude.",
+        help: "claude = Claude subscription; codex = ChatGPT plan; gemini = Google AI Studio.",
       },
+      { key: "second", label: "Then", type: "select", options: ["none", ...AGENT_CHOICES], default: "none", help: "Takes over when the first isn't available." },
+      { key: "third", label: "Finally", type: "select", options: ["none", ...AGENT_CHOICES], default: "none", help: "Takes over when neither of the others is available." },
     ],
     affects: ["runner"],
   },

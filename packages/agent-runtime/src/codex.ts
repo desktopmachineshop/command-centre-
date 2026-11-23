@@ -290,7 +290,7 @@ export function allowedMcpServers(servers: Record<string, McpServerConfig>, allo
 }
 
 /** The system prompt and the run's skills, as one developer message. */
-function developerInstructions(request: AgentRunRequest, shell: boolean): string {
+export function developerInstructions(request: AgentRunRequest, shell: boolean): string {
   const system = request.systemPrompt?.trim() ?? "";
   const skills = request.cwd ? readSkills(join(request.cwd, ".claude", "skills")) : [];
   if (!skills.length) return system.slice(0, MAX_INSTRUCTIONS);

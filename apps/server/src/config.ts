@@ -10,9 +10,26 @@ import type { ElevenLabsVoiceChoice } from "@cc/voice";
 import { Cron } from "croner";
 import { z } from "zod";
 
-/** Which subscription agents run on; "a-then-b" falls back to b when a hits its usage limit. */
-export const AGENT_ROUTES = ["claude", "codex", "claude-then-codex", "codex-then-claude"] as const;
-export type AgentRoute = (typeof AGENT_ROUTES)[number];
+/** The agents a route can use: the Claude subscription, the ChatGPT plan (Codex), Gemini (Google AI Studio). */
+export const AGENT_NAMES = ["claude", "codex", "gemini"] as const;
+export type AgentName = (typeof AGENT_NAMES)[number];
+/**
+ * Which agents run tasks, in order: "claude", or a chain such as "gemini-then-claude" or
+ * "claude-then-codex-then-gemini". Each agent after the first takes over when the one before hits
+ * its limit, isn't available, or fails before doing anything. Always normalised by parseAgentRoute.
+ */
+export type AgentRoute = string;
+
+/** The agents of a route, in order; null when it names one that doesn't exist. Accepts "a-then-b" or "a,b". */
+export function parseAgentRoute(route: string): AgentName[] | null {
+  const names = route.trim().toLowerCase().split(/\s*(?:-then-|,|>)\s*/).filter(Boolean);
+  if (!names.length || !names.every((n): n is AgentName => (AGENT_NAMES as readonly string[]).includes(n))) return null;
+  return [...new Set(names)];
+}
+
+export function formatAgentRoute(names: readonly AgentName[]): AgentRoute {
+  return names.join("-then-");
+}
 
 
 const bool = z
@@ -70,15 +87,24 @@ const Env = z.object({
   /** Optional API key used only when the subscription hits its usage limit. */
   ANTHROPIC_FALLBACK_API_KEY: z.string().optional(),
   /**
-   * Which subscription agents run on: "claude", "codex" (ChatGPT plan), or one then the other
-   * when the first hits its usage limit. The Accounts page's "Agent route" setting overrides it.
+   * Which agents run tasks, in order: "claude", "codex" (ChatGPT plan), "gemini" (Google AI Studio),
+   * or a chain such as "claude-then-gemini" (see parseAgentRoute). The Accounts page's "Agent route"
+   * setting overrides it.
    */
-  AGENT_ROUTE: z.enum(AGENT_ROUTES).default("claude"),
+  AGENT_ROUTE: z
+    .string()
+    .default("claude")
+    .refine((v) => parseAgentRoute(v) !== null, "must be claude, codex or gemini, or a chain of them such as claude-then-gemini")
+    .transform((v) => formatAgentRoute(parseAgentRoute(v)!)),
   CODEX_BIN: z.string().default("codex"),
   /** The ChatGPT sign-in for Codex: the contents of ~/.codex/auth.json after `codex login`. */
   CODEX_AUTH_JSON: z.string().optional(),
   /** Codex model; unset = Codex's default for the plan. */
   CODEX_MODEL: z.string().optional(),
+  /** Google AI Studio API key, for the Gemini agent (aistudio.google.com/apikey). */
+  GEMINI_API_KEY: z.string().optional(),
+  /** Gemini model; unset = gemini-pro-latest. */
+  GEMINI_MODEL: z.string().optional(),
   AGENT_MAX_TURNS: z.coerce.number().int().positive().default(30),
   AGENT_TIMEOUT_MS: z.coerce.number().int().positive().default(15 * 60_000),
   AGENT_CONCURRENCY: z.coerce.number().int().positive().default(2),
@@ -341,6 +367,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       codexModel: e.CODEX_MODEL || undefined,
       /** Codex's own folder (sign-in and sessions), on the volume so refreshed tokens survive restarts. */
       codexHome: join(dataDir, "codex"),
+      geminiApiKey: e.GEMINI_API_KEY || undefined,
+      geminiModel: e.GEMINI_MODEL || undefined,
+      /** Gemini conversations, kept so a reply can resume one. */
+      geminiSessionsDir: join(dataDir, "gemini", "sessions"),
       maxTurns: e.AGENT_MAX_TURNS,
       timeoutMs: e.AGENT_TIMEOUT_MS,
       concurrency: e.AGENT_CONCURRENCY,

@@ -7,6 +7,7 @@ import { agentEnv, createRunner } from "../src/app";
 import { CodexHome, codexAuthInfo, codexAuthProblem } from "../src/codex-home";
 import { loadConfig } from "../src/config";
 import { CodexSetup } from "../src/integrations/codex-setup";
+import { currentData, routeOf } from "../src/integrations/effective";
 import { ADMIN, DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const FAKE_CODEX = fileURLToPath(new URL("./fixtures/fake-codex.mjs", import.meta.url));
@@ -101,6 +102,33 @@ describe("agent routes", () => {
   it("claude stays the default", () => {
     expect(createRunner(config()).name).toBe("claude-code");
   });
+
+  it("gemini-then-claude: Claude takes over while Google AI Studio isn't connected", async () => {
+    const messages: string[] = [];
+    const runner = createRunner(config({ AGENT_ROUTE: "gemini-then-claude" }));
+    expect(runner.name).toBe("gemini");
+    expect((await runner.run({ prompt: "hi" }, (m) => m.type === "system" && messages.push(m.text))).result).toBe("answer to hi");
+    expect(messages[0]).toMatch(/^gemini couldn't run \(Google AI Studio isn't connected.*retrying on claude-code$/);
+  });
+
+  it("a three-agent route goes all the way down", async () => {
+    const runner = createRunner(config({ AGENT_ROUTE: "gemini,codex,claude" }));
+    expect((await runner.run({ prompt: "hi" })).result).toBe("answer to hi");
+  });
+
+  it("reads an older saved route as First / Then / Finally", () => {
+    expect(routeOf({ route: "codex-then-claude" })).toBe("codex-then-claude");
+    expect(routeOf({ first: "gemini", second: "none", third: "claude" })).toBe("gemini-then-claude");
+    expect(routeOf({ route: "nonsense" })).toBe("claude");
+    expect(currentData("agents", { route: "claude-then-codex" })).toEqual({ first: "claude", second: "codex", third: "none" });
+    expect(currentData("codex", { route: "x" })).toEqual({ route: "x" });
+  });
+
+  it("parses and normalises routes, refusing unknown agents", () => {
+    expect(config({ AGENT_ROUTE: "Gemini, Claude" }).agent.route).toBe("gemini-then-claude");
+    expect(config({ AGENT_ROUTE: "claude-then-claude" }).agent.route).toBe("claude");
+    expect(() => config({ AGENT_ROUTE: "llama" })).toThrow(/AGENT_ROUTE/);
+  });
 });
 
 describe("CodexSetup (with a fake codex CLI)", () => {
@@ -161,9 +189,11 @@ describe.skipIf(!DB_URL)("Connect ChatGPT API and the agent route", () => {
   });
 
   it("switches the route from the Accounts page, and refuses one that doesn't exist", async () => {
-    expect((await ctx.api("/api/integrations/agents/default", { method: "PUT", json: { data: { route: "codex-then-claude" } } })).status).toBe(200);
+    expect((await ctx.api("/api/integrations/agents/default", { method: "PUT", json: { data: { first: "codex", second: "claude" } } })).status).toBe(200);
     expect(ctx.server.integrations.current().agent.route).toBe("codex-then-claude");
-    expect((await ctx.api("/api/integrations/agents/default", { method: "PUT", json: { data: { route: "gemini" } } })).status).toBe(400);
+    expect((await ctx.api("/api/integrations/agents/default", { method: "PUT", json: { data: { first: "gemini", second: "codex", third: "claude" } } })).status).toBe(200);
+    expect(ctx.server.integrations.current().agent.route).toBe("gemini-then-codex-then-claude");
+    expect((await ctx.api("/api/integrations/agents/default", { method: "PUT", json: { data: { first: "llama" } } })).status).toBe(400);
   });
 
   it("needs a signed-in caller", async () => {

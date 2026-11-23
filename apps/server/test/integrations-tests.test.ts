@@ -44,6 +44,17 @@ describe("connection tests", () => {
     expect(res.message).not.toContain("sk-ant");
   });
 
+  it("gemini: looks up the model with the key", async () => {
+    const { fetch, calls } = fake({
+      "GET generativelanguage.googleapis.com/v1beta/models/gemini-pro-latest": (c) => (c.headers.get("x-goog-api-key") === "AIza-good" ? json({ name: "models/gemini-pro-latest" }) : json({ error: { message: "API key not valid" } }, 400)),
+    });
+    const t = credentialTests({ fetch }).gemini!;
+    expect(await t(entry("gemini", {}, { apiKey: "AIza-good" }), config, noApps)).toEqual({ ok: true, message: "Google AI Studio accepted the key; agents will use gemini-pro-latest" });
+    expect(await t(entry("gemini", {}, { apiKey: "AIza-bad" }), config, noApps)).toMatchObject({ ok: false });
+    expect(await t(entry("gemini", {}, {}), config, noApps)).toMatchObject({ ok: false, message: "No API key saved" });
+    expect(calls).toHaveLength(2);
+  });
+
   it("openai, elevenlabs and discord: one authenticated call", async () => {
     const { fetch, calls } = fake({
       "GET api.openai.com/v1/models": () => json({ data: [] }),
