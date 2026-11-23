@@ -84,6 +84,23 @@ export function standardNumbers(text: string): string {
 }
 
 /**
+ * UK English for anything spoken: the letter Z on its own is "zed" ("the Z axis", "X, Y and Z").
+ * Acronyms that contain it go in the pronunciation list ("XYZ: X Y zed"). Pure.
+ */
+export function ukLetters(text: string): string {
+  return text.replace(/\bZ\b/g, "zed");
+}
+
+/**
+ * Everything the voice should say differently from how it's written, in one step: the
+ * pronunciation list (Learning's learning/pronunciation.md), standards' numbers, then UK letter
+ * names. Used for lessons, Converse replies and anything else read aloud. Pure.
+ */
+export function pronounce(text: string, lexicon?: Lexicon): string {
+  return ukLetters(standardNumbers(applyLexicon(text, lexicon)));
+}
+
+/**
  * A lesson as a list of spoken paragraphs, by section. The title is the first part; "Try it" and
  * "Sources" are left out (they are for reading); lists are read as one paragraph per item; the
  * lexicon, then standards' numbers, are applied before anything else touches the words. Pure.
@@ -96,7 +113,7 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
   let inFence = false;
   let para: string[] = [];
   const flush = (heading = false) => {
-    const text = speakable(standardNumbers(applyLexicon(para.join("\n"), lexicon)), { maxChars: 6000 });
+    const text = speakable(pronounce(para.join("\n"), lexicon), { maxChars: 6000 });
     para = [];
     if (!text || skip) return;
     if (sections.length === 0) sections.push({ title: title ?? "Introduction", first: parts.length });

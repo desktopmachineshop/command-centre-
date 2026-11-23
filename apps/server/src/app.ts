@@ -100,7 +100,7 @@ import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrati
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
 import { seedLearning, writeActivityNote } from "./learning";
-import { LessonRecorder, narratorOf, setNarrator } from "./learning-audio";
+import { LessonRecorder, narratorOf, PronunciationList, setNarrator } from "./learning-audio";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
@@ -926,6 +926,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
             timeZone: config.timezone,
           })
         : null;
+  // learning: the pronunciation list (learning/pronunciation.md) for everything the server says aloud.
+  const pronunciation = new PronunciationList(brain);
   // Getters: VoiceService reads these per request, so a reloaded key or calendar applies at once.
   const voiceService = new VoiceService(store, verticals, budget, {
     get stt() {
@@ -945,6 +947,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       return overrides.voiceCalendar ?? (service ? paVoiceCalendar(service) : undefined);
     },
     local: localSpeech,
+    pronounce: (text) => pronunciation.pronounce(text),
     maxUploadBytes: config.voice.maxUploadBytes,
     maxSeconds: config.voice.maxSeconds,
     language: config.voice.language,
@@ -1069,7 +1072,12 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     mediaUrl: (id) => `/media/${id}`,
     log: (line) => console.log(line),
   });
-  const learningNarration = { recorder: lessonRecorder, narrator: () => narratorOf(brain), setNarrator: (voice: string) => setNarrator(brain, voice) };
+  const learningNarration = {
+    recorder: lessonRecorder,
+    narrator: () => narratorOf(brain),
+    setNarrator: (voice: string) => setNarrator(brain, voice),
+    lexicon: () => pronunciation.lexicon(),
+  };
   // --- end learning ---
   app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration } }));
   app.route(

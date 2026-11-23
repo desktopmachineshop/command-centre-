@@ -37,6 +37,11 @@ export interface VoiceServiceOptions {
   maxSeconds: number;
   language: string;
   timezone: string;
+  /**
+   * How the voice should say a text: the pronunciation list, standards' numbers and UK letter
+   * names (learning-audio.ts PronunciationList). Applied to everything /voice/speak says.
+   */
+  pronounce?: (text: string) => Promise<string>;
   /** Texts up to this length are cached by /voice/speak. */
   cacheMaxChars?: number;
   cacheEntries?: number;
@@ -192,6 +197,7 @@ export class VoiceService {
     voice?: string,
     opts: { fallback?: boolean } = {},
   ): Promise<{ audio: Uint8Array; mime: string; cached: boolean; voice?: string; fellBack?: { provider: string; reason: string } }> {
+    if (this.options.pronounce) text = await this.options.pronounce(text).catch(() => text);
     const local = this.options.local;
     const localVoice = voice && local && findVoice(voice) ? voice : undefined;
     // "elevenlabs:<voice id>": a voice from the Accounts page's list, spoken by ElevenLabs whatever the default provider.

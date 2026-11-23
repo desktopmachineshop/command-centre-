@@ -170,7 +170,10 @@ Rules:
 ## Pronunciation (the recording)
 
 The server records each lesson once with a natural voice and checks every sentence by ear. It
-says terms the way `learning/pronunciation.md` says, as `- Term: how to say it` lines. Your part:
+says terms the way `learning/pronunciation.md` says, as `- Term: how to say it` lines. The same
+list is used for everything the app says aloud (Converse replies, read-aloud, the briefing), so an
+entry fixes a word everywhere. Respell the UK English way: "zed" not "zee" (a lone Z is already
+"zed"), British stress and vowels ("aluminium: al-yoo-min-ee-um", "schedule: shed-yool"). Your part:
 
 - Before saving a lesson, read the note. For each product name, company, acronym or jargon word
   in the lesson that isn't listed and that a voice could plausibly get wrong, add a line under

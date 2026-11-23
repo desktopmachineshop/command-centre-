@@ -564,6 +564,7 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     completeLesson: (path: string, mode: "read" | "listen", extra: { minutes?: number; rating?: number } = {}) => post<{ ok: true }>("/learning/complete", { path, mode, ...extra }),
     reopenLesson: (path: string) => post<{ ok: true }>("/learning/reopen", { path }),
     narration: () => call<Narration | null>("/learning/narration"),
+    pronunciation: () => call<{ entries: [string, string][] }>("/learning/pronunciation"),
     setNarrator: (voice: string) => call<Narration>("/learning/narrator", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice }) }),
     recordLesson: (path: string) => post<Narration>("/learning/record", { path }),
     requestLesson: (topic: string, track?: string) => post<{ taskId: string | null }>("/learning/request", { topic, ...(track ? { track } : {}) }),
