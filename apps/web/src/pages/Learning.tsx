@@ -953,6 +953,22 @@ function RecordingCard({
           <summary className="muted">
             Checked by ear: {audio.checked ? (flagged ? `${flagged} of ${audio.checked} sentences may sound off` : `all ${audio.checked} sentences clear`) : "not checked"}
           </summary>
+          {/* The actions first: below a long list they were out of reach (phones scrolled the list, not the page). */}
+          <div className="row wrap between check-actions">
+            <span className="muted">
+              Fix a word in <a href={`#/brain/${encodeURIComponent("learning/pronunciation.md")}`}>the pronunciation list</a>, then re-record.
+            </span>
+            {rerecord &&
+              (rerecording ? (
+                <span className="muted" role="status">
+                  Re-recording{progress?.total ? `: ${Math.round((progress.done / progress.total) * 100)}%` : "…"}
+                </span>
+              ) : (
+                <button className="small" onClick={() => void rerecord()}>
+                  Re-record
+                </button>
+              ))}
+          </div>
           {flagged > 0 && (
             <ul>
               {audio.flagged.map((f, i) => (
@@ -961,22 +977,6 @@ function RecordingCard({
                 </li>
               ))}
             </ul>
-          )}
-          <p className="muted">
-            Fix a word in <a href={`#/brain/${encodeURIComponent("learning/pronunciation.md")}`}>the pronunciation list</a>, then re-record.
-          </p>
-          {rerecord && (
-            <p>
-              {rerecording ? (
-                <span className="muted" role="status">
-                  Re-recording{progress?.total ? `: ${Math.round((progress.done / progress.total) * 100)}%` : "…"}
-                </span>
-              ) : (
-                <button className="small" onClick={() => void rerecord()}>
-                  Re-record
-                </button>
-              )}
-            </p>
           )}
         </details>
       </article>

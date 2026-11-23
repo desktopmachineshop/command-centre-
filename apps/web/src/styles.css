@@ -5305,10 +5305,18 @@ button.star.on {
   min-width: 0;
 }
 .lesson-check .check ul {
+  padding-left: var(--sp-5);
+}
+/* On a PC the list scrolls in its own box; on a phone it flows with the page, so a swipe always
+   scrolls the page (a box inside the page trapped the swipe and hid what was below it). */
+.shell.is-desktop .lesson-check .check ul {
   max-height: 50vh;
   overflow-y: auto;
-  padding-left: var(--sp-5);
-  overscroll-behavior: contain;
+}
+.check-actions {
+  gap: var(--sp-2);
+  align-items: center;
+  margin: var(--sp-2) 0;
 }
 .lesson-check {
   padding-top: var(--sp-3);
