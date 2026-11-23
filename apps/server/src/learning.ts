@@ -177,16 +177,63 @@ export function addRequested(body: string | null, s: Suggestion): string {
  * its title, any case), and lists it under "## Skipped", so the coach never writes it. Pure.
  */
 export function skipTopic(body: string | null, s: { track: TrackId; title: string }, note: string): string {
-  const want = s.title.trim().toLowerCase();
-  const lines = (body ?? TOPICS_TEMPLATE).split("\n");
+  const want = topicKey(s.title);
+  const { body: kept } = dropOpen(body ?? TOPICS_TEMPLATE, (t) => topicKey(t.title) === want);
+  return addToSection(kept, "Skipped", `- [${s.track}] ${s.title.trim()} (${note})`);
+}
+
+/** How topic titles are compared: case, punctuation and spacing don't count. */
+export const topicKey = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const OPEN_SECTIONS = ["requested", "from your work", "up next", "backlog"];
+
+/** Takes lines out of the open sections (Requested, From your work, Up next, Backlog) where `drop(topic, section)` says so. Pure. */
+function dropOpen(body: string, drop: (s: Suggestion, section: string) => boolean): { body: string; dropped: Suggestion[] } {
   let section = "";
-  const kept = lines.filter((l) => {
+  const dropped: Suggestion[] = [];
+  const kept = body.split("\n").filter((l) => {
     const h = /^##\s+(.+?)\s*$/.exec(l);
     if (h) section = h[1]!.toLowerCase();
-    if (!["requested", "from your work", "up next", "backlog"].includes(section)) return true;
-    return parseTopicLine(l)?.title.toLowerCase() !== want;
+    if (!OPEN_SECTIONS.includes(section)) return true;
+    const s = parseTopicLine(l);
+    if (!s || !drop(s, section)) return true;
+    dropped.push(s);
+    return false;
   });
-  return addToSection(kept.join("\n"), "Skipped", `- [${s.track}] ${s.title.trim()} (${note})`);
+  return { body: kept.join("\n"), dropped };
+}
+
+/**
+ * Files a topic asked for from the app: under Requested once, and out of From your work, Up next
+ * and the Backlog, so there's one copy for the lesson to clear. Pure.
+ */
+export function requestTopic(body: string | null, s: Suggestion): string {
+  const want = topicKey(s.title);
+  const { body: rest } = dropOpen(body ?? TOPICS_TEMPLATE, (t, section) => section !== "requested" && topicKey(t.title) === want);
+  const already = parseTopics(rest).requested.some((t) => topicKey(t.title) === want);
+  return already ? rest : addRequested(rest, s);
+}
+
+/**
+ * Settles the map against the lessons already written: a topic still open (Requested, From your
+ * work, Up next, Backlog) whose title matches a lesson's `topic` or title comes out, and goes
+ * under Taught if that lesson isn't listed there. The coach does this itself, but several lessons
+ * written at once each rewrite the whole map from the copy they read first, so one undoes
+ * another's; this puts it right. Null when nothing changes. Pure.
+ */
+export function settleTopics(body: string, lessons: Pick<Lesson, "path" | "title" | "topic" | "track" | "created">[]): string | null {
+  const written = new Map<string, Pick<Lesson, "path" | "title" | "topic" | "track" | "created">>();
+  for (const l of lessons) {
+    for (const t of [l.topic, l.title]) if (t && topicKey(t) && !written.has(topicKey(t))) written.set(topicKey(t), l);
+  }
+  const { body: rest, dropped } = dropOpen(body, (s) => written.has(topicKey(s.title)));
+  if (dropped.length === 0) return null;
+  let next = rest;
+  for (const s of dropped) {
+    const l = written.get(topicKey(s.title))!;
+    if (next.includes(l.path)) continue;
+    next = addToSection(next, "Taught", `- ${l.created} [${l.track}] ${l.title} → ${l.path}`);
+  }
+  return next;
 }
 
 /** Adds a line at the end of a "## <name>" section's list, creating the section if need be. Pure. */
@@ -598,14 +645,44 @@ const LessonPath = z
 export function lessonRequestPrompt(topic: string, track: TrackId | null): string {
   return [
     `Make me a learning lesson on: ${topic}${track ? ` (track: ${track})` : ""}.`,
-    "Follow the career-coach skill: research it, write the 30-minute lesson (read or listened to) to learning/lessons/ with today's date, and update learning/topics.md (add it to Taught).",
+    `Follow the career-coach skill: research it, write the 30-minute lesson (read or listened to) to learning/lessons/ with today's date, with \`topic: ${topic}\` in its frontmatter exactly as written here, and update learning/topics.md (take it out of Requested and add it to Taught).`,
+    "Other lessons may be being written at the same time, so read learning/topics.md again just before you write it, and change only this topic's lines.",
     "Reply in one or two lines: the title, the track, and that it's ready in Learning.",
+  ].join(" ");
+}
+
+/** The prompt "New topics" on the Learning page hands the assistant. */
+export function topicsRefreshPrompt(): string {
+  return [
+    "Give me some new learning topics to pick from.",
+    "Follow the career-coach skill: look at what's new in each track (search the last week or two of news) and at the recent notes in learning/activity/, then put five fresh topics under ## Up next in learning/topics.md, spread across tracks (at least two not AI), each as `- [track] Topic: why it's worth learning now`.",
+    "None may already be in the map, Taught or Skipped, or be a near-copy of one. Move the topics that were in Up next to the top of their track's Backlog. Leave Requested, From your work, Taught and Skipped as they are.",
+    "Read learning/topics.md just before you write it, and write it once.",
+    "Reply in one line: the new topics.",
   ].join(" ");
 }
 
 export function learningRoutes(deps: LearningDeps) {
   const app = new Hono();
   const now = () => deps.now?.() ?? new Date();
+
+  /**
+   * Edits the topic map, only over the version just read (retrying if someone else saves in
+   * between), so the app's edits never undo a lesson's. `edit` returns null to leave it be.
+   */
+  const editTopics = async (edit: (body: string | null) => string | null, author: string, message: string) => {
+    for (let attempt = 0; ; attempt++) {
+      const topics = await deps.brain.read(TOPICS_PATH);
+      const body = edit(topics?.body ?? null);
+      if (body === null || body === topics?.body) return;
+      try {
+        await deps.brain.write(TOPICS_PATH, { frontmatter: topics?.frontmatter ?? { type: "note", vertical: "personal", tags: ["learning"] }, body }, { author, message, expectedVersion: topics?.version ?? 0 });
+        return;
+      } catch (err) {
+        if (!(err instanceof BrainConflictError) || attempt >= 3) throw err;
+      }
+    }
+  };
 
   const lessons = async () =>
     (await deps.brain.summaries(LESSONS_FOLDER))
@@ -615,7 +692,10 @@ export function learningRoutes(deps: LearningDeps) {
 
   /** Everything the Learning page shows: tracks, lessons (newest first), suggestions, today's pick and the scoreboard. */
   app.get("/learning", async (c) => {
-    const [all, topics, places] = await Promise.all([lessons(), deps.brain.read(TOPICS_PATH), deps.progress?.all().catch(() => null) ?? null]);
+    const [all, places] = await Promise.all([lessons(), deps.progress?.all().catch(() => null) ?? null]);
+    // Topics already written come off the list (and out of the map), however the map was saved.
+    await editTopics((body) => (body === null ? null : settleTopics(body, all)), "system", "learning: topics already taught").catch(() => {});
+    const topics = await deps.brain.read(TOPICS_PATH);
     for (const l of all) {
       if (places) l.progress = places.get(l.path) ?? null;
       l.percent = lessonPercent(l, l.progress);
@@ -733,24 +813,16 @@ export function learningRoutes(deps: LearningDeps) {
     const { updated: _u, ...fm } = note.frontmatter;
     const today = localDay(now(), deps.timeZone);
     await deps.brain.write(path, { frontmatter: { ...fm, status: "skipped", skipped: today }, body: note.body }, { author: "dave", message: "learning: skipped" });
-    const topics = await deps.brain.read(TOPICS_PATH);
     const title = typeof fm.topic === "string" && fm.topic ? fm.topic : noteTitle(note);
-    await deps.brain
-      .write(TOPICS_PATH, { frontmatter: topics?.frontmatter ?? { type: "note", vertical: "personal", tags: ["learning"] }, body: skipTopic(topics?.body ?? null, { track: trackOf(fm.track), title }, `skipped the lesson ${today}`) }, { author: "dave", message: "learning: skipped a lesson" })
-      .catch(() => {});
+    await editTopics((t) => skipTopic(t, { track: trackOf(fm.track), title }, `skipped the lesson ${today}`), "dave", "learning: skipped a lesson").catch(() => {});
     return c.json({ ok: true });
   });
 
   /** Skips a suggested topic so it's never written (Pick another topic's Skip). */
   app.post("/learning/skip-topic", async (c) => {
     const body = z.object({ title: z.string().trim().min(2).max(300), track: z.string().optional() }).parse(await c.req.json());
-    const topics = await deps.brain.read(TOPICS_PATH);
     const today = localDay(now(), deps.timeZone);
-    await deps.brain.write(
-      TOPICS_PATH,
-      { frontmatter: topics?.frontmatter ?? { type: "note", vertical: "personal", tags: ["learning"] }, body: skipTopic(topics?.body ?? null, { track: trackOf(body.track), title: body.title }, `skipped ${today}`) },
-      { author: "dave", message: "learning: skipped a topic" },
-    );
+    await editTopics((t) => skipTopic(t, { track: trackOf(body.track), title: body.title }, `skipped ${today}`), "dave", "learning: skipped a topic");
     return c.json({ ok: true });
   });
 
@@ -771,18 +843,26 @@ export function learningRoutes(deps: LearningDeps) {
   app.post("/learning/request", async (c) => {
     const body = z.object({ topic: z.string().trim().min(2).max(300), track: z.string().optional(), why: z.string().max(300).optional() }).parse(await c.req.json());
     const track = body.track && TRACK_IDS.has(body.track) ? (body.track as TrackId) : null;
-    const topics = await deps.brain.read(TOPICS_PATH);
-    const already = topics ? parseTopics(topics.body).requested.some((s) => s.title.toLowerCase() === body.topic.toLowerCase()) : false;
-    if (!already) {
-      const next = addRequested(topics?.body ?? null, { track: track ?? "interest", title: body.topic.replace(/\s+/g, " "), why: body.why ?? "" });
-      await deps.brain.write(TOPICS_PATH, { frontmatter: topics?.frontmatter ?? { type: "note", vertical: "personal", tags: ["learning"] }, body: next }, { author: "dave", message: "learning: requested a topic" });
-    }
+    const title = body.topic.replace(/\s+/g, " ");
+    await editTopics((t) => requestTopic(t, { track: track ?? "interest", title, why: body.why ?? "" }), "dave", "learning: requested a topic");
     const result = await deps.pipeline.ingest({
       source: "chat",
       vertical: "personal",
       kind: "message",
       title: `Lesson: ${body.topic}`.slice(0, 120),
-      payload: { text: lessonRequestPrompt(body.topic, track) },
+      payload: { text: lessonRequestPrompt(title, track) },
+    });
+    return c.json({ taskId: result?.task.id ?? null }, 201);
+  });
+
+  /** "New topics": asks the coach for a fresh Up next (Pick another topic). */
+  app.post("/learning/suggest", async (c) => {
+    const result = await deps.pipeline.ingest({
+      source: "chat",
+      vertical: "personal",
+      kind: "message",
+      title: "Learning: new topics",
+      payload: { text: topicsRefreshPrompt() },
     });
     return c.json({ taskId: result?.task.id ?? null }, 201);
   });
