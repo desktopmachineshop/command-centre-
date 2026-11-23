@@ -21,6 +21,26 @@ import { LESSONS_FOLDER, README_PATH } from "./learning";
 
 export const PRONUNCIATION_PATH = "learning/pronunciation.md";
 
+/**
+ * The pronunciation list as a Lexicon, read from the brain at most every `ttlMs` (a minute), so
+ * an edit takes effect soon and speech doesn't hit the database on every sentence. A failed read
+ * keeps the last good list. Used by Drive/Chat speech (voice/service.ts); lessons read it fresh.
+ */
+export function cachedPronunciation(brain: Pick<Brain, "read">, ttlMs = 60_000, now: () => number = Date.now): () => Promise<Lexicon> {
+  let cached: { at: number; lexicon: Lexicon } | null = null;
+  return async () => {
+    if (cached && now() - cached.at < ttlMs) return cached.lexicon;
+    try {
+      const note = await brain.read(PRONUNCIATION_PATH);
+      cached = { at: now(), lexicon: note ? parseLexicon(note.body) : new Map() };
+    } catch {
+      if (!cached) return new Map();
+      cached = { ...cached, at: now() };
+    }
+    return cached.lexicon;
+  };
+}
+
 /** Free and natural (Kokoro, self-hosted) unless Dave picks another narrator on the Learning page. */
 export const DEFAULT_NARRATOR = "kokoro:bf_emma";
 /**

@@ -100,7 +100,7 @@ import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrati
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
 import { seedLearning, writeActivityNote } from "./learning";
-import { LessonRecorder, narratorOf, setNarrator } from "./learning-audio";
+import { cachedPronunciation, LessonRecorder, narratorOf, setNarrator } from "./learning-audio";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
@@ -945,6 +945,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       return overrides.voiceCalendar ?? (service ? paVoiceCalendar(service) : undefined);
     },
     local: localSpeech,
+    pronunciation: cachedPronunciation(brain),
     maxUploadBytes: config.voice.maxUploadBytes,
     maxSeconds: config.voice.maxSeconds,
     language: config.voice.language,

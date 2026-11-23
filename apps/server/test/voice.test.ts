@@ -3,6 +3,7 @@ import type { OutboundMessage } from "@cc/core";
 import { FakeSpeechToText, FakeTextToSpeech, voiceResponseLine } from "@cc/voice";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { voiceApiRoutes } from "../src/http/voice";
+import { cachedPronunciation } from "../src/learning-audio";
 import { VoiceService } from "../src/voice/service";
 import { ADMIN, DB_URL, makeServer, resetDatabase } from "./helpers";
 
@@ -334,5 +335,79 @@ describe.skipIf(!DB_URL)("a reply that falls back to the API-key runner", () => 
     expect(req.prompt).toContain("end mills");
     expect(req.prompt).toContain("Which supplier do you mean?");
     expect(req.prompt).toContain("Dave replies: Yes, the second one");
+  });
+});
+
+describe("pronunciation list", () => {
+  const said: string[] = [];
+  const tts = {
+    provider: "openai",
+    model: "m",
+    defaultVoice: "v",
+    synthesize: async (text: string) => {
+      said.push(text);
+      return { audio: new Uint8Array([1]), mime: "audio/mpeg" };
+    },
+  };
+  const lexicon = new Map([["EtherCAT", "ether-cat"], ["CANopen", "can-open"]]);
+  const service = new VoiceService({} as never, {} as never, {} as never, {
+    tts: tts as never,
+    pronunciation: async () => lexicon,
+    maxUploadBytes: 1024,
+    maxSeconds: 60,
+    language: "en-GB",
+    timezone: "Europe/London",
+  });
+
+  it("says terms the way the list says before speech", async () => {
+    await service.speak("EtherCAT and CANopen are fine; EtherCATs too.");
+    expect(said.at(-1)).toBe("ether-cat and can-open are fine; ether-cats too.");
+  });
+
+  it("speaks as written when the list can't be read", async () => {
+    const broken = new VoiceService({} as never, {} as never, {} as never, {
+      tts: tts as never,
+      pronunciation: async () => {
+        throw new Error("db down");
+      },
+      maxUploadBytes: 1024,
+      maxSeconds: 60,
+      language: "en-GB",
+      timezone: "Europe/London",
+    });
+    await broken.speak("EtherCAT");
+    expect(said.at(-1)).toBe("EtherCAT");
+  });
+
+  it("serves the list to the browser voice", async () => {
+    const app = voiceApiRoutes({ service, conversations: {} as never });
+    const res = await app.request("/voice/pronunciation");
+    expect(await res.json()).toEqual({ entries: [["EtherCAT", "ether-cat"], ["CANopen", "can-open"]] });
+  });
+});
+
+describe("cachedPronunciation", () => {
+  it("reads the note, refreshes after the ttl and keeps the last list when a read fails", async () => {
+    let body = "- EtherCAT: ether-cat";
+    let fail = false;
+    let reads = 0;
+    let t = 0;
+    const brain = {
+      read: async () => {
+        reads++;
+        if (fail) throw new Error("down");
+        return { body } as never;
+      },
+    };
+    const get = cachedPronunciation(brain, 1000, () => t);
+    expect((await get()).get("EtherCAT")).toBe("ether-cat");
+    body = "- EtherCAT: eether-cat";
+    await get();
+    expect(reads).toBe(1);
+    t = 1500;
+    expect((await get()).get("EtherCAT")).toBe("eether-cat");
+    fail = true;
+    t = 3000;
+    expect((await get()).get("EtherCAT")).toBe("eether-cat");
   });
 });

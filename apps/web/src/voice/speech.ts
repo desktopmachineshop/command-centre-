@@ -5,6 +5,7 @@
  * Every piece degrades: a missing API reports itself rather than throwing.
  */
 
+import { pronounce, refreshPronunciation } from "./pronunciation";
 import { AnalyserLevel, type LevelSource, PulseLevel, SILENT, speechThreshold, updateNoiseFloor } from "./level";
 
 export class VoicePermissionError extends Error {}
@@ -839,8 +840,9 @@ export class BrowserSpeaker implements Speaker {
     const gen = ++this.generation;
     this.pulse.active = true;
     try {
+      await refreshPronunciation();
       for await (const piece of pieces) {
-        for (const chunk of chunkForSpeech(piece)) {
+        for (const chunk of chunkForSpeech(pronounce(piece))) {
           if (gen !== this.generation) return;
           await this.utter(chunk);
         }
