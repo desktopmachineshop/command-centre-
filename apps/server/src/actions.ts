@@ -461,6 +461,19 @@ export class ActionService {
     return { replaced, skipped };
   }
 
+  /**
+   * Cancels a pending proposal that no longer needs Dave, for a reason he didn't give himself
+   * (he already answered the email elsewhere): marked rejected with `result.withdrawn` and the
+   * reason, and its approval request cleared. Null when it was no longer pending.
+   */
+  async withdraw(id: string, reason: string): Promise<Proposal | null> {
+    const proposal = await this.store.transitionProposal(id, ["pending"], "rejected", { ok: false, withdrawn: true, error: reason });
+    if (!proposal) return null;
+    this.hub.broadcast({ type: "proposal.updated", proposal });
+    await this.settleTask(proposal);
+    return proposal;
+  }
+
   private async execute(id: string, from: Proposal["status"][]): Promise<Proposal> {
     const approved = await this.store.transitionProposal(id, from, "approved");
     if (!approved) throw new ProposalStateError(id);

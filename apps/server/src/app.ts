@@ -5,7 +5,8 @@ import { type AgentRunner, type AgentRunResult, ClaudeCodeRunner, CodexRunner, F
 import { auditIssues, ISSUES_README, PgBrain } from "@cc/brain";
 import { type CardProvider, ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
-import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector } from "@cc/email";
+import { configureEmailOAuth, createEmailExecutors, createMailMcpServer, type EmailAccount, EmailPoller, type ImapConnector, imapflowConnector } from "@cc/email";
+import { AnsweredElsewhere } from "./email-replies";
 import { createOdooExecutors, createOdooMcpServer, OdooClient, OdooEventPoller, odooCardProviders } from "@cc/odoo";
 import { CalendarService, ContactsService, createCalendarExecutors, createContactsExecutors, createPaExecutors, createPaMcpServer, deliverDueReminders, PgPaStore } from "@cc/pa";
 import {
@@ -759,6 +760,14 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   };
   const actions: ActionService = new ActionService(store, hub, verticals, { brain, notifier, publicBaseUrl: config.publicBaseUrl }, executors);
   actions.onDecided = (p) => notifications.resolveProposal(p.id); // notifications: clear its approval request
+  // email: a suggested reply is withdrawn once Dave has answered that email himself (./email-replies.ts).
+  const answeredElsewhere = new AnsweredElsewhere({
+    listPending: () => store.listProposals({ status: "pending", limit: 200 }),
+    withdraw: (id, reason) => actions.withdraw(id, reason),
+    accounts: () => email.current.accounts,
+    connect: overrides.imap ?? imapflowConnector,
+    log: (line) => console.log(line),
+  });
   // org: role and policy changes from the Org page, over the code manifests; applied to `verticals` live
   const org = new OrgConfigService(pool, verticals, { skillsDir: config.skillsDir, actionTypes: () => Object.keys(actions.executors) });
   // pa: Dave writes directly; a run writes directly only if its task came from chat/cron/system, else it proposes.
@@ -1205,6 +1214,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     },
     /** Sends due reminders; the every-minute system job calls this. */
     deliverReminders,
+    /** Withdraws suggested email replies Dave has already sent himself (./email-replies.ts). */
+    answeredElsewhere,
     /** Moves issue notes written outside the brain's issues/ into it (start-up and nightly). */
     issuesAudit: runIssuesAudit,
     storage,
@@ -1228,6 +1239,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await seedCompetitorRegistries(brain, pool, verticals); // each business's empty competitor registry (./competitors.ts)
       await seedLearning(brain, pool); // learning: the README and starter topic map (./learning.ts)
       if (process.env.NODE_ENV !== "test") lessonRecorder.start(); // learning: records new lessons in the background
+      if (process.env.NODE_ENV !== "test") answeredElsewhere.start(); // email: withdraw suggested replies Dave already sent himself
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       await storage.init(); // storage: index media from before the index, load the cache
       void tidyStorageOnce().catch((err) => console.error("[storage] reorganising by vertical failed (retried at the next start):", err)); // storage: by vertical
@@ -1294,6 +1306,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();
       lessonRecorder.stop();
+      answeredElsewhere.stop();
       stopHeartbeat();
       await email.stop();
       voiceFront?.stop();

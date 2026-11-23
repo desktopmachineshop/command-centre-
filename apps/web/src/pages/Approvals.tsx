@@ -226,9 +226,10 @@ export function ProposalCard({ api, proposal, shownKinds = [] }: { api: Api; pro
         <span className="row">
           <VTag id={proposal.vertical} /> <span className="action-type" title={proposal.actionType}>{actionLabel(proposal.actionType)}</span>
         </span>
-        <Status value={proposal.status} label={replacedBy(proposal) ? "replaced" : undefined} />
+        <Status value={proposal.status} label={replacedBy(proposal) ? "replaced" : withdrawnReason(proposal) ? "cancelled" : undefined} />
       </div>
       <p className="title">{proposal.summary}</p>
+      {withdrawnReason(proposal) && <p className="muted small">{withdrawnReason(proposal)}</p>}
       {/* The record it would change, read live: the product, order or customer, not just its id. */}
       {proposal.status === "pending" && <CardGrid refs={proposalCardRefs(proposal.actionType, proposal.payload).filter((ref) => !shownKinds.includes(ref.split(":")[0]!))} />}
       {video && <VideoPreview video={video} title={typeof proposal.payload.title === "string" ? proposal.payload.title : proposal.summary} />}
@@ -479,6 +480,12 @@ function ChangesForm({ busy, cancel, send }: { busy: boolean; cancel: () => void
 function failureText(result: unknown): string {
   if (result && typeof result === "object" && typeof (result as { error?: unknown }).error === "string") return (result as { error: string }).error;
   return result == null ? "It failed without a message." : JSON.stringify(result, null, 2);
+}
+
+/** Why the server cancelled this proposal itself (Dave already replied to that email elsewhere), or null. Pure. */
+export function withdrawnReason(p: Pick<Proposal, "status" | "result">): string | null {
+  const r = p.result as { withdrawn?: unknown; error?: unknown } | null;
+  return p.status === "rejected" && r && r.withdrawn === true && typeof r.error === "string" ? r.error : null;
 }
 
 /** The revised proposal that replaced this one (the agent proposed it again after Dave asked for a change), or null. */

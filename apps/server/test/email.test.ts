@@ -138,6 +138,26 @@ describe.skipIf(!DB_URL)("email ingress and reply (integration)", () => {
     expect((await ctx.api(`/api/tasks/${task.id}`)).body.task.status).toBe("done");
   });
 
+  it("cancels a suggested reply once Dave has answered the email himself", async () => {
+    const pendingReply = async () => {
+      const list = (await ctx.api("/api/proposals?status=pending")).body as { id: string; actionType: string }[];
+      return list.find((p) => p.actionType === "email.reply");
+    };
+    // A new email; the agent suggests a reply to <q1> again (the scripted runner always does).
+    mailbox.deliver(await customerEmail("<q5@example.com>"));
+    const proposal = await waitFor(pendingReply);
+    // The mailbox's Sent folder already holds a reply to <q1> (the one approved above): Dave's
+    // own reply would look the same.
+    const withdrawn = await ctx.server.answeredElsewhere.sweep();
+    expect(withdrawn.map((p) => p.id)).toEqual([proposal.id]);
+    const after = await ctx.server.store.getProposal(proposal.id);
+    expect(after).toMatchObject({ status: "rejected", result: { ok: false, withdrawn: true, error: expect.stringMatching(/already replied/) } });
+    expect(await pendingReply()).toBeUndefined();
+    // Nothing is sent, and a second sweep finds nothing left to do.
+    expect(smtp.received).toHaveLength(1);
+    expect(await ctx.server.answeredElsewhere.sweep()).toEqual([]);
+  });
+
   it("ingests a message only once, even if the mailbox shows it again", async () => {
     const before = ((await ctx.api("/api/events")).body as unknown[]).length;
     mailbox.deliver(await customerEmail("<q1@example.com>"));
