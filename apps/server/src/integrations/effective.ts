@@ -6,7 +6,7 @@ import { type CalendarAccount, GoogleCalendarAccount } from "@cc/pa";
 import { SendcloudAccount } from "@cc/sendcloud";
 import { parseElevenLabsVoices } from "@cc/voice";
 import type { Platform, SocialAccount } from "@cc/social";
-import { AGENT_ROUTES, type AgentRoute, type Config } from "../config";
+import { type AgentName, type Config, formatAgentRoute, parseAgentRoute } from "../config";
 import { DEFAULT_ID, type Field, type Group, KINDS, type KindDef } from "./catalog";
 import type { Entry } from "./store";
 
@@ -104,6 +104,34 @@ function checkField(f: Field, v: unknown): string[] {
     default:
       return typeof v === "string" ? [] : [`${f.label} must be text`];
   }
+}
+
+/**
+ * The route an "agents" entry sets: its First / Then / Finally choices, or the single `route`
+ * an older entry has ("codex-then-claude"). Anything unrecognised means Claude alone.
+ */
+export function routeOf(data: Record<string, unknown>): string {
+  if (typeof data.first === "string") {
+    const picked = [data.first, data.second, data.third].filter((v): v is string => typeof v === "string" && v !== "none");
+    const names = parseAgentRoute(picked.join(","));
+    return names ? formatAgentRoute(names) : "claude";
+  }
+  const names = typeof data.route === "string" ? parseAgentRoute(data.route) : null;
+  return names ? formatAgentRoute(names) : "claude";
+}
+
+/** An entry's data as its current fields: an older "agents" entry's single `route` becomes First / Then / Finally. */
+export function currentData(kind: string, data: Record<string, unknown>): Record<string, unknown> {
+  if (kind !== "agents" || typeof data.route !== "string") return data;
+  const { route: _, ...rest } = data;
+  return { ...rest, ...routeData(routeOf(data)) };
+}
+
+/** The "agents" entry data for a route, as the Accounts page's First / Then / Finally fields. */
+export function routeData(route: string): Record<string, string> {
+  const names: (AgentName | "none")[] = parseAgentRoute(route) ?? ["claude"];
+  const [first = "claude", second = "none", third = "none"] = names;
+  return { first, second, third };
 }
 
 function single(entries: EntryInput[], kind: string): EntryInput | undefined {
@@ -299,8 +327,13 @@ export function applyEntries(base: Config, all: EntryInput[]): { config: Config;
     agent.codexAuth = str(codex.secrets.authJson);
     agent.codexModel = str(codex.data.model);
   }
+  const gemini = single(entries, "gemini");
+  if (gemini) {
+    agent.geminiApiKey = str(gemini.secrets.apiKey);
+    agent.geminiModel = str(gemini.data.model);
+  }
   const agents = single(entries, "agents");
-  if (agents) agent.route = AGENT_ROUTES.includes(agents.data.route as AgentRoute) ? (agents.data.route as AgentRoute) : "claude";
+  if (agents) agent.route = routeOf(agents.data);
 
   // --- triage ---
   const triage = { ...base.triage };
@@ -455,6 +488,8 @@ export function groupSection(config: Config, group: Group): unknown {
         codexAuth: config.agent.codexAuth,
         codexModel: config.agent.codexModel,
         codexBin: config.agent.codexBin,
+        geminiApiKey: config.agent.geminiApiKey,
+        geminiModel: config.agent.geminiModel,
       };
     case "triage":
       return config.triage;
@@ -505,7 +540,8 @@ export function railwayEntries(base: Config): EntryInput[] {
   const a = base.agent;
   if (a.oauthToken || a.runner === "echo") add("claude", DEFAULT_ID, { runner: a.runner }, { oauthToken: a.oauthToken });
   if (a.codexAuth) add("codex", DEFAULT_ID, { model: a.codexModel }, { authJson: a.codexAuth });
-  if (a.route !== "claude") add("agents", DEFAULT_ID, { route: a.route }, {});
+  if (a.geminiApiKey) add("gemini", DEFAULT_ID, { model: a.geminiModel }, { apiKey: a.geminiApiKey });
+  if (a.route !== "claude") add("agents", DEFAULT_ID, routeData(a.route), {});
   if (a.fallbackApiKey || base.triage.anthropicApiKey) add("anthropic", DEFAULT_ID, {}, { fallbackApiKey: a.fallbackApiKey, triageApiKey: base.triage.anthropicApiKey });
   if (base.triage.jevApiKey) add("jev", DEFAULT_ID, { baseUrl: base.triage.jevBaseUrl, model: base.triage.jevModel }, { apiKey: base.triage.jevApiKey });
   const p = base.voice.providers;

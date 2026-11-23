@@ -45,7 +45,10 @@ first, and the test is skipped when Chromium is missing.
      on your subscription.
    - `ANTHROPIC_FALLBACK_API_KEY` (optional): used only when the subscription hits its usage limit.
    - `AGENT_ROUTE` (optional): `claude` (default), `codex` (your ChatGPT plan, through Codex),
-     `claude-then-codex` or `codex-then-claude`. Usually set on the Accounts page instead.
+     `gemini` (Google AI Studio), or a chain such as `claude-then-gemini` or
+     `codex-then-claude-then-gemini`. Usually set on the Accounts page instead.
+   - `GEMINI_API_KEY` (optional): a Google AI Studio key, for the Gemini agent. `GEMINI_MODEL`
+     picks the model (default `gemini-pro-latest`).
    - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: `npx web-push generate-vapid-keys`.
    - `WEBHOOK_SECRET`: `openssl rand -hex 24`, if you'll use webhook ingress.
 5. **Generate a domain** under Settings → Networking. That URL is your command centre.
@@ -241,10 +244,19 @@ straight away; only the changed integration restarts, and nothing redeploys.
   `codex login --device-auth`; open the sign-in link, sign in to ChatGPT and enter the one-time
   code the dialog shows. The dialog closes once you've signed in, and the sign-in file is saved
   encrypted. Alternatively run `codex login` on a computer and use **Paste auth.json** with the
-  contents of `~/.codex/auth.json` (a ChatGPT sign-in; an API-key one is refused). Then choose
-  the **Agent route**: Claude, ChatGPT, or one then the other when the first hits its usage
-  limit. The Anthropic fallback key is always last. Codex keeps its sign-in in `/data/codex` and
-  refreshes it there; refreshed tokens are saved back to the Accounts entry.
+  contents of `~/.codex/auth.json` (a ChatGPT sign-in; an API-key one is refused). Codex keeps
+  its sign-in in `/data/codex` and refreshes it there; refreshed tokens are saved back to the
+  Accounts entry.
+- **Google AI Studio (Gemini):** create a key at https://aistudio.google.com/apikey and paste it
+  on the Google AI Studio (Gemini) card; **Test** checks it against the chosen model. Gemini runs
+  through the Gemini API with the agents' MCP tools, but has no shell, so a coding task (one that
+  needs Bash) moves on to the next agent in the route. Conversations are kept in
+  `/data/gemini/sessions` so replies continue them.
+- **Agent route:** up to three agents in order (**Run agents on**, **Then**, **Finally**). The next
+  one takes over when the one before hits its usage limit, isn't connected or can't do the task,
+  or fails before it has used any tool. A run that fails after it has used tools is not retried
+  elsewhere, so nothing it started is done twice. The Anthropic fallback key is always last, and
+  only at a limit or when none of the route could run.
 - **Stays in Railway:** `DATABASE_URL`, `ADMIN_TOKEN`, `WORKER_TOKEN`, `WEBHOOK_SECRET`,
   `PUBLIC_BASE_URL`, the push (`VAPID_*`) keys and `CREDENTIALS_KEY`: the server
   needs them before it can read the database. The page lists them read-only.

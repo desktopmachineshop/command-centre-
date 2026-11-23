@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type AgentRunner, type AgentRunResult, ClaudeCodeRunner, CodexRunner, FallbackRunner, isUsageLimit, ScriptedRunner } from "@cc/agent-runtime";
+import { type AgentRunner, ClaudeCodeRunner, CodexRunner, FallbackRunner, fallbackChain, GeminiRunner, isUnavailable, isUsageLimit, ScriptedRunner } from "@cc/agent-runtime";
 import { auditIssues, ISSUES_README, PgBrain } from "@cc/brain";
 import { type CardProvider, ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
@@ -46,7 +46,7 @@ import { type ActionExecutor, ActionService, builtinExecutors } from "./actions"
 import { BudgetService } from "./budget";
 import { cardGuide, CardService } from "./cards";
 import { socialAccountsGuide } from "./social-guide";
-import type { Config } from "./config";
+import { type AgentName, type Config, parseAgentRoute } from "./config";
 import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
@@ -197,48 +197,46 @@ export function agentEnv(config: Config, kind: "subscription" | "api" | "codex",
   return env;
 }
 
-/** Moves to the next runner on a usage limit, or when that runner's account isn't connected. */
-const nextOnLimit = (r: AgentRunResult) => isUsageLimit(r) || (r.status === "failed" && /isn't connected/.test(r.error ?? ""));
-
 /**
- * The agents' runner for the chosen route (Accounts → Agent route, or AGENT_ROUTE):
+ * The agents' runner for the chosen route (Accounts → Agent route, or AGENT_ROUTE): its agents in
+ * order, each taking over from the one before when that one hits its usage limit, isn't connected
+ * or can't do the task (Gemini has no shell), or fails before it has used any tool (so nothing it
+ * started is done twice). For example:
  *
- * - "claude": the Claude subscription, then the Anthropic API key if one is set;
+ * - "claude": the Claude subscription;
  * - "codex": the ChatGPT plan through Codex;
- * - "claude-then-codex": Claude, then ChatGPT when Claude hits its limit, then the API key;
- * - "codex-then-claude": ChatGPT, then Claude, then the API key.
+ * - "gemini": Gemini with a Google AI Studio key;
+ * - "claude-then-gemini", "codex-then-claude-then-gemini", ...: one, then the next.
  *
- * The pay-as-you-go key always comes last, so both subscriptions are used up before any credits.
+ * The pay-as-you-go Anthropic key always comes last, and only at a limit or when nothing else could
+ * run, so the subscriptions are used up before any credits.
  */
 export function createRunner(config: Config, codexHome?: CodexHome): AgentRunner {
   if (config.agent.runner === "echo") return new ScriptedRunner("echo");
   const a = config.agent;
 
-  const subscription = new ClaudeCodeRunner({ bin: a.claudeBin, env: agentEnv(config, "subscription"), timeoutMs: a.timeoutMs });
-  const api = a.fallbackApiKey ? new ClaudeCodeRunner({ name: "claude-code-api", bin: a.claudeBin, env: agentEnv(config, "api"), timeoutMs: a.timeoutMs }) : undefined;
-  const home = codexHome ?? new CodexHome(a.codexHome);
-  const codex = new CodexRunner({
-    name: "codex",
-    bin: a.codexBin,
-    env: agentEnv(config, "codex"),
-    home: home.dir,
-    model: a.codexModel,
-    timeoutMs: a.timeoutMs,
-    prepare: () => home.prepare(a.codexAuth),
-    afterRun: () => home.afterRun(a.codexAuth),
-  });
-  const withKey = (name: string, runner: AgentRunner) => (api ? new FallbackRunner(name, runner, api, nextOnLimit) : runner);
-
-  switch (a.route) {
-    case "codex":
-      return codex;
-    case "claude-then-codex":
-      return new FallbackRunner("claude-code", subscription, withKey("codex", codex), nextOnLimit);
-    case "codex-then-claude":
-      return new FallbackRunner("codex", codex, withKey("claude-code", subscription), nextOnLimit);
-    default:
-      return api ? new FallbackRunner("claude-code", subscription, api) : subscription;
-  }
+  const build: Record<AgentName, () => AgentRunner> = {
+    claude: () => new ClaudeCodeRunner({ bin: a.claudeBin, env: agentEnv(config, "subscription"), timeoutMs: a.timeoutMs }),
+    codex: () => {
+      const home = codexHome ?? new CodexHome(a.codexHome);
+      return new CodexRunner({
+        name: "codex",
+        bin: a.codexBin,
+        env: agentEnv(config, "codex"),
+        home: home.dir,
+        model: a.codexModel,
+        timeoutMs: a.timeoutMs,
+        prepare: () => home.prepare(a.codexAuth),
+        afterRun: () => home.afterRun(a.codexAuth),
+      });
+    },
+    gemini: () => new GeminiRunner({ name: "gemini", apiKey: a.geminiApiKey, model: a.geminiModel, sessionsDir: a.geminiSessionsDir, timeoutMs: a.timeoutMs }),
+  };
+  const chain = fallbackChain((parseAgentRoute(a.route) ?? ["claude"]).map((name) => build[name]()));
+  if (!a.fallbackApiKey) return chain;
+  const api = new ClaudeCodeRunner({ name: "claude-code-api", bin: a.claudeBin, env: agentEnv(config, "api"), timeoutMs: a.timeoutMs });
+  // The key costs money: only when every subscription is at its limit or none could run.
+  return new FallbackRunner(chain.name, chain, api, (r) => isUsageLimit(r) || isUnavailable(r));
 }
 
 /** Wires every service together. `start()` migrates, boots the queue and schedules. */

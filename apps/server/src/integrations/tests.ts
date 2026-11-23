@@ -4,6 +4,7 @@ import { isPairingCode, OpenGymClient, openGymBase } from "@cc/opengym";
 import { createGoogleTokenProvider } from "@cc/pa";
 import { SENDCLOUD_API, SendcloudClient } from "@cc/sendcloud";
 import { type BrowserJobs, IG_GRAPH_BASE, REDDIT_API, REDDIT_OLD, REDDIT_TOKEN_URL, redditBrowserWhoami, RedditBrowserSignedOutError, redditSessionWhoami, THREADS_BASE, X_API_BASE, xOAuth1, youtubeOAuth } from "@cc/social";
+import { GEMINI_API, GEMINI_DEFAULT_MODEL } from "@cc/agent-runtime";
 import nodemailer from "nodemailer";
 import { codexAuthInfo, codexAuthProblem } from "../codex-home";
 import { emailAccountOf, type EntryInput } from "./effective";
@@ -16,6 +17,7 @@ import type { CredentialTest } from "./service";
  */
 export interface TestEndpoints {
   anthropic: string;
+  gemini: string;
   openai: string;
   elevenlabs: string;
   googleUserinfo: string;
@@ -32,6 +34,7 @@ export interface TestEndpoints {
 
 export const DEFAULT_TEST_ENDPOINTS: TestEndpoints = {
   anthropic: "https://api.anthropic.com",
+  gemini: GEMINI_API,
   openai: "https://api.openai.com",
   elevenlabs: "https://api.elevenlabs.io",
   googleUserinfo: "https://openidconnect.googleapis.com/v1/userinfo",
@@ -180,6 +183,14 @@ export function credentialTests(deps: TestDeps = {}): Record<string, CredentialT
       const info = codexAuthInfo(authJson);
       const who = info.email ? `${info.email}${info.plan ? ` (ChatGPT ${info.plan})` : ""}` : undefined;
       return ok(`Signed in to ChatGPT${who ? ` as ${who}` : ""}; it will be checked on the first agent run`, who);
+    },
+
+    async gemini(entry) {
+      const key = entry.secrets.apiKey?.trim();
+      if (!key) return fail("No API key saved");
+      const model = String(entry.data.model ?? "").trim() || GEMINI_DEFAULT_MODEL;
+      const res = await get(`${urls.gemini}/models/${encodeURIComponent(model)}`, { "x-goog-api-key": key });
+      return res.ok ? ok(`Google AI Studio accepted the key; agents will use ${model}`) : failed(res, "Google AI Studio");
     },
 
     async anthropic(entry) {

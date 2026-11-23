@@ -1,6 +1,6 @@
 import type { Config } from "../config";
 import { CATALOG, DEFAULT_ID, GROUPS, type Group, KINDS, type KindDef, RAILWAY_ONLY } from "./catalog";
-import { applyEntries, type EntryError, type EntryInput, fingerprint, railwayEntries, validateFields } from "./effective";
+import { applyEntries, currentData, type EntryError, type EntryInput, fingerprint, railwayEntries, validateFields } from "./effective";
 import { mask } from "./secrets";
 import type { Entry, EntryMeta, IntegrationStore } from "./store";
 
@@ -264,7 +264,7 @@ export class IntegrationService {
     const stored = await this.store.get(def.kind, id);
     if (stored) {
       if (stored.unreadable) return { data: stored.data, secrets: {}, meta: stored.meta, stored: true, fromRailway: false };
-      return { data: stored.data, secrets: stored.secrets, meta: stored.meta, stored: true, fromRailway: false };
+      return { data: currentData(def.kind, stored.data), secrets: stored.secrets, meta: stored.meta, stored: true, fromRailway: false };
     }
     const env = railwayEntries(this.base).find((e) => e.kind === def.kind && e.id === id);
     if (env) return { data: env.data, secrets: env.secrets, meta: {} as EntryMeta, stored: false, fromRailway: true };
@@ -309,7 +309,7 @@ export class IntegrationService {
       kind: e.kind,
       id: e.id,
       source,
-      data: e.data,
+      data: currentData(e.kind, e.data),
       secrets: Object.fromEntries([...secretKeys].map((k) => [k, mask(e.secrets[k])])),
       meta: e.meta,
       ...(error ? { error } : {}),
@@ -351,8 +351,8 @@ export class IntegrationService {
 function mergeFailed(next: Config, prev: Config, failed: Partial<Record<Group, string>>): Config {
   const out = { ...next };
   if (failed.runner) {
-    const { runner, oauthToken, fallbackApiKey, route, codexAuth, codexModel } = prev.agent;
-    out.agent = { ...out.agent, runner, oauthToken, fallbackApiKey, route, codexAuth, codexModel };
+    const { runner, oauthToken, fallbackApiKey, route, codexAuth, codexModel, geminiApiKey, geminiModel } = prev.agent;
+    out.agent = { ...out.agent, runner, oauthToken, fallbackApiKey, route, codexAuth, codexModel, geminiApiKey, geminiModel };
   }
   if (failed.triage) out.triage = prev.triage;
   if (failed.voice) out.voice = { ...out.voice, providers: prev.voice.providers };
