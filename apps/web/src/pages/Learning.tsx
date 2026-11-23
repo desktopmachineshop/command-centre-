@@ -30,7 +30,7 @@ export function Learning({ api, feed, path }: { api: Api; feed: LiveFeed; path?:
       {view.error && <p className="error">{view.error}</p>}
       {view.data && (
         <>
-          <TodayCard view={view.data} />
+          <TodayCard api={api} view={view.data} onChange={view.reload} />
           <Scoreboard stats={view.data.stats} />
           <Choose api={api} view={view.data} onAsked={view.reload} />
           <Library view={view.data} />
@@ -48,6 +48,7 @@ export function Learning({ api, feed, path }: { api: Api; feed: LiveFeed; path?:
 
 /** How far through a lesson Dave is: a tick once done, else the percentage and a thin bar. */
 export function LessonProgressBadge({ lesson, bar = true }: { lesson: Pick<Lesson, "status" | "completedMode" | "percent">; bar?: boolean }) {
+  if (lesson.status === "skipped") return <span className="muted small skipped-mark">Skipped</span>;
   if (lesson.status === "done") {
     return (
       <span className="done-mark">
@@ -73,7 +74,7 @@ function TrackChip({ track, tracks }: { track: string; tracks: LearningTrack[] }
   return <span className="track-chip">{tracks.find((t) => t.id === track)?.name ?? track}</span>;
 }
 
-function TodayCard({ view }: { view: LearningView }) {
+function TodayCard({ api, view, onChange }: { api: Api; view: LearningView; onChange: () => void }) {
   const l = view.todays;
   if (!l) {
     const next = view.suggestions.requested[0] ?? view.suggestions.fromWork?.[0] ?? view.suggestions.upNext[0];
@@ -105,6 +106,9 @@ function TodayCard({ view }: { view: LearningView }) {
         </button>
         <button className="big" onClick={() => go(lessonHref(l.path))}>
           <Icon name="learn" /> Read
+        </button>
+        <button className="ghost small skip-btn" onClick={() => void api.skipLesson(l.path).then(onChange)} title="Not interested: skip this lesson">
+          Skip
         </button>
       </div>
     </article>
@@ -189,6 +193,15 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
   const [topic, setTopic] = useState("");
   const [track, setTrack] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const skip = async (s: { title: string; track?: string }) => {
+    setErr(null);
+    try {
+      await api.skipTopic(s.title, s.track);
+      onAsked();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
   const ask = async (s: { title: string; track?: string }) => {
     setErr(null);
     try {
@@ -229,11 +242,13 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
             const sent = key in asked;
             return (
               <li key={key} className="item static">
-                <div className="row between">
-                  <span className="row">
-                    <TrackChip track={s.track} tracks={view.tracks} />
-                    {s.from && <span className="muted small">{s.from}</span>}
-                  </span>
+                <div className="row wrap">
+                  <TrackChip track={s.track} tracks={view.tracks} />
+                  {s.from && <span className="muted small">{s.from}</span>}
+                </div>
+                <p className="title">{s.title}</p>
+                {s.why && <p className="small muted">{s.why}</p>}
+                <div className="row suggestion-actions">
                   {sent ? (
                     asked[key] ? (
                       <a className="small" href={`#/task/${asked[key]}`}>
@@ -243,11 +258,14 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
                       <span className="small muted">Asked</span>
                     )
                   ) : (
-                    <button onClick={() => void ask(s)}>Make this lesson</button>
+                    <>
+                      <button onClick={() => void ask(s)}>Make this lesson</button>
+                      <button className="ghost small" onClick={() => void skip(s)} title="Not interested: never write this one">
+                        Skip
+                      </button>
+                    </>
                   )}
                 </div>
-                <p className="title">{s.title}</p>
-                {s.why && <p className="small muted">{s.why}</p>}
               </li>
             );
           })}
@@ -275,7 +293,7 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
 function Library({ view }: { view: LearningView }) {
   const [track, setTrack] = useState("");
   // What's still to do comes first; All and Done are a tap away.
-  const [status, setStatus] = useState<"" | "ready" | "done">("ready");
+  const [status, setStatus] = useState<"" | "ready" | "done" | "skipped">("ready");
   const shown = view.lessons.filter((l) => (!track || l.track === track) && (!status || l.status === status));
   return (
     <article className="card">
@@ -285,6 +303,7 @@ function Library({ view }: { view: LearningView }) {
           <option value="">All</option>
           <option value="ready">To do</option>
           <option value="done">Done</option>
+          <option value="skipped">Skipped</option>
         </select>
         <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Track">
           <option value="">Every track</option>
@@ -517,7 +536,14 @@ function LessonView({
       />
 
       <article className="card lesson-done">
-        {lesson.status === "done" ? (
+        {lesson.status === "skipped" ? (
+          <div className="row between">
+            <span className="muted">Skipped. It won't be offered again, and the coach steers clear of the topic.</span>
+            <button className="small" onClick={() => void api.reopenLesson(lesson.path).then(onChange)}>
+              Undo skip
+            </button>
+          </div>
+        ) : lesson.status === "done" ? (
           <div className="row between">
             <span className="done-mark">
               <Icon name="check" /> {lesson.completedMode === "listen" ? "Listened" : "Read"}
@@ -545,6 +571,16 @@ function LessonView({
                 Mark as read
               </button>
               <button onClick={() => void complete("listen")}>Mark as listened</button>
+              <button
+                className="ghost"
+                onClick={() => {
+                  stop.current();
+                  void api.skipLesson(lesson.path).then(onChange);
+                }}
+                title="Not interested: skip this lesson"
+              >
+                Skip this lesson
+              </button>
             </div>
           </>
         )}

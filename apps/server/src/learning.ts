@@ -126,6 +126,8 @@ what you dealt with the day before (learning/activity/). Edit freely.
 - [market] Copper and steel prices: what they do to motors, cables and machine frames
 
 ## Taught
+
+## Skipped
 `;
 
 // ---------- topics.md ----------
@@ -167,11 +169,32 @@ export function parseTopics(body: string): { requested: Suggestion[]; fromWork: 
 
 /** Adds a topic under "## Requested" (creating the section, or the map, if need be). Pure. */
 export function addRequested(body: string | null, s: Suggestion): string {
-  const line = `- [${s.track}] ${s.title}${s.why ? `: ${s.why}` : ""}`;
-  const base = body ?? TOPICS_TEMPLATE;
+  return addToSection(body ?? TOPICS_TEMPLATE, "Requested", `- [${s.track}] ${s.title}${s.why ? `: ${s.why}` : ""}`);
+}
+
+/**
+ * Skips a topic: takes it out of Requested, From your work, Up next and the Backlog (matching
+ * its title, any case), and lists it under "## Skipped", so the coach never writes it. Pure.
+ */
+export function skipTopic(body: string | null, s: { track: TrackId; title: string }, note: string): string {
+  const want = s.title.trim().toLowerCase();
+  const lines = (body ?? TOPICS_TEMPLATE).split("\n");
+  let section = "";
+  const kept = lines.filter((l) => {
+    const h = /^##\s+(.+?)\s*$/.exec(l);
+    if (h) section = h[1]!.toLowerCase();
+    if (!["requested", "from your work", "up next", "backlog"].includes(section)) return true;
+    return parseTopicLine(l)?.title.toLowerCase() !== want;
+  });
+  return addToSection(kept.join("\n"), "Skipped", `- [${s.track}] ${s.title.trim()} (${note})`);
+}
+
+/** Adds a line at the end of a "## <name>" section's list, creating the section if need be. Pure. */
+function addToSection(body: string, name: string, line: string): string {
+  const base = body;
   const lines = base.split("\n");
-  const at = lines.findIndex((l) => /^##\s+requested\s*$/i.test(l));
-  if (at === -1) return `${base.trimEnd()}\n\n## Requested\n${line}\n`;
+  const at = lines.findIndex((l) => new RegExp(`^##\\s+${name}\\s*$`, "i").test(l));
+  if (at === -1) return `${base.trimEnd()}\n\n## ${name}\n${line}\n`;
   let end = at + 1;
   while (end < lines.length && !/^##\s/.test(lines[end]!)) end++;
   // After the last item of the section (or straight under the heading).
@@ -191,7 +214,8 @@ export interface Lesson {
   track: TrackId;
   topic: string;
   summary: string;
-  status: "ready" | "done";
+  /** "skipped": Dave doesn't want it; off To do, Converse and the recorder, and not counted. */
+  status: "ready" | "done" | "skipped";
   /** YYYY-MM-DD the lesson was written for. */
   created: string;
   /** ISO time it was marked done. */
@@ -314,7 +338,7 @@ export function lessonOf(note: Pick<NoteSummary, "path" | "title" | "frontmatter
     track: trackOf(fm.track),
     topic: str(fm.topic),
     summary: str(fm.summary),
-    status: done ? "done" : "ready",
+    status: done ? "done" : fm.status === "skipped" ? "skipped" : "ready",
     created: dayOf(fm.created) || /(\d{4}-\d{2}-\d{2})/.exec(note.path)?.[1] || note.updatedAt.slice(0, 10),
     completedAt: done ? str(fm.completed) || note.updatedAt : null,
     completedMode: done ? mode : null,
@@ -398,7 +422,7 @@ export function learningStats(lessons: Lesson[], now: Date, timeZone: string): L
   return {
     completed: done.length,
     minutes,
-    ready: lessons.length - done.length,
+    ready: lessons.filter((l) => l.status === "ready").length,
     read: done.filter((l) => l.completedMode === "read").length,
     listened: done.filter((l) => l.completedMode === "listen").length,
     streak,
@@ -698,12 +722,44 @@ export function learningRoutes(deps: LearningDeps) {
     return c.json({ ok: true });
   });
 
-  /** Puts a lesson back to ready (marked done by mistake). */
+  /**
+   * Skips a lesson Dave doesn't want to bother with: off To do, Converse and the recorder, not
+   * counted on the scoreboard, and its topic listed under Skipped so the coach steers clear.
+   */
+  app.post("/learning/skip", async (c) => {
+    const { path } = z.object({ path: LessonPath }).parse(await c.req.json());
+    const note = await deps.brain.read(path);
+    if (!note) return c.json({ error: "no such lesson" }, 404);
+    const { updated: _u, ...fm } = note.frontmatter;
+    const today = localDay(now(), deps.timeZone);
+    await deps.brain.write(path, { frontmatter: { ...fm, status: "skipped", skipped: today }, body: note.body }, { author: "dave", message: "learning: skipped" });
+    const topics = await deps.brain.read(TOPICS_PATH);
+    const title = typeof fm.topic === "string" && fm.topic ? fm.topic : noteTitle(note);
+    await deps.brain
+      .write(TOPICS_PATH, { frontmatter: topics?.frontmatter ?? { type: "note", vertical: "personal", tags: ["learning"] }, body: skipTopic(topics?.body ?? null, { track: trackOf(fm.track), title }, `skipped the lesson ${today}`) }, { author: "dave", message: "learning: skipped a lesson" })
+      .catch(() => {});
+    return c.json({ ok: true });
+  });
+
+  /** Skips a suggested topic so it's never written (Pick another topic's Skip). */
+  app.post("/learning/skip-topic", async (c) => {
+    const body = z.object({ title: z.string().trim().min(2).max(300), track: z.string().optional() }).parse(await c.req.json());
+    const topics = await deps.brain.read(TOPICS_PATH);
+    const today = localDay(now(), deps.timeZone);
+    await deps.brain.write(
+      TOPICS_PATH,
+      { frontmatter: topics?.frontmatter ?? { type: "note", vertical: "personal", tags: ["learning"] }, body: skipTopic(topics?.body ?? null, { track: trackOf(body.track), title: body.title }, `skipped ${today}`) },
+      { author: "dave", message: "learning: skipped a topic" },
+    );
+    return c.json({ ok: true });
+  });
+
+  /** Puts a lesson back to ready (marked done, or skipped, by mistake). */
   app.post("/learning/reopen", async (c) => {
     const { path } = z.object({ path: LessonPath }).parse(await c.req.json());
     const note = await deps.brain.read(path);
     if (!note) return c.json({ error: "no such lesson" }, 404);
-    const { updated: _u, completed: _c, completed_mode: _m, minutes_spent: _s, rating: _r, ...fm } = note.frontmatter;
+    const { updated: _u, completed: _c, completed_mode: _m, minutes_spent: _s, rating: _r, skipped: _k, ...fm } = note.frontmatter;
     await deps.brain.write(path, { frontmatter: { ...fm, status: "ready" }, body: note.body }, { author: "dave", message: "learning: back to ready" });
     return c.json({ ok: true });
   });

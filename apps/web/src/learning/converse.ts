@@ -10,7 +10,7 @@ export type LessonPick = { kind: "today" } | { kind: "continue" } | { kind: "num
 
 /** The lessons worth offering, in order: today's, then the ones started, then the rest not done, newest first. */
 export function lessonsToOffer(view: Pick<LearningView, "lessons" | "todays">, max = 5): Lesson[] {
-  const open = view.lessons.filter((l) => l.status !== "done");
+  const open = view.lessons.filter((l) => l.status === "ready");
   const started = open.filter((l) => (l.percent ?? 0) > 0).sort((a, b) => lastTouched(b) - lastTouched(a));
   const rest = open.filter((l) => (l.percent ?? 0) <= 0);
   const ordered = [...(view.todays ? [view.todays] : []), ...started, ...rest];
@@ -38,7 +38,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** The lesson a request means, or null. `offered` is the list last read out (for "lesson two"). */
 export function pickLesson(view: Pick<LearningView, "lessons" | "todays">, pick: LessonPick, offered: Lesson[]): Lesson | null {
-  const open = view.lessons.filter((l) => l.status !== "done");
+  const open = view.lessons.filter((l) => l.status === "ready");
   switch (pick.kind) {
     case "today":
       return view.todays ?? open[0] ?? null;
@@ -58,7 +58,7 @@ export function pickLesson(view: Pick<LearningView, "lessons" | "todays">, pick:
         const hay = significant(`${l.title} ${l.topic} ${l.summary}`);
         const score = words.filter((w) => hay.some((h) => h === w || (w.length > 4 && (h.startsWith(w) || w.startsWith(h))))).length / words.length;
         // Unfinished lessons win a tie.
-        const s = score + (l.status !== "done" ? 0.01 : 0);
+        const s = score + (l.status === "ready" ? 0.01 : 0);
         if (score >= 0.5 && (!best || s > best.score)) best = { l, score: s };
       }
       return best?.l ?? null;

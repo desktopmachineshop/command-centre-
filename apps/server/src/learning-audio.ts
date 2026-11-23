@@ -502,7 +502,8 @@ export class LessonRecorder {
   async sweep(): Promise<void> {
     const list = this.deps.brain.summaries ? await this.deps.brain.summaries(LESSONS_FOLDER) : [];
     const todo = list
-      .filter((n) => n.frontmatter.status !== "done" && !audioOf(n.frontmatter) && !this.failed.has(n.path))
+      // Done or skipped lessons aren't worth the recording.
+      .filter((n) => n.frontmatter.status !== "done" && n.frontmatter.status !== "skipped" && !audioOf(n.frontmatter) && !this.failed.has(n.path))
       .map((n) => n.path)
       .sort()
       .reverse();

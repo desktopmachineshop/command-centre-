@@ -300,7 +300,8 @@ export type Lesson = {
   track: string;
   topic: string;
   summary: string;
-  status: "ready" | "done";
+  /** "skipped": Dave didn't want it (off To do, Converse and the recorder). */
+  status: "ready" | "done" | "skipped";
   created: string;
   completedAt: string | null;
   completedMode: "read" | "listen" | null;
@@ -571,6 +572,9 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     lesson: (path: string) => call<{ lesson: Lesson; body: string }>(`/learning/lesson?path=${encodeURIComponent(path)}`),
     completeLesson: (path: string, mode: "read" | "listen", extra: { minutes?: number; rating?: number } = {}) => post<{ ok: true }>("/learning/complete", { path, mode, ...extra }),
     reopenLesson: (path: string) => post<{ ok: true }>("/learning/reopen", { path }),
+    skipLesson: (path: string) => post<{ ok: true }>("/learning/skip", { path }),
+    /** Skips a suggested topic, so it's never written. */
+    skipTopic: (title: string, track?: string) => post<{ ok: true }>("/learning/skip-topic", { title, ...(track ? { track } : {}) }),
     narration: () => call<Narration | null>("/learning/narration"),
     pronunciation: () => call<{ entries: [string, string][] }>("/learning/pronunciation"),
     progress: (path: string) => call<LessonProgress>(`/learning/progress?path=${encodeURIComponent(path)}`),

@@ -1,6 +1,6 @@
 import { chiefOfStaff } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { activityNote, addRequested, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import { activityNote, addRequested, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const lesson = (over: Partial<Lesson>): Lesson => ({
@@ -114,6 +114,19 @@ describe("learning (pure)", () => {
     p.set(true);
     p.set(false);
     expect(p.active).toBe(false);
+  });
+
+  it("skips a topic: out of every list that would get it written, into Skipped", () => {
+    const body = addRequested(TOPICS_TEMPLATE, { track: "interest", title: "Harmonic drives", why: "" });
+    const out = skipTopic(body, { track: "market", title: "why carbide end mill prices move" }, "skipped 2026-11-23");
+    expect(parseTopics(out).upNext.map((t) => t.title)).not.toContain("Why carbide end mill prices move");
+    expect(out).toMatch(/## Skipped\n- \[market\] why carbide end mill prices move \(skipped 2026-11-23\)/);
+    expect(parseTopics(out).requested).toHaveLength(1); // the others stay
+    const again = skipTopic(out, { track: "interest", title: "Harmonic drives" }, "skipped 2026-11-23");
+    expect(parseTopics(again).requested).toEqual([]);
+    expect(again.match(/^## Skipped$/gm)).toHaveLength(1);
+    // A map from before Skipped existed gets the section.
+    expect(skipTopic("# Topics\n\n## Up next\n- [ai] X: y\n", { track: "ai", title: "X" }, "n")).toBe("# Topics\n\n## Up next\n\n## Skipped\n- [ai] X (n)\n");
   });
 
   it("picks today's lesson: today's if open, else the newest open", () => {
@@ -249,6 +262,23 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     expect(listed.progress).toMatchObject({ audioSeconds: 312.5, readPart: 14 });
     expect(listed.percent).toBe(38); // read 15 of 40 parts beats 312 s with no recording
     expect((await ctx.api("/api/learning/progress", { method: "PUT", json: { path: "people/x.md", readPart: 1 } })).status).toBe(400);
+  });
+
+  it("skips a lesson (off To do and the counts, its topic under Skipped) and undoes it", async () => {
+    const { body } = await ctx.api("/api/learning");
+    const path = body.lessons[0].path;
+    expect((await ctx.api("/api/learning/skip", { method: "POST", json: { path } })).status).toBe(200);
+    const after = (await ctx.api("/api/learning")).body;
+    expect(after.lessons[0]).toMatchObject({ status: "skipped" });
+    expect(after.todays).toBeNull();
+    expect(after.stats).toMatchObject({ ready: 0, completed: 0 });
+    const topics = (await ctx.api("/api/brain/note?path=learning/topics.md")).body.body as string;
+    expect(topics).toMatch(/## Skipped\n- \[robotics\] EtherCAT clocks \(skipped the lesson \d{4}-\d{2}-\d{2}\)/);
+    await ctx.api("/api/learning/reopen", { method: "POST", json: { path } });
+    expect((await ctx.api("/api/learning")).body.lessons[0]).toMatchObject({ status: "ready" });
+    // A suggested topic, skipped before it's written.
+    expect((await ctx.api("/api/learning/skip-topic", { method: "POST", json: { title: "Why carbide end mill prices move", track: "market" } })).status).toBe(200);
+    expect((await ctx.api("/api/learning")).body.suggestions.upNext.map((t: { title: string }) => t.title)).not.toContain("Why carbide end mill prices move");
   });
 
   it("files a requested topic and hands the coach a chat task to write it", async () => {

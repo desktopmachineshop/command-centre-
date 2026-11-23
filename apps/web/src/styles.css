@@ -5507,3 +5507,15 @@ button.star.on {
 .narrator-link {
   margin: var(--sp-3) 0;
 }
+/* Learning: skipping */
+.skip-btn {
+  margin-left: auto;
+}
+.suggestion-actions {
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--sp-2);
+}
+.skipped-mark {
+  font-style: italic;
+}

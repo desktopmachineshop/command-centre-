@@ -54,6 +54,10 @@ Keep these sections, in this order. One topic per line, exactly
   as today's alternatives, so keep it filled.
 - `## Backlog`: everything else, grouped under `### <Track>` headings. Add freely.
 - `## Taught`: `- YYYY-MM-DD [track] Title → learning/lessons/<file>.md`, newest last.
+- `## Skipped`: topics Dave skipped from the app (a suggestion he didn't want, or a lesson he
+  didn't bother with). Never write a lesson on one, don't suggest it again or a near-copy of it,
+  and don't move it back. Several skips in one area mean less of that area: note it under
+  `## Preferences`. The app writes this section; keep it at the end and leave its lines alone.
 
 ## Building topics from his work
 
