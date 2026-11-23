@@ -473,6 +473,8 @@ export interface LearningDeps {
     recorder: Pick<LessonRecorder, "request" | "state">;
     narrator: () => Promise<string>;
     setNarrator: (voice: string) => Promise<void>;
+    /** The pronunciation list, for the app's own (browser) voice. */
+    lexicon?: () => Promise<Map<string, string>>;
   };
   now?: () => Date;
 }
@@ -531,6 +533,12 @@ export function learningRoutes(deps: LearningDeps) {
     await deps.narration.setNarrator(voice);
     return c.json(await narrationState());
   });
+
+  /**
+   * The pronunciation list as [term, how to say it] pairs, so the app's own voice (the browser's,
+   * when the server's isn't used) says terms the same way as the server's.
+   */
+  app.get("/learning/pronunciation", async (c) => c.json({ entries: deps.narration?.lexicon ? [...(await deps.narration.lexicon())] : [] }));
 
   /** Records a lesson (again): after a new narrator, or a pronunciation fixed. */
   app.post("/learning/record", async (c) => {

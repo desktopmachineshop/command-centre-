@@ -5,6 +5,7 @@
  * Every piece degrades: a missing API reports itself rather than throwing.
  */
 
+import { type Lexicon, pronounce } from "@cc/voice/lesson";
 import { AnalyserLevel, type LevelSource, PulseLevel, SILENT, speechThreshold, updateNoiseFloor } from "./level";
 
 export class VoicePermissionError extends Error {}
@@ -818,6 +819,18 @@ export function loadVoices(timeoutMs = 1500): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
+/**
+ * The pronunciation list (Learning, learning/pronunciation.md), for this device's own voice: the
+ * server applies it to what it says, and the browser's voice applies it here, so terms sound the
+ * same whichever voice speaks. Set once the app has loaded it (App.tsx).
+ */
+let speechLexicon: Lexicon = new Map();
+export function setSpeechLexicon(entries: [string, string][]) {
+  speechLexicon = new Map(entries);
+}
+/** `text` as the device's voice should say it (the lexicon, standards' numbers, "zed"). */
+export const pronounceForDevice = (text: string) => pronounce(text, speechLexicon);
+
 export class BrowserSpeaker implements Speaker {
   readonly kind = "browser";
   private generation = 0;
@@ -840,7 +853,7 @@ export class BrowserSpeaker implements Speaker {
     this.pulse.active = true;
     try {
       for await (const piece of pieces) {
-        for (const chunk of chunkForSpeech(piece)) {
+        for (const chunk of chunkForSpeech(pronounceForDevice(piece))) {
           if (gen !== this.generation) return;
           await this.utter(chunk);
         }

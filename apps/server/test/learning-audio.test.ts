@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { addToCheck, compareHeard, soundsOff, hasFfmpeg, MIX_RATE, PRONUNCIATION_PATH, PRONUNCIATION_TEMPLATE, recordLesson, spellOut, unknownAcronyms } from "../src/learning-audio";
+import { addToCheck, compareHeard, PronunciationList, soundsOff, hasFfmpeg, MIX_RATE, PRONUNCIATION_PATH, PRONUNCIATION_TEMPLATE, recordLesson, spellOut, unknownAcronyms } from "../src/learning-audio";
 import { spawnSync } from "node:child_process";
 import { parseNote, serializeNote } from "@cc/brain";
 import { parseLexicon } from "@cc/voice/lesson";
+import { FakeTextToSpeech } from "@cc/voice";
+import { VoiceService } from "../src/voice/service";
 
 describe("checking a recording by ear (pure)", () => {
   it("scores what was heard against what should have been said", () => {
@@ -48,6 +50,55 @@ describe("checking a recording by ear (pure)", () => {
     // Still a valid lexicon: To check entries aren't used.
     expect(parseLexicon(twice).has("kinematics")).toBe(false);
     expect(parseLexicon(twice).get("EtherCAT")).toBe("Ether-cat");
+  });
+});
+
+describe("the pronunciation list for everything spoken", () => {
+  it("reads the list from the brain, keeps it a minute, and survives a failed read", async () => {
+    let body = "## Say it like this\n- EtherCAT: Ether-cat\n";
+    let reads = 0;
+    let fail = false;
+    const brain = {
+      read: async () => {
+        reads++;
+        if (fail) throw new Error("db down");
+        return { path: PRONUNCIATION_PATH, frontmatter: {}, body };
+      },
+    };
+    let now = 0;
+    const list = new PronunciationList(brain, 60_000, () => now);
+    expect(await list.pronounce("EtherCAT on the Z axis")).toBe("Ether-cat on the zed axis");
+    body = "## Say it like this\n- EtherCAT: Ether cat\n";
+    expect(await list.pronounce("EtherCAT")).toBe("Ether-cat"); // still cached
+    expect(reads).toBe(1);
+    now = 61_000;
+    expect(await list.pronounce("EtherCAT")).toBe("Ether cat");
+    now = 130_000;
+    fail = true;
+    expect(await list.pronounce("EtherCAT")).toBe("Ether cat"); // the last good list
+  });
+
+  it("is applied to everything /voice/speak says, before the cache", async () => {
+    const tts = new FakeTextToSpeech();
+    const service = new VoiceService({} as never, {} as never, {} as never, {
+      tts,
+      pronounce: async (t) => t.replace("TwinCAT", "Twin-cat"),
+      maxUploadBytes: 1024,
+      maxSeconds: 60,
+      language: "en-GB",
+      timezone: "Europe/London",
+    });
+    await service.speak("Open TwinCAT.");
+    await service.speak("Open TwinCAT.");
+    expect(tts.calls.map((c) => c.text)).toEqual(["Open Twin-cat."]);
+    // A failing list never stops the voice.
+    const failing = new VoiceService({} as never, {} as never, {} as never, { tts, pronounce: async () => { throw new Error("x"); }, maxUploadBytes: 1, maxSeconds: 1, language: "en-GB", timezone: "Europe/London" });
+    await failing.speak("Still speaks.");
+    expect(tts.calls.at(-1)!.text).toBe("Still speaks.");
+  });
+
+  it("spells acronyms the British way when it retries one", () => {
+    expect(spellOut("The ZDR rules.", ["ZDR"])).toBe("The zed D R rules.");
   });
 });
 

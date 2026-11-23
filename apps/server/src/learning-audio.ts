@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { BrainConflictError, type Brain, type Frontmatter, noteTitle } from "@cc/brain";
 import type { Storage } from "@cc/storage";
-import { applyLexicon, type Lexicon, lessonScript, narrationPieces, parseLexicon } from "@cc/voice/lesson";
+import { type Lexicon, lessonScript, narrationPieces, parseLexicon, pronounce } from "@cc/voice/lesson";
 import { LESSONS_FOLDER, README_PATH } from "./learning";
 
 /**
@@ -30,7 +30,7 @@ export const DEFAULT_NARRATOR = "kokoro:bf_emma";
 export const NARRATION_SPEED = 0.95;
 /** How keyed voices that take a style (OpenAI gpt-4o-mini-tts) should read. */
 export const NARRATOR_STYLE =
-  "You are narrating an educational podcast for an experienced British engineer. Warm, curious and unhurried, like a good radio presenter: natural rises and falls, light emphasis on the key word of each sentence, and a breath between ideas. Never rushed, never sing-song.";
+  "You are narrating an educational podcast for an experienced British engineer. Speak with a natural Southern British English accent and British pronunciations (zed, not zee). Warm, curious and unhurried, like a good radio presenter: natural rises and falls, light emphasis on the key word of each sentence, and a breath between ideas. Never rushed, never sing-song.";
 
 export const PRONUNCIATION_TEMPLATE = `# Pronunciation
 
@@ -38,7 +38,8 @@ How the lesson narrator says words it would otherwise get wrong. One per line,
 \`- Term: how to say it\` (spell it the way it sounds; spaces between letters spell an acronym
 out). Terms with capitals match exactly; all-lower-case ones match any case. Standards' numbers
 are read the way engineers say them ("IEC 61131-3" as "sixty-one one thirty-one, part 3") without
-an entry. Only add what the voice gets wrong: a respelling can make a word it already says well
+an entry, and a Z on its own is "zed" (the Z axis). Respell the British way: this list is used for
+everything the app says aloud, lessons and Converse alike. Only add what the voice gets wrong: a respelling can make a word it already says well
 worse ("Beckhoff" is fine as it is). The coach adds new
 terms as it writes lessons. "To check" lists what the narrator's listen-back flagged: fix the
 spelling here (or move it up) and the next recording uses it.
@@ -78,6 +79,8 @@ spelling here (or move it up) and the next recording uses it.
 - MCP: M C P
 - GPU: G P U
 - AI: A I
+- XYZ: X Y zed
+- ZDR: zed D R
 - NdFeB: neodymium iron boron
 - WC-Co: tungsten carbide cobalt
 - µm: micrometres
@@ -199,11 +202,49 @@ export function unknownAcronyms(text: string, lexicon: Lexicon): string[] {
   return [...new Set([...text.matchAll(/(?<![\w-])([A-Z][A-Z0-9]{1,5})s?(?![\w-])/g)].map((m) => m[1]!))].filter((a) => !lexicon.has(a) && /[A-Z].*[A-Z]|[A-Z]\d/.test(a));
 }
 
-/** The acronyms spelled out letter by letter ("OPC" → "O P C"). Pure. */
+/** The acronyms spelled out letter by letter, the British way ("OPC" → "O P C", "ZDR" → "zed D R"). Pure. */
 export function spellOut(text: string, acronyms: string[]): string {
   let out = text;
-  for (const a of acronyms) out = out.replace(new RegExp(`(?<![\\w-])${a}(s?)(?![\\w-])`, "g"), (_m, s: string) => `${a.replace(/[A-Z]/g, "$& ").trim()}${s}`);
+  for (const a of acronyms)
+    out = out.replace(new RegExp(`(?<![\\w-])${a}(s?)(?![\\w-])`, "g"), (_m, s: string) => `${a.replace(/[A-Z]/g, "$& ").trim().replace(/\bZ\b/g, "zed")}${s}`);
   return out;
+}
+
+/**
+ * The pronunciation list for everything the server says (Converse replies, read-aloud, the spoken
+ * briefing), read from the brain and kept for a minute, so an edit applies almost at once without
+ * a database read per sentence.
+ */
+export class PronunciationList {
+  private cached: { at: number; lexicon: Lexicon } | null = null;
+  private loading: Promise<Lexicon> | null = null;
+
+  constructor(
+    private readonly brain: Pick<Brain, "read">,
+    private readonly ttlMs = 60_000,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  async lexicon(): Promise<Lexicon> {
+    if (this.cached && this.now() - this.cached.at < this.ttlMs) return this.cached.lexicon;
+    this.loading ??= this.brain
+      .read(PRONUNCIATION_PATH)
+      .then((note) => (note ? parseLexicon(note.body) : new Map<string, string>()))
+      .catch(() => this.cached?.lexicon ?? new Map<string, string>())
+      .then((lexicon) => {
+        this.cached = { at: this.now(), lexicon };
+        return lexicon;
+      })
+      .finally(() => {
+        this.loading = null;
+      });
+    return this.loading;
+  }
+
+  /** `text` as the voice should say it. */
+  async pronounce(text: string): Promise<string> {
+    return pronounce(text, await this.lexicon());
+  }
 }
 
 /** Adds flagged terms under "## To check" in the pronunciation note, once each. Pure. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyLexicon, lessonScript, narrationPieces, PAUSES, parseLexicon, standardNumbers } from "../src/lesson";
+import { applyLexicon, lessonScript, narrationPieces, PAUSES, parseLexicon, pronounce, standardNumbers, ukLetters } from "../src/lesson";
 
 describe("lessons as speech", () => {
   it("reads the pronunciation note, skipping what's still to check", () => {
@@ -30,6 +30,15 @@ describe("lessons as speech", () => {
       "IEC sixty-one one thirty-one, part 3 and IEC sixty-one five oh eight, ISO twenty-six two sixty-two, EN fifty one twenty-eight, ISO/IEC/IEEE twenty-nine one forty-eight.",
     );
     expect(standardNumbers("It cost 61131 pounds; ISO 9001 stays.")).toBe("It cost 61131 pounds; ISO 9001 stays.");
+  });
+
+  it("says a lone Z the UK way, and pronounces in one step for any spoken text", () => {
+    expect(ukLetters("Home the Z axis, then X, Y and Z. Gen Z and XYZ stay.")).toBe("Home the zed axis, then X, Y and zed. Gen zed and XYZ stay.");
+    expect(ukLetters("Z-axis")).toBe("zed-axis");
+    expect(pronounce("The EtherCAT drive on the Z axis meets IEC 61508.", new Map([["EtherCAT", "Ether-cat"]]))).toBe(
+      "The Ether-cat drive on the zed axis meets IEC sixty-one five oh eight.",
+    );
+    expect(pronounce("Nothing to change here.")).toBe("Nothing to change here.");
   });
 
   it("applies the lexicon in the script, and gives a recording its cadence", () => {

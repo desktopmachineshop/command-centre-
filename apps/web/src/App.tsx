@@ -26,6 +26,7 @@ import { CardsContext } from "./cards";
 import { BrandMark, Icon, type IconName } from "./icons";
 import { routeQuery, useRoute } from "./router";
 import { useMedia, useTheme } from "./theme";
+import { setSpeechLexicon } from "./voice/speech";
 import { ThemeCycle, ThemeToggle, type VerticalInfo, VerticalsContext } from "./ui";
 
 // --- auth: cookie session (or a stored admin token), first-run setup, sign-in ---
@@ -198,6 +199,13 @@ function Shell({ conn, onSignOut, onUnauthorized }: { conn: Connection; onSignOu
     };
     return () => feed.close();
   }, [feed]);
+  // The pronunciation list for this device's own voice (the server's voice applies it itself).
+  useEffect(() => {
+    const load = () => void api.pronunciation().then((p) => setSpeechLexicon(p.entries)).catch(() => {});
+    load();
+    const t = setInterval(load, 10 * 60_000);
+    return () => clearInterval(t);
+  }, [api]);
   useEffect(() => {
     api
       .verticals()

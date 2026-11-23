@@ -71,3 +71,13 @@ describe("narrator names", () => {
     expect(prettyVoice("piper:jenny_dioco")).toBe("Jenny Dioco (Piper)");
   });
 });
+
+describe("this device's voice uses the pronunciation list", () => {
+  it("pronounces with the list once the app has loaded it", async () => {
+    const { pronounceForDevice, setSpeechLexicon } = await import("../src/voice/speech");
+    expect(pronounceForDevice("TwinCAT on the Z axis")).toBe("TwinCAT on the zed axis");
+    setSpeechLexicon([["TwinCAT", "Twin-cat"]]);
+    expect(pronounceForDevice("TwinCAT on the Z axis")).toBe("Twin-cat on the zed axis");
+    setSpeechLexicon([]);
+  });
+});
