@@ -300,8 +300,12 @@ export type Lesson = {
   track: string;
   topic: string;
   summary: string;
-  /** "skipped": Dave didn't want it (off To do, Converse and the recorder). */
-  status: "ready" | "done" | "skipped";
+  /** "skipped": Dave didn't want it (off To do, Converse and the recorder). "preparing": still being checked. */
+  status: "ready" | "done" | "skipped" | "preparing";
+  /** The skill-tree skill it teaches, if it says. */
+  skill?: string;
+  /** What the release checks couldn't settle before it went out. */
+  openIssues?: string[];
   created: string;
   completedAt: string | null;
   completedMode: "read" | "listen" | null;
@@ -356,11 +360,32 @@ export type LearningStats = {
   averageRating: number | null;
   badges: { id: string; label: string; earned: boolean; detail: string }[];
 };
+/** A draft lesson going through the release checks (server learning-release.ts). */
+export type PreparingLesson = { path: string; title: string; track: string; created: string; stage: "review" | "revising" | "recording" | "proofing" | "released"; label: string; round: number };
+export type SkillStatus = "done" | "taught" | "open" | "locked";
+export type SkillView = {
+  id: string;
+  title: string;
+  why: string;
+  needs: string[];
+  status: SkillStatus;
+  lessons: { path: string; title: string; status: string }[];
+  /** For a locked skill, the titles of what it still waits on. */
+  waitsOn: string[];
+};
+/** Each track from foundations to expert (server learning-skills.ts). */
+export type SkillTreeView = {
+  path: string;
+  tracks: { track: string; name: string; done: number; taught: number; total: number; levels: { name: string; skills: SkillView[] }[] }[];
+};
 export type LearningView = {
   tracks: LearningTrack[];
   today: string;
   todays: Lesson | null;
   lessons: Lesson[];
+  /** Drafts not released yet, and where they've got to. */
+  preparing?: PreparingLesson[];
+  skillTree?: SkillTreeView | null;
   suggestions: { requested: LearningSuggestion[]; fromWork: LearningSuggestion[]; upNext: LearningSuggestion[]; backlog: number };
   stats: LearningStats;
   topicsPath: string;
@@ -585,7 +610,7 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
       call<LessonProgress>("/learning/progress", { method: "PUT", body: JSON.stringify({ path, ...place }), keepalive: opts.keepalive }),
     setNarrator: (voice: string) => call<Narration>("/learning/narrator", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice }) }),
     recordLesson: (path: string) => post<Narration>("/learning/record", { path }),
-    requestLesson: (topic: string, track?: string) => post<{ taskId: string | null }>("/learning/request", { topic, ...(track ? { track } : {}) }),
+    requestLesson: (topic: string, track?: string, skill?: string) => post<{ taskId: string | null }>("/learning/request", { topic, ...(track ? { track } : {}), ...(skill ? { skill } : {}) }),
     /** Asks the coach for a fresh set of topics to pick from. */
     suggestTopics: () => post<{ taskId: string | null }>("/learning/suggest", {}),
     // --- end learning ---

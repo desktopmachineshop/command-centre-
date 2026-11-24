@@ -1,10 +1,12 @@
 import { cardRefs } from "@cc/core";
 import { Fragment, type ReactNode } from "react";
 import { CardGrid } from "./cards";
+import { Diagram } from "./diagram";
 
 /**
  * Agent replies are markdown. This renders the common subset (headings, lists, code, quotes,
- * tables, emphasis, links) straight to React elements, so no model text ever becomes raw HTML.
+ * tables, emphasis, links, pictures) straight to React elements, so no model text ever becomes
+ * raw HTML. A ```mermaid block is drawn as a diagram by Mermaid in its strict mode (./diagram.tsx).
  */
 export function Markdown({ text, className }: { text: string; className?: string }) {
   return <div className={className ? `md ${className}` : "md"}>{blocks(text.replace(/\r\n?/g, "\n").split("\n"))}</div>;
@@ -49,6 +51,10 @@ function blocks(lines: string[]): ReactNode[] {
       // A ```card block names records (odoo.product:42); the app draws each as a live card (docs/CARDS.md).
       if (fence[2] === "card") {
         out.push(<CardGrid key={key} refs={cardRefs(body.join("\n"))} />);
+        continue;
+      }
+      if (fence[2] === "mermaid") {
+        out.push(<Diagram key={key} code={body.join("\n")} />);
         continue;
       }
       out.push(
@@ -212,7 +218,7 @@ export function inline(text: string): ReactNode[] {
       const code = m[2]!.replace(/^ (.*) $/, "$1");
       out.push(BRAIN_PATH.test(code) ? brainLink(code, <code>{code}</code>, key) : <code key={key}>{code}</code>);
     }
-    else if (m[3] !== undefined) out.push(link(m[4]!, inline(m[3]), key));
+    else if (m[3] !== undefined) out.push(m[0].startsWith("!") ? image(m[4]!, m[3], key) : link(m[4]!, inline(m[3]), key));
     else if (m[5] !== undefined) out.push(<strong key={key}>{inline(m[5])}</strong>);
     else if (m[6] !== undefined) out.push(<strong key={key}>{inline(m[6])}</strong>);
     else if (m[7] !== undefined) out.push(<del key={key}>{inline(m[7])}</del>);
@@ -237,6 +243,15 @@ function brainLink(path: string, label: ReactNode, key: number): ReactNode {
       {label}
     </a>
   );
+}
+
+/**
+ * A picture: only web and stored-media addresses are shown (anything else stays its alt text).
+ * No referrer, so a page Dave reads isn't announced to the site the picture came from.
+ */
+function image(src: string, alt: string, key: number): ReactNode {
+  if (!/^(https?:\/\/|\/media\/)/i.test(src)) return <Fragment key={key}>{alt}</Fragment>;
+  return <img key={key} className="md-img" src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" />;
 }
 
 /** Only web, mail, in-app and brain-note links become anchors; anything else (javascript:, data:) stays text. */

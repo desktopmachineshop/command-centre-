@@ -14,14 +14,25 @@ export type Part = { section: number; text: string; heading?: boolean };
  * spoken part it is, if any: the reading view shows blocks, the recording says parts, so the two
  * can follow each other.
  */
-export type Block = { source: string; part: number | null; heading?: number };
+export type Block = { source: string; part: number | null; heading?: number; figure?: "image" | "diagram" | "table" | "caption" };
 export type Script = { sections: { title: string; first: number }[]; parts: Part[]; blocks: Block[] };
 
 /** Term → how to say it, e.g. "EtherCAT" → "Ether-cat". */
 export type Lexicon = Map<string, string>;
 
 /** Sections that are for reading, not listening: exercises with code and the source list. */
-const UNSPOKEN = /^(try it|sources|references|further reading)\b/i;
+const UNSPOKEN = /^(try it|exercises?|sources|references|further reading)\b/i;
+
+/** Whether a "## " section is for reading only (exercises, sources), so the recording leaves it out. */
+export const readingOnly = (heading: string) => UNSPOKEN.test(heading.trim());
+
+/**
+ * A figure's caption: a quote that starts "**Figure 2.**" (or Table, Diagram). It follows the
+ * picture, diagram or table and says what it shows, so it is what a listener hears in its place.
+ */
+export const CAPTION = /^\s{0,3}>\s*\*\*(figure|table|diagram|chart)\s+\d+/i;
+const IMAGE_LINE = /^\s*!\[[^\]]*\]\([^)]*\)\s*$/;
+const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 /**
  * The pronunciation note's entries: `- Term: how to say it` lines (or `| Term | Say |` table
@@ -109,7 +120,10 @@ export function pronounce(text: string, lexicon?: Lexicon): string {
 /**
  * A lesson as a list of spoken paragraphs, by section. The title is the first part; "Try it" and
  * "Sources" are left out (they are for reading); lists are read as one paragraph per item; the
- * lexicon, then standards' numbers, are applied before anything else touches the words. Pure.
+ * lexicon, then standards' numbers, are applied before anything else touches the words.
+ *
+ * Figures are for the eye: pictures, diagrams (```mermaid) and tables are shown but not read; the
+ * caption under each ("> **Figure 2. Title.** What it shows") is read in their place. Pure.
  */
 export function lessonScript(body: string, title?: string, lexicon?: Lexicon): Script {
   const lines = body.replace(/\r\n?/g, "\n").replace(/^---\n[\s\S]*?\n---\n/, "").replace(/<!--[\s\S]*?-->/g, "").split("\n");
@@ -117,11 +131,9 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
   const parts: Part[] = [];
   const blocks: Block[] = [];
   let skip = false;
-  let inFence = false;
-  let fence: string[] = [];
   let para: string[] = [];
   /** One block of the text; spoken (a part) when it has words to say outside a reading-only section. */
-  const add = (source: string[], say: string[] | null, heading?: number) => {
+  const add = (source: string[], say: string[] | null, extra: { heading?: number; figure?: Block["figure"] } = {}) => {
     const src = source.join("\n");
     if (!src.trim()) return;
     let part: number | null = null;
@@ -130,30 +142,28 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
       if (text) {
         if (sections.length === 0) sections.push({ title: title ?? "Introduction", first: parts.length });
         part = parts.length;
-        parts.push({ section: sections.length - 1, text, ...(heading ? { heading: true } : {}) });
+        parts.push({ section: sections.length - 1, text, ...(extra.heading ? { heading: true } : {}) });
       }
     }
-    blocks.push({ source: src, part, ...(heading ? { heading } : {}) });
+    blocks.push({ source: src, part, ...(extra.heading ? { heading: extra.heading } : {}), ...(extra.figure ? { figure: extra.figure } : {}) });
   };
   const flush = () => {
-    if (para.length) add(para, para);
+    if (para.length) {
+      // A paragraph of nothing but pictures is for the eye.
+      if (para.every((l) => IMAGE_LINE.test(l))) add(para, null, { figure: "image" });
+      else add(para, para);
+    }
     para = [];
   };
-  for (const line of lines) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      if (!inFence) {
-        flush();
-        fence = [line];
-      } else {
-        fence.push(line);
-        add(fence, null);
-        fence = [];
-      }
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) {
-      fence.push(line);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const fence = /^\s*(```|~~~)\s*([\w+-]*)/.exec(line);
+    if (fence) {
+      flush();
+      const block = [line];
+      for (i++; i < lines.length && !new RegExp(`^\\s*${fence[1]}\\s*$`).test(lines[i]!); i++) block.push(lines[i]!);
+      if (i < lines.length) block.push(lines[i]!);
+      add(block, null, fence[2] === "mermaid" ? { figure: "diagram" } : {});
       continue;
     }
     const h = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
@@ -165,11 +175,28 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
         skip = level === 2 && UNSPOKEN.test(heading);
         if (!skip) sections.push({ title: heading, first: parts.length });
       }
-      add([line], [`${heading}.`], level);
+      add([line], [`${heading}.`], { heading: level });
       continue;
     }
     if (!line.trim()) {
       flush();
+      continue;
+    }
+    // A table is shown, not read: its caption says what it shows.
+    if (line.includes("|") && lines[i + 1] !== undefined && TABLE_SEP.test(lines[i + 1]!)) {
+      flush();
+      const table = [line];
+      for (i++; i < lines.length && lines[i]!.includes("|") && lines[i]!.trim(); i++) table.push(lines[i]!);
+      i--;
+      add(table, null, { figure: "table" });
+      continue;
+    }
+    if (CAPTION.test(line)) {
+      flush();
+      const caption = [line];
+      for (; i + 1 < lines.length && /^\s{0,3}>/.test(lines[i + 1]!) && lines[i + 1]!.replace(/^\s{0,3}>\s?/, "").trim(); i++) caption.push(lines[i + 1]!);
+      // One sentence may run over several quoted lines.
+      add(caption, [caption.map((l) => l.replace(/^\s{0,3}>\s?/, "").trim()).join(" ")], { figure: "caption" });
       continue;
     }
     // A list item or a quiz answer starts a paragraph of its own.
@@ -177,7 +204,6 @@ export function lessonScript(body: string, title?: string, lexicon?: Lexicon): S
     para.push(line);
   }
   flush();
-  if (inFence) add(fence, null);
   return { sections, parts, blocks };
 }
 

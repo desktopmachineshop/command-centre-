@@ -635,4 +635,24 @@ export const migrations: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // learning: each draft lesson's way through the release checks (apps/server/src/learning-release.ts).
+    // Kept here, not on the note, so the coach rewriting a draft can't reset its rounds.
+    id: "0029_lesson_prep",
+    sql: `
+      create table if not exists lesson_prep (
+        path text primary key,
+        -- review | revising | recording | proofing | released
+        stage text not null,
+        revisions int not null default 0,
+        proofs int not null default 0,
+        task_id text,
+        requested_at timestamptz,
+        problems jsonb not null default '[]',
+        flagged jsonb not null default '[]',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+    `,
+  },
 ];

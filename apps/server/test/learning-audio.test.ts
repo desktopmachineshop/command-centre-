@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addToCheck, compareHeard, PronunciationList, soundsOff, hasFfmpeg, MIX_RATE, PRONUNCIATION_PATH, PRONUNCIATION_TEMPLATE, recordLesson, spellOut, unknownAcronyms } from "../src/learning-audio";
+import { addToCheck, compareHeard, parseHeardFine, PronunciationList, soundsOff, hasFfmpeg, MIX_RATE, PRONUNCIATION_PATH, PRONUNCIATION_TEMPLATE, recordLesson, spellOut, unknownAcronyms } from "../src/learning-audio";
 import { spawnSync } from "node:child_process";
 import { parseNote, serializeNote } from "@cc/brain";
 import { parseLexicon } from "@cc/voice/lesson";
@@ -7,6 +7,12 @@ import { FakeTextToSpeech } from "@cc/voice";
 import { VoiceService } from "../src/voice/service";
 
 describe("checking a recording by ear (pure)", () => {
+  it("reads the words the listen-back may ignore (Heard fine), not as pronunciations", () => {
+    const body = PRONUNCIATION_TEMPLATE.replace("## Heard fine\n", "## Heard fine\n- Kinematics\n- colour (a recogniser spelling)\n");
+    expect([...parseHeardFine(body)]).toEqual(["kinematics", "color"]);
+    expect(parseLexicon(body).has("Kinematics")).toBe(false);
+  });
+
   it("scores what was heard against what should have been said", () => {
     // What Kokoro really did with "EtherCAT" unaided: flagged.
     expect(compareHeard("EtherCAT keeps the axes in step.", "ether cot keeps the axes in step")).toMatchObject({ missing: ["ethercat"], terms: ["ethercat"] });
