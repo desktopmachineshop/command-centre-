@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { Api, LearningStats, LearningSuggestion, LearningTrack, LearningView, Lesson, LessonAudio, LessonProgress, Narration, VoiceConfig, VoiceList } from "../api";
+import type { Api, LearningStats, LearningSuggestion, LearningTrack, LearningView, Lesson, LessonAudio, LessonProgress, Narration, PreparingLesson, SkillStatus, SkillTreeView, VoiceConfig, VoiceList } from "../api";
 import { Icon } from "../icons";
 import { useLessonPlayer } from "../learning/player";
 import { localPlace, progressPercent, startingPlace, useLessonAudio } from "../learning/global-player";
@@ -31,7 +31,9 @@ export function Learning({ api, feed, path }: { api: Api; feed: LiveFeed; path?:
       {view.data && (
         <>
           <TodayCard api={api} view={view.data} onChange={view.reload} />
+          {(view.data.preparing?.length ?? 0) > 0 && <Preparing items={view.data.preparing!} tracks={view.data.tracks} />}
           <Scoreboard stats={view.data.stats} />
+          {view.data.skillTree && view.data.skillTree.tracks.some((t) => t.total > 0) && <SkillTree api={api} tree={view.data.skillTree} onAsked={view.reload} />}
           <Choose api={api} view={view.data} onAsked={view.reload} />
           <Library view={view.data} />
           {view.data.narration && (
@@ -78,12 +80,15 @@ function TodayCard({ api, view, onChange }: { api: Api; view: LearningView; onCh
   const l = view.todays;
   if (!l) {
     const next = view.suggestions.requested[0] ?? view.suggestions.fromWork?.[0] ?? view.suggestions.upNext[0];
+    const coming = view.preparing?.[0];
     return (
       <article className="card learning-today">
         <p className="muted small">Today's lesson</p>
-        <h3>No lesson ready yet</h3>
+        <h3>{coming ? coming.title : "No lesson ready yet"}</h3>
         <p className="small">
-          The coach writes one every morning at 05:40.{next ? ` Next up: ${next.title}.` : ""} Pick a topic below to have one written now.
+          {coming
+            ? `Being prepared: ${coming.label.toLowerCase()}. It appears here once it has been checked and recorded.`
+            : `The coach writes one every morning at 05:40.${next ? ` Next up: ${next.title}.` : ""} Pick a topic below to have one written now.`}
         </p>
       </article>
     );
@@ -111,6 +116,156 @@ function TodayCard({ api, view, onChange }: { api: Api; view: LearningView; onCh
           Skip
         </button>
       </div>
+    </article>
+  );
+}
+
+/** Drafts still going through the checks: what each is and where it has got to. */
+function Preparing({ items, tracks }: { items: PreparingLesson[]; tracks: LearningTrack[] }) {
+  return (
+    <article className="card preparing" aria-label="Being prepared">
+      <h3>Being prepared</h3>
+      <p className="muted small">Each lesson is checked, recorded and listened back to before it appears. Words that sound wrong are fixed and recorded again.</p>
+      <ul className="list">
+        {items.map((p) => (
+          <li key={p.path} className="item static">
+            <div className="row wrap small">
+              <TrackChip track={p.track} tracks={tracks} />
+              <span className="muted">{dayLabel(p.created)}</span>
+            </div>
+            <p className="title">{p.title}</p>
+            <ol className="prep-steps small" aria-label={`${p.label}${p.round > 1 ? ` (round ${p.round})` : ""}`}>
+              {PREP_STEPS.map((step, i) => {
+                const at = PREP_STEPS.findIndex((s) => s.stages.includes(p.stage));
+                return (
+                  <li key={step.label} className={i < at ? "is-done" : i === at ? "is-now" : ""}>
+                    {i < at && <Icon name="check" size={12} />}
+                    {i === at ? `${p.label}${p.round > 1 ? ` (round ${p.round})` : ""}` : step.label}
+                  </li>
+                );
+              })}
+            </ol>
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}
+const PREP_STEPS: { label: string; stages: PreparingLesson["stage"][] }[] = [
+  { label: "Checked", stages: ["review", "revising"] },
+  { label: "Recorded", stages: ["recording"] },
+  { label: "Pronunciation", stages: ["proofing"] },
+  { label: "Released", stages: ["released"] },
+];
+
+const SKILL_MARK: Record<SkillStatus, { icon: "check" | "learn" | "spark" | "key"; label: string }> = {
+  done: { icon: "check", label: "Done" },
+  taught: { icon: "learn", label: "Lesson written" },
+  open: { icon: "spark", label: "Open" },
+  locked: { icon: "key", label: "Locked" },
+};
+
+/** Each track from foundations to expert: what's done, what's open now and what's still locked. */
+function SkillTree({ api, tree, onAsked }: { api: Api; tree: SkillTreeView; onAsked: () => void }) {
+  const tracks = tree.tracks.filter((t) => t.total > 0);
+  const [track, setTrack] = useState(() => {
+    try {
+      const saved = localStorage.getItem("cc.learning.tree");
+      if (saved && tracks.some((t) => t.track === saved)) return saved;
+    } catch {
+      // Storage unavailable: start on the first track.
+    }
+    return tracks[0]?.track ?? "";
+  });
+  const pick = (id: string) => {
+    setTrack(id);
+    try {
+      localStorage.setItem("cc.learning.tree", id);
+    } catch {
+      // Remembered for this visit only.
+    }
+  };
+  const [asked, setAsked] = useState<Record<string, string | null>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const t = tracks.find((x) => x.track === track) ?? tracks[0];
+  if (!t) return null;
+  const ask = async (id: string, title: string) => {
+    setErr(null);
+    try {
+      const { taskId } = await api.requestLesson(title, t.track, id);
+      setAsked((a) => ({ ...a, [id]: taskId }));
+      onAsked();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  return (
+    <article className="card skill-tree" aria-label="Skill tree">
+      <div className="row between">
+        <h3>Skill tree</h3>
+        <a className="small" href={`#/brain/${encodeURIComponent(tree.path)}`}>
+          Edit
+        </a>
+      </div>
+      <div className="row wrap tree-tabs" role="tablist" aria-label="Track">
+        {tracks.map((x) => (
+          <button key={x.track} role="tab" aria-selected={x.track === t.track} className={`small${x.track === t.track ? " is-on" : ""}`} onClick={() => pick(x.track)}>
+            {x.name} <span className="muted">{x.taught}/{x.total}</span>
+          </button>
+        ))}
+      </div>
+      <div className="track-bar tree-progress" role="img" aria-label={`${t.name}: ${t.done} of ${t.total} skills done, ${t.taught} taught`}>
+        <span className="track-fill" style={{ width: `${(t.taught / Math.max(1, t.total)) * 100}%` }} />
+      </div>
+      {t.levels.map((level) => (
+        <section key={level.name} className="tree-level">
+          <h4 className="small">{level.name}</h4>
+          {level.skills.length === 0 && <p className="small muted">Nothing here yet: the coach adds skills as you ask about things.</p>}
+          <ul className="tree-skills">
+            {level.skills.map((s) => {
+              const mark = SKILL_MARK[s.status];
+              const sent = s.id in asked;
+              return (
+                <li key={s.id} className={`tree-skill is-${s.status}`}>
+                  <span className="tree-mark" title={mark.label} aria-label={mark.label}>
+                    <Icon name={mark.icon} size={14} />
+                  </span>
+                  <div className="tree-body">
+                    <p className="title">{s.title}</p>
+                    {s.why && <p className="small muted">{s.why}</p>}
+                    {s.status === "locked" && s.waitsOn.length > 0 && <p className="small muted">After: {s.waitsOn.join("; ")}</p>}
+                    {s.lessons.length > 0 && (
+                      <p className="small">
+                        {s.lessons.map((l, i) => (
+                          <span key={l.path}>
+                            {i > 0 && " · "}
+                            {l.status === "preparing" ? <span className="muted">{l.title} (being prepared)</span> : <a href={`#/${lessonHref(l.path)}`}>{l.title}</a>}
+                          </span>
+                        ))}
+                      </p>
+                    )}
+                  </div>
+                  {s.status === "open" &&
+                    (sent ? (
+                      asked[s.id] ? (
+                        <a className="small" href={`#/task/${asked[s.id]}`}>
+                          Being written…
+                        </a>
+                      ) : (
+                        <span className="small muted">Asked</span>
+                      )
+                    ) : (
+                      <button className="small" onClick={() => void ask(s.id, s.title)}>
+                        Make this lesson
+                      </button>
+                    ))}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+      {err && <p className="error">{err}</p>}
     </article>
   );
 }
@@ -550,6 +705,17 @@ function LessonView({
         />
       )}
 
+      {lesson.openIssues && lesson.openIssues.length > 0 && (
+        <details className="card open-issues small">
+          <summary>Released with {lesson.openIssues.length} open point{lesson.openIssues.length === 1 ? "" : "s"} from the checks</summary>
+          <ul>
+            {lesson.openIssues.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {(readAhead || listenAhead) && (
         <div className="card sync-bar row wrap" role="status">
           <Icon name="refresh" size={16} />
@@ -710,7 +876,7 @@ function ReadingView({
             <div
               key={i}
               {...(b.part !== null ? { "data-part": b.part } : {})}
-              className={`lesson-block${b.part !== null && b.part === sync.speaking ? " is-speaking" : ""}${b.part !== null && sync.playFrom ? " can-play" : ""}${selected === b.part && b.part !== null ? " is-selected" : ""}`}
+              className={`lesson-block${b.figure ? ` is-${b.figure === "caption" ? "caption" : "figure"}` : ""}${b.part !== null && b.part === sync.speaking ? " is-speaking" : ""}${b.part !== null && sync.playFrom ? " can-play" : ""}${selected === b.part && b.part !== null ? " is-selected" : ""}`}
               onClick={(e) => {
                 if (b.part === null || !sync.playFrom || (e.target as HTMLElement).closest("a, button")) return;
                 setSelected(selected === b.part ? null : b.part);

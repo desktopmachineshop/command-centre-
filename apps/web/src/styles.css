@@ -1623,6 +1623,33 @@ a.status:hover {
 .md th {
   background: var(--surface-2);
 }
+.md .md-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.4em auto;
+  border-radius: var(--r-md);
+  background: #fff; /* diagrams and scans are drawn for a white page */
+}
+.md .md-diagram {
+  margin: 0 0 0.6em;
+  overflow-x: auto;
+  text-align: center;
+}
+.md .md-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+@media (max-width: 600px) {
+  /* Mermaid sizes the drawing to fit; on a phone that makes a wide diagram's labels unreadable. */
+  .md .md-diagram svg {
+    max-width: none !important;
+    width: max(100%, calc(var(--natural, 0px) * 0.75));
+  }
+}
+.md .md-diagram-source.is-loading {
+  opacity: 0.5;
+}
 .transcript .tool {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -5177,6 +5204,133 @@ a.button-link.call-button {
   color: var(--text);
   font-weight: 600;
 }
+.open-issues summary {
+  cursor: pointer;
+  color: var(--text-2);
+}
+.open-issues ul {
+  margin: var(--sp-2) 0 0;
+  padding-left: 1.2em;
+}
+/* Learning: drafts being prepared, and the skill tree */
+.preparing .title,
+.tree-skill .title {
+  margin: var(--sp-1) 0 0;
+  font-weight: 600;
+}
+.prep-steps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  color: var(--text-2);
+}
+.prep-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.prep-steps li + li::before {
+  content: "›";
+  margin-right: var(--sp-1);
+  color: var(--text-2);
+}
+.prep-steps li.is-done {
+  color: var(--success);
+}
+.prep-steps li.is-now {
+  color: var(--text);
+  font-weight: 600;
+}
+.tree-tabs {
+  gap: var(--sp-1);
+  margin: var(--sp-2) 0;
+}
+.tree-tabs button {
+  border-radius: var(--r-full);
+}
+.tree-tabs button.is-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+.tree-progress {
+  margin-bottom: var(--sp-3);
+  border-radius: 4px;
+}
+.tree-level + .tree-level {
+  margin-top: var(--sp-3);
+}
+.tree-level h4 {
+  margin: 0 0 var(--sp-1);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+.tree-skills {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--sp-2);
+  border-left: 2px solid var(--border);
+  display: grid;
+  gap: var(--sp-2);
+}
+.tree-skill {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: start;
+  gap: var(--sp-2);
+}
+.tree-skill .title {
+  margin-top: 0;
+}
+.tree-skill p {
+  margin: 0;
+}
+.tree-body {
+  min-width: 0;
+}
+.tree-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+  background: var(--surface);
+}
+.tree-skill.is-done .tree-mark {
+  border-color: var(--success);
+  color: var(--success);
+}
+.tree-skill.is-taught .tree-mark,
+.tree-skill.is-open .tree-mark {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tree-skill.is-open .tree-mark {
+  background: var(--accent-soft);
+}
+.tree-skill.is-locked .title {
+  color: var(--text-2);
+  font-weight: 500;
+}
+@media (max-width: 520px) {
+  .tree-skill {
+    grid-template-columns: 24px 1fr;
+  }
+  .tree-skill > button,
+  .tree-skill > a,
+  .tree-skill > span:last-child:not(.tree-mark) {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
 .suggestions .title {
   margin: var(--sp-1) 0 0;
   font-weight: 600;
@@ -5386,6 +5540,22 @@ button.star.on {
 }
 .shell.is-phone.has-mini-player .main {
   padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--sp-6) + 64px);
+}
+
+/* Learning: figures (a picture, diagram or table) and the caption under each, which the voice reads */
+.lesson-block.is-figure {
+  margin-top: var(--sp-3);
+}
+.lesson-block.is-caption blockquote {
+  border-left: 0;
+  padding-left: 0;
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.lesson-block.is-figure .md-table {
+  display: flex;
+  justify-content: center;
 }
 
 /* Learning: the text kept in step with the voice */

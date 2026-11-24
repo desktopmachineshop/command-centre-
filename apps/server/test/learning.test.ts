@@ -1,6 +1,8 @@
 import { chiefOfStaff } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { activityNote, addRequested, requestTopic, settleTopics, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import pg from "pg";
+import { PrepStore } from "../src/learning-release";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const lesson = (over: Partial<Lesson>): Lesson => ({
@@ -10,6 +12,7 @@ const lesson = (over: Partial<Lesson>): Lesson => ({
   topic: "",
   summary: "",
   status: "ready",
+  skill: "",
   created: "2026-11-01",
   completedAt: null,
   completedMode: null,
@@ -329,6 +332,48 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     const after = await ctx.api("/api/learning");
     expect(after.body.suggestions.requested).toEqual([]);
     expect((await ctx.api("/api/brain/note?path=learning/topics.md")).body.body).toContain(`→ ${path}`);
+  });
+
+  it("lists a draft as being prepared, not as a lesson, and shows the skill tree", async () => {
+    const { body } = await ctx.api("/api/learning");
+    const path = `learning/lessons/${body.today}-agents-draft.md`;
+    await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: raw(`type: lesson\ntrack: ai\ntopic: How agents loop\ntitle: How agents loop\nskill: ai.agents\nstatus: draft\ncreated: ${body.today}`, 100) } });
+    const after = await ctx.api("/api/learning");
+    expect(after.body.lessons.map((l: { path: string }) => l.path)).not.toContain(path);
+    expect(after.body.preparing).toEqual([expect.objectContaining({ path, title: "How agents loop", stage: "review", label: "Checking the draft" })]);
+    const ai = after.body.skillTree.tracks.find((t: { track: string }) => t.track === "ai");
+    const agents = ai.levels.flatMap((l: { skills: unknown[] }) => l.skills).find((s: { id: string }) => s.id === "ai.agents");
+    expect(agents).toMatchObject({ status: "taught", lessons: [expect.objectContaining({ path })] });
+  });
+
+  it("asks for a lesson on a skill from the tree", async () => {
+    const res = await ctx.api("/api/learning/request", { method: "POST", json: { topic: "Tool use and function calling", track: "ai", skill: "ai.tools" } });
+    expect(res.status).toBe(201);
+    const task = JSON.stringify((await ctx.api(`/api/tasks/${res.body.taskId}`)).body);
+    expect(task).toContain("skill: ai.tools");
+    expect(task).toContain("status: draft");
+    expect((await ctx.api("/api/learning/request", { method: "POST", json: { topic: "x y", skill: "../../etc" } })).status).toBe(400);
+  });
+
+  it("keeps each draft's way through the checks", async () => {
+    const pool = new pg.Pool({ connectionString: DB_URL });
+    try {
+      const prep = new PrepStore(pool);
+      const path = "learning/lessons/2026-11-24-x.md";
+      expect(await prep.get(path)).toBeNull();
+      await prep.save({ path, stage: "review" });
+      await prep.save({ path, stage: "revising", revisions: 1, taskId: "t1", problems: ["Too short."] });
+      // Leaving fields out keeps them; a null task id clears it.
+      await prep.save({ path, stage: "recording", requestedAt: "2026-11-24T06:00:00.000Z", taskId: null });
+      expect(await prep.get(path)).toMatchObject({ stage: "recording", revisions: 1, proofs: 0, taskId: null, requestedAt: "2026-11-24T06:00:00.000Z", problems: ["Too short."] });
+      expect((await prep.open()).map((p) => p.path)).toContain(path);
+      await prep.save({ path, stage: "released" });
+      expect((await prep.open()).map((p) => p.path)).not.toContain(path);
+      await prep.remove(path);
+      expect(await prep.get(path)).toBeNull();
+    } finally {
+      await pool.end();
+    }
   });
 
   it("asks the coach for new topics", async () => {

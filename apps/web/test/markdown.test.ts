@@ -37,6 +37,19 @@ describe("Markdown", () => {
     expect(out).toContain("<p>Anything else?</p>");
   });
 
+  it("shows web and stored pictures, and nothing else as a picture", () => {
+    expect(html("![A servo drive](https://upload.wikimedia.org/a.png)")).toContain('<img class="md-img" src="https://upload.wikimedia.org/a.png" alt="A servo drive" loading="lazy" referrerPolicy="no-referrer"/>');
+    expect(html("![Stored](/media/abc)")).toContain('src="/media/abc"');
+    const bad = html("![x](javascript:alert(1))");
+    expect(bad).not.toContain("<img");
+    expect(bad).not.toContain("javascript:");
+  });
+
+  it("shows a mermaid block's source until the diagram is drawn", () => {
+    const out = html("```mermaid\nflowchart LR\n  A --> B\n```");
+    expect(out).toContain('<pre class="md-diagram-source is-loading"><code>flowchart LR');
+  });
+
   it("renders tables", () => {
     const out = html("| SKU | Qty |\n|---|--:|\n| A1 | 3 |");
     expect(out).toContain("<th>SKU</th>");
