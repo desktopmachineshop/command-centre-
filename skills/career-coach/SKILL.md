@@ -197,7 +197,8 @@ entry fixes a word everywhere. Respell the UK English way: "zed" not "zee" (a lo
 1. `write` the lesson to `learning/lessons/<today>-<slug>.md` (today in Europe/London) with the
    frontmatter above and `status: ready`. If a lesson for today's date with the same slug already
    exists, don't overwrite it: add `-2` to the slug.
-2. `write` `learning/topics.md`: take the topic out of Requested, From your work, Up next or Backlog, add it to
+2. `write` `learning/topics.md`: read it again first (other lessons may be being written at the same
+   time, and a write replaces the whole note), then take the topic out of Requested, From your work, Up next or Backlog, add it to
    `## Taught`, and top `## Up next` back up to three to five topics across tracks (at least one
    not AI).
 3. Don't propose a notify for the daily lesson: the morning brief mentions it. For a lesson Dave

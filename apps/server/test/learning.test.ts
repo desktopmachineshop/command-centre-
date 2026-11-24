@@ -1,6 +1,6 @@
 import { chiefOfStaff } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { activityNote, addRequested, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import { activityNote, addRequested, requestTopic, settleTopics, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const lesson = (over: Partial<Lesson>): Lesson => ({
@@ -127,6 +127,34 @@ describe("learning (pure)", () => {
     expect(again.match(/^## Skipped$/gm)).toHaveLength(1);
     // A map from before Skipped existed gets the section.
     expect(skipTopic("# Topics\n\n## Up next\n- [ai] X: y\n", { track: "ai", title: "X" }, "n")).toBe("# Topics\n\n## Up next\n\n## Skipped\n- [ai] X (n)\n");
+  });
+
+  it("files a requested topic once, out of the other open lists", () => {
+    const out = requestTopic(TOPICS_TEMPLATE, { track: "market", title: "Why carbide end mill prices move", why: "" });
+    const map = parseTopics(out);
+    expect(map.requested.map((t) => t.title)).toEqual(["Why carbide end mill prices move"]);
+    expect(map.upNext.map((t) => t.title)).not.toContain("Why carbide end mill prices move");
+    expect(requestTopic(out, { track: "market", title: "why carbide end-mill prices move", why: "" })).toBe(out);
+  });
+
+  it("settles the map: topics already written come out of the open lists and go under Taught", () => {
+    // Two lessons written at once: the second save put back the topic the first had cleared.
+    let body = requestTopic(TOPICS_TEMPLATE, { track: "interest", title: "Harmonic drives", why: "" });
+    body = requestTopic(body, { track: "ai", title: "Speculative decoding", why: "" });
+    body = body.replace("## Taught\n", "## Taught\n- 2026-11-23 [ai] Speculative decoding → learning/lessons/2026-11-23-speculative-decoding.md\n");
+    const lessons = [
+      lesson({ path: "learning/lessons/2026-11-23-harmonic-drives.md", title: "Harmonic drives, inside out", topic: "Harmonic drives", track: "robotics", created: "2026-11-23" }),
+      lesson({ path: "learning/lessons/2026-11-23-speculative-decoding.md", title: "Speculative decoding", track: "ai", created: "2026-11-23" }),
+      lesson({ path: "learning/lessons/2026-11-23-agents.md", title: "How AI agents plan and use tools!", track: "ai", created: "2026-11-23" }),
+    ];
+    const out = settleTopics(body, lessons)!;
+    const map = parseTopics(out);
+    expect(map.requested).toEqual([]);
+    expect(map.upNext.map((t) => t.title)).not.toContain("How AI agents plan and use tools");
+    expect(map.taught).toBe(3);
+    expect(out).toContain("- 2026-11-23 [robotics] Harmonic drives, inside out → learning/lessons/2026-11-23-harmonic-drives.md");
+    expect(out.match(/speculative-decoding\.md/g)).toHaveLength(1);
+    expect(settleTopics(out, lessons)).toBeNull();
   });
 
   it("picks today's lesson: today's if open, else the newest open", () => {
@@ -292,5 +320,21 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     expect((await ctx.api("/api/learning")).body.suggestions.requested).toHaveLength(1);
     const task = await ctx.api(`/api/tasks/${res.body.taskId}`);
     expect(JSON.stringify(task.body)).toContain("career-coach");
+  });
+
+  it("takes a topic off the list once its lesson is written", async () => {
+    const { body } = await ctx.api("/api/learning");
+    const path = `learning/lessons/${body.today}-harmonic-drives.md`;
+    await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: raw(`type: lesson\ntrack: robotics\ntopic: Harmonic drive gearboxes\nstatus: ready\ncreated: ${body.today}`, 100) } });
+    const after = await ctx.api("/api/learning");
+    expect(after.body.suggestions.requested).toEqual([]);
+    expect((await ctx.api("/api/brain/note?path=learning/topics.md")).body.body).toContain(`→ ${path}`);
+  });
+
+  it("asks the coach for new topics", async () => {
+    const res = await ctx.api("/api/learning/suggest", { method: "POST", json: {} });
+    expect(res.status).toBe(201);
+    expect(res.body.taskId).toBeTruthy();
+    expect(JSON.stringify((await ctx.api(`/api/tasks/${res.body.taskId}`)).body)).toContain("Up next");
   });
 });

@@ -586,6 +586,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     setNarrator: (voice: string) => call<Narration>("/learning/narrator", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ voice }) }),
     recordLesson: (path: string) => post<Narration>("/learning/record", { path }),
     requestLesson: (topic: string, track?: string) => post<{ taskId: string | null }>("/learning/request", { topic, ...(track ? { track } : {}) }),
+    /** Asks the coach for a fresh set of topics to pick from. */
+    suggestTopics: () => post<{ taskId: string | null }>("/learning/suggest", {}),
     // --- end learning ---
     /** `due` is local Europe/London `YYYY-MM-DDTHH:MM`; `recurrence` is e.g. "weekdays", "weekly:mon,thu", "monthly:15" or "none". */
     getReminder: (id: string) => call<Reminder>(`/pa/reminders/${id}`),

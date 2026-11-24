@@ -212,6 +212,31 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
       setErr((e as Error).message);
     }
   };
+  // "New topics": the coach's task, while it's working out a fresh Up next.
+  const [freshening, setFreshening] = useState<{ taskId: string | null } | null>(null);
+  const freshen = async () => {
+    setErr(null);
+    try {
+      setFreshening(await api.suggestTopics());
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  // The page reloads when a task finishes; new topics mean the coach is done.
+  const upNextKey = view.suggestions.upNext.map((s) => s.title).join("|");
+  const shownKey = useRef(upNextKey);
+  useEffect(() => {
+    if (upNextKey !== shownKey.current) {
+      shownKey.current = upNextKey;
+      setFreshening(null);
+    }
+  }, [upNextKey]);
+  // Back to the button if the run never changes them (it failed, or found nothing new).
+  useEffect(() => {
+    if (!freshening) return;
+    const t = setTimeout(() => setFreshening(null), 15 * 60_000);
+    return () => clearTimeout(t);
+  }, [freshening]);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (topic.trim().length < 2) return;
@@ -233,7 +258,22 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
   }
   return (
     <article className="card">
-      <h3>Pick another topic</h3>
+      <div className="row between">
+        <h3>Pick another topic</h3>
+        {freshening ? (
+          freshening.taskId ? (
+            <a className="small" href={`#/task/${freshening.taskId}`}>
+              Finding new topics…
+            </a>
+          ) : (
+            <span className="small muted">Finding new topics…</span>
+          )
+        ) : (
+          <button className="ghost small" onClick={() => void freshen()} title="Have the coach come up with a fresh set of topics">
+            <Icon name="refresh" size={14} /> New topics
+          </button>
+        )}
+      </div>
       <p className="muted small">The coach writes a 30-minute lesson on it now (a few minutes). It appears here when it's ready.</p>
       {list.length > 0 && (
         <ul className="list suggestions">
