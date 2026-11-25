@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRunResult } from "@cc/agent-runtime";
-import type { Task, TaskStatus, VoiceResponse } from "@cc/core";
+import { AgentChoice, type Task, type TaskStatus, type VoiceResponse } from "@cc/core";
 import { parseVoiceResponse, voiceResponseInstructions } from "@cc/voice";
 import { voicePrompt } from "../agent-context";
 import type { ChatFile, ChatFilesContext } from "../chat-files";
@@ -23,6 +23,8 @@ export interface ReplyTurn {
   fromDave: boolean;
   /** Files Dave attached to the reply (images go to the runner with the prompt). */
   files?: ChatFile[];
+  /** The provider and model Dave picked for this reply (the chat's model picker). */
+  agent?: AgentChoice;
 }
 
 export interface TaskReply {
@@ -117,7 +119,7 @@ export class VoiceConversations {
     return rows.length > 0;
   }
 
-  async reply(taskId: string, text: string, voice: boolean, files?: ChatFilesContext): Promise<Task | null> {
+  async reply(taskId: string, text: string, voice: boolean, files?: ChatFilesContext, agent?: AgentChoice): Promise<Task | null> {
     const queued = await this.store.transaction(async (tx) => {
       const { rows } = await tx.pool.query("select status from tasks where id = $1 for update", [taskId]);
       if (!rows[0]) return null;
@@ -129,8 +131,8 @@ export class VoiceConversations {
         [taskId],
       );
       await tx.pool.query(
-        "insert into task_replies (id, task_id, text, voice, resume_session_id, files) values ($1, $2, $3, $4, $5, $6)",
-        [randomUUID(), taskId, text, voice, session.rows[0]?.session_id ?? null, files?.files.length ? files : null],
+        "insert into task_replies (id, task_id, text, voice, resume_session_id, files, agent) values ($1, $2, $3, $4, $5, $6, $7)",
+        [randomUUID(), taskId, text, voice, session.rows[0]?.session_id ?? null, files?.files.length ? files : null, agent ?? null],
       );
       return tx.setTaskStatus(taskId, "queued");
     });
@@ -186,7 +188,8 @@ export class VoiceConversations {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const files = fromDave && attached?.files.length ? { files: attached.files } : {};
+    const picked = fromDave ? AgentChoice.safeParse(reply.agent) : null;
+    const files = { ...(fromDave && attached?.files.length ? { files: attached.files } : {}), ...(picked?.success ? { agent: picked.data } : {}) };
     if (reply.resume_session_id) {
       return {
         replyId: reply.id,

@@ -40,6 +40,7 @@
       <dl>
         <dlentry><dt><uicontrol>Title</uicontrol> and <uicontrol>Id</uicontrol></dt><dd>The id is lower case with dashes and can't change later, because tasks keep it.</dd></dlentry>
         <dlentry><dt><uicontrol>Mission</uicontrol> and <uicontrol>Autonomy</uicontrol></dt><dd>What it is for and how it should behave. Both go into the agent's instructions. The assistant sees the first sentence of each specialist's mission when deciding whom to hand work to.</dd></dlentry>
+        <dlentry><dt><uicontrol>Model</uicontrol></dt><dd>The provider and model its tasks try first, such as Claude Opus or Gemini Flash. <uicontrol>Auto</uicontrol> uses the agent route on the Accounts page. If the chosen one isn't available, the route takes over. Gemini has no shell, so a specialist that changes code runs on the next agent in the route instead.</dd></dlentry>
         <dlentry><dt><uicontrol>Skills</uicontrol> and <uicontrol>Tools</uicontrol></dt><dd>Only these skills are in a specialist's workspace, and it can reach only these servers (Odoo, mail, calendar…). The assistant has every skill and, on work you started, every business's servers, whatever its card lists.</dd></dlentry>
         <dlentry><dt><uicontrol>Usually proposes</uicontrol></dt><dd>The actions it is expected to propose.</dd></dlentry>
         <dlentry><dt><uicontrol>Also answers to</uicontrol></dt><dd>Extra chat names, comma separated, as in <userinput>podcast: …</userinput>.</dd></dlentry>

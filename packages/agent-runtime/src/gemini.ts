@@ -105,11 +105,13 @@ export class GeminiRunner implements AgentRunner {
     try {
       const tools = await this.tools(request, allowed, connections);
       const system = developerInstructions(request, false);
+      // A role's Claude model name ("sonnet") means nothing here.
+      const model = request.model && !/claude|sonnet|opus|haiku|fable|gpt|codex/i.test(request.model) ? request.model : this.model;
       const maxTurns = request.maxTurns ?? 30;
       for (let turn = 0; ; turn++) {
         if (signal.aborted) return { ...failed(why(), sessionId), result };
         if (turn >= maxTurns) return { ...failed(`Reached the maximum number of turns (${maxTurns})`, sessionId), result };
-        const res = await this.generate(contents, system, [...tools.values()].map((t) => t.declaration), signal);
+        const res = await this.generate(model, contents, system, [...tools.values()].map((t) => t.declaration), signal);
         if ("error" in res) return { ...failed(res.error, sessionId), result };
         const content: Content = { role: "model", parts: res.parts };
         contents.push(content);
@@ -188,13 +190,13 @@ export class GeminiRunner implements AgentRunner {
     return out;
   }
 
-  private async generate(contents: Content[], system: string, functionDeclarations: Record<string, unknown>[], signal: AbortSignal): Promise<{ parts: Part[]; finishReason?: string } | { error: string }> {
+  private async generate(model: string, contents: Content[], system: string, functionDeclarations: Record<string, unknown>[], signal: AbortSignal): Promise<{ parts: Part[]; finishReason?: string } | { error: string }> {
     const body = {
       contents,
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
       ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
     };
-    const res = await this.fetch(`${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`, {
+    const res = await this.fetch(`${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": this.options.apiKey! },
       body: JSON.stringify(body),

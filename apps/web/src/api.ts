@@ -1,4 +1,4 @@
-import type { Event, Job, SetupRoleId, OrgConfig, OrgConfigVersion, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
+import type { AgentChoice, AgentProvider, Event, Job, SetupRoleId, OrgConfig, OrgConfigVersion, OrgTree, Proposal, Task, VerticalManifest, WorkerNode, AgentMessage, AgentRun, VoiceResponse } from "@cc/core";
 import type { NotificationCategory, NotificationDevice, NotificationPrefs, NotificationPriority, StoredNotification } from "@cc/core";
 import type { CardResult } from "@cc/core";
 import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
@@ -9,6 +9,21 @@ import type { IntegrationsView, SavePatch, SaveResult } from "./integrations";
  * the token (and optionally another server's URL) is kept in localStorage as before.
  */
 /** A file uploaded from the chat box (POST /api/chat/files). */
+/** One provider in the model picker (GET /api/agents/models). */
+export interface AgentModelProvider {
+  id: AgentProvider;
+  label: string;
+  connected: boolean;
+  /** Its place in the agent route (0 = first), or null when the route doesn't use it. */
+  routeIndex: number | null;
+  /** id "" = the provider's default model. */
+  models: { id: string; label: string }[];
+}
+export interface AgentModels {
+  route: AgentProvider[];
+  providers: AgentModelProvider[];
+}
+
 export interface ChatFile {
   id: string;
   name: string;
@@ -455,14 +470,17 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     verticals: () => call<VerticalManifest[]>("/verticals"),
     /** `role` (an org role id, with its `vertical`) sends it to that role rather than whichever fits. */
     /** `files`: ids from `uploadChatFile`, handed to the agent with the message. */
-    chat: (text: string, vertical?: string, options: { voice?: boolean; role?: string; files?: string[] } = {}) =>
+    /** `agent`: the model picker's provider and model, tried first. */
+    chat: (text: string, vertical?: string, options: { voice?: boolean; role?: string; files?: string[]; agent?: AgentChoice } = {}) =>
       post<{ event: Event; task: Task }>("/chat", {
         text,
         vertical,
         ...(options.role ? { role: options.role } : {}),
         ...(options.voice ? { voice: true } : {}),
         ...(options.files?.length ? { files: options.files } : {}),
+        ...(options.agent ? { agent: options.agent } : {}),
       }),
+    agentModels: () => call<AgentModels>("/agents/models"),
     /** A file pasted, dropped or attached in the chat box, uploaded ahead of the message that sends it. */
     uploadChatFile: async (file: File, signal?: AbortSignal) => {
       const res = await fetch(`${base}/api/chat/files?name=${encodeURIComponent(file.name || "pasted file")}`, {
@@ -607,8 +625,8 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     voiceConfig: () => call<VoiceConfig>("/voice/config"),
     voiceBriefing: () => call<VoiceBriefing>("/voice/briefing"),
     nextApproval: (skip: string[] = []) => call<NextApproval>(`/voice/approvals/next${skip.length ? `?skip=${skip.join(",")}` : ""}`),
-    replyToTask: (id: string, text: string, voice = true, files?: string[]) =>
-      post<Task>(`/tasks/${id}/reply`, { text, voice, ...(files?.length ? { files } : {}) }),
+    replyToTask: (id: string, text: string, voice = true, files?: string[], agent?: AgentChoice) =>
+      post<Task>(`/tasks/${id}/reply`, { text, voice, ...(files?.length ? { files } : {}), ...(agent ? { agent } : {}) }),
     transcribe: async (audio: Blob, seconds: number, language?: string) => {
       const query = new URLSearchParams({ seconds: seconds.toFixed(1), ...(language ? { language } : {}) });
       const res = await fetch(`${base}/api/voice/transcribe?${query}`, {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessage } from "@cc/core";
 import { describe, expect, it } from "vitest";
-import { fallbackChain, FallbackRunner, GeminiRunner, type McpConnect, ScriptedRunner } from "../src";
+import { fallbackChain, FallbackRunner, GeminiRunner, isUsageLimit, type McpConnect, RoutedRunner, ScriptedRunner } from "../src";
 
 type Reply = { status?: number; body: unknown };
 const text = (t: string) => ({ candidates: [{ content: { role: "model", parts: [{ text: t }] }, finishReason: "STOP" }] });
@@ -126,5 +126,41 @@ describe("fallback chain", () => {
   it("still only falls back at a limit by default", async () => {
     const next = new ScriptedRunner("next");
     expect((await new FallbackRunner("f", failing("first", "something broke"), next).run({ prompt: "hi" })).error).toBe("something broke");
+  });
+});
+
+describe("RoutedRunner", () => {
+  const recording = (name: string, error?: string) => {
+    const r = new ScriptedRunner(name, (req) => ({
+      result: error ? { status: "failed", result: null, error, costUsd: null, sessionId: null } : { status: "succeeded", result: `${name}:${req.model ?? "default"}`, error: null, costUsd: null, sessionId: null },
+    }));
+    return r;
+  };
+
+  it("starts on the picked provider with its model, then the route without it", async () => {
+    const claude = recording("claude-code");
+    const gemini = recording("gemini", "Google AI Studio isn't connected");
+    const codex = recording("codex");
+    const routed = new RoutedRunner({ runners: { claude, gemini, codex }, route: ["claude", "codex"] });
+    expect(routed.name).toBe("claude-code");
+    expect(routed.order("gemini")).toEqual(["gemini", "claude", "codex"]);
+    const r = await routed.run({ prompt: "hi", provider: "gemini", model: "gemini-flash-latest" });
+    expect(gemini.calls[0]!.model).toBe("gemini-flash-latest");
+    // Claude took over on its own default model.
+    expect(r.result).toBe("claude-code:default");
+    expect(claude.calls[0]!.model).toBeUndefined();
+  });
+
+  it("without a pick, runs the route as before", async () => {
+    const claude = recording("claude-code");
+    const routed = new RoutedRunner({ runners: { claude, gemini: recording("gemini") }, route: ["claude"] });
+    expect((await routed.run({ prompt: "hi" })).result).toBe("claude-code:default");
+    expect((await routed.run({ prompt: "hi", provider: "nope" })).result).toBe("claude-code:default");
+  });
+
+  it("ends on the last-resort runner at a limit", async () => {
+    const key = recording("claude-code-api");
+    const routed = new RoutedRunner({ runners: { claude: recording("claude-code", "usage limit reached") }, route: ["claude"], last: { runner: key, when: isUsageLimit } });
+    expect((await routed.run({ prompt: "hi", provider: "claude", model: "opus" })).result).toBe("claude-code-api:opus");
   });
 });

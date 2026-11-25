@@ -1,3 +1,4 @@
+import { AgentChoice } from "@cc/core";
 import { baseMime, UPLOAD_TYPES, VoiceProviderError } from "@cc/voice";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -31,7 +32,7 @@ const providerError = (err: unknown) =>
  * - POST /voice/speak             {text, voice?} → audio
  * - GET  /voice/briefing          deterministic spoken summary
  * - GET  /voice/approvals/next    the next pending proposal, described for reading aloud
- * - POST /tasks/:id/reply         {text, voice?, files?} continues a task's conversation (files: ids from POST /chat/files)
+ * - POST /tasks/:id/reply         {text, voice?, files?, agent?} continues a task's conversation (files: ids from POST /chat/files)
  * - POST /voice/warm              loads the speech engines and the voice front ahead of use
  * - POST /voice/turn              {text, ..., lastTaskId?, lastAnswer?} → NDJSON stream: {delta} chunks, then
  *                                 {done, handoff?: {taskId, continued}}; a follow-up continues lastTaskId
@@ -204,11 +205,11 @@ export function voiceApiRoutes(deps: VoiceApiDeps) {
   });
 
   app.post("/tasks/:id/reply", async (c) => {
-    const body = z.object({ text: z.string().trim().min(1).max(4000), voice: z.boolean().optional(), files: ChatFileIds.optional() }).parse(await c.req.json());
+    const body = z.object({ text: z.string().trim().min(1).max(4000), voice: z.boolean().optional(), files: ChatFileIds.optional(), agent: AgentChoice.optional() }).parse(await c.req.json());
     try {
       if (body.files?.length && !deps.chatFiles) return c.json({ error: "file attachments are not available on this server" }, 400);
       const files = body.files?.length && deps.chatFiles ? await deps.chatFiles.context(body.files) : undefined;
-      const task = await conversations.reply(c.req.param("id"), body.text, body.voice ?? false, files);
+      const task = await conversations.reply(c.req.param("id"), body.text, body.voice ?? false, files, body.agent);
       if (task && files) await deps.chatFiles!.tag(files.files.map((f) => f.id), task.vertical); // storage by vertical
       return task ? c.json(task, 202) : c.json({ error: "not found" }, 404);
     } catch (err) {

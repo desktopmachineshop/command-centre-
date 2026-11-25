@@ -27,6 +27,26 @@ export const ROOT_ROLE_ID = "chief-of-staff";
 
 const slug = z.string().regex(/^[a-z0-9-]+$/);
 
+/** The agent providers a run can ask for: Claude (subscription), ChatGPT (Codex) and Gemini (Google AI Studio). */
+export const AGENT_PROVIDERS = ["claude", "codex", "gemini"] as const;
+export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
+
+/**
+ * Which provider and model a run should use first (a chat's model picker, or a specialist's
+ * setting). The route's other agents still take over if this one isn't available. No model: the
+ * provider's own default.
+ */
+export const AgentChoice = z.object({
+  provider: z.enum(AGENT_PROVIDERS),
+  model: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(/^[A-Za-z0-9._:/@-]+$/, "letters, digits and . _ : / @ - only")
+    .optional(),
+});
+export type AgentChoice = z.infer<typeof AgentChoice>;
+
 /**
  * A specialist in a business: an agent the assistant hands specialist work to (code changes, a
  * video, a blog post), with its own skills, MCP servers and tools, and its mission and autonomy
@@ -55,6 +75,8 @@ export const Role = z.object({
    * outside input never gets them. Unset: none, just skills and MCP tools.
    */
   tools: z.array(z.enum(["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"])).default([]),
+  /** The provider and model this specialist's runs use first. Unset: the agent route as it is. */
+  agent: AgentChoice.optional(),
   /** Most agent turns per run for this role. Unset: the server's AGENT_MAX_TURNS. A coding role needs many more than a chat. */
   maxTurns: z.number().int().min(1).max(500).optional(),
   /** GitHub repository ("owner/name") checked out for each of the role's tasks, in its workspace (needs GITHUB_TOKEN). */

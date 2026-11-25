@@ -635,4 +635,11 @@ export const migrations: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // The model picker: a reply can ask for a provider and model for its run (pipeline.ts agentChoiceOf).
+    id: "0029_reply_agent",
+    sql: `
+      alter table task_replies add column if not exists agent jsonb;
+    `,
+  },
 ];
