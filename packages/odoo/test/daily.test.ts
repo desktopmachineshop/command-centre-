@@ -48,8 +48,8 @@ describe("odoo day-to-day reads", () => {
 
   it("finds invoices by type, partner and overdue", async () => {
     expect((await call("search_invoices", { partner: "acme" })).json.map((i: any) => i.name)).toEqual(["INV/2026/00009"]);
-    // "Overdue" is against today: pin it to the fixtures' date, or INV/2026/00010 (due 2026-11-24) joins once that passes.
-    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-07T12:00:00Z") });
+    // "Overdue" is against today; pinned to a day INV/2026/00010 (due 2026-11-24) isn't yet late.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-20T12:00:00Z") });
     try {
       expect((await call("search_invoices", { overdue: true })).json.map((i: any) => i.name)).toEqual(["INV/2026/00009"]);
     } finally {

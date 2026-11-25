@@ -108,13 +108,20 @@ const fail = (message: string) => ({ content: [{ type: "text" as const, text: me
 const since = (days: number) => new Date(Date.now() - days * 86_400_000);
 const num = (v: unknown) => (v === null || v === undefined ? null : Math.round(Number(v) * 100) / 100);
 
+/**
+ * A failed run whose task ran again afterwards (put back after a usage limit or a server restart,
+ * or retried by hand): counted as retried, not failed, so the report shows only real failures.
+ */
+const RAN_AGAIN = "exists (select 1 from agent_runs later where later.task_id = r.task_id and later.started_at > r.started_at)";
+
 /** Run and action statistics over the last `days`. */
 export async function performanceReport(pool: Pool, days: number) {
   const from = since(days);
   const [byRole, failedRuns, slowest, costliest, actions, failedActions, stuck] = await Promise.all([
     pool.query(
       `select t.vertical, coalesce(t.role, '(none)') as role, count(*)::int as runs,
-              count(*) filter (where r.status = 'failed')::int as failed,
+              count(*) filter (where r.status = 'failed' and not ${RAN_AGAIN})::int as failed,
+              count(*) filter (where r.status = 'failed' and ${RAN_AGAIN})::int as retried,
               coalesce(sum(r.cost_usd), 0)::float as cost_usd,
               avg(extract(epoch from r.finished_at - r.started_at))::float as avg_seconds,
               max(extract(epoch from r.finished_at - r.started_at))::float as max_seconds
@@ -125,7 +132,7 @@ export async function performanceReport(pool: Pool, days: number) {
     pool.query(
       `select t.id as task, t.vertical, t.role, left(t.prompt, 200) as prompt, left(r.error, 600) as error, r.started_at
          from agent_runs r join tasks t on t.id = r.task_id
-        where r.started_at >= $1 and r.status = 'failed' order by r.started_at desc limit 25`,
+        where r.started_at >= $1 and r.status = 'failed' and not ${RAN_AGAIN} order by r.started_at desc limit 25`,
       [from],
     ),
     pool.query(
@@ -163,7 +170,7 @@ export async function performanceReport(pool: Pool, days: number) {
   return {
     days,
     from: from.toISOString(),
-    totals: { runs, failed: byRole.rows.reduce((n, r) => n + r.failed, 0), costUsd: num(byRole.rows.reduce((n, r) => n + r.cost_usd, 0)) },
+    totals: { runs, failed: byRole.rows.reduce((n, r) => n + r.failed, 0), retried: byRole.rows.reduce((n, r) => n + r.retried, 0), costUsd: num(byRole.rows.reduce((n, r) => n + r.cost_usd, 0)) },
     byRole: byRole.rows.map((r) => ({ ...r, cost_usd: num(r.cost_usd), avg_seconds: num(r.avg_seconds), max_seconds: num(r.max_seconds) })),
     failedRuns: failedRuns.rows,
     slowestRuns: slowest.rows.map((r) => ({ ...r, seconds: num(r.seconds), cost_usd: num(r.cost_usd) })),
@@ -203,7 +210,7 @@ export function createOpsMcpServer(pool: Pool): McpServer {
   server.registerTool(
     "performance",
     {
-      description: `How the agents did over the last days: runs, failures and cost per role, the failed runs with their errors, the slowest and costliest runs, actions proposed/failed/rejected per type (and the failures' errors), and tasks stuck in queued or running. ${NOTE}`,
+      description: `How the agents did over the last days: runs, failures (and failed runs that were retried) and cost per role, the failed runs with their errors, the slowest and costliest runs, actions proposed/failed/rejected per type (and the failures' errors), and tasks stuck in queued or running. ${NOTE}`,
       inputSchema: { days: z.number().int().min(1).max(14).default(1) },
     },
     async ({ days }) => {
