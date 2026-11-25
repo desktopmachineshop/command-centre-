@@ -1,6 +1,8 @@
 import { chiefOfStaff } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { activityNote, addRequested, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import { activityNote, addRequested, requestTopic, settleTopics, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import pg from "pg";
+import { PrepStore } from "../src/learning-release";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
 
 const lesson = (over: Partial<Lesson>): Lesson => ({
@@ -10,6 +12,7 @@ const lesson = (over: Partial<Lesson>): Lesson => ({
   topic: "",
   summary: "",
   status: "ready",
+  skill: "",
   created: "2026-11-01",
   completedAt: null,
   completedMode: null,
@@ -127,6 +130,34 @@ describe("learning (pure)", () => {
     expect(again.match(/^## Skipped$/gm)).toHaveLength(1);
     // A map from before Skipped existed gets the section.
     expect(skipTopic("# Topics\n\n## Up next\n- [ai] X: y\n", { track: "ai", title: "X" }, "n")).toBe("# Topics\n\n## Up next\n\n## Skipped\n- [ai] X (n)\n");
+  });
+
+  it("files a requested topic once, out of the other open lists", () => {
+    const out = requestTopic(TOPICS_TEMPLATE, { track: "market", title: "Why carbide end mill prices move", why: "" });
+    const map = parseTopics(out);
+    expect(map.requested.map((t) => t.title)).toEqual(["Why carbide end mill prices move"]);
+    expect(map.upNext.map((t) => t.title)).not.toContain("Why carbide end mill prices move");
+    expect(requestTopic(out, { track: "market", title: "why carbide end-mill prices move", why: "" })).toBe(out);
+  });
+
+  it("settles the map: topics already written come out of the open lists and go under Taught", () => {
+    // Two lessons written at once: the second save put back the topic the first had cleared.
+    let body = requestTopic(TOPICS_TEMPLATE, { track: "interest", title: "Harmonic drives", why: "" });
+    body = requestTopic(body, { track: "ai", title: "Speculative decoding", why: "" });
+    body = body.replace("## Taught\n", "## Taught\n- 2026-11-23 [ai] Speculative decoding → learning/lessons/2026-11-23-speculative-decoding.md\n");
+    const lessons = [
+      lesson({ path: "learning/lessons/2026-11-23-harmonic-drives.md", title: "Harmonic drives, inside out", topic: "Harmonic drives", track: "robotics", created: "2026-11-23" }),
+      lesson({ path: "learning/lessons/2026-11-23-speculative-decoding.md", title: "Speculative decoding", track: "ai", created: "2026-11-23" }),
+      lesson({ path: "learning/lessons/2026-11-23-agents.md", title: "How AI agents plan and use tools!", track: "ai", created: "2026-11-23" }),
+    ];
+    const out = settleTopics(body, lessons)!;
+    const map = parseTopics(out);
+    expect(map.requested).toEqual([]);
+    expect(map.upNext.map((t) => t.title)).not.toContain("How AI agents plan and use tools");
+    expect(map.taught).toBe(3);
+    expect(out).toContain("- 2026-11-23 [robotics] Harmonic drives, inside out → learning/lessons/2026-11-23-harmonic-drives.md");
+    expect(out.match(/speculative-decoding\.md/g)).toHaveLength(1);
+    expect(settleTopics(out, lessons)).toBeNull();
   });
 
   it("picks today's lesson: today's if open, else the newest open", () => {
@@ -292,5 +323,63 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     expect((await ctx.api("/api/learning")).body.suggestions.requested).toHaveLength(1);
     const task = await ctx.api(`/api/tasks/${res.body.taskId}`);
     expect(JSON.stringify(task.body)).toContain("career-coach");
+  });
+
+  it("takes a topic off the list once its lesson is written", async () => {
+    const { body } = await ctx.api("/api/learning");
+    const path = `learning/lessons/${body.today}-harmonic-drives.md`;
+    await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: raw(`type: lesson\ntrack: robotics\ntopic: Harmonic drive gearboxes\nstatus: ready\ncreated: ${body.today}`, 100) } });
+    const after = await ctx.api("/api/learning");
+    expect(after.body.suggestions.requested).toEqual([]);
+    expect((await ctx.api("/api/brain/note?path=learning/topics.md")).body.body).toContain(`→ ${path}`);
+  });
+
+  it("lists a draft as being prepared, not as a lesson, and shows the skill tree", async () => {
+    const { body } = await ctx.api("/api/learning");
+    const path = `learning/lessons/${body.today}-agents-draft.md`;
+    await ctx.api("/api/brain/note", { method: "PUT", json: { path, raw: raw(`type: lesson\ntrack: ai\ntopic: How agents loop\ntitle: How agents loop\nskill: ai.agents\nstatus: draft\ncreated: ${body.today}`, 100) } });
+    const after = await ctx.api("/api/learning");
+    expect(after.body.lessons.map((l: { path: string }) => l.path)).not.toContain(path);
+    expect(after.body.preparing).toEqual([expect.objectContaining({ path, title: "How agents loop", stage: "review", label: "Checking the draft" })]);
+    const ai = after.body.skillTree.tracks.find((t: { track: string }) => t.track === "ai");
+    const agents = ai.levels.flatMap((l: { skills: unknown[] }) => l.skills).find((s: { id: string }) => s.id === "ai.agents");
+    expect(agents).toMatchObject({ status: "taught", lessons: [expect.objectContaining({ path })] });
+  });
+
+  it("asks for a lesson on a skill from the tree", async () => {
+    const res = await ctx.api("/api/learning/request", { method: "POST", json: { topic: "Tool use and function calling", track: "ai", skill: "ai.tools" } });
+    expect(res.status).toBe(201);
+    const task = JSON.stringify((await ctx.api(`/api/tasks/${res.body.taskId}`)).body);
+    expect(task).toContain("skill: ai.tools");
+    expect(task).toContain("status: draft");
+    expect((await ctx.api("/api/learning/request", { method: "POST", json: { topic: "x y", skill: "../../etc" } })).status).toBe(400);
+  });
+
+  it("keeps each draft's way through the checks", async () => {
+    const pool = new pg.Pool({ connectionString: DB_URL });
+    try {
+      const prep = new PrepStore(pool);
+      const path = "learning/lessons/2026-11-24-x.md";
+      expect(await prep.get(path)).toBeNull();
+      await prep.save({ path, stage: "review" });
+      await prep.save({ path, stage: "revising", revisions: 1, taskId: "t1", problems: ["Too short."] });
+      // Leaving fields out keeps them; a null task id clears it.
+      await prep.save({ path, stage: "recording", requestedAt: "2026-11-24T06:00:00.000Z", taskId: null });
+      expect(await prep.get(path)).toMatchObject({ stage: "recording", revisions: 1, proofs: 0, taskId: null, requestedAt: "2026-11-24T06:00:00.000Z", problems: ["Too short."] });
+      expect((await prep.open()).map((p) => p.path)).toContain(path);
+      await prep.save({ path, stage: "released" });
+      expect((await prep.open()).map((p) => p.path)).not.toContain(path);
+      await prep.remove(path);
+      expect(await prep.get(path)).toBeNull();
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("asks the coach for new topics", async () => {
+    const res = await ctx.api("/api/learning/suggest", { method: "POST", json: {} });
+    expect(res.status).toBe(201);
+    expect(res.body.taskId).toBeTruthy();
+    expect(JSON.stringify((await ctx.api(`/api/tasks/${res.body.taskId}`)).body)).toContain("Up next");
   });
 });

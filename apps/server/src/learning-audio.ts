@@ -4,6 +4,7 @@ import { BrainConflictError, type Brain, type Frontmatter, noteTitle } from "@cc
 import type { Storage } from "@cc/storage";
 import { type Lexicon, lessonScript, narrationPieces, parseLexicon, pronounce } from "@cc/voice/lesson";
 import { LESSONS_FOLDER, README_PATH } from "./learning";
+import { skippedChecks } from "./learning-release";
 
 /**
  * Narrated lessons. A lesson isn't live, so instead of speaking it sentence by sentence on the
@@ -30,7 +31,7 @@ export const DEFAULT_NARRATOR = "kokoro:bf_emma";
 export const NARRATION_SPEED = 0.95;
 /** How keyed voices that take a style (OpenAI gpt-4o-mini-tts) should read. */
 export const NARRATOR_STYLE =
-  "You are narrating an educational podcast for an experienced British engineer. Speak with a natural Southern British English accent and British pronunciations (zed, not zee). Warm, curious and unhurried, like a good radio presenter: natural rises and falls, light emphasis on the key word of each sentence, and a breath between ideas. Never rushed, never sing-song.";
+  "You are a university lecturer delivering a lecture to an experienced British engineer. Speak with a natural Southern British English accent and British pronunciations (zed, not zee). Measured, assured and engaging, like a good Royal Institution lecturer: clear rises and falls, emphasis on the key term of each sentence, a pause after each new idea, and a slightly slower, deliberate pace for definitions. Never rushed, never sing-song, never chatty.";
 
 export const PRONUNCIATION_TEMPLATE = `# Pronunciation
 
@@ -42,7 +43,9 @@ an entry, and a Z on its own is "zed" (the Z axis). Respell the British way: thi
 everything the app says aloud, lessons and Converse alike. Only add what the voice gets wrong: a respelling can make a word it already says well
 worse ("Beckhoff" is fine as it is). The coach adds new
 terms as it writes lessons. "To check" lists what the narrator's listen-back flagged: fix the
-spelling here (or move it up) and the next recording uses it.
+spelling here (or move it up) and the next recording uses it. "Heard fine" lists words the
+listen-back flagged that the voice says perfectly well (the recogniser misheard them): they
+aren't flagged again.
 
 ## Say it like this
 - EtherCAT: Ether-cat
@@ -88,6 +91,8 @@ spelling here (or move it up) and the next recording uses it.
 - rpm: R P M
 - kW: kilowatts
 - Nm: newton metres
+
+## Heard fine
 
 ## To check
 `;
@@ -247,6 +252,25 @@ export class PronunciationList {
   }
 }
 
+/**
+ * Words under "## Heard fine" in the pronunciation note (`- word`, lower case): the voice says them
+ * well and the recogniser mishears them, so the listen-back doesn't flag them. Pure.
+ */
+export function parseHeardFine(body: string): Set<string> {
+  const out = new Set<string>();
+  let inside = false;
+  for (const line of body.replace(/<!--[\s\S]*?-->/g, "").split("\n")) {
+    const h = /^\s*#{1,6}\s+(.*)$/.exec(line);
+    if (h) {
+      inside = /^heard fine\b/i.test(h[1]!.trim());
+      continue;
+    }
+    const item = inside ? /^\s*[-*]\s+`?([^`:—]+?)`?\s*(?:[—:(].*)?$/.exec(line) : null;
+    if (item) out.add(oneSpelling(item[1]!.trim()));
+  }
+  return out;
+}
+
 /** Adds flagged terms under "## To check" in the pronunciation note, once each. Pure. */
 export function addToCheck(body: string, terms: { term: string; where: string }[]): string {
   const lines = body.split("\n");
@@ -367,6 +391,7 @@ export async function recordLesson(deps: NarrationDeps, path: string, onProgress
   if (!note) throw new Error(`no lesson at ${path}`);
   const lexNote = await deps.brain.read(PRONUNCIATION_PATH).catch(() => null);
   const lexicon = lexNote ? parseLexicon(lexNote.body) : new Map<string, string>();
+  const heardFine = lexNote ? parseHeardFine(lexNote.body) : new Set<string>();
   const title = noteTitle(note);
   const script = lessonScript(note.body, title, lexicon);
   const pieces = narrationPieces(script);
@@ -418,7 +443,10 @@ export async function recordLesson(deps: NarrationDeps, path: string, onProgress
           }
         }
       }
-      if (soundsOff(result) && result.missing.length) flagged.push({ text: piece.text, missing: result.missing, heard });
+      // Words the coach has confirmed the voice says well aren't flagged again.
+      const missing = result.missing.filter((w) => !heardFine.has(w));
+      const terms = result.terms.filter((w) => !heardFine.has(w));
+      if (missing.length && (terms.length || result.score < HEARD_THRESHOLD)) flagged.push({ text: piece.text, missing, heard });
     }
     if (!seen.has(piece.part)) {
       seen.add(piece.part);
@@ -502,8 +530,8 @@ export class LessonRecorder {
   async sweep(): Promise<void> {
     const list = this.deps.brain.summaries ? await this.deps.brain.summaries(LESSONS_FOLDER) : [];
     const todo = list
-      // Done or skipped lessons aren't worth the recording.
-      .filter((n) => n.frontmatter.status !== "done" && n.frontmatter.status !== "skipped" && !audioOf(n.frontmatter) && !this.failed.has(n.path))
+      // Done or skipped lessons aren't worth it; drafts are recorded when the release desk asks (learning-release.ts).
+      .filter((n) => n.frontmatter.status !== "done" && n.frontmatter.status !== "skipped" && n.frontmatter.status !== "draft" && !skippedChecks(n.frontmatter, n.path, new Date()) && !audioOf(n.frontmatter) && !this.failed.has(n.path))
       .map((n) => n.path)
       .sort()
       .reverse();

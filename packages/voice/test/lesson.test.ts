@@ -76,6 +76,51 @@ describe("lessons as speech", () => {
     expect(narrationPieces(s).map((p) => p.part)).toEqual([0, 1, 2, 2, 3, 4, 5, 6]);
   });
 
+  it("shows figures without reading them, and reads each caption in its place", () => {
+    const body = [
+      "# Title",
+      "",
+      "## One",
+      "The frame passes every drive.",
+      "",
+      "![Four drives on one cable](https://upload.wikimedia.org/x.png)",
+      "",
+      "> **Figure 1. One frame, four drives.** A cable runs through four drives in a line; the frame",
+      "> goes out through each and comes back.",
+      "",
+      "```mermaid",
+      "flowchart LR",
+      "  A --> B",
+      "```",
+      "> **Diagram 2. The loop.** A box marked A with an arrow to B.",
+      "",
+      "| Bus | Cycle |",
+      "| --- | --- |",
+      "| EtherCAT | 100 µs |",
+      "",
+      "> **Table 1. Cycle times.** EtherCAT is the fastest of the three.",
+      "",
+      "> An ordinary quote is read as it is.",
+    ].join("\n");
+    const s = lessonScript(body, "Title");
+    expect(s.blocks.map((b) => [b.figure ?? null, b.part !== null])).toEqual([
+      [null, true],
+      [null, true],
+      [null, true],
+      ["image", false],
+      ["caption", true],
+      ["diagram", false],
+      ["caption", true],
+      ["table", false],
+      ["caption", true],
+      [null, true],
+    ]);
+    const said = s.parts.map((p) => p.text);
+    expect(said).toContain("Figure 1. One frame, four drives. A cable runs through four drives in a line; the frame goes out through each and comes back.");
+    expect(said).toContain("Table 1. Cycle times. EtherCAT is the fastest of the three.");
+    expect(said.join(" ")).not.toMatch(/flowchart|100 µs|wikimedia/);
+  });
+
   it("finds the part playing, and estimates part starts for old recordings", () => {
     expect(partAt([0, 4, 10], 0)).toBe(0);
     expect(partAt([0, 4, 10], 9.9)).toBe(1);

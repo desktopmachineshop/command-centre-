@@ -103,6 +103,7 @@ import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
 import { LessonProgress, ListeningPresence, seedLearning, writeActivityNote } from "./learning";
 import { LessonRecorder, narratorOf, PronunciationList, setNarrator } from "./learning-audio";
+import { imageKeeper, PrepStore, ReleaseDesk } from "./learning-release";
 import { PgSnapshotStore } from "./research";
 import { credentialTests } from "./integrations/tests"; // --- integrations oauth ---
 import { redditPcRead, WorkerBrowserJobs } from "./reddit-browser";
@@ -1089,6 +1090,17 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     mediaUrl: (id) => `/media/${id}`,
     log: (line) => console.log(line),
   });
+  // Drafts are checked, recorded, proofed and only then released (./learning-release.ts).
+  const lessonPrep = new PrepStore(pool);
+  const releaseDesk = new ReleaseDesk({
+    brain,
+    store: lessonPrep,
+    pipeline,
+    taskStatus: async (id) => (await store.getTask(id))?.status ?? null,
+    recorder: lessonRecorder,
+    keepImage: imageKeeper(storage, (id) => `/media/${id}`),
+    log: (line) => console.log(line),
+  });
   const learningNarration = {
     recorder: lessonRecorder,
     narrator: () => narratorOf(brain),
@@ -1096,7 +1108,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     lexicon: () => pronunciation.lexicon(),
   };
   // --- end learning ---
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, agentModels: new AgentModelCatalog(() => agentConfig, overrides.integrationsFetch), org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration, progress: new LessonProgress(pool), listening } }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, agentModels: new AgentModelCatalog(() => agentConfig, overrides.integrationsFetch), org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration, progress: new LessonProgress(pool), listening, prep: lessonPrep } }));
   app.route(
     "/mcp",
     mcpRoutes({
@@ -1246,7 +1258,10 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await seedHowWeWork(brain, pool, verticals); // each business's how-we-work note, from the old org chart (./how-we-work.ts)
       await seedCompetitorRegistries(brain, pool, verticals); // each business's empty competitor registry (./competitors.ts)
       await seedLearning(brain, pool); // learning: the README and starter topic map (./learning.ts)
-      if (process.env.NODE_ENV !== "test") lessonRecorder.start(); // learning: records new lessons in the background
+      if (process.env.NODE_ENV !== "test") {
+        lessonRecorder.start(); // learning: records new lessons in the background
+        releaseDesk.start(); // learning: takes drafts through the checks to release
+      }
       if (process.env.NODE_ENV !== "test") answeredElsewhere.start(); // email: withdraw suggested replies Dave already sent himself
       await runIssuesAudit().catch((err) => console.error("[issues] audit failed:", err));
       await storage.init(); // storage: index media from before the index, load the cache
@@ -1314,6 +1329,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       for (const c of scheduleCrons) c.stop();
       for (const c of notificationCrons) c.stop();
       lessonRecorder.stop();
+      releaseDesk.stop();
       answeredElsewhere.stop();
       stopHeartbeat();
       await email.stop();
