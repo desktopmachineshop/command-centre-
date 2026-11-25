@@ -36,6 +36,14 @@
       <p>While any agent is working, <uicontrol>Stop all</uicontrol> appears in the top bar. After you confirm, it stops every task that is running, queued or waiting for the budget. Each stopped task can be retried or replied to later.</p>
     </body>
   </topic>
+  <topic id="model">
+    <title>Choose the model</title>
+    <prolog><resourceid appname="command-centre" appid="chat.model"/></prolog>
+    <body>
+      <p><uicontrol>Model</uicontrol>, next to <uicontrol>Send to</uicontrol>, picks the AI that answers. <uicontrol>Auto</uicontrol>, the default, uses the agent route set on the <xref href="../system/accounts.dita">Accounts</xref> page. The other choices are grouped by provider: Claude, ChatGPT (Codex) and Gemini (Google AI Studio). Each provider has its default model and named models. The Gemini list comes from your Google AI Studio key. A provider marked <term>not connected</term> has no account set up yet.</p>
+      <p>The model you pick goes first. If it isn't available (not connected, at its usage limit, or unable to do the task), the agent route takes over, so the message still gets an answer. Your pick applies to each message you send, follow-ups included, and this device remembers it. Work the assistant hands to a specialist uses that specialist's own model setting.</p>
+    </body>
+  </topic>
   <topic id="dictate">
     <title>Dictate instead of typing</title>
     <prolog><resourceid appname="command-centre" appid="chat.dictate"/></prolog>

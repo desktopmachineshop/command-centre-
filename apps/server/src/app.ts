@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type AgentRunner, ClaudeCodeRunner, CodexRunner, FallbackRunner, fallbackChain, GeminiRunner, isUnavailable, isUsageLimit, ScriptedRunner } from "@cc/agent-runtime";
+import { type AgentRunner, ClaudeCodeRunner, CodexRunner, GeminiRunner, isUnavailable, isUsageLimit, RoutedRunner, ScriptedRunner } from "@cc/agent-runtime";
 import { auditIssues, ISSUES_README, PgBrain } from "@cc/brain";
 import { type CardProvider, ROOT_ROLE_ID } from "@cc/core";
 import { diskSpace, storageHousekeeping, uploadRefusal } from "./storage-housekeeping";
@@ -46,7 +46,7 @@ import { type ActionExecutor, ActionService, builtinExecutors } from "./actions"
 import { BudgetService } from "./budget";
 import { cardGuide, CardService } from "./cards";
 import { socialAccountsGuide } from "./social-guide";
-import { type AgentName, type Config, parseAgentRoute } from "./config";
+import { AGENT_NAMES, type AgentName, type Config, parseAgentRoute } from "./config";
 import { addDays } from "./days";
 import { createPool, migrate } from "./db/pool";
 import { Store } from "./db/store";
@@ -95,6 +95,7 @@ import { WorkerService } from "./workers";
 import { type Group, IntegrationService, IntegrationStore, Live, SecretBox } from "./integrations";
 import { ClaudeSetup } from "./integrations/claude-setup";
 import { CodexSetup } from "./integrations/codex-setup";
+import { AgentModelCatalog } from "./agent-models";
 import { CodexHome } from "./codex-home";
 import { integrationOAuth } from "./integrations/oauth"; // --- integrations oauth ---
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
@@ -199,6 +200,9 @@ export function agentEnv(config: Config, kind: "subscription" | "api" | "codex",
 }
 
 /**
+ * A run's chosen provider (the chat's model picker or a specialist's setting) goes first, with its
+ * model, and the route follows it; see RoutedRunner.
+ *
  * The agents' runner for the chosen route (Accounts → Agent route, or AGENT_ROUTE): its agents in
  * order, each taking over from the one before when that one hits its usage limit, isn't connected
  * or can't do the task (Gemini has no shell), or fails before it has used any tool (so nothing it
@@ -233,11 +237,14 @@ export function createRunner(config: Config, codexHome?: CodexHome): AgentRunner
     },
     gemini: () => new GeminiRunner({ name: "gemini", apiKey: a.geminiApiKey, model: a.geminiModel, sessionsDir: a.geminiSessionsDir, timeoutMs: a.timeoutMs }),
   };
-  const chain = fallbackChain((parseAgentRoute(a.route) ?? ["claude"]).map((name) => build[name]()));
-  if (!a.fallbackApiKey) return chain;
-  const api = new ClaudeCodeRunner({ name: "claude-code-api", bin: a.claudeBin, env: agentEnv(config, "api"), timeoutMs: a.timeoutMs });
-  // The key costs money: only when every subscription is at its limit or none could run.
-  return new FallbackRunner(chain.name, chain, api, (r) => isUsageLimit(r) || isUnavailable(r));
+  const runners = Object.fromEntries(AGENT_NAMES.map((name) => [name, build[name]()]));
+  const api = a.fallbackApiKey ? new ClaudeCodeRunner({ name: "claude-code-api", bin: a.claudeBin, env: agentEnv(config, "api"), timeoutMs: a.timeoutMs }) : undefined;
+  return new RoutedRunner({
+    runners,
+    route: parseAgentRoute(a.route) ?? ["claude"],
+    // The key costs money: only when every subscription is at its limit or none could run.
+    ...(api ? { last: { runner: api, when: (r) => isUsageLimit(r) || isUnavailable(r) } } : {}),
+  });
 }
 
 /** Wires every service together. `start()` migrates, boots the queue and schedules. */
@@ -1101,7 +1108,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     lexicon: () => pronunciation.lexicon(),
   };
   // --- end learning ---
-  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration, progress: new LessonProgress(pool), listening, prep: lessonPrep } }));
+  app.route("/api", apiRoutes({ store, pipeline, actions, workers, brain, verticals, notifier, budget, digests, adminToken: config.adminToken, webhookSecret: config.webhookSecret, social: socialDeps, storage: storageDeps, auth: { service: auth, options: authHttp }, voice: { service: voiceService, conversations: voiceConversations, front: () => (overrides.voiceFront !== undefined || agentConfig.agent.runner === "claude-code" ? voiceFront : null) }, notifications, pa, integrations, claudeSetup, codexSetup, agentModels: new AgentModelCatalog(() => agentConfig, overrides.integrationsFetch), org, desktop: desktopDeps, chatFiles, help: config.help, davinci, cards, learning: { timeZone: config.timezone, narration: learningNarration, progress: new LessonProgress(pool), listening, prep: lessonPrep } }));
   app.route(
     "/mcp",
     mcpRoutes({

@@ -1,4 +1,4 @@
-import { type AgentMessage, isStopped, type Proposal, type Task } from "@cc/core";
+import { type AgentChoice, type AgentMessage, isStopped, type Proposal, type Task } from "@cc/core";
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Api, ChatFile } from "../api";
 import { type LiveFeed, useLive, useResync } from "../live";
@@ -16,6 +16,17 @@ import { Drive, type Exchange } from "./Drive";
 import { go } from "../router";
 import { ago, askText } from "../format";
 import { statusWords } from "./TaskView";
+import { ModelPicker } from "../model-picker";
+
+const AGENT_KEY = "cc.chat.agent";
+function loadAgent(): AgentChoice | undefined {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AGENT_KEY) ?? "null");
+    return parsed && typeof parsed.provider === "string" ? (parsed as AgentChoice) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 type Turn = {
   key: number;
@@ -255,6 +266,17 @@ function useComposerSwipe(sectionRef: RefObject<HTMLElement | null>, converse: b
 export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; drive?: boolean }) {
   const [verticals, setVerticals] = useState<{ id: string; name: string }[]>([]);
   const [vertical, setVertical] = useState("");
+  // The model picker: kept for next time on this device (a convenience; the server stores each message's pick).
+  const [agent, setAgentState] = useState<AgentChoice | undefined>(() => loadAgent());
+  const setAgent = (choice: AgentChoice | undefined) => {
+    setAgentState(choice);
+    try {
+      if (choice) localStorage.setItem(AGENT_KEY, JSON.stringify(choice));
+      else localStorage.removeItem(AGENT_KEY);
+    } catch {
+      // storage blocked: the pick lasts for this visit
+    }
+  };
   const [text, setText] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -520,7 +542,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
     // A correction after "Stop & edit" on a follow-up tells the agent it replaces what it was doing.
     const corrected = editing?.followUp && threadId === editing.taskId ? `${EDITED}\n\n${message}` : message;
     try {
-      const task = threadId ? await api.replyToTask(threadId, corrected, false, ids) : (await api.chat(message, vertical || undefined, { files: ids })).task;
+      const task = threadId ? await api.replyToTask(threadId, corrected, false, ids, agent) : (await api.chat(message, vertical || undefined, { files: ids, agent })).task;
       setThreadId(task.id);
       setEditing(null);
       // A follow-up's task timestamp is when the server took the reply; a new chat's is its creation.
@@ -692,6 +714,7 @@ export function Chat({ api, feed, drive = false }: { api: Api; feed: LiveFeed; d
               <span>New chat</span>
             </button>
           )}
+          {!driving && <ModelPicker api={api} value={agent} onChange={setAgent} className="model-picker" aria-label="Model" data-help-key="chat.model" />}
           <ReadAloudToggle readAloud={readAloud} />
           <a
             className={`tool ${drive ? "is-on" : ""}`}

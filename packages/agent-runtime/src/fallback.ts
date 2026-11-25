@@ -112,3 +112,60 @@ export function fallbackChain(runners: AgentRunner[], shouldFallback: ShouldFall
   if (!runners.length) throw new Error("fallbackChain needs at least one runner");
   return runners.reduceRight((next, runner) => new FallbackRunner(runner.name, runner, next, shouldFallback));
 }
+
+/** `runner` with the request's `model` and `provider` dropped: for agents other than the one they were picked for. */
+class WithoutModel implements AgentRunner {
+  constructor(private readonly runner: AgentRunner) {}
+  get name() {
+    return this.runner.name;
+  }
+  run(request: AgentRunRequest, onMessage?: OnAgentMessage) {
+    const { model: _m, provider: _p, ...rest } = request;
+    return this.runner.run(rest, onMessage);
+  }
+}
+
+export interface RoutedRunnerOptions {
+  /** Each provider's runner ("claude", "codex", "gemini"). */
+  runners: Record<string, AgentRunner>;
+  /** The default order (the agent route). */
+  route: string[];
+  /** A runner after the whole route (the pay-as-you-go key), and when to move on to it. */
+  last?: { runner: AgentRunner; when: ShouldFallback };
+  shouldFallback?: ShouldFallback;
+}
+
+/**
+ * The agent route, with a per-run choice: a request naming a `provider` (the chat's model picker,
+ * a specialist's setting) starts on that provider, with its `model`, and falls back down the rest
+ * of the route as usual. Agents other than the picked one run on their own default model.
+ */
+export class RoutedRunner implements AgentRunner {
+  readonly name: string;
+
+  constructor(private readonly options: RoutedRunnerOptions) {
+    const first = options.route.find((p) => options.runners[p]) ?? Object.keys(options.runners)[0];
+    if (!first) throw new Error("RoutedRunner needs at least one runner");
+    this.name = options.runners[first]!.name;
+  }
+
+  /** The providers a run goes through, in order. */
+  order(provider?: string): string[] {
+    const route = this.options.route.filter((p) => this.options.runners[p]);
+    if (!provider || !this.options.runners[provider]) return route;
+    return [provider, ...route.filter((p) => p !== provider)];
+  }
+
+  run(request: AgentRunRequest, onMessage?: OnAgentMessage): Promise<AgentRunResult> {
+    const picked = request.provider && this.options.runners[request.provider] ? request.provider : undefined;
+    const runners = this.order(picked).map((p, i) => {
+      const runner = this.options.runners[p]!;
+      // The picked model is for the picked provider; without a pick, the request's model goes to all (as before).
+      return picked && i > 0 ? new WithoutModel(runner) : runner;
+    });
+    let chain = fallbackChain(runners, this.options.shouldFallback ?? nextAgent);
+    const last = this.options.last;
+    if (last) chain = new FallbackRunner(chain.name, chain, picked && picked !== "claude" ? new WithoutModel(last.runner) : last.runner, last.when);
+    return chain.run(request, onMessage);
+  }
+}

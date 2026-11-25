@@ -16,6 +16,11 @@ export interface AgentRunRequest {
   allowedTools?: string[];
   maxTurns?: number;
   model?: string;
+  /**
+   * The provider to try first ("claude", "codex", "gemini"), e.g. from the chat's model picker.
+   * A routed runner puts it at the head of its route; `model` then applies to it alone.
+   */
+  provider?: string;
   /** Resume an earlier session of the same runner. */
   resumeSessionId?: string;
   /**

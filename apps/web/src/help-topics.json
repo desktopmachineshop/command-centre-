@@ -21,6 +21,7 @@
   "brain.search": "topics/knowledge/brain.html#search",
   "chat": "topics/work/chat.html",
   "chat.dictate": "topics/work/chat.html#dictate",
+  "chat.model": "topics/work/chat.html#model",
   "chat.send-to": "topics/work/chat.html#send-to",
   "converse": "topics/work/converse.html",
   "converse.commands": "topics/work/converse.html#commands",

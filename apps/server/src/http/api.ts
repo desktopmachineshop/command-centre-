@@ -1,5 +1,5 @@
 import { BrainConflictError, parseNote, type PgBrain, serializeNote } from "@cc/brain";
-import { Capability, cardRefs, ProposalStatus, ROOT_ROLE_ID, SetupRoleId, TaskStatus } from "@cc/core";
+import { AgentChoice, Capability, cardRefs, ProposalStatus, ROOT_ROLE_ID, SetupRoleId, TaskStatus } from "@cc/core";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { authRoutes, type AuthHttpOptions, requireApiAuth } from "../accounts/http";
@@ -8,6 +8,7 @@ import { type ActionService, ProposalInvalidError, ProposalStateError } from "..
 import { ReplyStateError } from "../voice/conversations";
 import { tokenMatches } from "../auth";
 import type { BudgetService } from "../budget";
+import type { AgentModelCatalog } from "../agent-models";
 import { ChatFileError, ChatFileIds, chatFileRoutes, type ChatFiles } from "../chat-files";
 import { dayStart, isDay } from "../days";
 import type { Store } from "../db/store";
@@ -61,6 +62,8 @@ export interface ApiDeps {
   integrations?: IntegrationService;
   /** "Connect Claude" (runs `claude setup-token` on the server). */
   claudeSetup?: ClaudeSetup;
+  /** The model picker's choices (../agent-models.ts). */
+  agentModels?: AgentModelCatalog;
   /** "Connect ChatGPT" (runs `codex login --device-auth` on the server). */
   codexSetup?: CodexSetup;
   /** Org page editing: roles and policies over the code manifests (see ../org-config.ts). */
@@ -135,12 +138,16 @@ export function apiRoutes(deps: ApiDeps) {
     return c.json({ cards: deps.cards ? await deps.cards.resolve(refs) : refs.map((ref) => ({ ref, error: "Cards are not set up" })) });
   });
 
+  /** The providers and models the chat's model picker and the specialists' setting offer. */
+  app.get("/agents/models", async (c) => (deps.agentModels ? c.json(await deps.agentModels.list()) : c.json({ route: ["claude"], providers: [] })));
+
   app.post("/chat", async (c) => {
     // `role` (optional) asks a specific org role, as a "role: ..." prefix would.
     // `voice: true` (Drive mode) asks the agent for a short spoken answer; see agent-context voicePrompt.
     // `files` (optional): ids from POST /chat/files, handed to the agent with the message (../chat-files.ts).
+    // `agent` (optional): {provider, model?} from the model picker; the route still falls back from it.
     const body = z
-      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional(), voice: z.boolean().optional(), files: ChatFileIds.optional() })
+      .object({ text: z.string().min(1), vertical: z.string().optional(), role: z.string().optional(), voice: z.boolean().optional(), files: ChatFileIds.optional(), agent: AgentChoice.optional() })
       .parse(await c.req.json());
     if (body.files?.length && !deps.chatFiles) return c.json({ error: "file attachments are not available on this server" }, 400);
     const attached = body.files?.length && deps.chatFiles ? await deps.chatFiles.context(body.files) : null;
@@ -153,6 +160,8 @@ export function apiRoutes(deps: ApiDeps) {
         text: body.text,
         ...(body.role ? { role: body.role } : {}),
         ...(body.voice ? { voice: true } : {}),
+        // The model picker: the provider and model this chat's runs try first.
+        ...(body.agent ? { agent: body.agent } : {}),
         ...(attached ? { files: attached.files, filesPrompt: attached.prompt } : {}),
       },
     });

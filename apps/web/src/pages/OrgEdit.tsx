@@ -5,6 +5,7 @@
  * checks the whole org first and answers 400 with the problems, or 409 when someone
  * saved in between. See docs/ORG.md.
  */
+import { ModelPicker } from "../model-picker";
 import { isOdooWrite, type OrgConfig, type OrgConfigVersion, type Policy, type Role, type RootOrgEdit, type Schedule, type VerticalOrgEdit } from "@cc/core";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { type Api, ApiError } from "../api";
@@ -103,6 +104,8 @@ type Draft = {
   /** Kept as they are (not edited here): a coding role's own tools and repository. */
   tools: Role["tools"];
   repo?: string;
+  /** The model picker: the provider and model its runs use first. */
+  agent?: Role["agent"];
 };
 
 const toDraft = (r: Omit<Role, "reportsTo"> & { reportsTo?: string }): Draft => ({
@@ -120,6 +123,7 @@ const toDraft = (r: Omit<Role, "reportsTo"> & { reportsTo?: string }): Draft => 
   schedules: r.schedules,
   tools: r.tools ?? [],
   repo: r.repo,
+  agent: r.agent,
 });
 
 const fromDraft = (d: Draft): Role => ({
@@ -137,6 +141,7 @@ const fromDraft = (d: Draft): Role => ({
   schedules: d.schedules,
   tools: d.tools,
   ...(d.repo ? { repo: d.repo } : {}),
+  ...(d.agent ? { agent: d.agent } : {}),
 });
 
 /** The specialists of a business once `role` is saved: it replaces its old self, or is added. */
@@ -164,7 +169,7 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
     e.preventDefault();
     const role = fromDraft({ ...draft, id });
     if (isRoot) {
-      const { id: _id, reportsTo: _r, ...rest } = role;
+      const { id: _id, reportsTo: _r, agent: _a, ...rest } = role;
       if (await run(() => api.orgSave(ROOT, rest satisfies RootOrgEdit, config.root.version))) close();
     } else if (vertical) {
       const data: VerticalOrgEdit = { ...vertical.current, roles: nextRoles(roles, role, isNew) };
@@ -224,6 +229,13 @@ function RoleDialog({ api, config, unit, roleId, onSaved, close }: { api: Api; c
           <textarea value={draft.autonomyNotes} onChange={(e) => set({ autonomyNotes: e.target.value })} rows={3} placeholder="What it may do on its own, and what always needs Dave." />
           <span className="muted small">Guidance for the agent. Whether an action runs or waits is set by the business's policies.</span>
         </label>
+        {!isRoot && (
+          <label className="field">
+            <span>Model</span>
+            <ModelPicker api={api} value={draft.agent} onChange={(agent) => set({ agent })} autoLabel="Auto (the agent route)" aria-label="Model" />
+            <span className="muted small">The provider and model its tasks try first. If that one isn't available, the agent route on the Accounts page takes over.</span>
+          </label>
+        )}
         <Picker label="Skills" hint="Only these are in its workspace." options={skillNames} value={draft.skills} onChange={(skills) => set({ skills })} />
         <fieldset className="field">
           <legend>Tools</legend>

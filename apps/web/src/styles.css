@@ -2700,6 +2700,18 @@ a.stat:hover {
   gap: 6px;
   min-width: 0;
 }
+/* With the Model picker the row fills its place, so the picker gives up width before anything overlaps. */
+.composer .composer-tools:has(> select.model-picker) {
+  justify-self: stretch;
+  justify-content: flex-end;
+}
+.shell.is-phone .composer .composer-tools:has(> select.model-picker) {
+  justify-self: stretch;
+  justify-content: flex-start;
+}
+.composer .composer-tools > :not(select) {
+  flex-shrink: 0;
+}
 .composer .composer-tools .tool {
   display: inline-flex;
   align-items: center;
@@ -2899,6 +2911,20 @@ a.stat:hover {
  */
 .composer-tools-slot {
   display: contents;
+}
+/* Chat's Model picker sits with the tools (Read aloud, Converse), so Send to keeps its room on a phone. */
+.composer .composer-tools select.model-picker {
+  grid-area: auto;
+  /* No width of its own from the longest model name, so it shrinks rather than push the row wider. */
+  contain: inline-size;
+  width: auto;
+  min-width: 0;
+  max-width: 13rem;
+  flex: 0 1 13rem;
+}
+.shell.is-phone .composer .composer-tools select.model-picker {
+  min-height: 32px;
+  height: 32px;
 }
 /* Converse's Talking to picker takes the place of the chat box's Send to. */
 .composer-picker-slot {

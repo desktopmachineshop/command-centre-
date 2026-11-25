@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { type AgentRunner, isUsageLimit, limitResetAt } from "@cc/agent-runtime";
 import type { Brain } from "@cc/brain";
-import { type AgentMessage, type Event, findRole, NewEvent, type NotificationCategory, type Proposal, ROOT_ROLE_ID, STOPPED_NOTE, type Task, type TaskStatus, type TriageResult } from "@cc/core";
+import { AgentChoice, type AgentMessage, type Event, findRole, NewEvent, type NotificationCategory, type Proposal, ROOT_ROLE_ID, STOPPED_NOTE, type Task, type TaskStatus, type TriageResult } from "@cc/core";
 import type { Triager } from "@cc/triage";
 import { DEFAULT_VERTICAL, routeRole, type VerticalRegistry } from "@cc/verticals";
 import type { ActionService } from "./actions";
@@ -471,6 +471,8 @@ export class Pipeline {
         mcpServers,
         allowedTools: [...allowedToolsFor(mcpServers), ...workbench.tools, ...fileRules, ...skillReadRules(this.deps.skillsDir, vertical, skills)],
         maxTurns: role.maxTurns ?? this.deps.maxTurns,
+        // The model picker: this reply's pick, else the chat's, else the specialist's own setting.
+        ...agentChoiceOf(turn?.agent, event, role.agent),
         ...(images.length ? { images } : {}),
         signal: abort.signal,
       };
@@ -862,6 +864,14 @@ export class Pipeline {
 }
 
 /** The files Dave attached to the message an event carries: a chat message, or a handoff passing them on. */
+/** The provider and model a run tries first: a reply's pick, the chat's (its event), or the role's. */
+export function agentChoiceOf(reply: AgentChoice | undefined, event: Pick<Event, "source" | "payload"> | null, role: AgentChoice | undefined): { provider?: string; model?: string } {
+  const chat = event?.source === "chat" ? AgentChoice.safeParse(event.payload.agent) : null;
+  const choice = reply ?? (chat?.success ? chat.data : undefined) ?? role;
+  if (!choice) return {};
+  return { provider: choice.provider, ...(choice.model ? { model: choice.model } : {}) };
+}
+
 function filesOf(event: Pick<Event, "source" | "kind" | "payload"> | null): ChatFile[] {
   const files = event && (event.source === "chat" || (event.source === "system" && event.kind === "handoff")) ? event.payload.files : null;
   return Array.isArray(files) ? files.filter((f): f is ChatFile => !!f && typeof f === "object" && typeof (f as ChatFile).id === "string") : [];
