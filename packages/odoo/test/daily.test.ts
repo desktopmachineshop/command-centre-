@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOdooExecutors, createOdooMcpServer, OdooClient } from "../src";
 import { dailyModels, FakeOdoo } from "../src/testing";
 
@@ -48,7 +48,13 @@ describe("odoo day-to-day reads", () => {
 
   it("finds invoices by type, partner and overdue", async () => {
     expect((await call("search_invoices", { partner: "acme" })).json.map((i: any) => i.name)).toEqual(["INV/2026/00009"]);
-    expect((await call("search_invoices", { overdue: true })).json.map((i: any) => i.name)).toEqual(["INV/2026/00009"]);
+    // "Overdue" is against today; pinned to a day INV/2026/00010 (due 2026-11-24) isn't yet late.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-20T12:00:00Z") });
+    try {
+      expect((await call("search_invoices", { overdue: true })).json.map((i: any) => i.name)).toEqual(["INV/2026/00009"]);
+    } finally {
+      vi.useRealTimers();
+    }
     expect((await call("search_invoices", { type: "vendor_bill" })).json.map((i: any) => i.name)).toEqual(["BILL/2026/00003"]);
     expect((await call("search_invoices", { state: "draft" })).json.map((i: any) => i.id)).toEqual([11]);
     const inv = (await call("get_invoice", { name: "inv/2026/00009" })).json;
