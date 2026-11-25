@@ -1,6 +1,11 @@
 import type { AgentRunner, AgentRunRequest, AgentRunResult, OnAgentMessage } from "./runner";
 
-const LIMIT_PATTERN = /usage limit|rate limit|limit reached|quota|overloaded/i;
+/**
+ * A usage or rate limit, in the wording each provider uses: "Claude AI usage limit reached",
+ * "You've hit your 5-hour limit · resets 10pm (UTC)", "You've hit your weekly limit", Codex's
+ * "You've hit your usage limit", an API "rate limit" or "quota", or "overloaded".
+ */
+const LIMIT_PATTERN = /usage limit|rate limit|limit reached|quota|overloaded|hit your [\w -]*limit|\b\d+-hour limit|(?:weekly|daily|session|opus|sonnet) limit/i;
 /** The runner couldn't take the run at all: not signed in, key refused, CLI missing, not suited to the task. */
 const UNAVAILABLE_PATTERN = /isn't connected|isn't available|can't be used|Failed to start/i;
 
@@ -12,6 +17,49 @@ export function isUsageLimit(r: AgentRunResult): boolean {
 /** A run its runner couldn't take: no account connected, the key refused, the CLI missing, or a task it can't do. */
 export function isUnavailable(r: AgentRunResult): boolean {
   return r.status === "failed" && UNAVAILABLE_PATTERN.test(r.error ?? "");
+}
+
+/**
+ * When a limit says it resets ("resets 10pm (UTC)", "resets at 3:30am (Europe/London)",
+ * "resets 22:00"): the next such time after `now`, in the zone named (UTC when none or unknown).
+ * Null when the error names no reset time.
+ */
+export function limitResetAt(error: string, now: Date = new Date()): Date | null {
+  const m = /resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([^)]+)\))?/i.exec(error);
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2] ?? 0);
+  const ampm = m[3]?.toLowerCase();
+  if (ampm) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (ampm === "pm" ? 12 : 0);
+  }
+  if (hour > 23 || minute > 59) return null;
+  let zone = (m[4] ?? "UTC").trim();
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: zone });
+  } catch {
+    zone = "UTC";
+  }
+  const parts = (d: Date) => {
+    const p = Object.fromEntries(
+      new Intl.DateTimeFormat("en-GB", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" })
+        .formatToParts(d)
+        .map((x) => [x.type, Number(x.value)]),
+    );
+    return p as Record<string, number>;
+  };
+  const offset = (d: Date) => {
+    const p = parts(d);
+    return Date.UTC(p.year!, p.month! - 1, p.day!, p.hour!, p.minute!, p.second!) - Math.floor(d.getTime() / 1000) * 1000;
+  };
+  const today = parts(now);
+  for (let day = 0; day <= 1; day++) {
+    const wall = Date.UTC(today.year!, today.month! - 1, today.day! + day, hour, minute);
+    const at = new Date(wall - offset(new Date(wall)));
+    if (at.getTime() > now.getTime()) return at;
+  }
+  return null;
 }
 
 /** What the primary did before it failed, for deciding whether a retry elsewhere is safe. */
