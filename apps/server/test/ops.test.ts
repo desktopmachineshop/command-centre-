@@ -45,6 +45,10 @@ describe.skipIf(!DB_URL)("ops: run performance and the server log (integration)"
     await run(ok, { status: "succeeded", seconds: 600, cost: 2.5 });
     const bad = await task({ role: "software-lead", status: "failed", prompt: "Merge PR 11" });
     await run(bad, { status: "failed", seconds: 30, cost: 0.1, error: "GitHub refused the pull request" });
+    // Failed at the usage limit, then ran again after the reset: retried, not a failure.
+    const later = await task({ role: "software-lead", status: "done", prompt: "Answer the customer" });
+    await run(later, { status: "failed", seconds: 120, cost: 0, error: "You've hit your 5-hour limit" });
+    await run(later, { status: "succeeded", seconds: 60, cost: 0 });
     await task({ role: "pa", status: "running", prompt: "Stuck one", updatedAgo: "3 hours" });
     await pool.query(
       `insert into proposals (id, task_id, vertical, action_type, summary, policy, status, result) values
@@ -54,8 +58,8 @@ describe.skipIf(!DB_URL)("ops: run performance and the server log (integration)"
     );
 
     const r = await performanceReport(pool, 1);
-    expect(r.totals).toEqual({ runs: 2, failed: 1, costUsd: 2.6 });
-    expect(r.byRole).toEqual([expect.objectContaining({ vertical: "command-centre", role: "software-lead", runs: 2, failed: 1, cost_usd: 2.6, max_seconds: 600 })]);
+    expect(r.totals).toEqual({ runs: 4, failed: 1, retried: 1, costUsd: 2.6 });
+    expect(r.byRole).toEqual([expect.objectContaining({ vertical: "command-centre", role: "software-lead", runs: 4, failed: 1, retried: 1, cost_usd: 2.6, max_seconds: 600 })]);
     expect(r.failedRuns).toEqual([expect.objectContaining({ prompt: "Merge PR 11", error: "GitHub refused the pull request" })]);
     expect(r.slowestRuns[0]).toMatchObject({ prompt: "Fix the digest", seconds: 600 });
     expect(r.costliestRuns[0]).toMatchObject({ prompt: "Fix the digest", cost_usd: 2.5 });

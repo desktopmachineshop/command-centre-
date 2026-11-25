@@ -12,7 +12,7 @@ class HangingRunner implements AgentRunner {
   limitTimes = 0;
   async run(request: AgentRunRequest) {
     this.started++;
-    if (this.limitTimes-- > 0) return { status: "failed" as const, result: null, error: "Claude usage limit reached; resets at 03:00", costUsd: 0, sessionId: null };
+    if (this.limitTimes-- > 0) return { status: "failed" as const, result: null, error: "You've hit your 5-hour limit", costUsd: 0, sessionId: null };
     if (this.answer) return { status: "succeeded" as const, result: "Done after the restart.", error: null, costUsd: 0, sessionId: null };
     await new Promise<void>((resolve) => request.signal?.addEventListener("abort", () => resolve()));
     return { status: "failed" as const, result: null, error: "Aborted", costUsd: 0, sessionId: null };
@@ -124,7 +124,7 @@ describe.skipIf(!DB_URL)("a server restart while an agent is working", () => {
     await ctx.queue.drain();
     const failed = (await ctx.api(`/api/tasks/${id}`)).body;
     expect(failed.task.status).toBe("failed");
-    expect(failed.task.note).toBe("Run failed: Claude usage limit reached; resets at 03:00");
+    expect(failed.task.note).toBe("Run failed: You've hit your 5-hour limit");
     expect(failed.runs).toHaveLength(LIMIT_RETRIES + 1);
     runner.limitTimes = 0;
   });

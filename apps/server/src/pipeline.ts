@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
-import { type AgentRunner, isUsageLimit } from "@cc/agent-runtime";
+import { type AgentRunner, isUsageLimit, limitResetAt } from "@cc/agent-runtime";
 import type { Brain } from "@cc/brain";
 import { type AgentMessage, type Event, findRole, NewEvent, type NotificationCategory, type Proposal, ROOT_ROLE_ID, STOPPED_NOTE, type Task, type TaskStatus, type TriageResult } from "@cc/core";
 import type { Triager } from "@cc/triage";
@@ -27,6 +27,8 @@ export const LIMIT_NOTE = "The agents' usage limit is reached, so this is waitin
 /** How long a task waits before trying again after a usage limit, and how many times it does. */
 export const LIMIT_RETRY_SECONDS = 30 * 60;
 export const LIMIT_RETRIES = 8;
+/** After a limit's stated reset time, how long a task waits before trying again (the reset isn't to the second). */
+export const LIMIT_RESET_MARGIN_SECONDS = 2 * 60;
 
 /** On a task put back on the queue because the server was restarting. */
 export const INTERRUPTED_NOTE = "Interrupted by a server restart; starting again.";
@@ -755,7 +757,8 @@ export class Pipeline {
 
   /**
    * A run failed on a usage or rate limit with no other account to fall back on. The task goes back
-   * on the queue to run again in `AGENT_LIMIT_RETRY_SECONDS` (half an hour), up to `LIMIT_RETRIES` times (a subscription's
+   * on the queue to run again just after the reset time the limit gives ("resets 10pm (UTC)"), or
+   * else in `AGENT_LIMIT_RETRY_SECONDS` (half an hour), up to `LIMIT_RETRIES` times (a subscription's
    * limit resets within hours); after that it fails like any other, and this returns false. The
    * first time, Dave is told what he asked for is waiting, unless he can see it on screen.
    */
@@ -763,7 +766,10 @@ export class Pipeline {
     const { store, hub, queue, notifier } = this.deps;
     const waits = (await store.listRuns(task.id)).filter((r) => isUsageLimit({ status: r.status === "failed" ? "failed" : "succeeded", result: r.result, error: r.error, costUsd: r.costUsd, sessionId: r.sessionId })).length;
     if (waits > LIMIT_RETRIES) return false;
-    const delaySeconds = this.deps.guards.limitRetrySeconds ?? LIMIT_RETRY_SECONDS;
+    const reset = limitResetAt(error);
+    const untilReset = reset ? Math.ceil((reset.getTime() - Date.now()) / 1000) + LIMIT_RESET_MARGIN_SECONDS : null;
+    // A reset within a day is believed; anything else (none given, or a weekly limit days away) waits the usual interval.
+    const delaySeconds = untilReset !== null && untilReset <= 24 * 3600 ? untilReset : (this.deps.guards.limitRetrySeconds ?? LIMIT_RETRY_SECONDS);
     const at = new Date(Date.now() + delaySeconds * 1000);
     const when = at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: this.deps.timezone ?? "Europe/London" });
     const requeued = await store.setTaskStatusIf(task.id, ["running"], "queued", `${LIMIT_NOTE} Trying again at ${when}. (${error.trim().slice(0, 200)})`);
