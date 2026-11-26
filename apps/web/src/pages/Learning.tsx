@@ -1,10 +1,11 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { Api, LearningStats, LearningSuggestion, LearningTrack, LearningView, Lesson, LessonAudio, LessonProgress, Narration, PreparingLesson, SkillStatus, SkillTreeView, VoiceConfig, VoiceList } from "../api";
+import type { Api, LearningStats, LearningSuggestion, LearningTrack, LearningView, Lesson, LessonAudio, LessonProgress, Narration, PreparingLesson, SkillStatus, SkillTreeView, SkillView, VoiceConfig, VoiceList } from "../api";
 import { Icon } from "../icons";
 import { useLessonPlayer } from "../learning/player";
 import { localPlace, progressPercent, startingPlace, useLessonAudio } from "../learning/global-player";
 import { chapterAt, clock, SPEEDS } from "../learning/recording";
 import { prettyVoice } from "../learning/NarratorPicker";
+import { SkillMap } from "../learning/SkillMap";
 import { estimateMarks, lessonScript, minutesLeft, partAt, type Script } from "../learning/script";
 import { type LiveFeed, useLoad } from "../live";
 import { Markdown } from "../markdown";
@@ -165,108 +166,139 @@ const SKILL_MARK: Record<SkillStatus, { icon: "check" | "learn" | "spark" | "key
   locked: { icon: "key", label: "Locked" },
 };
 
-/** Each track from foundations to expert: what's done, what's open now and what's still locked. */
+/** Each track from foundations to expert: what's done, what's open now and what's still locked. As a map, or a list. */
 function SkillTree({ api, tree, onAsked }: { api: Api; tree: SkillTreeView; onAsked: () => void }) {
   const tracks = tree.tracks.filter((t) => t.total > 0);
-  const [track, setTrack] = useState(() => {
+  const remembered = (key: string) => {
     try {
-      const saved = localStorage.getItem("cc.learning.tree");
-      if (saved && tracks.some((t) => t.track === saved)) return saved;
+      return localStorage.getItem(key);
     } catch {
-      // Storage unavailable: start on the first track.
+      return null; // Storage unavailable: the defaults.
     }
-    return tracks[0]?.track ?? "";
-  });
-  const pick = (id: string) => {
-    setTrack(id);
+  };
+  const remember = (key: string, value: string) => {
     try {
-      localStorage.setItem("cc.learning.tree", id);
+      localStorage.setItem(key, value);
     } catch {
       // Remembered for this visit only.
     }
+  };
+  const [track, setTrack] = useState(() => {
+    const saved = remembered("cc.learning.tree");
+    return saved && tracks.some((t) => t.track === saved) ? saved : (tracks[0]?.track ?? "");
+  });
+  const [mode, setMode] = useState<"map" | "list">(() => (remembered("cc.learning.treeView") === "list" ? "list" : "map"));
+  const pick = (id: string) => {
+    setTrack(id);
+    remember("cc.learning.tree", id);
+  };
+  const show = (m: "map" | "list") => {
+    setMode(m);
+    remember("cc.learning.treeView", m);
   };
   const [asked, setAsked] = useState<Record<string, string | null>>({});
   const [err, setErr] = useState<string | null>(null);
   const t = tracks.find((x) => x.track === track) ?? tracks[0];
   if (!t) return null;
-  const ask = async (id: string, title: string) => {
+  const ask = async (id: string, title: string, trackId: string) => {
     setErr(null);
     try {
-      const { taskId } = await api.requestLesson(title, t.track, id);
+      const { taskId } = await api.requestLesson(title, trackId, id);
       setAsked((a) => ({ ...a, [id]: taskId }));
       onAsked();
     } catch (e) {
       setErr((e as Error).message);
     }
   };
+  const row = (s: SkillView, trackId: string) => <SkillRow key={s.id} s={s} asked={asked} onAsk={() => void ask(s.id, s.title, trackId)} />;
+  const skillRow = (id: string) => {
+    for (const x of tracks) for (const l of x.levels) for (const s of l.skills) if (s.id === id) return row(s, x.track);
+    return null;
+  };
   return (
     <article className="card skill-tree" aria-label="Skill tree">
       <div className="row between">
         <h3>Skill tree</h3>
-        <a className="small" href={`#/brain/${encodeURIComponent(tree.path)}`}>
-          Edit
-        </a>
+        <div className="row tree-mode">
+          <div className="segmented tree-view" role="radiogroup" aria-label="Show the skill tree as">
+            {(["map", "list"] as const).map((m) => (
+              <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? "on" : ""} onClick={() => show(m)}>
+                {m === "map" ? "Map" : "List"}
+              </button>
+            ))}
+          </div>
+          <a className="small" href={`#/brain/${encodeURIComponent(tree.path)}`}>
+            Edit
+          </a>
+        </div>
       </div>
-      <div className="row wrap tree-tabs" role="tablist" aria-label="Track">
-        {tracks.map((x) => (
-          <button key={x.track} role="tab" aria-selected={x.track === t.track} className={`small${x.track === t.track ? " is-on" : ""}`} onClick={() => pick(x.track)}>
-            {x.name} <span className="muted">{x.taught}/{x.total}</span>
-          </button>
-        ))}
-      </div>
-      <div className="track-bar tree-progress" role="img" aria-label={`${t.name}: ${t.done} of ${t.total} skills done, ${t.taught} taught`}>
-        <span className="track-fill" style={{ width: `${(t.taught / Math.max(1, t.total)) * 100}%` }} />
-      </div>
-      {t.levels.map((level) => (
-        <section key={level.name} className="tree-level">
-          <h4 className="small">{level.name}</h4>
-          {level.skills.length === 0 && <p className="small muted">Nothing here yet: the coach adds skills as you ask about things.</p>}
-          <ul className="tree-skills">
-            {level.skills.map((s) => {
-              const mark = SKILL_MARK[s.status];
-              const sent = s.id in asked;
-              return (
-                <li key={s.id} className={`tree-skill is-${s.status}`}>
-                  <span className="tree-mark" title={mark.label} aria-label={mark.label}>
-                    <Icon name={mark.icon} size={14} />
-                  </span>
-                  <div className="tree-body">
-                    <p className="title">{s.title}</p>
-                    {s.why && <p className="small muted">{s.why}</p>}
-                    {s.status === "locked" && s.waitsOn.length > 0 && <p className="small muted">After: {s.waitsOn.join("; ")}</p>}
-                    {s.lessons.length > 0 && (
-                      <p className="small">
-                        {s.lessons.map((l, i) => (
-                          <span key={l.path}>
-                            {i > 0 && " · "}
-                            {l.status === "preparing" ? <span className="muted">{l.title} (being prepared)</span> : <a href={`#/${lessonHref(l.path)}`}>{l.title}</a>}
-                          </span>
-                        ))}
-                      </p>
-                    )}
-                  </div>
-                  {s.status === "open" &&
-                    (sent ? (
-                      asked[s.id] ? (
-                        <a className="small" href={`#/task/${asked[s.id]}`}>
-                          Being written…
-                        </a>
-                      ) : (
-                        <span className="small muted">Asked</span>
-                      )
-                    ) : (
-                      <button className="small" onClick={() => void ask(s.id, s.title)}>
-                        Make this lesson
-                      </button>
-                    ))}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
+      {mode === "map" ? (
+        <SkillMap tree={tree} detail={skillRow} />
+      ) : (
+        <>
+          <div className="row wrap tree-tabs" role="tablist" aria-label="Track">
+            {tracks.map((x) => (
+              <button key={x.track} role="tab" aria-selected={x.track === t.track} className={`small${x.track === t.track ? " is-on" : ""}`} onClick={() => pick(x.track)}>
+                {x.name} <span className="muted">{x.taught}/{x.total}</span>
+              </button>
+            ))}
+          </div>
+          <div className="track-bar tree-progress" role="img" aria-label={`${t.name}: ${t.done} of ${t.total} skills done, ${t.taught} taught`}>
+            <span className="track-fill" style={{ width: `${(t.taught / Math.max(1, t.total)) * 100}%` }} />
+          </div>
+          {t.levels.map((level) => (
+            <section key={level.name} className="tree-level">
+              <h4 className="small">{level.name}</h4>
+              {level.skills.length === 0 && <p className="small muted">Nothing here yet: the coach adds skills as you ask about things.</p>}
+              <ul className="tree-skills">{level.skills.map((s) => row(s, t.track))}</ul>
+            </section>
+          ))}
+        </>
+      )}
       {err && <p className="error">{err}</p>}
     </article>
+  );
+}
+
+/** One skill: its mark, what it is, its lessons, and Make this lesson while it's open. */
+function SkillRow({ s, asked, onAsk }: { s: SkillView; asked: Record<string, string | null>; onAsk: () => void }) {
+  const mark = SKILL_MARK[s.status];
+  const sent = s.id in asked;
+  return (
+    <li className={`tree-skill is-${s.status}`}>
+      <span className="tree-mark" title={mark.label} aria-label={mark.label}>
+        <Icon name={mark.icon} size={14} />
+      </span>
+      <div className="tree-body">
+        <p className="title">{s.title}</p>
+        {s.why && <p className="small muted">{s.why}</p>}
+        {s.status === "locked" && s.waitsOn.length > 0 && <p className="small muted">After: {s.waitsOn.join("; ")}</p>}
+        {s.lessons.length > 0 && (
+          <p className="small">
+            {s.lessons.map((l, i) => (
+              <span key={l.path}>
+                {i > 0 && " · "}
+                {l.status === "preparing" ? <span className="muted">{l.title} (being prepared)</span> : <a href={`#/${lessonHref(l.path)}`}>{l.title}</a>}
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+      {s.status === "open" &&
+        (sent ? (
+          asked[s.id] ? (
+            <a className="small" href={`#/task/${asked[s.id]}`}>
+              Being written…
+            </a>
+          ) : (
+            <span className="small muted">Asked</span>
+          )
+        ) : (
+          <button className="small" onClick={onAsk}>
+            Make this lesson
+          </button>
+        ))}
+    </li>
   );
 }
 
