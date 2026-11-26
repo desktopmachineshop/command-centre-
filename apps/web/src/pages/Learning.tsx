@@ -74,6 +74,8 @@ export function LessonProgressBadge({ lesson, bar = true }: { lesson: Pick<Lesso
 }
 
 function TrackChip({ track, tracks }: { track: string; tracks: LearningTrack[] }) {
+  // A topic asked for without a theme has none until the coach files it.
+  if (!track) return null;
   return <span className="track-chip">{tracks.find((t) => t.id === track)?.name ?? track}</span>;
 }
 
@@ -236,7 +238,7 @@ function SkillTree({ api, tree, onAsked }: { api: Api; tree: SkillTreeView; onAs
         <SkillMap tree={tree} detail={skillRow} />
       ) : (
         <>
-          <div className="row wrap tree-tabs" role="tablist" aria-label="Track">
+          <div className="row wrap tree-tabs" role="tablist" aria-label="Theme">
             {tracks.map((x) => (
               <button key={x.track} role="tab" aria-selected={x.track === t.track} className={`small${x.track === t.track ? " is-on" : ""}`} onClick={() => pick(x.track)}>
                 {x.name} <span className="muted">{x.taught}/{x.total}</span>
@@ -347,7 +349,7 @@ function Scoreboard({ stats }: { stats: LearningStats }) {
         <span>this week</span>
       </div>
 
-      <h4 className="small">By track</h4>
+      <h4 className="small">By theme</h4>
       <ul className="track-bars">
         {stats.byTrack.map((t) => (
           <li key={t.track} title={`${t.name}: ${t.completed} lessons, ${t.minutes} min`}>
@@ -500,8 +502,8 @@ function Choose({ api, view, onAsked }: { api: Api; view: LearningView; onAsked:
       )}
       <form className="row ask-topic" onSubmit={(e) => void submit(e)}>
         <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Teach me about…" aria-label="Topic to learn" maxLength={300} />
-        <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Track">
-          <option value="">Any track</option>
+        <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Theme">
+          <option value="">Coach picks the theme</option>
           {view.tracks.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
@@ -532,8 +534,8 @@ function Library({ view }: { view: LearningView }) {
           <option value="done">Done</option>
           <option value="skipped">Skipped</option>
         </select>
-        <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Track">
-          <option value="">Every track</option>
+        <select value={track} onChange={(e) => setTrack(e.target.value)} aria-label="Theme">
+          <option value="">Every theme</option>
           {view.tracks.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}

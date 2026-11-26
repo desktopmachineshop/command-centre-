@@ -101,7 +101,7 @@ import { integrationOAuth } from "./integrations/oauth"; // --- integrations oau
 import { refreshExpiringTokens } from "./integrations/refresh"; // --- integrations oauth ---
 import { kindOfAccount, platformOfKind } from "./integrations/effective";
 import { scheduleShouldFire, seedCompetitorRegistries } from "./competitors";
-import { LessonProgress, ListeningPresence, seedLearning, writeActivityNote } from "./learning";
+import { LessonProgress, ListeningPresence, refileRetiredThemes, seedLearning, writeActivityNote } from "./learning";
 import { LessonRecorder, narratorOf, PronunciationList, setNarrator } from "./learning-audio";
 import { imageKeeper, PrepStore, ReleaseDesk } from "./learning-release";
 import { PgSnapshotStore } from "./research";
@@ -1274,6 +1274,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
       await pipeline.recoverStale();
       // Deferred tasks from a day the server slept through; any still over budget re-defer.
       await pipeline.releaseDeferred();
+      // learning: lessons, topics and skills filed under the retired "Your picks" theme go to the coach to re-file, once (./learning.ts)
+      await refileRetiredThemes(brain, pipeline).catch((err) => console.error("[learning] re-filing Your picks failed:", (err as Error).message));
       // Rollover and digest run regardless of SCHEDULES_ENABLED, which only gates vertical schedules.
       crons = startSystemJobs({
         timezone: config.timezone,

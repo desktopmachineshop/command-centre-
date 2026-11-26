@@ -1,6 +1,7 @@
 import { chiefOfStaff } from "@cc/verticals";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { activityNote, addRequested, requestTopic, settleTopics, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, lessonOf, parseTopicLine, parseTopics, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import { activityNote, addRequested, DEFAULT_TRACKS, requestTopic, settleTopics, skipTopic, lessonPercent, ListeningPresence, type Lesson, learningStats, learningTracks, lessonOf, parseTopicLine, parseTopics, refilePrompt, refileRetiredThemes, TOPICS_TEMPLATE, todaysLesson, writeActivityNote } from "../src/learning";
+import { parseSkillTree, SKILL_TREE_TEMPLATE } from "../src/learning-skills";
 import pg from "pg";
 import { PrepStore } from "../src/learning-release";
 import { DB_URL, makeServer, resetDatabase } from "./helpers";
@@ -30,8 +31,9 @@ const done = (day: string, over: Partial<Lesson> = {}) =>
 describe("learning (pure)", () => {
   it("reads topic lines and the map's sections", () => {
     expect(parseTopicLine("- [robotics] EtherCAT distributed clocks: keeps axes in step")).toEqual({ track: "robotics", title: "EtherCAT distributed clocks", why: "keeps axes in step" });
-    expect(parseTopicLine("- [nope] Something - why")).toEqual({ track: "interest", title: "Something", why: "why" });
-    expect(parseTopicLine("- plain bullet")).toBeNull();
+    // Any theme id, as a slug; none at all leaves it for the coach to file.
+    expect(parseTopicLine("- [Home Energy] Something - why")).toEqual({ track: "home-energy", title: "Something", why: "why" });
+    expect(parseTopicLine("- Harmonic drives: how strain-wave gears work")).toEqual({ track: "", title: "Harmonic drives", why: "how strain-wave gears work" });
     const map = parseTopics(TOPICS_TEMPLATE);
     expect(map.requested).toEqual([]);
     expect(map.upNext.length).toBeGreaterThanOrEqual(3);
@@ -39,8 +41,45 @@ describe("learning (pure)", () => {
     expect(map.backlog).toBeGreaterThan(20);
   });
 
+  it("takes the themes from the skill tree, adding any a lesson uses that the tree hasn't got yet", () => {
+    const tree = parseSkillTree(SKILL_TREE_TEMPLATE);
+    const tracks = learningTracks(tree, ["ai", "", "home-energy", "home-energy", "ai"]);
+    expect(tracks.map((t) => t.id)).toEqual(["ai", "robotics", "saas", "maker", "market", "home-energy"]);
+    expect(tracks[0]).toEqual({ id: "ai", name: "AI", description: "Everything AI: models, agents, tooling, evaluation, research, regulation and news." });
+    expect(tracks.at(-1)).toEqual({ id: "home-energy", name: "Home energy", description: "" });
+    // A theme the coach adds to the tree is a theme, with its own description.
+    const grown = parseSkillTree(`${SKILL_TREE_TEMPLATE}\n## Science & engineering (science)\nPhysics, chemistry and how things work.\n\n### Foundations\n- \`sci.batteries\` How batteries work\n`);
+    expect(learningTracks(grown, []).at(-1)).toEqual({ id: "science", name: "Science & engineering", description: "Physics, chemistry and how things work." });
+    // Without a tree, the starting themes; "Your picks" is gone.
+    expect(learningTracks(null, []).map((t) => t.id)).toEqual(DEFAULT_TRACKS.map((t) => t.id));
+    expect(learningTracks(null, []).some((t) => t.id === "interest")).toBe(false);
+  });
+
+  it("counts the scoreboard by theme, and All-rounder over every theme", () => {
+    const tracks = [
+      { id: "ai", name: "AI", description: "" },
+      { id: "science", name: "Science", description: "" },
+    ];
+    const now = new Date("2026-11-24T12:00:00Z");
+    const s = learningStats([done("2026-11-20", { track: "ai" }), done("2026-11-21", { track: "science" })], now, "Europe/London", tracks);
+    expect(s.byTrack.map((t) => [t.track, t.completed])).toEqual([
+      ["ai", 1],
+      ["science", 1],
+    ]);
+    expect(s.badges.find((b) => b.id === "all-tracks")).toMatchObject({ earned: true, detail: "2/2 themes" });
+  });
+
+  it("asks the coach to re-file what was under Your picks, naming what it found", () => {
+    const p = refilePrompt({ lessons: ["learning/lessons/2026-11-20-x.md"], topics: 2, skills: 0 });
+    expect(p).toContain("learning/lessons/2026-11-20-x.md");
+    expect(p).toContain("2 topic line(s)");
+    expect(p).not.toContain("skill(s) under");
+    expect(p).toContain("never a theme for a single topic");
+  });
+
   it("adds a requested topic under Requested, after any already there", () => {
-    const once = addRequested(TOPICS_TEMPLATE, { track: "interest", title: "Harmonic drives", why: "" });
+    const once = addRequested(TOPICS_TEMPLATE, { track: "", title: "Harmonic drives", why: "" });
+    expect(once).toContain("\n- Harmonic drives\n");
     const twice = addRequested(once, { track: "ai", title: "Speculative decoding", why: "faster inference" });
     expect(parseTopics(twice).requested.map((s) => s.title)).toEqual(["Harmonic drives", "Speculative decoding"]);
     expect(parseTopics(twice).upNext).toEqual(parseTopics(TOPICS_TEMPLATE).upNext);
@@ -120,12 +159,12 @@ describe("learning (pure)", () => {
   });
 
   it("skips a topic: out of every list that would get it written, into Skipped", () => {
-    const body = addRequested(TOPICS_TEMPLATE, { track: "interest", title: "Harmonic drives", why: "" });
+    const body = addRequested(TOPICS_TEMPLATE, { track: "", title: "Harmonic drives", why: "" });
     const out = skipTopic(body, { track: "market", title: "why carbide end mill prices move" }, "skipped 2026-11-23");
     expect(parseTopics(out).upNext.map((t) => t.title)).not.toContain("Why carbide end mill prices move");
     expect(out).toMatch(/## Skipped\n- \[market\] why carbide end mill prices move \(skipped 2026-11-23\)/);
     expect(parseTopics(out).requested).toHaveLength(1); // the others stay
-    const again = skipTopic(out, { track: "interest", title: "Harmonic drives" }, "skipped 2026-11-23");
+    const again = skipTopic(out, { track: "", title: "Harmonic drives" }, "skipped 2026-11-23");
     expect(parseTopics(again).requested).toEqual([]);
     expect(again.match(/^## Skipped$/gm)).toHaveLength(1);
     // A map from before Skipped existed gets the section.
@@ -142,7 +181,7 @@ describe("learning (pure)", () => {
 
   it("settles the map: topics already written come out of the open lists and go under Taught", () => {
     // Two lessons written at once: the second save put back the topic the first had cleared.
-    let body = requestTopic(TOPICS_TEMPLATE, { track: "interest", title: "Harmonic drives", why: "" });
+    let body = requestTopic(TOPICS_TEMPLATE, { track: "", title: "Harmonic drives", why: "" });
     body = requestTopic(body, { track: "ai", title: "Speculative decoding", why: "" });
     body = body.replace("## Taught\n", "## Taught\n- 2026-11-23 [ai] Speculative decoding → learning/lessons/2026-11-23-speculative-decoding.md\n");
     const lessons = [
@@ -213,6 +252,27 @@ describe.skipIf(!DB_URL)("learning (server)", () => {
     expect(one.status).toBe(200);
     expect(one.body.body).toContain("# A lesson");
     expect((await ctx.api("/api/learning/lesson?path=people/x.md")).status).toBe(400);
+  });
+
+  it("lists a theme a lesson is filed under even before the tree has it, and hands Your picks to the coach once", async () => {
+    const { body } = await ctx.api("/api/learning");
+    expect(body.tracks.map((t: { id: string }) => t.id)).not.toContain("interest");
+    const energy = `learning/lessons/${body.today}-solar.md`;
+    await ctx.api("/api/brain/note", { method: "PUT", json: { path: energy, raw: raw(`type: lesson\ntrack: home-energy\ntitle: Solar batteries\nstatus: ready\ncreated: ${body.today}`, 100) } });
+    expect((await ctx.api("/api/learning")).body.tracks.at(-1)).toEqual({ id: "home-energy", name: "Home energy", description: "" });
+
+    // Nothing under the retired theme: nothing to do.
+    expect(await refileRetiredThemes(ctx.server.brain, ctx.server.pipeline)).toBe(false);
+    const picked = `learning/lessons/${body.today}-picked.md`;
+    await ctx.api("/api/brain/note", { method: "PUT", json: { path: picked, raw: raw(`type: lesson\ntrack: interest\ntitle: Harmonic drives\nstatus: ready\ncreated: ${body.today}`, 100) } });
+    expect(await refileRetiredThemes(ctx.server.brain, ctx.server.pipeline)).toBe(true);
+    expect(await refileRetiredThemes(ctx.server.brain, ctx.server.pipeline)).toBe(true);
+    await ctx.queue.drain();
+    const tasks = ((await ctx.api("/api/tasks")).body as { prompt: string }[]).filter((t) => t.prompt.includes('"Your picks" learning theme'));
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.prompt).toContain(picked);
+    // Back as they were, for the tests after.
+    for (const path of [energy, picked]) await ctx.api(`/api/brain/note?path=${encodeURIComponent(path)}`, { method: "DELETE" });
   });
 
   it("marks a lesson done (and back), counting it on the scoreboard and in the journal", async () => {

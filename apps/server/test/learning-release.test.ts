@@ -126,9 +126,10 @@ describe("the release check (pure)", () => {
 });
 
 describe("the skill tree (pure)", () => {
-  it("reads the starter tree: every track, levels in order, what each skill builds on", () => {
+  it("reads the starter tree: every theme with what it covers, levels in order, what each skill builds on", () => {
     const tree = parseSkillTree(SKILL_TREE_TEMPLATE);
-    expect(tree.map((t) => t.track)).toEqual(["ai", "robotics", "saas", "maker", "market", "interest"]);
+    expect(tree.map((t) => t.track)).toEqual(["ai", "robotics", "saas", "maker", "market"]);
+    for (const t of tree) expect(t.description, t.track).not.toBe("");
     const ai = tree[0]!;
     expect(ai.levels.map((l) => l.name)).toEqual(["Foundations", "Practitioner", "Advanced", "Expert"]);
     expect(ai.levels[1]!.skills.find((s) => s.id === "ai.rag")).toEqual({ id: "ai.rag", title: "Retrieval-augmented generation", why: "chunking, reranking and when it isn't the answer", needs: ["ai.embeddings", "ai.prompting"] });

@@ -1,5 +1,5 @@
 /**
- * The skill tree: each track as levels (foundations to expert) of skills, each skill naming the
+ * The skill tree: each theme ("track" in the code) as levels (foundations to expert) of skills, each skill naming the
  * ones it builds on. It lives in the brain (learning/skill-tree.md) and the coach keeps it: it
  * picks lessons from it, adds to it, and puts each lesson's skill in its frontmatter (`skill:`).
  * The Learning page shows it with what's done, what's open and what's still locked.
@@ -9,15 +9,18 @@ export const SKILL_TREE_PATH = "learning/skill-tree.md";
 
 export const SKILL_TREE_TEMPLATE = `# Skill tree
 
-The career coach's map of what to learn, track by track, from foundations to expert. Each
+The career coach's map of what to learn, theme by theme, from foundations to expert. Each
 lesson teaches one skill and says which in its frontmatter (\`skill: ai.agents\`). A skill opens
 once the skills it builds on (after the arrow) have a lesson. Edit freely: add skills, move them,
 change what they build on.
 
-One skill per line: \`- \\\`id\\\` Title: why it matters ← builds-on-id, another-id\`. A track is a
-\`## Name (track-id)\` heading; its levels are \`### \` headings, easiest first.
+A theme is a \`## Name (theme-id)\` heading, with a line under it on what it covers; its levels
+are \`### \` headings, easiest first. Themes are broad, each covering a whole field: a new topic
+goes in the theme it fits, and only gets a new theme when it fits none. One skill per line:
+\`- \\\`id\\\` Title: why it matters ← builds-on-id, another-id\`.
 
 ## AI (ai)
+Everything AI: models, agents, tooling, evaluation, research, regulation and news.
 
 ### Foundations
 - \`ai.ml-basics\` Machine learning in one lecture: data, loss, gradient descent and overfitting
@@ -44,6 +47,7 @@ One skill per line: \`- \\\`id\\\` Title: why it matters ← builds-on-id, anoth
 - \`ai.safety\` Alignment and safety engineering: from red-teaming to interpretability ← ai.evals, ai.multiagent
 
 ## Robotics & automation (robotics)
+Robotics, industrial PLCs (Beckhoff TwinCAT first), motion control, fabrication, industrial additive manufacturing, manufacturing methods and supply chain.
 
 ### Foundations
 - \`rob.iec61131\` IEC 61131-3 beyond ladder: structured text, function blocks and object orientation in TwinCAT
@@ -69,6 +73,7 @@ One skill per line: \`- \\\`id\\\` Title: why it matters ← builds-on-id, anoth
 - \`rob.am-design\` Designing for metal additive: topology optimisation, supports and qualification ← rob.am
 
 ## SaaS & requirements (saas)
+Requirements management and compliance, building and running a SaaS, hosting, and agentic workflows for requirements and projects.
 
 ### Foundations
 - \`saas.requirements\` Writing good requirements: ISO/IEC/IEEE 29148 and the INCOSE rules
@@ -93,6 +98,7 @@ One skill per line: \`- \\\`id\\\` Title: why it matters ← builds-on-id, anoth
 - \`saas.scale\` Scaling a SaaS: from one database to many ← saas.multitenant
 
 ## Maker & home automation (maker)
+Hobby CNC and 3D printing, home electronics and automation, and hobby PLC programming (CODESYS).
 
 ### Foundations
 - \`mk.cnc\` How a hobby CNC machine works: frame, drives, spindle and controller
@@ -115,6 +121,7 @@ One skill per line: \`- \\\`id\\\` Title: why it matters ← builds-on-id, anoth
 - \`mk.toolchanger\` Multi-material and tool-changing printers ← mk.materials
 
 ## Tools & materials market (market)
+Home-manufacturing trends, and the world news behind tool, material and motor prices.
 
 ### Foundations
 - \`mkt.commodities\` How commodity prices work: futures, spot prices and who sets them
@@ -133,9 +140,6 @@ One skill per line: \`- \\\`id\\\` Title: why it matters ← builds-on-id, anoth
 ### Expert
 - \`mkt.forecast\` Reading the signals: forecasting input costs for a small manufacturer ← mkt.metals, mkt.china
 
-## Your picks (interest)
-
-### Foundations
 `;
 
 export interface Skill {
@@ -149,10 +153,12 @@ export interface Skill {
 export interface SkillTreeTrack {
   track: string;
   name: string;
+  /** The line under the theme's heading, on what it covers ("" if none). */
+  description: string;
   levels: { name: string; skills: Skill[] }[];
 }
 
-const TRACK_HEADING = /^##\s+(.+?)\s*\(([a-z-]+)\)\s*$/;
+const TRACK_HEADING = /^##\s+(.+?)\s*\(([a-z0-9][a-z0-9-]*)\)\s*$/i;
 const SKILL_LINE = /^\s*[-*]\s+`([a-z0-9][a-z0-9.-]*)`\s+(.+?)\s*$/i;
 
 /** The tree as written: tracks, their levels in order, and each skill. Pure. */
@@ -162,7 +168,7 @@ export function parseSkillTree(body: string): SkillTreeTrack[] {
   for (const line of body.replace(/<!--[\s\S]*?-->/g, "").split("\n")) {
     const t = TRACK_HEADING.exec(line);
     if (t) {
-      track = { track: t[2]!.toLowerCase(), name: t[1]!.trim(), levels: [] };
+      track = { track: t[2]!.toLowerCase(), name: t[1]!.trim(), description: "", levels: [] };
       tracks.push(track);
       continue;
     }
@@ -177,7 +183,11 @@ export function parseSkillTree(body: string): SkillTreeTrack[] {
       continue;
     }
     const m = SKILL_LINE.exec(line);
-    if (!m) continue;
+    if (!m) {
+      // The first line of prose under the heading says what the theme covers.
+      if (!track.levels.length && !track.description && line.trim() && !/^\s*[-*#>]/.test(line)) track.description = line.trim();
+      continue;
+    }
     if (!track.levels.length) track.levels.push({ name: "Foundations", skills: [] });
     const [text, after = ""] = m[2]!.split(/\s+(?:←|<-|after:)\s+/i);
     const split = /^(.+?):\s+(.+)$/.exec(text!.trim());
