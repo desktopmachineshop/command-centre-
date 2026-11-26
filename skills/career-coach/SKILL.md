@@ -20,7 +20,7 @@ businesses or tell him what his business should do. Teach the subject; he'll mak
 | What | Path |
 | --- | --- |
 | The topic map: requested, up next, backlog, taught | `learning/topics.md` |
-| The skill tree: each track from foundations to expert | `learning/skill-tree.md` |
+| The skill tree: each theme from foundations to expert | `learning/skill-tree.md` |
 | Each lesson | `learning/lessons/YYYY-MM-DD-<kebab-slug>.md` |
 | Your notes on every source a lesson uses | `learning/research/YYYY-MM-DD-<kebab-slug>.md` |
 | What he dealt with each day (written by the server) | `learning/activity/YYYY-MM-DD.md` |
@@ -38,31 +38,46 @@ sentence; words that sound wrong come back to you to fix in the pronunciation li
 recorded again. Only then is it set `status: ready` and shown to Dave. Never set `status: ready`
 yourself.
 
-## Tracks
+## Themes
 
-Use exactly these track ids (the app colours and counts by them):
+Lessons are filed under **themes**: a few broad fields, each covering lots of subjects, not a
+fixed list and not one per topic. The themes are the `## Name (id)` headings of the skill tree
+(`learning/skill-tree.md`), each with a line under it saying what it covers. A lesson's
+`track:` frontmatter and a topic's `[id]` tag are a theme's id. The app reads the themes from
+the tree, so a new one shows up as soon as it's there.
 
-| id | Track | Covers |
+The tree starts with these, which cover most of what Dave does:
+
+| id | Theme | Covers |
 | --- | --- | --- |
 | `ai` | AI | Everything AI: models, agents, tooling, evaluation, research, regulation, news |
-| `robotics` | Robotics & industrial automation | Robotics news, industrial PLCs (Beckhoff TwinCAT first, then Siemens and others), motion control, EtherCAT, fabrication, industrial additive manufacturing, manufacturing methods, supply chain |
+| `robotics` | Robotics & automation | Robotics news, industrial PLCs (Beckhoff TwinCAT first, then Siemens and others), motion control, EtherCAT, fabrication, industrial additive manufacturing, manufacturing methods, supply chain |
 | `saas` | SaaS & requirements | Requirements management and compliance (ISO/IEC/IEEE 29148, DO-178C, ISO 26262, IEC 61508, EN 50128, traceability), building and running a SaaS, Railway as a host, agentic workflows for requirements and project management |
 | `maker` | Maker & home automation | Hobby CNC, hobby 3D printing, home electronics and automation (ESP32, Home Assistant, sensors), hobby-accessible PLC programming (CODESYS first) |
 | `market` | Tools & materials market | Hobby CNC, 3D printing and home-manufacturing trends; world news behind price changes (tungsten and cobalt for carbide end mills and bits, rare earths and copper for stepper and servo motors, tariffs, shipping, currency) and why |
-| `interest` | Dave's picks | Anything Dave asks for or shows interest in |
+
+**Filing a topic.** Put it in the theme it fits, reading each theme's line generously: a topic
+on battery chemistry for a home solar setup fits Maker & home automation; one on negotiating
+with suppliers fits Tools & materials market. Only when it fairly fits none, add a **new broad
+theme**: name the whole field the topic belongs to, not the topic ("Science & engineering", not
+"How black holes form"; "Money & business", not "UK corporation tax"), give it a short id and a
+line on what it covers, add it to the tree with Foundations to Expert levels and the topic's
+skill in the right one, then file the topic. Never make a catch-all theme ("Misc", "Your
+picks", "Other"), and don't split a theme that is working. If two themes keep overlapping,
+suggest merging them to Dave rather than doing it yourself.
 
 ## The topic map (`learning/topics.md`)
 
 Keep these sections, in this order. One topic per line, exactly
-`- [track] Topic title: one line on why it's worth learning now`, so the app can read it.
+`- [theme] Topic title: one line on why it's worth learning now`, so the app can read it.
 
 - `## Requested`: topics Dave asked for, newest last. Always taught first.
 - `## From your work`: topics drawn from what he's actually dealing with (below), newest last,
-  each as `- [track] Topic: why (from <Mon 23 Nov>: <what it came from, a few words>)`.
-- `## Up next`: the next three to five you'd pick, spread across tracks. The app offers these
+  each as `- [theme] Topic: why (from <Mon 23 Nov>: <what it came from, a few words>)`.
+- `## Up next`: the next three to five you'd pick, spread across themes. The app offers these
   as today's alternatives, so keep it filled.
 - `## Backlog`: everything else, grouped under `### <Track>` headings. Add freely.
-- `## Taught`: `- YYYY-MM-DD [track] Title → learning/lessons/<file>.md`, newest last.
+- `## Taught`: `- YYYY-MM-DD [theme] Title → learning/lessons/<file>.md`, newest last.
 - `## Skipped`: topics Dave skipped from the app (a suggestion he didn't want, or a lesson he
   didn't bother with). Never write a lesson on one, don't suggest it again or a near-copy of it,
   and don't move it back. Several skips in one area mean less of that area: note it under
@@ -70,15 +85,15 @@ Keep these sections, in this order. One topic per line, exactly
 
 ## The skill tree (`learning/skill-tree.md`)
 
-Each track is laid out from foundations to expert, so lessons build on each other instead of
-hopping between unrelated topics. A track is a `## Name (track-id)` heading; its levels are
+Each theme is laid out from foundations to expert, so lessons build on each other instead of
+hopping between unrelated topics. A theme is a `## Name (theme-id)` heading; its levels are
 `### Foundations`, `### Practitioner`, `### Advanced`, `### Expert`. One skill per line:
 
 ```markdown
 - `ai.agents` How AI agents plan and use tools: the loop behind them, and where it breaks ← ai.tools
 ```
 
-The id is the track's prefix and a short kebab name; after the arrow come the skills it builds
+The id is the theme's prefix and a short kebab name; after the arrow come the skills it builds
 on. A skill is *open* once everything it builds on has a lesson, *locked* until then. The app
 shows the tree, and Dave can ask for any open skill from it.
 
@@ -86,7 +101,7 @@ shows the tree, and Dave can ask for any open skill from it.
   from-your-work topic that fits no skill gets one first: add it at the right level, with what it
   builds on (often a foundation he hasn't had yet, which is then taught first if he'd struggle
   without it).
-- Grow the tree as he does: when a track's open skills run low, add the next skills (deeper, or
+- Grow the tree as he does: when a theme's open skills run low, add the next skills (deeper, or
   sideways into neighbouring subjects); when a skill turns out to be two lectures' worth, split
   it. Keep foundations genuinely foundational and expert genuinely expert.
 - Several lessons can teach the same skill (a second lecture going further); don't repeat one.
@@ -113,8 +128,8 @@ counts of what came in from outside. Find up to three learnable topics in it and
 
 **During any chat** (as the assistant), when Dave mentions wanting to understand something, asks a "how does X work" question that
 deserves more than a chat answer, or keeps coming back to a subject, add it to `## Requested`
-(track `interest` unless another fits) and tell him in one line that it's on his learning list.
-When he says he's bored of a track or wants more of one, note it under a `## Preferences`
+(tagged with its theme, a new broad one if none fits: see Themes) and tell him in one line that it's on his learning list.
+When he says he's bored of a theme or wants more of one, note it under a `## Preferences`
 section at the end and follow it.
 
 ## Picking today's topic
@@ -123,10 +138,10 @@ section at the end and follow it.
 2. Then, at least every other day, the best topic in `## From your work` (the freshest and most
    useful to what he's doing now). Say in the introduction why it's relevant ("This is the
    problem behind …"), without naming customers.
-3. Otherwise rotate tracks: look at the last five entries in `## Taught` and pick a track that
+3. Otherwise rotate themes: look at the last five entries in `## Taught` and pick a theme that
    hasn't had a turn recently. AI comes round most often (about one day in three).
-4. Within the track, take an **open** skill from the skill tree, lowest level first, and teach
-   it through something timely where you can: search the last week or two of news in that track
+4. Within the theme, take an **open** skill from the skill tree, lowest level first, and teach
+   it through something timely where you can: search the last week or two of news in that theme
    and use a real development as the hook ("why carbide end mill prices rose this quarter"
    teaches tungsten supply). Otherwise take the next open skill as it stands.
 5. Build on what he's learnt: read the titles in `## Taught` and the lessons on the skills this
@@ -335,11 +350,11 @@ shed-yool"). Your part:
 3. `write` `learning/topics.md`: read it again first (other lessons may be being written at the
    same time, and a write replaces the whole note), then take the topic out of Requested, From
    your work, Up next or Backlog, add it to `## Taught`, and top `## Up next` back up to three to
-   five topics across tracks (at least one not AI), drawn from open skills in the tree.
+   five topics across themes (at least one not AI), drawn from open skills in the tree.
 4. `write` `learning/skill-tree.md` if you added or changed skills (re-read it first).
 5. Update `learning/pronunciation.md` as above.
 6. Don't propose a notify for the daily lesson: the morning brief mentions it. For a lesson Dave
-   asked for in chat, reply in one or two lines: the title, the track, and that it's being checked
+   asked for in chat, reply in one or two lines: the title, the theme, and that it's being checked
    and recorded and will appear in Learning when it's ready.
 
 ## The morning brief's learning line

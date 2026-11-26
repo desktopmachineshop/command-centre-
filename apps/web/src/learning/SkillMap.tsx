@@ -176,7 +176,7 @@ export function SkillMap({
             </span>
           )}
         </div>
-        <div className="row wrap map-chips" role="group" aria-label="Tracks">
+        <div className="row wrap map-chips" role="group" aria-label="Themes">
           {tracks.map((t) => (
             <button
               key={t.track}
@@ -201,7 +201,7 @@ export function SkillMap({
               className="link small"
               onClick={() => setHiddenTracks(new Set())}
             >
-              All tracks
+              All themes
             </button>
           )}
         </div>
@@ -323,7 +323,7 @@ export function SkillMap({
               (n.status === "done" || n.status === "taught");
             const name =
               n.kind === "track"
-                ? `${n.label}: ${n.taught} of ${n.total} learnt. ${n.folded ? "Unfold" : "Fold"} the track.`
+                ? `${n.label}: ${n.taught} of ${n.total} learnt. ${n.folded ? "Unfold" : "Fold"} the theme.`
                 : `${n.label}, ${STATUS_WORD[n.status]}${n.folded ? `, ${n.hidden} more folded under it` : ""}`;
             return (
               <g
@@ -401,7 +401,7 @@ export function SkillMap({
         </div>
       ) : (
         <p className="small muted">
-          Tap a skill to see it, or a track's dot to fold it.
+          Tap a skill to see it, or a theme's dot to fold it.
         </p>
       )}
     </div>

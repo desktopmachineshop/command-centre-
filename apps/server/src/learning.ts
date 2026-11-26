@@ -30,18 +30,58 @@ export const README_PATH = "learning/README.md";
 export const ACTIVITY_FOLDER = "learning/activity/";
 export const activityPath = (day: string) => `${ACTIVITY_FOLDER}${day}.md`;
 
-/** The tracks lessons are filed under (the career-coach skill uses the same ids). */
-export const LEARNING_TRACKS = [
+/**
+ * A theme ("track" in the code) lessons are filed under. The themes are the skill tree's
+ * (learning/skill-tree.md): broad fields, each with its own skills, and the coach adds a new one
+ * when a topic fits none. `id` is a short slug.
+ */
+export interface LearningTrack {
+  id: string;
+  name: string;
+  description: string;
+}
+export type TrackId = string;
+
+/** The themes the skill tree starts with, and what the app falls back on without one. */
+export const DEFAULT_TRACKS: readonly LearningTrack[] = [
   { id: "ai", name: "AI", description: "Models, agents, tooling, evaluation, research and news" },
   { id: "robotics", name: "Robotics & automation", description: "Robotics, industrial PLCs (Beckhoff), motion, fabrication, industrial AM, manufacturing and supply chain" },
   { id: "saas", name: "SaaS & requirements", description: "Requirements management and compliance, building and running a SaaS, Railway, agentic workflows" },
   { id: "maker", name: "Maker & home automation", description: "Hobby CNC and 3D printing, home electronics and automation, CODESYS" },
   { id: "market", name: "Tools & materials market", description: "Home-manufacturing trends and the world news behind tooling and motor prices" },
-  { id: "interest", name: "Your picks", description: "Anything you ask for or show interest in" },
-] as const;
-export type TrackId = (typeof LEARNING_TRACKS)[number]["id"];
-const TRACK_IDS = new Set<string>(LEARNING_TRACKS.map((t) => t.id));
-const trackOf = (v: unknown): TrackId => (typeof v === "string" && TRACK_IDS.has(v.toLowerCase()) ? (v.toLowerCase() as TrackId) : "interest");
+];
+
+/** A theme id as written (`[AI]`, `track: Home-Energy`), as a slug; "" when there isn't one. */
+export const trackOf = (v: unknown): TrackId =>
+  typeof v === "string"
+    ? v
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40)
+    : "";
+
+/** A name for a theme known only by its id: "home-energy" → "Home energy". */
+const nameOf = (id: string) => {
+  const words = id.replace(/-/g, " ");
+  return words.length <= 3 ? words.toUpperCase() : words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/**
+ * The themes, in the skill tree's order, then any a lesson or topic is filed under that the tree
+ * doesn't have yet (named from the id). Without a tree, the starting themes. Pure.
+ */
+export function learningTracks(tree: { track: string; name: string; description: string }[] | null, used: Iterable<string>): LearningTrack[] {
+  const base = tree && tree.length ? tree.map((t) => ({ id: t.track, name: t.name, description: t.description || (DEFAULT_TRACKS.find((d) => d.id === t.track)?.description ?? "") })) : [...DEFAULT_TRACKS];
+  const known = new Set(base.map((t) => t.id));
+  for (const id of used) {
+    if (!id || known.has(id)) continue;
+    known.add(id);
+    base.push({ id, name: nameOf(id), description: "" });
+  }
+  return base;
+}
 
 /** The narrator's pace (words a minute, pauses included, measured on Kokoro at 0.95) and a reader's, for the time estimates. */
 export const LISTEN_WPM = 165;
@@ -81,7 +121,8 @@ The morning brief tells you what it is; open **Learning** in the app to read it 
 export const TOPICS_TEMPLATE = `# Learning topics
 
 The career coach's topic map (skills/career-coach). One topic per line, as
-\`- [track] Topic: why it's worth learning\`. Tracks: ai, robotics, saas, maker, market, interest.
+\`- [theme] Topic: why it's worth learning\`, the theme being one of learning/skill-tree.md's
+(a topic you add without one is filed by the coach).
 Add anything under Requested and it's taught next. "From your work" is filled each morning from
 what you dealt with the day before (learning/activity/). Edit freely.
 
@@ -148,9 +189,12 @@ export interface Suggestion {
   why: string;
 }
 
-/** `- [track] Title: why` (the colon or a dash before the why is optional). Pure. */
+/**
+ * `- [theme] Title: why` (the colon or a dash before the why is optional). The theme may be left
+ * out (`- Title`): the coach files it. Pure.
+ */
 export function parseTopicLine(line: string): Suggestion | null {
-  const m = /^\s*[-*]\s+\[([a-z-]+)\]\s+(.+?)\s*$/i.exec(line);
+  const m = /^\s*[-*]\s+(?:\[([a-z0-9][a-z0-9 _-]*)\]\s+)?(.+?)\s*$/i.exec(line);
   if (!m) return null;
   const rest = m[2]!;
   const split = /^(.+?)(?::\s+|\s+[—–-]\s+)(.+)$/.exec(rest);
@@ -179,7 +223,7 @@ export function parseTopics(body: string): { requested: Suggestion[]; fromWork: 
 
 /** Adds a topic under "## Requested" (creating the section, or the map, if need be). Pure. */
 export function addRequested(body: string | null, s: Suggestion): string {
-  return addToSection(body ?? TOPICS_TEMPLATE, "Requested", `- [${s.track}] ${s.title}${s.why ? `: ${s.why}` : ""}`);
+  return addToSection(body ?? TOPICS_TEMPLATE, "Requested", `- ${tag(s.track)}${s.title}${s.why ? `: ${s.why}` : ""}`);
 }
 
 /**
@@ -189,8 +233,11 @@ export function addRequested(body: string | null, s: Suggestion): string {
 export function skipTopic(body: string | null, s: { track: TrackId; title: string }, note: string): string {
   const want = topicKey(s.title);
   const { body: kept } = dropOpen(body ?? TOPICS_TEMPLATE, (t) => topicKey(t.title) === want);
-  return addToSection(kept, "Skipped", `- [${s.track}] ${s.title.trim()} (${note})`);
+  return addToSection(kept, "Skipped", `- ${tag(s.track)}${s.title.trim()} (${note})`);
 }
+
+/** `[theme] ` before a topic, or nothing when it has none. */
+const tag = (track: string) => (track ? `[${track}] ` : "");
 
 /** How topic titles are compared: case, punctuation and spacing don't count. */
 export const topicKey = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -241,7 +288,7 @@ export function settleTopics(body: string, lessons: Pick<Lesson, "path" | "title
   for (const s of dropped) {
     const l = written.get(topicKey(s.title))!;
     if (next.includes(l.path)) continue;
-    next = addToSection(next, "Taught", `- ${l.created} [${l.track}] ${l.title} → ${l.path}`);
+    next = addToSection(next, "Taught", `- ${l.created} ${tag(l.track)}${l.title} → ${l.path}`);
   }
   return next;
 }
@@ -444,7 +491,7 @@ const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00
 const mondayOf = (day: string) => addDays(day, -((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7));
 
 /** The scoreboard, from the lessons. Days are local to `timeZone`. Pure. */
-export function learningStats(lessons: Lesson[], now: Date, timeZone: string): LearningStats {
+export function learningStats(lessons: Lesson[], now: Date, timeZone: string, tracks: readonly LearningTrack[] = DEFAULT_TRACKS): LearningStats {
   const done = lessons.filter((l) => l.status === "done" && l.completedAt);
   const dayDone = (l: Lesson) => localDay(new Date(l.completedAt!), timeZone);
   const days = new Set(done.map(dayDone));
@@ -470,18 +517,18 @@ export function learningStats(lessons: Lesson[], now: Date, timeZone: string): L
       w.minutes += l.minutesSpent ?? 0;
     }
   }
-  const byTrack = LEARNING_TRACKS.map((t) => {
+  const byTrack = tracks.map((t) => {
     const mine = done.filter((l) => l.track === t.id);
     return { track: t.id, name: t.name, completed: mine.length, minutes: mine.reduce((s, l) => s + (l.minutesSpent ?? 0), 0) };
   });
   const rated = done.filter((l) => l.rating !== null);
-  const tracksDone = byTrack.filter((t) => t.track !== "interest" && t.completed > 0).length;
-  const coreTracks = LEARNING_TRACKS.length - 1;
+  const tracksDone = byTrack.filter((t) => t.completed > 0).length;
+  const coreTracks = Math.max(1, tracks.length);
   const badges = [
     { id: "first", label: "First lesson", earned: done.length >= 1, detail: "Finish a lesson" },
     { id: "week", label: "Week streak", earned: bestStreak >= 7, detail: "7 days in a row" },
     { id: "ten", label: "Ten lessons", earned: done.length >= 10, detail: `${Math.min(done.length, 10)}/10 lessons` },
-    { id: "all-tracks", label: "All-rounder", earned: tracksDone >= coreTracks, detail: `${tracksDone}/${coreTracks} tracks` },
+    { id: "all-tracks", label: "All-rounder", earned: tracksDone >= coreTracks, detail: `${tracksDone}/${coreTracks} themes` },
     { id: "ten-hours", label: "Ten hours", earned: minutes >= 600, detail: `${Math.floor(minutes / 60)}/10 hours` },
     { id: "month", label: "Month streak", earned: bestStreak >= 30, detail: "30 days in a row" },
   ];
@@ -635,6 +682,51 @@ export async function seedLearning(brain: Brain, pool: Pick<Pool, "query">): Pro
   }
 }
 
+/** Themes no longer used: "Your picks" was a catch-all, and topics now go in a broad theme. */
+const RETIRED_TRACKS = ["interest"];
+
+/** What the coach is asked once, to move everything under a retired theme into a broad one. */
+export function refilePrompt(found: { lessons: string[]; topics: number; skills: number }): string {
+  return [
+    `The "Your picks" learning theme (id \`interest\`) is retired: every topic belongs in a broad theme that covers a whole field. Re-file what's under it, following the career-coach skill:`,
+    found.lessons.length ? `the lessons with \`track: interest\` (${found.lessons.join(", ")}): set \`track:\` to the theme each fits, changing nothing else in them;` : "",
+    found.topics ? `the ${found.topics} topic line(s) tagged \`[interest]\` in learning/topics.md: retag each with its theme (under Taught and Skipped too);` : "",
+    found.skills
+      ? `the ${found.skills} skill(s) under \`## Your picks (interest)\` in learning/skill-tree.md: move each into its theme at the right level, with a new id in that theme's prefix if it needs one (and set \`skill:\` to the new id in any lesson that named the old one);`
+      : "",
+    "and take the `## Your picks (interest)` section out of learning/skill-tree.md.",
+    "Use the existing themes wherever a topic fairly fits. Only where several things fit none, add one new broad theme (`## Name (id)` with a line on what it covers, and Foundations to Expert levels), never a theme for a single topic.",
+    "Read each note just before you write it, and write each once.",
+    "Reply in one line: where they went, and any new theme.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Hands the coach, once, the job of re-filing lessons, topics and skills under a retired theme
+ * (the dedupe key keeps it to one task, ever). Quiet: it shows in Activity, not as a notification.
+ */
+export async function refileRetiredThemes(brain: Pick<PgBrain, "read" | "summaries">, pipeline: Pick<Pipeline, "ingest">): Promise<boolean> {
+  const retired = new Set(RETIRED_TRACKS);
+  const lessons = (await brain.summaries(LESSONS_FOLDER)).filter((n) => retired.has(trackOf(n.frontmatter.track))).map((n) => n.path);
+  const topics = (await brain.read(TOPICS_PATH))?.body ?? "";
+  const topicLines = topics.split("\n").filter((l) => /^\s*[-*]\s+(?:\d{4}-\d{2}-\d{2}\s+)?\[interest\]/i.test(l)).length;
+  const tree = (await brain.read(SKILL_TREE_PATH))?.body ?? "";
+  const section = parseSkillTree(tree).find((t) => retired.has(t.track));
+  const skills = section ? section.levels.reduce((n, l) => n + l.skills.length, 0) : 0;
+  if (!lessons.length && !topicLines && !section) return false;
+  await pipeline.ingest({
+    source: "chat",
+    vertical: "personal",
+    kind: "message",
+    title: "Learning: re-file Your picks into themes",
+    dedupeKey: "learning:retire-your-picks",
+    payload: { text: refilePrompt({ lessons, topics: topicLines, skills }), quiet: true },
+  });
+  return true;
+}
+
 // ---------- API ----------
 
 export interface LearningDeps {
@@ -666,10 +758,15 @@ const LessonPath = z
 /** The prompt a lesson request from the Learning page hands the assistant. */
 export function lessonRequestPrompt(topic: string, track: TrackId | null, skill: string | null = null): string {
   return [
-    `Make me a learning lesson on: ${topic}${track ? ` (track: ${track})` : ""}.`,
+    `Make me a learning lesson on: ${topic}${track ? ` (theme: ${track})` : ""}.`,
+    ...(track
+      ? []
+      : [
+          "File it under the theme in learning/skill-tree.md it fits (`track:` in its frontmatter is that theme's id). Themes are broad; only if it fits none, add a new broad theme to the tree first (see the career-coach skill), never a catch-all.",
+        ]),
     `Follow the career-coach skill: research it properly (reading every source in full, with research notes), and write the 30-minute lecture to learning/lessons/ with today's date and \`status: draft\`, with \`topic: ${topic}\` in its frontmatter exactly as written here${skill ? ` and \`skill: ${skill}\` (that skill in learning/skill-tree.md)` : " and the skill it teaches from learning/skill-tree.md (add the skill there first if it has none)"}. Update learning/topics.md (take it out of Requested and add it to Taught).`,
     "Other lessons may be being written at the same time, so read learning/topics.md again just before you write it, and change only this topic's lines.",
-    "Reply in one or two lines: the title, the track, and that it's being checked and recorded and will appear in Learning when it's ready.",
+    "Reply in one or two lines: the title, the theme, and that it's being checked and recorded and will appear in Learning when it's ready.",
   ].join(" ");
 }
 
@@ -735,15 +832,17 @@ export function learningRoutes(deps: LearningDeps) {
         return { path: l.path, title: l.title, track: l.track, created: l.created, stage, label: STAGE_LABEL[stage], round: stage === "revising" ? p!.revisions : stage === "proofing" ? p!.proofs : 0 };
       });
     const tree = await deps.brain.read(SKILL_TREE_PATH).catch(() => null);
+    const parsedTree = tree ? parseSkillTree(tree.body) : null;
+    const tracks = learningTracks(parsedTree, [...all.map((l) => l.track), ...[...map.requested, ...map.fromWork, ...map.upNext].map((s) => s.track)]);
     return c.json({
-      tracks: LEARNING_TRACKS,
+      tracks,
       today,
       todays: todaysLesson(released, today),
       lessons: released,
       preparing,
       suggestions: { requested: map.requested, fromWork: map.fromWork, upNext: map.upNext, backlog: map.backlog },
-      skillTree: tree ? skillTreeView(parseSkillTree(tree.body), all) : null,
-      stats: learningStats(released, now(), deps.timeZone),
+      skillTree: parsedTree ? skillTreeView(parsedTree, all) : null,
+      stats: learningStats(released, now(), deps.timeZone, tracks),
       topicsPath: TOPICS_PATH,
       narration: await narrationState(),
     });
@@ -879,9 +978,9 @@ export function learningRoutes(deps: LearningDeps) {
     const body = z
       .object({ topic: z.string().trim().min(2).max(300), track: z.string().optional(), why: z.string().max(300).optional(), skill: z.string().regex(/^[a-z0-9][a-z0-9.-]{0,80}$/i).optional() })
       .parse(await c.req.json());
-    const track = body.track && TRACK_IDS.has(body.track) ? (body.track as TrackId) : null;
+    const track = trackOf(body.track) || null;
     const title = body.topic.replace(/\s+/g, " ");
-    await editTopics((t) => requestTopic(t, { track: track ?? "interest", title, why: body.why ?? "" }), "dave", "learning: requested a topic");
+    await editTopics((t) => requestTopic(t, { track: track ?? "", title, why: body.why ?? "" }), "dave", "learning: requested a topic");
     const result = await deps.pipeline.ingest({
       source: "chat",
       vertical: "personal",
