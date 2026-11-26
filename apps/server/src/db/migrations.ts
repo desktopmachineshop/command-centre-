@@ -1,5 +1,5 @@
 import { BRAIN_MIGRATION_ID, BRAIN_MIGRATION_SQL } from "@cc/brain";
-import { PA_MIGRATION_ID, PA_MIGRATION_SQL, PA_PHONE_MIGRATION_ID, PA_PHONE_MIGRATION_SQL } from "@cc/pa";
+import { PA_MIGRATION_ID, PA_MIGRATION_SQL, PA_PHONE_MIGRATION_ID, PA_PHONE_MIGRATION_SQL, PA_TODO_TREE_MIGRATION_ID, PA_TODO_TREE_MIGRATION_SQL } from "@cc/pa";
 
 /**
  * Ordered schema migrations. Append new entries; never edit an applied one.
@@ -662,4 +662,6 @@ export const migrations: { id: string; sql: string }[] = [
       alter table task_replies add column if not exists agent jsonb;
     `,
   },
+  // One list per business with nested sections; reminders become to-dos with a time (SQL in @cc/pa).
+  { id: PA_TODO_TREE_MIGRATION_ID, sql: PA_TODO_TREE_MIGRATION_SQL },
 ];

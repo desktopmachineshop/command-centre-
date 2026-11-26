@@ -6,6 +6,8 @@ import {
   type CalendarService,
   type ContactsService,
   isDate,
+  NeedsTime,
+  PaNotFound,
   type PgPaStore,
   RecurrenceError,
   snoozeUntil,
@@ -131,16 +133,27 @@ export function paApiRoutes(deps: PaApiDeps) {
   });
   app.post("/pa/reminders", async (c) => {
     const body = z
-      .object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().nullable().optional(), phone: z.string().max(40).nullable().optional(), vertical: Vertical })
+      .object({
+        text: z.string().min(1),
+        due: z.string().min(1),
+        recurrence: z.string().nullable().optional(),
+        phone: z.string().max(40).nullable().optional(),
+        vertical: Vertical,
+        listId: z.string().nullable().optional(),
+      })
       .parse(await c.req.json());
+    if (body.listId && !(await store.getList(body.listId, body.vertical))) return c.json({ error: "no such section in that business" }, 400);
     try {
-      return c.json(await addReminder(store, body, { vertical: body.vertical, createdBy: "dave", timeZone, now: now() }), 201);
+      return c.json(await addReminder(store, body, { vertical: body.vertical, createdBy: "dave", timeZone, now: now(), listId: body.listId ?? null }), 201);
     } catch (err) {
       if (err instanceof RecurrenceError || BAD_INPUT.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
       throw err;
     }
   });
-  /** Edit an open reminder: any of text, due (local YYYY-MM-DDTHH:MM), recurrence ("none" makes it a one-off) and phone (null removes it). */
+  /**
+   * Edit an open reminder: any of text, due (local YYYY-MM-DDTHH:MM), recurrence ("none" makes it a one-off) and phone (null removes it).
+   * On an open to-do without a reminder, sets one (due required).
+   */
   app.patch("/pa/reminders/:id", async (c) => {
     const body = z
       .object({
@@ -152,10 +165,10 @@ export function paApiRoutes(deps: PaApiDeps) {
       .refine((b) => b.text !== undefined || b.due !== undefined || b.recurrence !== undefined || b.phone !== undefined, "give text, due, recurrence or phone")
       .parse(await c.req.json());
     try {
-      const r = await changeReminder(store, c.req.param("id"), body, { now: now() });
+      const r = await changeReminder(store, c.req.param("id"), body, { now: now(), timeZone });
       return r ? c.json(r) : c.json({ error: "reminder is not open" }, 409);
     } catch (err) {
-      if (err instanceof RecurrenceError || BAD_INPUT.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
+      if (err instanceof RecurrenceError || err instanceof NeedsTime || BAD_INPUT.test((err as Error).message)) return c.json({ error: (err as Error).message }, 400);
       throw err;
     }
   });
@@ -170,6 +183,7 @@ export function paApiRoutes(deps: PaApiDeps) {
     const r = await store.snoozeReminder(c.req.param("id"), until);
     return r ? c.json(r) : c.json({ error: "reminder is not open" }, 409);
   });
+  /** Takes the reminder off; the to-do stays on its list (DELETE /pa/items/:id removes it). */
   app.delete("/pa/reminders/:id", async (c) => {
     const r = await store.cancelReminder(c.req.param("id"));
     return r ? c.json(r) : c.json({ error: "reminder is not open" }, 409);
@@ -185,11 +199,23 @@ export function paApiRoutes(deps: PaApiDeps) {
     return c.json({ configured: true, contacts: found, errors });
   });
 
-  // --- Lists ---
+  // --- Lists: one per business (vertical), with nested sections ---
   app.get("/pa/lists", async (c) => c.json(await store.listLists(c.req.query("vertical") || undefined)));
+  /** A section: `name` under `parentId`, or a path ("Accounting / VAT") from the top of the business's list. */
   app.post("/pa/lists", async (c) => {
-    const body = z.object({ name: z.string().trim().min(1).max(80), vertical: Vertical }).parse(await c.req.json());
-    return c.json(await store.ensureList(body.vertical, body.name), 201);
+    const body = z.object({ name: z.string().trim().min(1).max(200), vertical: Vertical, parentId: z.string().nullable().optional() }).parse(await c.req.json());
+    if (body.parentId && body.name.length > 80) return c.json({ error: "name is too long" }, 400);
+    try {
+      return c.json(await store.ensureList(body.vertical, body.name, body.parentId ?? null), 201);
+    } catch (err) {
+      if (err instanceof PaNotFound) return c.json({ error: "no such section in that business" }, 400);
+      throw err;
+    }
+  });
+  /** A to-do at the top of a business's list (POST /pa/lists/:id/items adds to a section). */
+  app.post("/pa/items", async (c) => {
+    const body = ItemInput.extend({ vertical: Vertical }).parse(await c.req.json());
+    return c.json(await store.addItems({ vertical: body.vertical, listId: null }, [{ text: body.text, dueDate: body.due ?? null }], "dave"), 201);
   });
   app.post("/pa/lists/reorder", async (c) => {
     await store.reorderLists(z.object({ ids: z.array(z.string()) }).parse(await c.req.json()).ids);
@@ -201,7 +227,7 @@ export function paApiRoutes(deps: PaApiDeps) {
       const list = await store.renameList(c.req.param("id"), name);
       return list ? c.json(list) : c.json(notFound, 404);
     } catch (err) {
-      if ((err as { code?: string }).code === "23505") return c.json({ error: `a list called ${name} already exists` }, 409);
+      if ((err as { code?: string }).code === "23505") return c.json({ error: `a section called ${name} already exists there` }, 409);
       throw err;
     }
   });
@@ -224,10 +250,24 @@ export function paApiRoutes(deps: PaApiDeps) {
   });
   app.patch("/pa/items/:id", async (c) => {
     const body = z
-      .object({ text: z.string().trim().min(1).max(500).optional(), due: z.string().refine(isDate, "YYYY-MM-DD").nullable().optional(), done: z.boolean().optional() })
+      .object({
+        text: z.string().trim().min(1).max(500).optional(),
+        due: z.string().refine(isDate, "YYYY-MM-DD").nullable().optional(),
+        done: z.boolean().optional(),
+        /** Move to this section of its business (null: the top of the list). */
+        listId: z.string().nullable().optional(),
+      })
       .parse(await c.req.json());
     const id = c.req.param("id");
     if (!(await store.getItem(id))) return c.json(notFound, 404);
+    if (body.listId !== undefined) {
+      try {
+        await store.moveItem(id, body.listId);
+      } catch (err) {
+        if (err instanceof PaNotFound) return c.json({ error: (err as Error).message }, 400);
+        throw err;
+      }
+    }
     if (body.text !== undefined || body.due !== undefined) await store.updateItem(id, { text: body.text, dueDate: body.due });
     if (body.done !== undefined) await store.setItemDone(id, body.done);
     return c.json(await store.getItem(id));

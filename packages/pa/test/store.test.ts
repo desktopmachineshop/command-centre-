@@ -1,6 +1,16 @@
-import type pg from "pg";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { addReminder, deliverDueReminders, type PgPaStore, type ReminderPush, snoozeUntil } from "../src";
+import pg from "pg";
+import {
+  addReminder,
+  changeReminder,
+  deliverDueReminders,
+  PA_MIGRATION_SQL,
+  PA_PHONE_MIGRATION_SQL,
+  PA_TODO_TREE_MIGRATION_SQL,
+  PgPaStore,
+  type ReminderPush,
+  snoozeUntil,
+} from "../src";
 import { DB_URL, freshStore } from "./db";
 
 const TZ = "Europe/London";
@@ -173,5 +183,92 @@ describe.skipIf(!DB_URL)("lists (Postgres)", () => {
     expect(await store.deleteItem(item!.id)).toBe(true);
     expect(await store.deleteList(a.id)).toBe(true);
     expect((await store.listLists()).map((l) => l.name)).toEqual(["b"]);
+  });
+});
+
+describe.skipIf(!DB_URL)("sections and reminders as to-dos (Postgres)", () => {
+  let pool: pg.Pool;
+  let store: PgPaStore;
+
+  beforeEach(async () => {
+    await pool?.end();
+    ({ pool, store } = await freshStore());
+  });
+  afterAll(() => pool?.end());
+
+  it("nests sections by path, unique among siblings, and deletes a section with everything under it", async () => {
+    const vat = await store.ensureList("dms", "Accounting / VAT");
+    expect(vat).toMatchObject({ name: "VAT", path: "Accounting / VAT" });
+    const accounting = (await store.findList("dms", "accounting"))!;
+    expect(vat.parentId).toBe(accounting.id);
+    expect((await store.ensureList("dms", "accounting > vat")).id).toBe(vat.id);
+    expect((await store.ensureList("dms", "vat", accounting.id)).id).toBe(vat.id);
+    // The same name elsewhere in the tree is a different section.
+    const salesVat = await store.ensureList("dms", "Sales / VAT");
+    expect(salesVat.id).not.toBe(vat.id);
+    await store.ensureList("dms", "Accounting / Payroll");
+    expect((await store.listLists("dms")).map((l) => l.path)).toEqual(["Accounting", "Accounting / VAT", "Accounting / Payroll", "Sales", "Sales / VAT"]);
+
+    const [item] = await store.addItems(vat.id, [{ text: "File Q3" }], "dave");
+    expect(item).toMatchObject({ vertical: "dms", listId: vat.id, listName: "Accounting / VAT" });
+    const [loose] = await store.addItems({ vertical: "dms", listId: null }, [{ text: "Loose" }], "dave");
+    expect(loose).toMatchObject({ listId: null, listName: null });
+    expect((await store.listItems(accounting.id, { descendants: true })).map((i) => i.text)).toEqual(["File Q3"]);
+    expect((await store.listItems(null, { vertical: "dms" })).map((i) => i.text)).toEqual(["Loose"]);
+
+    expect(await store.moveItem(loose!.id, salesVat.id)).toMatchObject({ listName: "Sales / VAT" });
+    await expect(store.moveItem(loose!.id, (await store.ensureList("personal", "Home")).id)).rejects.toThrow(/no such section/);
+
+    expect(await store.deleteList(accounting.id)).toBe(true);
+    expect((await store.listLists("dms")).map((l) => l.path)).toEqual(["Sales", "Sales / VAT"]);
+    expect(await store.getItem(item!.id)).toBeNull();
+  });
+
+  it("sets, snoozes and clears a reminder on an ordinary to-do", async () => {
+    const [item] = await store.addItems({ vertical: "personal", listId: (await store.ensureList("personal", "Cleaning")).id }, [{ text: "Wash dishes" }], "dave");
+    expect(item!.reminder).toBeNull();
+    await expect(changeReminder(store, item!.id, { text: "x" }, { timeZone: TZ })).rejects.toThrow(/no reminder yet/);
+    const r = await changeReminder(store, item!.id, { due: "2026-10-23T19:00", recurrence: "daily" }, { timeZone: TZ, now: new Date("2026-10-23T08:00:00Z") });
+    expect(r).toMatchObject({ text: "Wash dishes", recurrence: "FREQ=DAILY", status: "pending", listName: "Cleaning", dueAt: "2026-10-23T18:00:00.000Z" });
+    expect((await store.getItem(item!.id))!.reminder).toMatchObject({ id: item!.id, localTime: "19:00" });
+    expect(await store.cancelReminder(item!.id)).toMatchObject({ status: "cancelled" });
+    expect(await store.getItem(item!.id)).toMatchObject({ text: "Wash dishes", reminder: null });
+    expect(await store.listReminders()).toEqual([]);
+  });
+});
+
+describe.skipIf(!DB_URL)("migration 0031 (Postgres)", () => {
+  it("moves reminders into to-dos keeping their ids, and keeps existing lists as sections", async () => {
+    const admin = new pg.Client({ connectionString: DB_URL });
+    await admin.connect();
+    await admin.query(`drop schema if exists pa_mig_test cascade; create schema pa_mig_test`);
+    await admin.end();
+    const pool = new pg.Pool({ connectionString: DB_URL, options: "-c search_path=pa_mig_test", max: 2 });
+    try {
+      await pool.query(PA_MIGRATION_SQL);
+      await pool.query(PA_PHONE_MIGRATION_SQL);
+      const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"];
+      await pool.query(
+        `insert into reminders (id, text, due_at, recurrence, local_time, timezone, vertical, created_by, status, sent_count, version, phone, completed_at) values
+          ($1, 'Bins', '2026-10-23T18:00Z', 'FREQ=WEEKLY;BYDAY=TH', '19:00', 'Europe/London', 'personal', 'dave', 'sent', 3, 7, null, null),
+          ($2, 'Old', '2026-10-01T09:00Z', null, '10:00', 'Europe/London', 'dms', 'agent', 'done', 1, 2, '07700 900123', '2026-10-01T09:05Z'),
+          ($3, 'Dropped', '2026-10-01T09:00Z', null, '10:00', 'Europe/London', 'dms', 'agent', 'cancelled', 0, 1, null, null)`,
+        ids,
+      );
+      await pool.query(`insert into todo_lists (id, vertical, name, position) values ('44444444-4444-4444-8444-444444444444', 'personal', 'Shopping', 0)`);
+      await pool.query(
+        `insert into todo_items (id, list_id, text, position, created_by) values ('55555555-5555-4555-8555-555555555555', '44444444-4444-4444-8444-444444444444', 'Milk', 0, 'dave')`,
+      );
+      await pool.query(PA_TODO_TREE_MIGRATION_SQL);
+      const store = new PgPaStore(pool);
+
+      expect(await store.getReminder(ids[0]!)).toMatchObject({ text: "Bins", status: "sent", recurrence: "FREQ=WEEKLY;BYDAY=TH", sentCount: 3, version: 7, listId: null, vertical: "personal" });
+      expect(await store.getReminder(ids[1]!)).toMatchObject({ text: "Old", status: "done", phone: "07700 900123", completedAt: "2026-10-01T09:05:00.000Z" });
+      expect(await store.getItem(ids[2]!)).toBeNull();
+      expect(await store.getItem("55555555-5555-4555-8555-555555555555")).toMatchObject({ text: "Milk", vertical: "personal", listName: "Shopping", reminder: null });
+      expect((await store.listLists()).map((l) => [l.path, l.parentId])).toEqual([["Shopping", null]]);
+    } finally {
+      await pool.end();
+    }
   });
 });

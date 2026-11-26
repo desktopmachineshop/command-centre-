@@ -6,6 +6,7 @@ import { type ContactsService, describeContact } from "./contacts/service";
 import { addReminder, changeReminder, describeReminder, normalisePhone } from "./reminders";
 import type { PgPaStore } from "./store";
 import { addDays, formatUk, isDate, parseInstant } from "./time";
+import { addTodos, checkTodos } from "./todos";
 
 /**
  * Structurally the server's `ActionExecutor`. The server passes the proposal's
@@ -254,7 +255,14 @@ export function createContactsExecutors(contacts: ContactsService): Record<strin
   };
 }
 
-const ReminderAdd = z.object({ text: z.string().min(1), due: z.string().min(1), recurrence: z.string().optional().nullable(), phone: z.string().optional().nullable() });
+const ReminderAdd = z.object({
+  text: z.string().min(1),
+  due: z.string().min(1),
+  recurrence: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  /** Section path to file it in; default the top of the business's list. */
+  list: z.string().optional().nullable(),
+});
 const ReminderUpdate = z.object({
   id: z.string().min(1),
   text: z.string().optional(),
@@ -263,9 +271,21 @@ const ReminderUpdate = z.object({
   phone: z.string().optional().nullable(),
 });
 const ById = z.object({ id: z.string().min(1) });
+const ReminderCancel = z.object({ id: z.string().min(1), keepTodo: z.boolean().optional() });
 const ItemsAdd = z.object({
-  list: z.string().min(1),
-  items: z.array(z.object({ text: z.string().min(1), due: z.string().optional().nullable() })).min(1).max(100),
+  list: z.string().optional().nullable(),
+  items: z
+    .array(
+      z.object({
+        text: z.string().min(1),
+        due: z.string().optional().nullable(),
+        remind: z.string().optional().nullable(),
+        recurrence: z.string().optional().nullable(),
+        phone: z.string().optional().nullable(),
+      }),
+    )
+    .min(1)
+    .max(100),
 });
 
 /**
@@ -277,13 +297,15 @@ export function createPaExecutors(store: PgPaStore, options: { timeZone: string;
   const vertical = (ctx: { vertical?: string }) => ctx.vertical ?? "personal";
   return {
     "pa.reminder.add": {
-      description: "Add a reminder (only needed when the pa tools say a proposal is required). payload: { text, due, recurrence?, phone? (a number to call) }",
+      description:
+        "Add a reminder: a to-do with a time (only needed when the pa tools say a proposal is required). payload: { text, due, recurrence?, phone? (a number to call), list? (section path, default the top of the list) }",
       validate(payload) {
         parse(ReminderAdd, payload);
       },
       async execute(payload, ctx) {
         const p = parse(ReminderAdd, payload);
-        const r = await addReminder(store, p, { vertical: vertical(ctx), createdBy: "agent", timeZone: options.timeZone, now: options.now?.() });
+        const section = p.list?.trim() ? await store.ensureList(vertical(ctx), p.list) : null;
+        const r = await addReminder(store, p, { vertical: vertical(ctx), createdBy: "agent", timeZone: options.timeZone, now: options.now?.(), listId: section?.id ?? null });
         return describeReminder(r);
       },
     },
@@ -299,39 +321,41 @@ export function createPaExecutors(store: PgPaStore, options: { timeZone: string;
       },
     },
     "pa.reminder.update": {
-      description: "Change a reminder's text, time, recurrence or number to call. payload: { id, text?, due?, recurrence? (\"none\" for a one-off), phone? (\"\" removes it) }",
+      description:
+        "Change a reminder's text, time, recurrence or number to call, or set a reminder on a to-do that has none (due required). payload: { id, text?, due?, recurrence? (\"none\" for a one-off), phone? (\"\" removes it) }",
       validate(payload) {
         parse(ReminderUpdate, payload);
       },
       async execute(payload, ctx) {
         const { id, ...change } = parse(ReminderUpdate, payload);
-        const r = await changeReminder(store, id, change, { vertical: vertical(ctx), now: options.now?.() });
-        if (!r) throw new Error("no open reminder with that id");
+        const r = await changeReminder(store, id, change, { vertical: vertical(ctx), now: options.now?.(), timeZone: options.timeZone });
+        if (!r) throw new Error("no open to-do with that id");
         return describeReminder(r);
       },
     },
     "pa.reminder.cancel": {
-      description: "Cancel a reminder. payload: { id }",
+      description: "Cancel a reminder; the to-do goes too unless keepTodo. payload: { id, keepTodo? }",
       validate(payload) {
-        parse(ById, payload);
+        parse(ReminderCancel, payload);
       },
       async execute(payload, ctx) {
-        const r = await store.cancelReminder(parse(ById, payload).id, vertical(ctx));
+        const p = parse(ReminderCancel, payload);
+        const r = await store.cancelReminder(p.id, vertical(ctx));
         if (!r) throw new Error("no open reminder with that id");
+        if (!p.keepTodo) await store.deleteItem(p.id, vertical(ctx));
         return describeReminder(r);
       },
     },
     "pa.items.add": {
-      description: "Add items to a to-do list, creating the list if needed. payload: { list, items: [{ text, due? (YYYY-MM-DD) }] }",
+      description:
+        "Add to-dos to the business's list, in section list (a path like \"Accounting / VAT\", created if needed) or at the top. payload: { list?, items: [{ text, due? (YYYY-MM-DD), remind? (YYYY-MM-DDTHH:MM), recurrence?, phone? }] }",
       validate(payload) {
-        const p = parse(ItemsAdd, payload);
-        for (const i of p.items) if (i.due && !isDate(i.due)) throw new Error(`due must be YYYY-MM-DD, got "${i.due}"`);
+        checkTodos(parse(ItemsAdd, payload).items, options.timeZone, options.now?.() ?? new Date());
       },
       async execute(payload, ctx) {
         const p = parse(ItemsAdd, payload);
-        const list = await store.ensureList(vertical(ctx), p.list);
-        const added = await store.addItems(list.id, p.items.map((i) => ({ text: i.text, dueDate: i.due ?? null })), "agent");
-        return `${added.length} added to ${list.name}`;
+        const added = await addTodos(store, { vertical: vertical(ctx), list: p.list, items: p.items }, { createdBy: "agent", timeZone: options.timeZone, now: options.now?.() });
+        return `${added.items.length} added to ${added.section?.path ?? "the top of the list"}`;
       },
     },
     "pa.item.complete": {

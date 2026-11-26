@@ -1,5 +1,5 @@
 import pg from "pg";
-import { PA_MIGRATION_SQL, PA_PHONE_MIGRATION_SQL, PgPaStore } from "../src";
+import { PA_MIGRATION_SQL, PA_PHONE_MIGRATION_SQL, PA_TODO_TREE_MIGRATION_SQL, PgPaStore } from "../src";
 
 export const DB_URL = process.env.TEST_DATABASE_URL;
 
@@ -17,5 +17,6 @@ export async function freshStore() {
   const pool = new pg.Pool({ connectionString: DB_URL, options: `-c search_path=${SCHEMA}`, max: 4 });
   await pool.query(PA_MIGRATION_SQL);
   await pool.query(PA_PHONE_MIGRATION_SQL);
+  await pool.query(PA_TODO_TREE_MIGRATION_SQL);
   return { pool, store: new PgPaStore(pool) };
 }
