@@ -635,7 +635,7 @@ export class ReleaseDesk {
       await this.deps.brain.write(path, { frontmatter: fm, body }, { author: "system", message: `learning: release check${r.spelling.length ? ` (British spelling: ${r.spelling.slice(0, 5).join(", ")})` : ""}` });
     }
     if (r.problems.length && prep.revisions < MAX_REVISIONS) {
-      const result = await this.deps.pipeline.ingest({ source: "chat", vertical: "personal", kind: "message", title: `Lesson check: ${String(note.frontmatter.title ?? path)}`.slice(0, 120), payload: { text: revisePrompt(path, r.problems) } });
+      const result = await this.deps.pipeline.ingest({ source: "chat", vertical: "personal", kind: "message", title: `Lesson check: ${String(note.frontmatter.title ?? path)}`.slice(0, 120), payload: { text: revisePrompt(path, r.problems), quiet: true } });
       await this.deps.store.save({ path, stage: "revising", revisions: prep.revisions + 1, taskId: result?.task.id ?? null, problems: r.problems });
       this.deps.log?.(`[learning] ${path}: ${r.problems.length} problem(s), back to the coach (round ${prep.revisions + 1})`);
       return;
@@ -656,7 +656,7 @@ export class ReleaseDesk {
     if (audio.flagged.length && prep.proofs < MAX_PROOFS) {
       const note = await this.deps.brain.read(path);
       const title = String(note?.frontmatter.title ?? path);
-      const result = await this.deps.pipeline.ingest({ source: "chat", vertical: "personal", kind: "message", title: `Lesson pronunciation: ${title}`.slice(0, 120), payload: { text: proofPrompt(path, title, audio.flagged) } });
+      const result = await this.deps.pipeline.ingest({ source: "chat", vertical: "personal", kind: "message", title: `Lesson pronunciation: ${title}`.slice(0, 120), payload: { text: proofPrompt(path, title, audio.flagged), quiet: true } });
       await this.deps.store.save({ path, stage: "proofing", proofs: prep.proofs + 1, taskId: result?.task.id ?? null, flagged: audio.flagged });
       this.deps.log?.(`[learning] ${path}: ${audio.flagged.length} sentence(s) sounded off, to the coach (round ${prep.proofs + 1})`);
       return;

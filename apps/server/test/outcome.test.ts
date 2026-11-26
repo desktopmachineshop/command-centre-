@@ -171,6 +171,13 @@ describe.skipIf(!DB_URL)("telling Dave how his request ended", () => {
     expect(ctx.notifier.sent.filter((n) => n.title === "A webhook")).toEqual([]);
   });
 
+  it("says nothing about a chat task the app filed for itself (a lesson's pronunciation pass), ended or failed", async () => {
+    await ctx.server.pipeline.ingest({ source: "chat", vertical: "personal", kind: "message", title: "Lesson pronunciation: Cortisol", payload: { text: "fix the respellings", quiet: true } });
+    await ctx.server.pipeline.ingest({ source: "chat", vertical: "personal", kind: "message", title: "Lesson check: Cortisol", payload: { text: "this will fail", quiet: true } });
+    await ctx.queue.drain();
+    expect(ctx.notifier.sent).toEqual([]);
+  });
+
   it("says nothing for a routine confirmation: the item on the list is the confirmation", async () => {
     const before = (await centre()).length;
     const { body } = await ctx.api("/api/chat", { method: "POST", json: { text: "add milk to the shopping list" } });

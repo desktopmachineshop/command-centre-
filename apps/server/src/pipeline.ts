@@ -449,8 +449,9 @@ export class Pipeline {
       // Persist messages in order without blocking the stream.
       let chain = Promise.resolve();
       // Dave is told about what he asked for (how it is going, how it ended). Work that came in or
-      // ran by itself stays quiet: it is in Activity and the daily digest.
-      const daveAsked = event?.source === "chat" || !!turn?.fromDave;
+      // ran by itself stays quiet: it is in Activity and the daily digest. So does a chat task the
+      // app files for itself (`payload.quiet`: a lesson's checks), unless Dave replies to it.
+      const daveAsked = (event?.source === "chat" && event.payload.quiet !== true) || !!turn?.fromDave;
       const toolsUsed = new Set<string>();
       const progress = startProgressUpdates({
         notifier: daveAsked ? this.deps.notifier : undefined,
@@ -544,7 +545,7 @@ export class Pipeline {
       const note = runId ? `Run failed: ${message}` : `Failed before the agent started: ${message}`;
       hub.broadcast({ type: "task.updated", task: await store.setTaskStatus(taskId, "failed", note) });
       const failedEvent = await store.getEvent(task.eventId).catch(() => null);
-      if (failedEvent?.source === "chat") await this.notifyOutcome(task, failedEvent, "failed", null, note);
+      if (failedEvent?.source === "chat" && failedEvent.payload.quiet !== true) await this.notifyOutcome(task, failedEvent, "failed", null, note);
       await this.afterRun(task, failedEvent, { status: "failed", result: null, error: message, pending: [] });
     } finally {
       if (token) runTokens.revoke(token);

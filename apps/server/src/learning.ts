@@ -887,7 +887,8 @@ export function learningRoutes(deps: LearningDeps) {
       vertical: "personal",
       kind: "message",
       title: `Lesson: ${body.topic}`.slice(0, 120),
-      payload: { text: lessonRequestPrompt(title, track, body.skill?.toLowerCase() ?? null) },
+      // Quiet: the lesson goes through its checks after this, and shows in Learning when it is ready.
+      payload: { text: lessonRequestPrompt(title, track, body.skill?.toLowerCase() ?? null), quiet: true },
     });
     return c.json({ taskId: result?.task.id ?? null }, 201);
   });
