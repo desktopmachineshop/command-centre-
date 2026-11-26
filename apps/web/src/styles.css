@@ -5389,6 +5389,258 @@ a.button-link.call-button {
     justify-self: start;
   }
 }
+/* Learning: the skill tree as a radial map (learning/SkillMap.tsx) */
+.tree-mode {
+  gap: var(--sp-3);
+  align-items: center;
+}
+.tree-view button {
+  width: auto;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+}
+.skill-map-tools {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 var(--sp-2);
+}
+.map-search {
+  gap: var(--sp-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.map-search input {
+  flex: 1 1 200px;
+  max-width: 360px;
+}
+.map-chips {
+  gap: var(--sp-1) var(--sp-2);
+}
+.map-chips .chip {
+  min-height: 32px;
+  padding: 2px 12px;
+}
+.status-chip {
+  --dot: var(--text-3);
+}
+.status-chip.is-done { --dot: var(--success); }
+.status-chip.is-taught { --dot: var(--accent); }
+.status-chip.is-open { --dot: var(--accent); }
+.key-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+  background: var(--dot);
+  flex: none;
+}
+.status-chip.is-open .key-dot {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 2px var(--dot);
+}
+.status-chip.is-locked .key-dot {
+  width: 8px;
+  height: 8px;
+}
+.map-layers {
+  gap: var(--sp-2);
+  align-items: center;
+}
+.stepper {
+  align-items: center;
+  gap: var(--sp-2);
+}
+.stepper button {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+.skill-map-frame {
+  /* On a phone the map keeps a readable size and scrolls inside its frame, not the page. */
+  overflow: auto;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  overscroll-behavior: contain;
+}
+.skill-map-frame svg {
+  display: block;
+  width: 100%;
+  min-width: 720px;
+  height: auto;
+  margin: 0 auto;
+  max-width: 860px;
+  font-family: var(--font);
+  user-select: none;
+}
+.skill-map .ring,
+.skill-map .link,
+.skill-map .sector path {
+  vector-effect: non-scaling-stroke;
+}
+.skill-map .ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-dasharray: 2 5;
+}
+.skill-map .link {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.skill-map .link.is-lit {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+}
+.skill-map .link.is-lit.is-done,
+.skill-map .link.is-lit.is-track {
+  stroke: var(--success);
+}
+.skill-map svg.is-filtering .link:not(.is-trail) {
+  opacity: 0.25;
+}
+.skill-map .link.is-trail {
+  stroke-width: 3;
+}
+.skill-map .link.is-trail:not(.is-lit) {
+  stroke: var(--text-2);
+}
+.skill-map .centre circle {
+  fill: var(--surface);
+  stroke: var(--success);
+  stroke-width: 2;
+}
+.skill-map .centre text {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  text-anchor: middle;
+}
+.skill-map .centre text.sub {
+  fill: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+}
+.skill-map .node {
+  cursor: pointer;
+  outline: none;
+  transition: opacity var(--dur-1) var(--ease);
+}
+.skill-map .node .hit {
+  fill: transparent;
+}
+.skill-map .node .dot {
+  fill: var(--surface);
+  stroke: var(--text-3);
+  stroke-width: 1.5;
+}
+.skill-map .node.is-done .dot {
+  fill: var(--success);
+  stroke: var(--success);
+}
+.skill-map .node.is-taught .dot {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+.skill-map .node.is-open .dot {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.skill-map .node.is-locked .dot {
+  fill: var(--surface-3);
+}
+.skill-map .node.is-track .dot {
+  fill: var(--surface);
+  stroke: var(--text);
+  stroke-width: 2;
+}
+.skill-map .fold-ring {
+  fill: none;
+  stroke: var(--text-2);
+  stroke-dasharray: 2 2;
+}
+.skill-map .fold-count {
+  fill: var(--text-2);
+  font-size: 10px;
+  font-weight: 650;
+}
+.skill-map .label {
+  fill: var(--text);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--surface-2);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.skill-map .label.is-strong {
+  font-weight: 650;
+}
+.skill-map .sector path {
+  fill: none;
+  stroke: var(--text-3);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.skill-map .sector text {
+  fill: var(--text);
+  font-weight: 700;
+}
+.skill-map .sector path.text-arc {
+  stroke: none;
+}
+.skill-map .sector .sub {
+  fill: var(--text-2);
+  font-weight: 500;
+}
+.skill-map .sector.is-dim {
+  opacity: 0.35;
+}
+.skill-map .track-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+.skill-map .node.is-dim {
+  opacity: 0.3;
+}
+.skill-map .node.is-hit .dot {
+  stroke: var(--warn);
+  stroke-width: 2.5;
+}
+.skill-map .node:hover .dot,
+.skill-map .node:focus-visible .dot,
+.skill-map .node.is-on .dot {
+  stroke: var(--text);
+  stroke-width: 2.5;
+}
+.skill-map .node:focus-visible .hit {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.skill-map-detail {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  display: grid;
+  gap: var(--sp-2);
+}
+.skill-map-detail .tree-skills {
+  border-left: 0;
+  padding-left: 0;
+}
+.skill-map-detail > .row {
+  gap: var(--sp-3);
+  align-items: center;
+}
+.skill-map > p.small {
+  margin: var(--sp-2) 0 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skill-map .link,
+  .skill-map .node {
+    transition: none;
+  }
+}
 .suggestions .title {
   margin: var(--sp-1) 0 0;
   font-weight: 600;
