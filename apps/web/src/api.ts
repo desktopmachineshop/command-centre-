@@ -266,6 +266,9 @@ export type Reminder = {
   snoozedUntil: string | null;
   /** A number to call when it fires (the Call button), or null. */
   phone: string | null;
+  /** A reminder is a to-do with a time: its section ("Accounting / VAT"), or null at the top of the list. */
+  listId: string | null;
+  listName: string | null;
 };
 
 /** A Google contact (GET /api/pa/contacts?q=). */
@@ -279,8 +282,24 @@ export type Contact = {
   notes: string | null;
 };
 
-export type TodoItem = { id: string; listId: string; text: string; done: boolean; dueDate: string | null; position: number };
-export type TodoList = { id: string; vertical: string; name: string; position: number; openCount: number; doneCount: number };
+export type TodoItem = {
+  id: string;
+  vertical: string;
+  /** Its section, or null at the top of the business's list. */
+  listId: string | null;
+  listName: string | null;
+  text: string;
+  done: boolean;
+  dueDate: string | null;
+  position: number;
+  /** Set when the to-do has a time (it then also alerts). */
+  reminder: Reminder | null;
+};
+/** A section of a business's list; sections nest. */
+export type TodoList = { id: string; vertical: string; name: string; parentId: string | null; path: string; position: number; openCount: number; doneCount: number };
+export type TodoSection = TodoList & { items: TodoItem[]; sections: TodoSection[] };
+/** One business's list: to-dos at the top, then its sections. */
+export type BusinessList = { vertical: string; items: TodoItem[]; sections: TodoSection[] };
 
 export type TodayView = {
   day: string;
@@ -290,7 +309,7 @@ export type TodayView = {
   calendarErrors: string[];
   reminders: Reminder[];
   upcoming: Reminder[];
-  lists: (TodoList & { items: TodoItem[] })[];
+  lists: BusinessList[];
 };
 // --- end pa ---
 
@@ -634,17 +653,24 @@ export function createApi(conn: Connection, onUnauthorized?: () => void) {
     // --- end learning ---
     /** `due` is local Europe/London `YYYY-MM-DDTHH:MM`; `recurrence` is e.g. "weekdays", "weekly:mon,thu", "monthly:15" or "none". */
     getReminder: (id: string) => call<Reminder>(`/pa/reminders/${id}`),
-    addReminder: (r: { text: string; due: string; recurrence?: string | null; phone?: string | null }) => post<Reminder>("/pa/reminders", r),
+    addReminder: (r: { text: string; due: string; recurrence?: string | null; phone?: string | null; vertical?: string; listId?: string | null }) =>
+      post<Reminder>("/pa/reminders", r),
+    /** Also sets a reminder on a to-do that has none (then `due` is required). */
     updateReminder: (id: string, change: { text?: string; due?: string; recurrence?: string | null; phone?: string | null }) =>
       call<Reminder>(`/pa/reminders/${id}`, { method: "PATCH", body: JSON.stringify(change) }),
+    /** Takes the time off; the to-do stays on its list. */
     cancelReminder: (id: string) => call<Reminder>(`/pa/reminders/${id}`, { method: "DELETE" }),
     completeReminder: (id: string) => post<Reminder>(`/pa/reminders/${id}/complete`),
     snoozeReminder: (id: string, minutes: number) => post<Reminder>(`/pa/reminders/${id}/snooze`, { minutes }),
     searchContacts: (q: string) => call<{ configured: boolean; contacts: Contact[]; errors: string[] }>(`/pa/contacts?q=${encodeURIComponent(q)}`),
-    createList: (name: string) => post<TodoList>("/pa/lists", { name }),
+    /** A section of `vertical`'s list, under `parentId` (null: top level). */
+    createList: (name: string, vertical: string, parentId: string | null = null) => post<TodoList>("/pa/lists", { name, vertical, parentId }),
     renameList: (id: string, name: string) => call<TodoList>(`/pa/lists/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
     deleteList: (id: string) => call(`/pa/lists/${id}`, { method: "DELETE" }),
-    addItem: (listId: string, text: string) => post<TodoItem[]>(`/pa/lists/${listId}/items`, { text }),
+    /** A to-do in section `listId`, or at the top of `vertical`'s list when `listId` is null. */
+    addItem: (where: { listId: string | null; vertical: string }, text: string) =>
+      where.listId ? post<TodoItem[]>(`/pa/lists/${where.listId}/items`, { text }) : post<TodoItem[]>("/pa/items", { text, vertical: where.vertical }),
+    moveItem: (id: string, listId: string | null) => call<TodoItem>(`/pa/items/${id}`, { method: "PATCH", body: JSON.stringify({ listId }) }),
     setItemDone: (id: string, done: boolean) => call<TodoItem>(`/pa/items/${id}`, { method: "PATCH", body: JSON.stringify({ done }) }),
     deleteItem: (id: string) => call(`/pa/items/${id}`, { method: "DELETE" }),
     // --- end pa ---

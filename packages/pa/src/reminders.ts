@@ -42,13 +42,14 @@ export function resolveReminder(input: NewReminderInput, timeZone: string, now: 
   return { text, dueAt, recurrence, localTime: time, timeZone, phone: normalisePhone(input.phone) };
 }
 
+/** A new to-do with a reminder: at the top of the business's list, or in section `listId`. */
 export async function addReminder(
   store: PgPaStore,
   input: NewReminderInput,
-  ctx: { vertical: string; createdBy: CreatedBy; taskId?: string | null; timeZone: string; now?: Date },
+  ctx: { vertical: string; createdBy: CreatedBy; taskId?: string | null; timeZone: string; now?: Date; listId?: string | null },
 ): Promise<Reminder> {
   const resolved = resolveReminder(input, ctx.timeZone, ctx.now ?? new Date());
-  return store.addReminder({ ...resolved, vertical: ctx.vertical, createdBy: ctx.createdBy, taskId: ctx.taskId ?? null });
+  return store.addReminder({ ...resolved, vertical: ctx.vertical, createdBy: ctx.createdBy, taskId: ctx.taskId ?? null, listId: ctx.listId ?? null });
 }
 
 export interface ReminderChange {
@@ -61,20 +62,31 @@ export interface ReminderChange {
   phone?: string | null;
 }
 
+/** Thrown when a to-do without a reminder is given no time to set one. */
+export class NeedsTime extends Error {}
+
 /**
- * Changes an open reminder (null if there is none with that id). Changing only
+ * Changes an open to-do's reminder, or sets one on a to-do that has none (then
+ * `due` is required). Null if there is no open to-do with that id. Changing only
  * the recurrence keeps its time of day; changing only the text keeps its schedule.
  */
 export async function changeReminder(
   store: PgPaStore,
   id: string,
   change: ReminderChange,
-  ctx: { vertical?: string; now?: Date },
+  ctx: { vertical?: string; now?: Date; timeZone?: string },
 ): Promise<Reminder | null> {
-  const existing = await store.getReminder(id, ctx.vertical);
-  if (!existing || !["pending", "sent"].includes(existing.status)) return null;
-  const text = change.text?.trim() || existing.text;
+  const item = await store.getItem(id, ctx.vertical);
+  if (!item || item.done) return null;
+  const existing = item.reminder;
+  const text = change.text?.trim() || item.text;
   const phone = change.phone === undefined ? undefined : normalisePhone(change.phone);
+  if (!existing) {
+    if (!change.due) throw new NeedsTime(`"${item.text}" has no reminder yet: give a time (due) to set one`);
+    const r = change.recurrence;
+    const resolved = resolveReminder({ text, due: change.due, recurrence: !r?.trim() || /^none$/i.test(r.trim()) ? null : r }, ctx.timeZone ?? "Europe/London", ctx.now ?? new Date());
+    return store.updateReminder(id, { text, phone: phone === undefined ? null : phone, schedule: resolved }, ctx.vertical);
+  }
   if (change.due === undefined && change.recurrence === undefined) return store.updateReminder(id, { text, phone }, ctx.vertical);
   const r = change.recurrence;
   const recurrence = r === undefined ? existing.recurrence : !r?.trim() || /^none$/i.test(r.trim()) ? null : r;
@@ -89,7 +101,8 @@ export function describeReminder(r: Reminder, options: { id?: boolean } = {}): s
   const repeat = r.recurrence ? ` (${describeRecurrence(parseRecurrence(r.recurrence))})` : "";
   const state = r.status === "sent" ? " [sent, not done]" : r.status === "pending" ? "" : ` [${r.status}]`;
   const call = r.phone ? ` · call ${r.phone}` : "";
-  return `${when} · ${r.text}${call}${repeat}${state}${options.id !== false ? ` (id ${r.id})` : ""}`;
+  const where = r.listName ? ` [${r.listName}]` : "";
+  return `${when} · ${r.text}${call}${repeat}${where}${state}${options.id !== false ? ` (id ${r.id})` : ""}`;
 }
 
 export interface ReminderPush {

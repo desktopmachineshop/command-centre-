@@ -33,12 +33,12 @@
     <title>Reminders</title>
     <prolog><resourceid appname="command-centre" appid="today.reminders"/></prolog>
     <body>
-      <p>A reminder sends a push notification when it is due. The notification has <uicontrol>Done</uicontrol> and <uicontrol>Snooze 1h</uicontrol> buttons, and so does its row here; <uicontrol>Coming up</uicontrol> lists later ones.</p>
+      <p>A reminder is a to-do with a time: it sits on a list like any other to-do, and also sends a push notification when it is due. The notification has <uicontrol>Done</uicontrol> and <uicontrol>Snooze 1h</uicontrol> buttons, and so does its row here; <uicontrol>Coming up</uicontrol> lists later ones.</p>
       <ol>
         <li>Choose <uicontrol>Add</uicontrol> (or <uicontrol>Edit</uicontrol> on a reminder).</li>
         <li>Write the <uicontrol>Reminder</uicontrol>, and set <uicontrol>When</uicontrol>.</li>
         <li>Optionally set <uicontrol>Repeats</uicontrol>: <uicontrol>Every day</uicontrol>, <uicontrol>Weekdays (Mon–Fri)</uicontrol>, <uicontrol>Weekly on…</uicontrol> (pick the days) or <uicontrol>Monthly on day N</uicontrol>. For a repeat, the date is when it starts and the time is the time of day.</li>
-        <li>Choose <uicontrol>Save</uicontrol>. <uicontrol>Delete</uicontrol> removes the reminder and all its repeats.</li>
+        <li>Choose <uicontrol>Save</uicontrol>. <uicontrol>Remove time</uicontrol> keeps it on its list without the reminder; <uicontrol>Delete</uicontrol> removes the to-do and all its repeats.</li>
       </ol>
     </body>
   </topic>
@@ -46,7 +46,12 @@
     <title>Lists</title>
     <prolog><resourceid appname="command-centre" appid="today.lists"/></prolog>
     <body>
-      <p>To-do lists you and the agents share, such as shopping. Tick an item to mark it done, <uicontrol>×</uicontrol> to remove it, and type in <uicontrol>Add to …</uicontrol> to add one. <uicontrol>Show done</uicontrol> brings back ticked items. Make a list with <uicontrol>New list</uicontrol> and <uicontrol>Add list</uicontrol>; <uicontrol>Rename</uicontrol> and <uicontrol>Delete</uicontrol> are on each list.</p>
+      <p>Each business has one to-do list, which you and the agents share. A list is split into sections, and sections can have sections of their own (for example <uicontrol>Accounting</uicontrol>, with <uicontrol>VAT</uicontrol> inside it). Tap a business or section name to fold it away.</p>
+      <ul>
+        <li>Tick a to-do to mark it done, <uicontrol>×</uicontrol> to remove it, and type in <uicontrol>Add to …</uicontrol> to add one. <uicontrol>Show done</uicontrol> brings back ticked to-dos.</li>
+        <li>Choose <uicontrol>⏰</uicontrol> on any to-do to give it a time; it then also works as a reminder. Ticking it off ends the reminder.</li>
+        <li>Add a section with <uicontrol>New section</uicontrol> at the bottom of a business's list, or <uicontrol>+ Section</uicontrol> on a section to put one inside it. <uicontrol>Rename</uicontrol> and <uicontrol>Delete</uicontrol> are on each section; deleting one also deletes what is inside it.</li>
+      </ul>
     </body>
   </topic>
 </topic>

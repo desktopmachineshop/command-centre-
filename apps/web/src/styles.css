@@ -3586,6 +3586,38 @@ a.stat:hover {
   height: 22px;
   flex: none;
 }
+.today-page .todo-list > summary,
+.today-page .todo-section > summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 44px;
+  align-items: center;
+}
+.today-page .todo-list > summary::-webkit-details-marker,
+.today-page .todo-section > summary::-webkit-details-marker {
+  display: none;
+}
+.today-page .todo-list > summary strong::before,
+.today-page .todo-section > summary strong::before {
+  content: "▸ ";
+  color: var(--muted, inherit);
+}
+.today-page .todo-list[open] > summary strong::before,
+.today-page .todo-section[open] > summary strong::before {
+  content: "▾ ";
+}
+/* Sections nest: each level indents and gets a guide line. */
+.today-page .todo-section {
+  margin: var(--sp-2) 0 0;
+  padding-left: var(--sp-3);
+  border-left: 2px solid var(--border);
+}
+.today-page .todo-section > summary .row {
+  gap: var(--sp-3);
+}
+.today-page .todo-list form.row {
+  margin-top: 6px;
+}
 .today-page > h3,
 .notifications > h3,
 .briefing > h3 {

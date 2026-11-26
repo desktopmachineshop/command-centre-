@@ -5,7 +5,8 @@ import type { CalendarEvent } from "./calendar/types";
 import { type ContactsService, describeContact } from "./contacts/service";
 import { ContactChangeSchema, ContactCreateSchema, contactChangeOf, contactInputOf } from "./executors";
 import { addReminder, changeReminder, describeReminder, normalisePhone, resolveReminder } from "./reminders";
-import type { CreatedBy, PgPaStore, ReminderStatus, TodoItem } from "./store";
+import type { CreatedBy, PgPaStore, ReminderStatus, TodoItem, TodoList } from "./store";
+import { addTodos, checkTodos } from "./todos";
 import { addDays, dayBounds, formatUk, formatUkDate, isDate, isTime, localDate, localTime, weekdayOf } from "./time";
 
 /** Who is calling, and whether their writes may happen directly. */
@@ -89,9 +90,25 @@ export function agendaText(events: CalendarEvent[], days: string[], timeZone: st
   return out.join("\n");
 }
 
-function itemLine(i: TodoItem, showList: boolean): string {
+function itemLine(i: TodoItem, showList: boolean, timeZone: string): string {
   const due = i.dueDate ? ` (due ${formatUkDate(i.dueDate)})` : "";
-  return `- ${i.done ? "[x]" : "[ ]"} ${i.text}${due}${showList ? ` [${i.listName}]` : ""} (id ${i.id})`;
+  const r = i.reminder;
+  const remind = r && !i.done ? ` (reminder ${formatUk(new Date(r.snoozedUntil ?? r.dueAt), timeZone)}${r.recurrence ? ", repeats" : ""}${r.status === "sent" ? ", sent" : ""})` : "";
+  const where = showList ? ` [${[i.vertical, i.listName].filter(Boolean).join(": ")}]` : "";
+  return `- ${i.done ? "[x]" : "[ ]"} ${i.text}${due}${remind}${where} (id ${i.id})`;
+}
+
+/** Sections as an indented outline, by business when there are several. */
+function outline(lists: TodoList[]): string {
+  const many = new Set(lists.map((l) => l.vertical)).size > 1;
+  const out: string[] = [];
+  let vertical = "";
+  for (const l of lists) {
+    if (many && l.vertical !== vertical) out.push(`${(vertical = l.vertical)}:`);
+    const depth = l.path.split(" / ").length - 1 + (many ? 1 : 0);
+    out.push(`${"  ".repeat(depth)}- ${l.name}: ${l.openCount} open, ${l.doneCount} done`);
+  }
+  return out.join("\n");
 }
 
 /**
@@ -284,17 +301,45 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
     "add_reminder",
     {
       description:
-        "Remind Dave at a time (a push to his devices). due is UK local time YYYY-MM-DDTHH:MM. recurrence (optional): daily, weekdays, weekly:mon,thu, monthly:15 (or FREQ=... RRULE); due then sets the first occurrence and the time of day. phone (optional): for a reminder to call someone, the number to call (look it up with search_contacts); the notification then opens the phone's dialler with it.",
-      inputSchema: { text: z.string().min(1), due: z.string().min(1), recurrence: z.string().optional(), phone: z.string().optional().describe("Number to call, e.g. 07700 900123"), vertical },
+        "Remind Dave at a time (a push to his devices). A reminder is a to-do with a time: it goes on the business's list (at the top, or in section list, e.g. \"Accounting / VAT\"), and ticking it off ends it. To put a time on a to-do that is already on a list, give itemId (from list_items) instead of text. due is UK local time YYYY-MM-DDTHH:MM. recurrence (optional): daily, weekdays, weekly:mon,thu, monthly:15 (or FREQ=... RRULE); due then sets the first occurrence and the time of day. phone (optional): for a reminder to call someone, the number to call (look it up with search_contacts); the notification then opens the phone's dialler with it.",
+      inputSchema: {
+        text: z.string().optional().describe("What to remind (not needed with itemId)"),
+        due: z.string().min(1),
+        recurrence: z.string().optional(),
+        phone: z.string().optional().describe("Number to call, e.g. 07700 900123"),
+        list: z.string().optional().describe("Section to file it in, e.g. \"Accounting\" or \"Accounting / VAT\"; default the top of the list"),
+        itemId: z.string().optional().describe("An existing to-do to set the reminder on"),
+        vertical,
+      },
     },
     async (a) => {
       try {
+        if (a.itemId) {
+          const item = await store.getItem(a.itemId, caller.vertical);
+          if (!item || item.done) return fail(`No open to-do ${a.itemId}. Use list_items for ids.`);
+          const resolved = resolveReminder({ text: item.text, due: a.due, recurrence: a.recurrence, phone: a.phone }, timeZone, now());
+          const change = { due: a.due, ...(a.recurrence ? { recurrence: a.recurrence } : {}), ...(a.phone ? { phone: a.phone } : {}) };
+          return await write(
+            { actionType: "pa.reminder.update", vertical: item.vertical, summary: `Reminder ${formatUk(resolved.dueAt, timeZone)}: ${item.text}`, payload: { id: item.id, ...change } },
+            async () => {
+              const r = await changeReminder(store, item.id, change, { vertical: caller.vertical, now: now(), timeZone });
+              return r ? `Reminder set: ${describeReminder(r)}` : "That to-do is no longer open.";
+            },
+          );
+        }
+        if (!a.text?.trim()) return fail("Give text (or itemId for an existing to-do).");
         const v = writeVertical(a.vertical);
-        const resolved = resolveReminder(a, timeZone, now());
+        const resolved = resolveReminder({ text: a.text, due: a.due, recurrence: a.recurrence, phone: a.phone }, timeZone, now());
         return await write(
-          { actionType: "pa.reminder.add", vertical: v, summary: `Reminder ${formatUk(resolved.dueAt, timeZone)}: ${resolved.text}`, payload: { text: a.text, due: a.due, ...(a.recurrence ? { recurrence: a.recurrence } : {}), ...(a.phone ? { phone: a.phone } : {}) } },
+          {
+            actionType: "pa.reminder.add",
+            vertical: v,
+            summary: `Reminder ${formatUk(resolved.dueAt, timeZone)}: ${resolved.text}`,
+            payload: { text: a.text, due: a.due, ...(a.recurrence ? { recurrence: a.recurrence } : {}), ...(a.phone ? { phone: a.phone } : {}), ...(a.list ? { list: a.list } : {}) },
+          },
           async () => {
-            const r = await addReminder(store, a, { vertical: v, createdBy: caller.createdBy, taskId: caller.taskId, timeZone, now: now() });
+            const section = a.list?.trim() ? await store.ensureList(v, a.list) : null;
+            const r = await addReminder(store, { text: a.text!, due: a.due, recurrence: a.recurrence, phone: a.phone }, { vertical: v, createdBy: caller.createdBy, taskId: caller.taskId, timeZone, now: now(), listId: section?.id ?? null });
             return `Reminder set: ${describeReminder(r)}`;
           },
         );
@@ -339,7 +384,7 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
         normalisePhone(change.phone);
         const summary = `Change reminder "${existing.text}": ${Object.entries(change).map(([k, v]) => `${k} ${v}`).join(", ")}`.slice(0, 200);
         return await write({ actionType: "pa.reminder.update", vertical: existing.vertical, summary, payload: { id, ...change } }, async () => {
-          const r = await changeReminder(store, id, change, { vertical: caller.vertical, now: now() });
+          const r = await changeReminder(store, id, change, { vertical: caller.vertical, now: now(), timeZone });
           return r ? `Reminder changed: ${describeReminder(r)}` : "It is no longer open.";
         });
       } catch (err) {
@@ -350,14 +395,23 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
 
   server.registerTool(
     "cancel_reminder",
-    { description: "Cancel an open reminder (for a recurring one, the whole series) without marking it done.", inputSchema: { id: z.string().min(1) } },
-    async ({ id }) => {
+    {
+      description:
+        "Cancel an open reminder (for a recurring one, the whole series) without marking it done. A reminder is a to-do with a time: by default the to-do goes too; keepTodo: true keeps it on its list without a time.",
+      inputSchema: { id: z.string().min(1), keepTodo: z.boolean().default(false) },
+    },
+    async ({ id, keepTodo }) => {
       const existing = await store.getReminder(id, caller.vertical);
       if (!existing || !["pending", "sent"].includes(existing.status)) return fail(`No open reminder ${id}. Use list_reminders for ids.`);
-      return write({ actionType: "pa.reminder.cancel", vertical: existing.vertical, summary: `Cancel reminder: ${existing.text}`, payload: { id } }, async () => {
-        const r = await store.cancelReminder(id, caller.vertical);
-        return r ? `Cancelled: ${r.text}` : "It is no longer open.";
-      });
+      return write(
+        { actionType: "pa.reminder.cancel", vertical: existing.vertical, summary: `Cancel reminder: ${existing.text}${keepTodo ? " (keep the to-do)" : ""}`, payload: { id, keepTodo } },
+        async () => {
+          const r = await store.cancelReminder(id, caller.vertical);
+          if (!r) return "It is no longer open.";
+          if (!keepTodo) await store.deleteItem(id, caller.vertical);
+          return keepTodo ? `Reminder taken off (still on the list): ${r.text}` : `Cancelled: ${r.text}`;
+        },
+      );
     },
   );
 
@@ -374,39 +428,56 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
     },
   );
 
-  // --- Lists ---
+  // --- Lists: one per business, with nested sections ---
 
   server.registerTool(
     "list_lists",
-    { description: "Dave's to-do lists (e.g. today, shopping, home, Noah) with open and done counts.", inputSchema: {} },
+    {
+      description:
+        "Each business has one to-do list, split into sections that can nest (e.g. Accounting, Accounting / VAT, Sales). This shows the sections as an outline with open and done counts, plus how many to-dos sit at the top of the list.",
+      inputSchema: {},
+    },
     async () => {
-      const lists = await store.listLists(caller.vertical);
-      if (!lists.length) return text("No lists yet. add_items creates one.");
-      const many = new Set(lists.map((l) => l.vertical)).size > 1;
-      return text(lists.map((l) => `- ${l.name}${many ? ` [${l.vertical}]` : ""}: ${l.openCount} open, ${l.doneCount} done`).join("\n"));
+      const [lists, top] = await Promise.all([store.listLists(caller.vertical), store.allItems({ vertical: caller.vertical })]);
+      const loose = top.filter((i) => !i.listId);
+      const counts = [...new Set(loose.map((i) => i.vertical))].map((v) => `${v}: ${loose.filter((i) => i.vertical === v).length} open at the top of the list`);
+      if (!lists.length && !counts.length) return text("No to-dos yet. add_items adds some (and creates sections).");
+      return text([outline(lists), ...counts].filter(Boolean).join("\n"));
     },
   );
+
+  const NewItem = z.union([
+    z.string().min(1),
+    z.object({
+      text: z.string().min(1),
+      due: z.string().optional().describe("Due date YYYY-MM-DD"),
+      remind: z.string().optional().describe("Reminder time, UK local YYYY-MM-DDTHH:MM: also pushes an alert then"),
+      recurrence: z.string().optional().describe("With remind: daily, weekdays, weekly:mon,thu, monthly:15"),
+      phone: z.string().optional().describe("With remind: a number to call"),
+    }),
+  ]);
 
   server.registerTool(
     "add_items",
     {
-      description: 'Add items to a to-do list by name ("shopping", "today", "home", "Noah"…); the list is created if it doesn\'t exist. Keep each item short.',
-      inputSchema: {
-        list: z.string().min(1),
-        items: z.array(z.union([z.string().min(1), z.object({ text: z.string().min(1), due: z.string().optional().describe("YYYY-MM-DD") })])).min(1).max(100),
-        vertical,
-      },
+      description:
+        'Add to-dos to the business\'s list, in a section by name or path ("Accounting", "Accounting / VAT", "shopping"…; created if it doesn\'t exist), or at the top of the list when list is left out. Keep each item short. Give an item remind (a time) to make it a reminder too.',
+      inputSchema: { list: z.string().optional(), items: z.array(NewItem).min(1).max(100), vertical },
     },
     async (a) => {
       const items = a.items.map((i) => (typeof i === "string" ? { text: i } : i));
-      for (const i of items) if (i.due && !isDate(i.due)) return fail(`due must be YYYY-MM-DD, got "${i.due}"`);
+      try {
+        checkTodos(items, timeZone, now());
+      } catch (err) {
+        return fail((err as Error).message);
+      }
       const v = writeVertical(a.vertical);
+      const where = a.list?.trim() || "the list";
       return write(
-        { actionType: "pa.items.add", vertical: v, summary: `Add to ${a.list}: ${items.map((i) => i.text).join(", ")}`.slice(0, 200), payload: { list: a.list, items } },
+        { actionType: "pa.items.add", vertical: v, summary: `Add to ${where}: ${items.map((i) => i.text).join(", ")}`.slice(0, 200), payload: { ...(a.list ? { list: a.list } : {}), items } },
         async () => {
-          const list = await store.ensureList(v, a.list);
-          const added = await store.addItems(list.id, items.map((i) => ({ text: i.text, dueDate: i.due ?? null })), caller.createdBy);
-          return `Added to ${list.name}:\n${added.map((i) => itemLine(i, false)).join("\n")}`;
+          const added = await addTodos(store, { vertical: v, list: a.list, items }, { createdBy: caller.createdBy, taskId: caller.taskId, timeZone, now: now() });
+          return `Added to ${added.section?.path ?? `the top of the ${v} list`}:\n${added.items.map((i) => itemLine(i, false, timeZone)).join("\n")}`;
         },
       );
     },
@@ -415,30 +486,43 @@ export function createPaMcpServer(deps: PaMcpDeps): McpServer {
   server.registerTool(
     "list_items",
     {
-      description: "Items on a list by name, open first. Without a list: the top open items across lists (overdue and due today first, then the today list).",
+      description:
+        "To-dos in a section by name or path (with its sub-sections), open first. list \"/\" gives the to-dos at the top of the list. Without a list: the top open items across lists (overdue and due today first, then the today section).",
       inputSchema: { list: z.string().optional(), includeDone: z.boolean().default(false), limit: z.number().int().min(1).max(200).default(50) },
     },
     async ({ list, includeDone, limit }) => {
       if (!list) {
         const top = await store.topItems({ vertical: caller.vertical, today: localDate(now(), timeZone), limit });
-        return text(top.length ? top.map((i) => itemLine(i, true)).join("\n") : "Nothing open.");
+        return text(top.length ? top.map((i) => itemLine(i, true, timeZone)).join("\n") : "Nothing open.");
       }
-      const lists = (await store.listLists(caller.vertical)).filter((l) => l.name.toLowerCase() === list.trim().toLowerCase());
-      if (!lists.length) return fail(`No list called "${list}". Lists: ${(await store.listLists(caller.vertical)).map((l) => l.name).join(", ") || "none"}`);
-      const items = (await Promise.all(lists.map((l) => store.listItems(l.id, { includeDone, limit })))).flat();
-      return text(items.length ? items.map((i) => itemLine(i, false)).join("\n") : `${lists[0]!.name} is empty.`);
+      if (list.trim() === "/") {
+        const items = await store.listItems(null, { vertical: caller.vertical, includeDone, limit });
+        return text(items.length ? items.map((i) => itemLine(i, !caller.vertical, timeZone)).join("\n") : "Nothing at the top of the list.");
+      }
+      const all = await store.listLists(caller.vertical);
+      const want = list.trim().toLowerCase();
+      const norm = (p: string) => p.split(/\s*[/>]\s*/).join(" / ").toLowerCase();
+      // A full path, else a section of that name anywhere.
+      let lists = all.filter((l) => l.path.toLowerCase() === want || norm(l.path) === norm(want));
+      if (!lists.length) lists = all.filter((l) => l.name.toLowerCase() === want);
+      if (!lists.length) return fail(`No section called "${list}". Sections:\n${outline(all) || "none"}`);
+      const found = (await Promise.all(lists.map((l) => store.listItems(l.id, { includeDone, limit, descendants: true })))).flat();
+      const items = [...new Map(found.map((i) => [i.id, i])).values()];
+      const nested = items.some((i) => i.listId !== lists[0]!.id) || lists.length > 1;
+      return text(items.length ? items.map((i) => itemLine(i, nested, timeZone)).join("\n") : `${lists[0]!.path} is empty.`);
     },
   );
 
   server.registerTool(
     "complete_item",
-    { description: "Tick off a to-do item by id (from list_items).", inputSchema: { id: z.string().min(1) } },
+    { description: "Tick off a to-do item by id (from list_items). If it has a reminder, that ends too (for a recurring one, the series).", inputSchema: { id: z.string().min(1) } },
     async ({ id }) => {
       const item = await store.getItem(id, caller.vertical);
       if (!item) return fail(`No item ${id}. Use list_items for ids.`);
-      return write({ actionType: "pa.item.complete", vertical: item.vertical, summary: `Tick off: ${item.text} (${item.listName})`, payload: { id } }, async () => {
+      const where = item.listName ?? `top of the ${item.vertical} list`;
+      return write({ actionType: "pa.item.complete", vertical: item.vertical, summary: `Tick off: ${item.text} (${where})`, payload: { id } }, async () => {
         await store.setItemDone(id, true, caller.vertical);
-        return `Done: ${item.text} (${item.listName})`;
+        return `Done: ${item.text} (${where})`;
       });
     },
   );

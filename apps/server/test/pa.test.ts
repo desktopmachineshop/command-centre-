@@ -128,7 +128,9 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     expect(today).toMatchObject({ day: "2026-10-26", calendarConfigured: true, accounts: [{ id: "google", calendars: [{ id: "primary" }] }] });
     expect(today.events).toMatchObject([{ title: "School run", start: "2026-10-26T08:15:00.000Z" }]);
     expect(JSON.stringify(today)).not.toContain("csecret");
-    expect(today.lists.map((l: any) => l.name)).toEqual(expect.arrayContaining(["shopping", "today"]));
+    // One list per business; its sections inside.
+    const personal = today.lists.find((b: any) => b.vertical === "personal");
+    expect(personal.sections.map((l: any) => l.name)).toEqual(expect.arrayContaining(["shopping", "today"]));
     expect((await ctx.api("/api/pa/today?day=26-10-2026")).status).toBe(400);
   });
 
@@ -153,7 +155,7 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     expect(await snooze.json()).toMatchObject({ status: "pending" });
     // The snooze moved this one-off, so the old Done link no longer matches its occurrence.
     expect((await ctx.server.app.request(urls.done, { method: "POST" })).status).toBe(409);
-    await ctx.server.store.pool.query("update reminders set due_at = now() - interval '1 minute' where id = $1", [created.id]);
+    await ctx.server.store.pool.query("update todo_items set remind_at = now() - interval '1 minute' where id = $1", [created.id]);
     await ctx.server.deliverReminders();
     const realert = ctx.notifier.sent.filter((n) => n.body.startsWith("Noah's swimming kit")).at(-1) as any;
     const done = await ctx.server.app.request(realert.data.actionUrls.done, { method: "POST" });
@@ -178,7 +180,12 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     expect((await patch({})).status).toBe(400);
     expect((await patch({ due: "next week" })).status).toBe(400);
     expect((await patch({ recurrence: "fortnightly" })).status).toBe(400);
+    // Taking the reminder off leaves the to-do; changing it then needs a time.
     await ctx.api(`/api/pa/reminders/${id}`, { method: "DELETE" });
+    expect((await ctx.api(`/api/pa/reminders/${id}`)).status).toBe(404);
+    expect((await patch({ text: "too late" })).status).toBe(400);
+    expect((await patch({ due: "2030-03-06T08:00" })).body).toMatchObject({ id, dueAt: "2030-03-06T08:00:00.000Z" });
+    await ctx.api(`/api/pa/items/${id}`, { method: "PATCH", json: { done: true } });
     expect((await patch({ text: "too late" })).status).toBe(409);
   });
 
@@ -211,7 +218,7 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
 
   it("Done on a recurring reminder's push acknowledges this occurrence, not the series", async () => {
     const created = (await ctx.api("/api/pa/reminders", { method: "POST", json: { text: "Take tablets", due: "2026-01-01T08:00", recurrence: "daily" } })).body;
-    await ctx.server.store.pool.query("update reminders set due_at = now() - interval '1 minute' where id = $1", [created.id]);
+    await ctx.server.store.pool.query("update todo_items set remind_at = now() - interval '1 minute' where id = $1", [created.id]);
     await ctx.server.deliverReminders();
     const push = ctx.notifier.sent.filter((n) => n.body.startsWith("Take tablets")).at(-1) as any;
     const urls = push.data.actionUrls as { done: string; snooze: string };
@@ -227,7 +234,7 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     expect((await ctx.server.app.request(urls.done.replace(/dueAt=[^&]+/, `dueAt=${encodeURIComponent(later)}`), { method: "POST" })).status).toBe(401);
 
     // The series moves on to a later occurrence: the old notification's links can't act on it.
-    await ctx.server.store.pool.query("update reminders set due_at = due_at + interval '1 day' where id = $1", [created.id]);
+    await ctx.server.store.pool.query("update todo_items set remind_at = remind_at + interval '1 day' where id = $1", [created.id]);
     expect((await ctx.server.app.request(urls.done, { method: "POST" })).status).toBe(409);
     expect((await ctx.server.app.request(urls.snooze, { method: "POST" })).status).toBe(409);
   });
@@ -248,5 +255,18 @@ describe.skipIf(!DB_URL)("personal assistant (server)", () => {
     expect((await ctx.api(`/api/pa/lists/${list.id}/items`)).body.map((i: any) => `${i.text}:${i.done}`)).toEqual(["Swim bag:false", "Wellies:true"]);
     expect((await ctx.api(`/api/pa/lists/${list.id}`, { method: "PATCH", json: { name: "shopping" } })).status).toBe(409);
     expect((await ctx.api(`/api/pa/lists/${list.id}`, { method: "DELETE" })).status).toBe(200);
+
+    // Sections nest; to-dos can also sit at the top of a business's list, and move between sections.
+    const sub = (await ctx.api("/api/pa/lists", { method: "POST", json: { name: "Accounting / VAT", vertical: "dms" } })).body;
+    expect(sub).toMatchObject({ name: "VAT", path: "Accounting / VAT", vertical: "dms" });
+    const payroll = (await ctx.api("/api/pa/lists", { method: "POST", json: { name: "Payroll", vertical: "dms", parentId: sub.parentId } })).body;
+    expect(payroll.path).toBe("Accounting / Payroll");
+    const [top] = (await ctx.api("/api/pa/items", { method: "POST", json: { text: "Loose", vertical: "dms" } })).body;
+    expect(top).toMatchObject({ vertical: "dms", listId: null });
+    expect((await ctx.api(`/api/pa/items/${top.id}`, { method: "PATCH", json: { listId: payroll.id } })).body).toMatchObject({ listName: "Accounting / Payroll" });
+    expect((await ctx.api(`/api/pa/items/${top.id}`, { method: "PATCH", json: { listId: list.id } })).status).toBe(400);
+    const dms = (await ctx.api("/api/pa/today")).body.lists.find((b: any) => b.vertical === "dms");
+    expect(dms.sections.map((s: any) => [s.name, s.sections.map((c: any) => c.name)])).toEqual([["Accounting", ["VAT", "Payroll"]]]);
+    expect(dms.sections[0].sections[1].items.map((i: any) => i.text)).toEqual(["Loose"]);
   });
 });

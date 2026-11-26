@@ -262,14 +262,15 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     expect((await call("cancel_reminder", { id })).text).toMatch(/proposal prop-2/);
     expect(proposals.map((p) => [p.actionType, p.payload])).toEqual([
       ["pa.reminder.update", { id, due: "2026-10-23T18:00" }],
-      ["pa.reminder.cancel", { id }],
+      ["pa.reminder.cancel", { id, keepTodo: false }],
     ]);
     expect((await store.getReminder(id))!.dueAt).toBe("2026-10-23T08:00:00.000Z");
 
     const executors = createPaExecutors(store, { timeZone: TZ, now: () => NOW });
     expect(await executors["pa.reminder.update"]!.execute(proposals[0]!.payload, { vertical: "personal" })).toContain("Fri 23 Oct, 18:00 · Pay supplier");
     await executors["pa.reminder.cancel"]!.execute(proposals[1]!.payload, { vertical: "personal" });
-    expect((await store.getReminder(id))!.status).toBe("cancelled");
+    // A reminder is a to-do: cancelling it takes the to-do too (unless keepTodo).
+    expect(await store.getItem(id)).toBeNull();
   });
 
   it("keeps a number to call on a reminder, and offers it in the push", async () => {
@@ -330,6 +331,63 @@ describe.skipIf(!DB_URL)("pa MCP server", () => {
     await dms("add_items", { list: "today", items: ["ship order"] });
     expect((await dms("list_lists")).text).toBe("- today: 1 open, 0 done");
     const admin = await connect({ vertical: undefined, createdBy: "dave" });
-    expect((await admin("list_lists")).text).toBe("- today [dms]: 1 open, 0 done\n- home [personal]: 1 open, 0 done");
+    expect((await admin("list_lists")).text).toBe("dms:\n  - today: 1 open, 0 done\npersonal:\n  - home: 1 open, 0 done");
+  });
+
+  it("keeps one list per business, with nested sections", async () => {
+    const dms = await connect({ vertical: "dms" });
+    expect((await dms("add_items", { list: "Accounting", items: ["accounting todo 1", "accounting todo 2"] })).text).toMatch(/^Added to Accounting:/);
+    expect((await dms("add_items", { list: "Accounting / VAT", items: ["file Q3 return"] })).text).toMatch(/^Added to Accounting \/ VAT:/);
+    await dms("add_items", { list: "Sales", items: ["Find new product"] });
+    await dms("add_items", { items: ["loose end"] });
+    expect((await dms("list_lists")).text).toBe(
+      "- Accounting: 2 open, 0 done\n  - VAT: 1 open, 0 done\n- Sales: 1 open, 0 done\ndms: 1 open at the top of the list",
+    );
+    // A section with its sub-sections; a sub-section by name or path.
+    const accounting = (await dms("list_items", { list: "accounting" })).text;
+    expect(accounting.split("\n").map((l) => l.replace(/ \(id .*\)$/, ""))).toEqual([
+      "- [ ] accounting todo 1 [dms: Accounting]",
+      "- [ ] accounting todo 2 [dms: Accounting]",
+      "- [ ] file Q3 return [dms: Accounting / VAT]",
+    ]);
+    expect((await dms("list_items", { list: "accounting>vat" })).text).toContain("file Q3 return");
+    expect((await dms("list_items", { list: "VAT" })).text).toContain("file Q3 return");
+    expect((await dms("list_items", { list: "/" })).text).toContain("loose end");
+    // Same name in another business is another section.
+    const personal = await connect();
+    await personal("add_items", { list: "Cleaning", items: ["wash dishes"] });
+    expect((await personal("list_lists")).text).toBe("- Cleaning: 1 open, 0 done");
+  });
+
+  it("treats a reminder as a to-do with a time, and puts a time on any to-do", async () => {
+    const call = await connect({ vertical: "dms" });
+    // A reminder filed in a section shows on the list.
+    const r = await call("add_reminder", { text: "Chase the accountant", due: "2026-10-23T15:00", list: "Accounting" });
+    expect(r.text).toMatch(/Reminder set: Fri 23 Oct, 15:00 · Chase the accountant \[Accounting\]/);
+    expect((await call("list_items", { list: "Accounting" })).text).toMatch(/Chase the accountant \(reminder Fri 23 Oct, 15:00\)/);
+
+    // An existing to-do gets a reminder; it then fires like any other.
+    const added = await call("add_items", { list: "Sales", items: ["Find new product"] });
+    const itemId = /\(id ([0-9a-f-]{36})\)/.exec(added.text)![1]!;
+    expect((await call("add_reminder", { itemId, due: "2026-10-23T09:00" })).text).toMatch(/Fri 23 Oct, 09:00 · Find new product \[Sales\]/);
+    const sent: string[] = [];
+    await deliverDueReminders(store, async (p) => void sent.push(p.body), new Date("2026-10-23T08:01:00Z"));
+    expect(sent).toEqual(["Find new product"]);
+
+    // add_items can set a reminder per item.
+    await call("add_items", { list: "Sales", items: [{ text: "Call Steve", remind: "2026-10-24T10:00", phone: "07700 900123" }] });
+    expect((await store.listReminders({ vertical: "dms" })).map((x) => [x.text, x.listName, x.phone])).toEqual([
+      ["Find new product", "Sales", null],
+      ["Chase the accountant", "Accounting", null],
+      ["Call Steve", "Sales", "07700 900123"],
+    ]);
+    expect((await call("add_items", { items: [{ text: "x", phone: "07700 900123" }] })).isError).toBe(true);
+
+    // Ticking the to-do off completes the reminder; cancelling with keepTodo leaves the to-do.
+    await call("complete_item", { id: itemId });
+    expect((await store.getReminder(itemId))!.status).toBe("done");
+    const steve = (await store.listReminders({ vertical: "dms" })).find((x) => x.text === "Call Steve")!;
+    expect((await call("cancel_reminder", { id: steve.id, keepTodo: true })).text).toMatch(/still on the list/);
+    expect(await store.getItem(steve.id)).toMatchObject({ text: "Call Steve", reminder: null, done: false });
   });
 });

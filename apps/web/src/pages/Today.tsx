@@ -1,8 +1,8 @@
-import { type FormEvent, useEffect, useState } from "react";
-import type { Api, CalendarEvent, Contact, Reminder, TodayView, TodoItem, TodoList } from "../api";
+import { type FormEvent, useContext, useEffect, useState } from "react";
+import type { Api, BusinessList, CalendarEvent, Contact, Reminder, TodayView, TodoItem, TodoSection } from "../api";
 import { type LiveFeed, useLoad } from "../live";
 import { go, useRouteQuery } from "../router";
-import { Dialog } from "../ui";
+import { Dialog, VerticalsContext } from "../ui";
 
 const TZ = "Europe/London";
 const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
@@ -164,6 +164,7 @@ function Reminders({ reminders, upcoming, run, api }: { reminders: Reminder[]; u
                 {r.recurrence ? ` · ${repeatLabel(r.recurrence)}` : ""}
                 {r.status === "sent" ? " · sent" : ""}
                 {r.phone ? ` · ${r.phone}` : ""}
+                {r.listName ? ` · ${r.listName}` : ""}
               </span>
             </span>
             <span className="row">
@@ -257,9 +258,14 @@ function localInput(iso: string): string {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
-/** Edit (or add) a reminder: what, when (London time) and how it repeats. */
-function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: Reminder | null; close: () => void; saved: () => void }) {
-  const [text, setText] = useState(reminder?.text ?? "");
+/**
+ * Edit (or add) a reminder: what, when (London time) and how it repeats. A reminder
+ * is a to-do with a time, so `item` puts a time on a to-do that has none yet.
+ */
+function ReminderDialog({ api, reminder, item, close, saved }: { api: Api; reminder: Reminder | null; item?: TodoItem; close: () => void; saved: () => void }) {
+  const verticals = useContext(VerticalsContext);
+  const [vertical, setVertical] = useState("personal");
+  const [text, setText] = useState(reminder?.text ?? item?.text ?? "");
   const [due, setDue] = useState(() => localInput(reminder?.dueAt ?? new Date(Date.now() + 3_600_000).toISOString()));
   const [repeat, setRepeat] = useState<Repeat>(() => repeatOf(reminder?.recurrence ?? null));
   const [phone, setPhone] = useState(reminder?.phone ?? "");
@@ -297,7 +303,12 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
     e.preventDefault();
     if (repeat.kind === "weekly" && !repeat.days.length) return setError("Pick at least one day.");
     const rec = recurrence();
-    if (!reminder) return void act(() => api.addReminder({ text: text.trim(), due, recurrence: rec === "none" ? null : rec, phone: phone.trim() || null }));
+    if (!reminder && item) {
+      return void act(() =>
+        api.updateReminder(item.id, { ...(text.trim() !== item.text ? { text: text.trim() } : {}), due, ...(rec !== "none" ? { recurrence: rec } : {}), phone: phone.trim() || null }),
+      );
+    }
+    if (!reminder) return void act(() => api.addReminder({ text: text.trim(), due, recurrence: rec === "none" ? null : rec, phone: phone.trim() || null, vertical }));
     // Send only what changed: a text-only edit keeps the schedule (and any snooze) as it is.
     const change: { text?: string; due?: string; recurrence?: string; phone?: string | null } = {};
     if (text.trim() !== reminder.text) change.text = text.trim();
@@ -313,14 +324,24 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
 
   return (
     <Dialog
-      title={reminder ? "Edit reminder" : "New reminder"}
+      title={reminder ? "Edit reminder" : item ? "Remind me" : "New reminder"}
       onClose={close}
       footer={
         <div className="row between">
           {reminder ? (
-            <button type="button" className="ghost danger" disabled={busy} onClick={() => confirm(`Delete "${reminder.text}"${reminder.recurrence ? " and all its repeats" : ""}?`) && void act(() => api.cancelReminder(reminder.id))}>
-              Delete
-            </button>
+            <span className="row">
+              <button type="button" className="ghost" disabled={busy} title="Keep it on the list, without a time" onClick={() => void act(() => api.cancelReminder(reminder.id))}>
+                Remove time
+              </button>
+              <button
+                type="button"
+                className="ghost danger"
+                disabled={busy}
+                onClick={() => confirm(`Delete "${reminder.text}"${reminder.recurrence ? " and all its repeats" : ""}?`) && void act(() => api.deleteItem(reminder.id))}
+              >
+                Delete
+              </button>
+            </span>
           ) : (
             <span />
           )}
@@ -340,6 +361,19 @@ function ReminderDialog({ api, reminder, close, saved }: { api: Api; reminder: R
           <span>Reminder</span>
           <input value={text} onChange={(e) => setText(e.target.value)} maxLength={500} required placeholder="Put the bins out" />
         </label>
+        {!reminder && !item && Object.keys(verticals).length > 1 && (
+          <label className="field">
+            <span>List</span>
+            <select value={vertical} onChange={(e) => setVertical(e.target.value)}>
+              {businessOrder(Object.keys(verticals), verticals).map((v) => (
+                <option key={v} value={v}>
+                  {verticals[v]?.name ?? v}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">It goes at the top of that list, like any to-do.</span>
+          </label>
+        )}
         <label className="field">
           <span>{repeat.kind === "none" ? "When" : "Starts (and time of day)"}</span>
           <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} required />
@@ -491,88 +525,154 @@ function CallPrompt({ run, api }: { run: (fn: () => Promise<unknown>) => void; a
   );
 }
 
-function Lists({ lists, run, api }: { lists: (TodoList & { items: TodoItem[] })[]; run: (fn: () => Promise<unknown>) => void; api: Api }) {
-  const [name, setName] = useState("");
+type Run = (fn: () => Promise<unknown>) => void;
+
+/** Personal first, then the businesses by name. */
+function businessOrder(ids: string[], names: Record<string, { name: string }>): string[] {
+  const label = (v: string) => names[v]?.name ?? v;
+  return [...new Set(ids)].sort((a, b) => (a === "personal" ? -1 : b === "personal" ? 1 : label(a).localeCompare(label(b))));
+}
+
+const countOpen = (b: { items: TodoItem[]; sections: TodoSection[] }): number => b.items.filter((i) => !i.done).length + b.sections.reduce((n, s) => n + countOpen(s), 0);
+const countDone = (b: { items: TodoItem[]; sections: TodoSection[] }): number => b.items.filter((i) => i.done).length + b.sections.reduce((n, s) => n + countDone(s), 0);
+
+/** One list per business, each split into sections that nest; a to-do with a time is also a reminder. */
+function Lists({ lists, run, api }: { lists: BusinessList[]; run: Run; api: Api }) {
+  const verticals = useContext(VerticalsContext);
+  const [remind, setRemind] = useState<TodoItem | null>(null);
+  const byVertical = new Map(lists.map((b) => [b.vertical, b]));
+  const order = businessOrder([...Object.keys(verticals), ...lists.map((b) => b.vertical)], verticals);
   return (
     <section aria-labelledby="lists-h" data-help-pane="today.lists">
       <h3 id="lists-h">Lists</h3>
-      {lists.map((l) => (
-        <ListCard key={l.id} list={l} run={run} api={api} />
+      {order.map((v) => (
+        <BusinessCard key={v} name={verticals[v]?.name ?? v} list={byVertical.get(v) ?? { vertical: v, items: [], sections: [] }} run={run} api={api} remind={setRemind} />
       ))}
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (name.trim()) run(() => api.createList(name.trim()).then(() => setName("")));
-        }}
-      >
-        <input className="grow" value={name} onChange={(e) => setName(e.target.value)} placeholder="New list" aria-label="New list name" />
-        <button type="submit" disabled={!name.trim()}>
-          Add list
-        </button>
-      </form>
+      {remind && (
+        <ReminderDialog api={api} reminder={remind.reminder} item={remind} close={() => setRemind(null)} saved={() => run(async () => setRemind(null))} />
+      )}
     </section>
   );
 }
 
-function ListCard({ list, run, api }: { list: TodoList & { items: TodoItem[] }; run: (fn: () => Promise<unknown>) => void; api: Api }) {
-  const [text, setText] = useState("");
+function BusinessCard({ name, list, run, api, remind }: { name: string; list: BusinessList; run: Run; api: Api; remind: (i: TodoItem) => void }) {
   const [showDone, setShowDone] = useState(false);
-  const open = list.items.filter((i) => !i.done);
-  const done = list.items.filter((i) => i.done);
+  const open = countOpen(list);
+  const done = countDone(list);
+  const empty = !list.items.length && !list.sections.length;
+  return (
+    <details className="card todo-list" open={!empty}>
+      <summary className="row between">
+        <strong>{name}</strong>
+        <span className="muted small">{empty ? "empty" : `${open} open`}</span>
+      </summary>
+      <Items items={list.items} showDone={showDone} run={run} api={api} remind={remind} />
+      {list.sections.map((s) => (
+        <Section key={s.id} section={s} showDone={showDone} run={run} api={api} remind={remind} />
+      ))}
+      <AddRow label={`Add to ${name}`} button="Add" onAdd={(text) => api.addItem({ listId: null, vertical: list.vertical }, text)} run={run} />
+      <AddRow label={`New section in ${name}`} placeholder="New section" button="Add section" onAdd={(text) => api.createList(text, list.vertical)} run={run} />
+      {done > 0 && (
+        <a className="small" onClick={() => setShowDone(!showDone)}>
+          {showDone ? "Hide done" : `Show done (${done})`}
+        </a>
+      )}
+    </details>
+  );
+}
+
+function Section({ section: s, showDone, run, api, remind }: { section: TodoSection; showDone: boolean; run: Run; api: Api; remind: (i: TodoItem) => void }) {
+  const open = countOpen(s);
   const rename = () => {
-    const next = prompt("Rename list", list.name);
-    if (next?.trim() && next.trim() !== list.name) run(() => api.renameList(list.id, next.trim()));
+    const next = prompt("Rename section", s.name);
+    if (next?.trim() && next.trim() !== s.name) run(() => api.renameList(s.id, next.trim()));
+  };
+  const addSub = () => {
+    const name = prompt(`New section inside ${s.name}`);
+    if (name?.trim()) run(() => api.createList(name.trim(), s.vertical, s.id));
   };
   const remove = () => {
-    if (confirm(`Delete the ${list.name} list and its ${list.items.length} items?`)) run(() => api.deleteList(list.id));
+    const all = open + countDone(s);
+    const subs = s.sections.length ? ` its ${s.sections.length} sub-section${s.sections.length > 1 ? "s" : ""},` : "";
+    if (confirm(`Delete ${s.path} with${subs} and its ${all} to-do${all === 1 ? "" : "s"}?`)) run(() => api.deleteList(s.id));
   };
   return (
-    <div className="card todo-list">
-      <div className="row between">
-        <strong>
-          {list.name}
-          {list.vertical !== "personal" && <span className="tag"> {list.vertical}</span>}
-        </strong>
+    <details className="todo-section" open>
+      <summary className="row between">
+        <strong>{s.name}</strong>
         <span className="row small">
-          <a onClick={rename}>Rename</a>
-          <a onClick={remove}>Delete</a>
+          <span className="muted">{open || ""}</span>
+          <a onClick={(e) => (e.preventDefault(), addSub())}>+ Section</a>
+          <a onClick={(e) => (e.preventDefault(), rename())}>Rename</a>
+          <a onClick={(e) => (e.preventDefault(), remove())}>Delete</a>
         </span>
-      </div>
-      <ul className="list">
-        {[...open, ...(showDone ? done : [])].map((i) => (
+      </summary>
+      <Items items={s.items} showDone={showDone} run={run} api={api} remind={remind} />
+      {s.sections.map((c) => (
+        <Section key={c.id} section={c} showDone={showDone} run={run} api={api} remind={remind} />
+      ))}
+      <AddRow label={`Add to ${s.path}`} button="Add" onAdd={(text) => api.addItem({ listId: s.id, vertical: s.vertical }, text)} run={run} />
+    </details>
+  );
+}
+
+function Items({ items, showDone, run, api, remind }: { items: TodoItem[]; showDone: boolean; run: Run; api: Api; remind: (i: TodoItem) => void }) {
+  const shown = items.filter((i) => showDone || !i.done);
+  if (!shown.length) return null;
+  return (
+    <ul className="list">
+      {shown.map((i) => {
+        const r = i.reminder;
+        return (
           <li key={i.id} className="row">
             <label className="row grow">
               <input type="checkbox" checked={i.done} onChange={() => run(() => api.setItemDone(i.id, !i.done))} />
               <span className={i.done ? "muted" : ""}>
                 {i.done ? <s>{i.text}</s> : i.text}
                 {i.dueDate && <span className="muted small"> · due {i.dueDate.split("-").reverse().join("/")}</span>}
+                {r && !i.done && (
+                  <span className="muted small">
+                    {" "}
+                    · ⏰ {when(r.snoozedUntil ?? r.dueAt)}
+                    {r.recurrence ? `, ${repeatLabel(r.recurrence)}` : ""}
+                  </span>
+                )}
               </span>
             </label>
+            {r?.phone && !i.done && (
+              <a className="button-link small" href={telHref(r.phone)} aria-label={`Call ${r.phone}`}>
+                Call
+              </a>
+            )}
+            {!i.done && (
+              <button className="small ghost" aria-label={r ? `Edit reminder for ${i.text}` : `Remind me about ${i.text}`} title={r ? "Edit reminder" : "Set a reminder"} onClick={() => remind(i)}>
+                ⏰
+              </button>
+            )}
             <button className="small" aria-label={`Remove ${i.text}`} onClick={() => run(() => api.deleteItem(i.id))}>
               ×
             </button>
           </li>
-        ))}
-      </ul>
-      {open.length === 0 && <p className="muted small">All done.</p>}
-      {done.length > 0 && (
-        <a className="small" onClick={() => setShowDone(!showDone)}>
-          {showDone ? "Hide done" : `Show done (${done.length})`}
-        </a>
-      )}
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (text.trim()) run(() => api.addItem(list.id, text.trim()).then(() => setText("")));
-        }}
-      >
-        <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder={`Add to ${list.name}`} aria-label={`Add to ${list.name}`} />
-        <button type="submit" disabled={!text.trim()}>
-          Add
-        </button>
-      </form>
-    </div>
+        );
+      })}
+    </ul>
+  );
+}
+
+function AddRow({ label, placeholder, button, onAdd, run }: { label: string; placeholder?: string; button: string; onAdd: (text: string) => Promise<unknown>; run: Run }) {
+  const [text, setText] = useState("");
+  return (
+    <form
+      className="row"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (text.trim()) run(() => onAdd(text.trim()).then(() => setText("")));
+      }}
+    >
+      <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder ?? label} aria-label={label} />
+      <button type="submit" disabled={!text.trim()}>
+        {button}
+      </button>
+    </form>
   );
 }
