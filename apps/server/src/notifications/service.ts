@@ -245,7 +245,10 @@ export class NotificationService implements Notifier {
     const held = await this.store.take(userId, "held", "released");
     if (!held.length) return [];
     const top = held.some((h) => h.priority === "urgent" || h.priority === "high") ? "high" : "normal";
-    await this.deliver(userId, heldSummary(held, await this.store.unreadCount(userId)), top, {});
+    const summary = heldSummary(held, await this.store.unreadCount(userId));
+    // Quiet hours ending mid-lesson (07:00 in the car): the summary arrives without a buzz too.
+    const hush = Boolean(this.options.hushed?.());
+    await this.deliver(userId, hush ? { ...summary, silent: true, renotify: false } : summary, top, {});
     return held;
   }
 

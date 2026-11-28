@@ -274,7 +274,8 @@ export function createServer(config: Config, overrides: Overrides = {}) {
   // --- end brain ---
   // --- Notifications: inbox, preferences, quiet hours, rate limits, devices (src/notifications) ---
   // learning: a lesson playing on one of Dave's devices keeps notifications quiet (./learning.ts).
-  const listening = new ListeningPresence();
+  const clock = overrides.notificationClock;
+  const listening = new ListeningPresence(clock ? () => clock().getTime() : undefined);
   const notifications = new NotificationService(new NotificationStore(pool), overrides.pushTransport ?? new WebPushTransport(config.vapid), {
     timezone: config.timezone,
     hushed: () => listening.active,
@@ -1218,6 +1219,7 @@ export function createServer(config: Config, overrides: Overrides = {}) {
     budget,
     digests,
     notifications,
+    listening,
     rollover,
     publishScheduledPosts,
     auth,

@@ -368,17 +368,30 @@ export interface Progress {
 
 /**
  * Whether Dave is listening to a lesson right now, on any device: the app says so while one plays
- * (and every 30 s), and it lapses 90 s after the last word, so a closed tab or a dead phone doesn't
- * keep notifications quiet.
+ * (and every 30 s). It lapses 3 min after the last word that it is playing, so a closed tab or a
+ * dead phone doesn't keep notifications quiet for long, and a missed heartbeat (Android delays
+ * them with the screen off) doesn't let one buzz.
+ *
+ * A pause doesn't end it at once either: it stays quiet for 2 min more. Lessons pause for a few
+ * seconds mid-chapter (a sat-nav prompt or another app taking the audio, Converse answering, a
+ * tap on pause and play again), and each of those used to let the next push buzz.
  */
 export class ListeningPresence {
   private until = 0;
-  constructor(private readonly now: () => number = Date.now, private readonly graceMs = 90_000) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly graceMs = 180_000,
+    private readonly pauseMs = 120_000,
+  ) {}
   set(playing: boolean): void {
-    this.until = playing ? this.now() + this.graceMs : 0;
+    this.until = playing ? this.now() + this.graceMs : Math.min(this.until, this.now() + this.pauseMs);
   }
   get active(): boolean {
     return this.now() < this.until;
+  }
+  /** Forgets it at once (tests). */
+  clear(): void {
+    this.until = 0;
   }
 }
 
