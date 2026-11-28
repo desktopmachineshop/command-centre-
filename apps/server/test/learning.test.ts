@@ -144,17 +144,23 @@ describe("learning (pure)", () => {
     expect(lessonPercent({ ...l, status: "done" }, null)).toBe(100);
   });
 
-  it("knows a lesson is playing until it stops, or 90 s after the last word", () => {
+  it("knows a lesson is playing until 3 min after the last word, or 2 min after it stops", () => {
     let now = 0;
     const p = new ListeningPresence(() => now);
     expect(p.active).toBe(false);
     p.set(true);
-    now = 60_000;
+    now = 170_000; // a missed heartbeat or two
     expect(p.active).toBe(true);
-    now = 91_000;
+    now = 181_000;
     expect(p.active).toBe(false);
     p.set(true);
-    p.set(false);
+    p.set(false); // paused: still quiet for a moment (a sat-nav prompt, a chapter skip)
+    now = 290_000;
+    expect(p.active).toBe(true);
+    p.set(false); // a second stop doesn't stretch it
+    now = 302_000;
+    expect(p.active).toBe(false);
+    p.set(false); // stopping when nothing played doesn't hush anything
     expect(p.active).toBe(false);
   });
 

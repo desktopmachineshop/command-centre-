@@ -26,6 +26,7 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     await ctx.server.store.pool.query("delete from notifications; delete from notification_prefs; delete from notification_runs");
     transport.sent.length = 0;
     ctx.notifier.sent.length = 0;
+    ctx.server.listening.clear();
     now = new Date(now.getTime() + 3_600_000); // a fresh rate window
   };
 
@@ -55,8 +56,13 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     await notifications().notify({ title: "Server down", body: "b", category: "alert", priority: "urgent" });
     expect(transport.sent[0]!.payload).toMatchObject({ title: "Server down", silent: false });
     transport.sent.length = 0;
+    // Paused for a moment (a sat-nav prompt, Converse answering): still quiet; it lapses 2 min later.
     await ctx.api("/api/learning/listening", { method: "PUT", json: { playing: false } });
-    await notifications().notify({ title: "After", body: "b", category: "agent", tag: "task-2", renotify: true });
+    await notifications().notify({ title: "Mid-pause", body: "b", category: "agent", tag: "task-2", renotify: true });
+    expect(transport.sent[0]!.payload).toMatchObject({ title: "Mid-pause", silent: true, renotify: false });
+    transport.sent.length = 0;
+    now = new Date(now.getTime() + 121_000);
+    await notifications().notify({ title: "After", body: "b", category: "agent", tag: "task-3", renotify: true });
     expect(transport.sent[0]!.payload).toMatchObject({ title: "After", silent: false, renotify: true });
   });
 
@@ -167,6 +173,15 @@ describe.skipIf(!DB_URL)("notifications (integration)", () => {
     expect(transport.sent).toHaveLength(2);
     const statuses = (await ctx.api("/api/notifications")).body.items.map((n: any) => n.status).sort();
     expect(statuses).toEqual(["released", "released", "sent"]);
+  });
+
+  it("releases the quiet-hours summary without a buzz when a lesson is playing", async () => {
+    now = NIGHT;
+    await notifications().notify({ title: "Agent note", body: "x" });
+    now = new Date("2026-07-02T06:00:00Z");
+    await ctx.api("/api/learning/listening", { method: "PUT", json: { playing: true } });
+    await notifications().tick();
+    expect(transport.sent[0]!.payload).toMatchObject({ tag: "quiet-summary", silent: true, renotify: false });
   });
 
   it("rate-limits per category and collapses extras into one 'and N more' push", async () => {
